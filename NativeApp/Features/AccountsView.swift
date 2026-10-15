@@ -154,6 +154,9 @@ struct AccountDetailView: View {
     init(initial: UpstreamAccount) { _account = State(initialValue: initial) }
 
     var body: some View {
+        // Match the task's captured ID even if onAppear changes visibility
+        // before SwiftUI starts an earlier inactive task.
+        let shouldPoll = polling
         List {
             Section("账号") {
                 LabeledValue(label: "名称", value: account.name)
@@ -225,8 +228,8 @@ struct AccountDetailView: View {
         .onAppear { visible = true }
         .onDisappear { visible = false; cancelReads() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { cancelReads() } }
-        .task(id: polling) {
-            guard polling else { return }
+        .task(id: shouldPoll) {
+            guard shouldPoll else { return }
             async let today: Void = reloadStats()
             async let current: Void = pollAccount()
             _ = await (today, current)
