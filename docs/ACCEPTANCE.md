@@ -1,24 +1,38 @@
 # 构建与真机验收
 
+2026 年 10 月 15 日，Mac 执行 `python3 scripts/build.py all` 全流程退出 0，已生成未签名 iPhone IPA。构建源码为 `6f16be05e2587ab0d996fd296e4e345e74217f26`，运行记录位于 `build/runs/20261015T042639Z-923e504a/`。
+
 构建验收和签名后真机验收独立记录。下表未完成项不得以源码存在或静态检查替代。
 
 | 检查 | 当前状态 |
 | --- | --- |
-| 正式工具链守卫 | 已运行；拒绝云端 Xcode27 seed `27A266a`，退出 3 |
-| 工具链守卫单测 | 本机 Python 4 项通过 |
-| Swift 6.4 核心合同测试 | 21 项通过，正式 Swift 6.4.1 Linux；含令牌刷新/取消、身份边界、余额精度/幂等与验证码消息解析 |
+| 正式工具链身份 | Mac 和云端报告 Xcode 27.0 / `27A266a` / Swift 6.4；该构建为 Apple 公布的正式版 |
+| 工具链守卫 | Mac 正式工具链检查通过；Python 守卫单测 6 项通过 |
+| Swift 6.4 核心合同测试 | Mac Apple Swift 6.4 下 21 项通过；含令牌刷新/取消、身份边界、余额精度/幂等与验证码消息解析；此前正式 Swift 6.4.1 Linux 检查也通过 |
 | 凭据撤销与并发提交 | 4 项通过；同一 CredentialVault 源码的 memoryOnly 路径，验证旧刷新/旧退出/旧候选不能覆盖或删除新凭据，站点相互隔离 |
-| 原生 Swift 语法解析 | 12 个 app/UI test 文件通过；不含 Apple SDK 类型检查 |
+| 原生 Swift / Apple SDK 编译 | Debug 模拟器与 Release iPhone 设备构建通过 |
 | 验证码桥接 | 37 项新增 + 10 项路由回归通过；typecheck、改动 ESLint、生产构建通过 |
-| Xcode 工程结构 | PBX、共享 scheme、Info.plist、工作流可解析；不代表 SwiftUI 编译通过 |
-| iOS 模拟器 UI 测试 | 被正式工具链守卫阻断，未运行 |
-| iphoneos arm64 Release / 未签名 IPA | 被正式工具链守卫阻断，未产出 |
+| Xcode 工程与共享 scheme | 实际 xcodebuild 测试、设备构建通过；保留 xcresult |
+| iOS 模拟器 UI 测试 | iPhone 18 Pro / iOS 27 下全部 6 项通过；使用隔离数据，不连接真实站点 |
+| iphoneos arm64 Release / 未签名 IPA | 已产出；设备平台、arm64、ZIP、Bundle ID 和最低 iOS 17 校验通过 |
+| 未签名状态 | 无嵌入 provisioning / `_CodeSignature`；codesign 检查退出 1，输出 `code object is not signed at all` |
+| 构建源码身份 | manifest 记录干净源码、commit 及 11 项构建输入 Git 对象；构建前后身份一致 |
+| GitHub Actions 独立云端构建 | 运行 38681297253 结果待确认，不以 Mac 成功替代云端结果 |
 | 签名后 iPhone | 未运行；证书保留在用户本地 |
+| 真实验证码服务 | 未运行；现有验证码测试为受控 proof/组件与路由测试 |
 | 测试站点管理写入 | 未运行；当前测试使用受控传输，不操作生产数据 |
 
-已核验运行：[38677142697](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38677142697)，代码提交 `66420f746c33ca91700be9119c77c58a560d779d`。核心 job 成功，原生语法解析成功；iOS job 在工具链核验阶段退出 3，因此整个 workflow 为失败。这与测试失败、模拟器失败或已生成 IPA 是不同状态。真实 Security.framework 路径和 SwiftUI 类型检查仍需 Apple SDK 验证。
+交付 IPA：`build/artifacts/Sub2Mobile-unsigned.ipa`，2,772,306 字节，Bundle ID 为 `com.chengzixqq.sub2mobile`。SHA-256：
 
-在 Mac 安装正式工具链后，运行 `python3 scripts/build.py all`，保存 `build/` 中的日志、工具链和 xcresult。任何测试或平台校验失败都阻断 IPA 交付。
+```text
+83d7d9d3bf90c506e838735ec1d6d0e29921de10190a47fc3cf0768ce0c58a1d
+```
+
+同目录保留 `SHA256SUMS`、`manifest.json`、`toolchain.json`。构建输入对象随 manifest 保存；交付文档或辅助脚本之后的提交若与构建 commit 不同，交付检查仍逐项核对这些输入，并明确记录两个 revision。
+
+独立云端运行：[38681297253](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38681297253)，结果待确认。历史运行 [38677142697](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38677142697) 曾因旧守卫将 `27A266a` 误判为预发布而失败；[Apple 正式发布记录](https://developer.apple.com/news/releases/?id=09142026h)已确认正式版身份，守卫已修正。
+
+可在相同正式工具链上运行 `python3 scripts/build.py all` 复验，保存 `build/` 中的日志、工具链和 xcresult。任何测试或平台校验失败都阻断 IPA 交付。当前 IPA 需本地签名后安装，以下真机和真实服务清单仍待完成。
 
 签名后，使用专用测试站点和测试账号依次记录：
 
