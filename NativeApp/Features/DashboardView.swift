@@ -130,7 +130,8 @@ struct DashboardView: View {
         .task(id: polling) {
             guard polling else { return }
             while !Task.isCancelled {
-                await loadStats()
+                // A scheduled tick must not restart a slow pull-to-refresh.
+                if !stats.isLoading { await loadStats() }
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
         }
