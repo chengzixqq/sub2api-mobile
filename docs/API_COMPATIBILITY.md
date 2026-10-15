@@ -11,10 +11,10 @@
 | 概览 / 小时趋势 | GET `/admin/dashboard/stats`、`/admin/dashboard/trend` |
 | 费用兼容快照 | GET `/admin/dashboard/snapshot-v2`，只开启 `include_stats`，禁用所有趋势和模型/分组统计 |
 | Admin Key 权限探针 | GET `/admin/dashboard/realtime`（仅验证权限，不使用占位指标） |
-| 运行监控 | GET `/admin/ops/dashboard/overview` |
+| 运行监控 | GET `/admin/ops/dashboard/overview`；性能另用 GET `/admin/ops/dashboard/throughput-trend`（默认近 1 小时按需加载） |
 | 账号列表 / 详情 / 今日统计 | GET `/admin/accounts`、`/admin/accounts/:id`、`/admin/accounts/:id/today-stats` |
 | 调度 / 刷新 / 测试 | POST `/admin/accounts/:id/schedulable`、`/refresh`、`/test` |
-| 用户列表 / 详情 / 更新 | GET `/admin/users`、`/admin/users/:id`；PUT `/admin/users/:id` |
+| 用户列表 / 详情 / 更新 | GET `/admin/users`、`/admin/users/:id`；POST `/admin/users` 创建；PUT `/admin/users/:id` 只提交变化字段；含并发变更时固定 `Idempotency-Key` |
 | 用户用量 | GET `/admin/usage/stats?user_id=:id&start_date=...&end_date=...&timezone=...` |
 | 用户密钥 | GET `/admin/users/:id/api-keys` |
 | 用户余额 | POST `/admin/users/:id/balance`，`Idempotency-Key` 为持久化 UUID |
@@ -27,7 +27,7 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 概览实际费用表示用户扣费，上游成本表示账号成本；今日和累计分别使用各自字段。基础统计返回 `total_requests`、`total_actual_cost`，当前后端 `/stats` handler 遗漏今日和累计账号成本，客户端独立补取只含 stats 的 snapshot-v2。今日或累计任一费用字段缺失时，仅在该周期快照提供同次响应的完整实际/成本对时整体替换；快照失败或不完整时保留基础统计已知值，缺失项显示不可用，不跨响应拼接成完整对，也不用标准计费或零值代替。费用快照附独立更新时间；视图重绘时判定超过 90 秒为过期，该判断并非严格计时失效。卡片金额使用 `compactCost(Decimal?)`：Decimal 全程舍入，固定两位，>=1000 最高使用 K，例如 `$45.08K`、`$3872.50K`；Tokens 继续使用 K/M/B，原始数值不变。 snapshot-v2 使用 45 秒客户端预算，服务器共享计算预算仍为 30 秒；费用请求不会阻塞基础统计。服务端今日边界由服务器决定，snapshot 请求日期/手机时区不能改变该统计日。
 
-累计 Tokens 使用 `total_tokens`，包含缓存 Tokens；今日请求底部显示 `total_requests: Int?`，保留全站累计整数，缺失或 null 显示不可用。四张概要卡片为今日请求、今日 Tokens、总 Tokens 和性能指标，标准字号实测均为 112pt，辅助功能 XXXL 字号均约 279.333pt，并使用单列布局；标题与数值左上对齐。今日请求底部显示 `total_requests` 全站累计请求，缺失显示不可用。今日/总 Tokens 底部分别显示今日/累计实际费用和上游成本，用绿色/金色区分，并提供“今日/累计实际费用”“今日/累计上游成本”辅助功能文字。费用行空间不足时改为两行；独立费用卡已移除，用量趋势排在运行健康之前。 异常账号与 `average_duration_ms` 累计平均响应时间保留在趋势之后的运行健康。平均响应时间达到 1000ms 时转秒，不套用最近五分钟口径。新可选字段缺失保持不可用，畸形金额仍按协议错误处理。
+历史四卡展示与字段兼容说明（此前测量）：累计 Tokens 使用 `total_tokens`，包含缓存 Tokens；今日请求底部显示 `total_requests: Int?`，保留全站累计整数，缺失或 null 显示不可用。四张概要卡片为今日请求、今日 Tokens、总 Tokens 和性能指标，标准字号实测均为 112pt，辅助功能 XXXL 字号均约 279.333pt，并使用单列布局；标题与数值左上对齐。今日请求底部显示 `total_requests` 全站累计请求，缺失显示不可用。今日/总 Tokens 底部分别显示今日/累计实际费用和上游成本，用绿色/金色区分，并提供“今日/累计实际费用”“今日/累计上游成本”辅助功能文字。费用行空间不足时改为两行；独立费用卡已移除，用量趋势排在运行健康之前。 异常账号与 `average_duration_ms` 累计平均响应时间保留在趋势之后的运行健康。平均响应时间达到 1000ms 时转秒，不套用最近五分钟口径。新可选字段缺失保持不可用，畸形金额仍按协议错误处理。
 
 趋势接口继续使用 GET `/admin/dashboard/trend`，查询范围不变；自动加载和前台轮询会发起请求。后端 `cost` 为标准计费，`actual_cost` 为用户实际消费；原生 `TrendPoint.actualCost` 为可选 Decimal，兼容原初始化接口。`actual_cost` 缺失或 null 时，实际消费显示不可用并跳过对应柱子，不使用 `cost`、零值或推算金额替代；请求数和 Tokens 指标仍可查看。响应中的重复日期桶保留最后一条，不累加重复的消费；非法日期单独提示并跳过。
 
@@ -37,7 +37,7 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 图表交互使用 iOS 17 的原生 Swift Charts API：`chartScrollableAxes`、`chartXVisibleDomain`、`chartScrollPosition`、`chartXSelection` 和 `chartGesture`；双指手势与按钮共用可见时间窗口。加减按钮通过 `withAnimation` 执行 0.3 秒 ease-in-out 动画，显式 `AnimatableModifier` 插值缩放倍数，再按该倍数计算 `chartXVisibleDomain`；左侧时间边界固定，到达最大放大档时也不主动取整横向位置。系统开启“减弱动态效果”时停用该动画。双指缩放连续更新窗口，不等待按钮动画或轮询。动画实现本次未改；历史 `77a2462` / `20261015T073815Z-46faa0c1` 模拟器录屏观察到第二柱宽 17 → 21 → 29 → 34 → 37 像素、柱顶高度不变，范围左端保持 `10/14 00:00`；这是时间边界固定，首个可见柱栅格边缘仍有 2 像素差异。
 
-共享显示格式使用 `NSDecimalRound` 与十进制字符串舍入/补零，避免 Linux Foundation 的 `NumberFormatter` 固定小数行为差异。卡片 `compactCost` 金额最高 K，趋势金额仍完整两位；原值和接口精度不变。客户端源码 `e0bf7e54112d7ee695de7b9e85eeb527d03c29f8` 的 Mac 完整运行 `20261015T081613Z-5f322d22` 通过 57 项核心、4 项凭据、15 项 UI 测试和设备构建，同一源码两个 Linux Core job 也各通过 57 + 4。该结果验证受控契约与显示回归，不扩大后端版本兼容承诺。
+共享显示格式仍使用 `NSDecimalRound` 与十进制字符串舍入/补零。卡片金额最高 K，趋势完整两位；原值和接口精度不变。当前版本构建自干净源码 `d2c6cd3974abc00cceabfda64667127e6308642d`，运行 `20261015T094925Z-a169a236`，Mac 全流程退出 0；74 项核心、4 项凭据、22 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,233,875 字节，SHA-256 `94949ab3f57efe98e60eab68ad6125e3ea34f998238acf8877467e4992cf43e8`。 本轮只验证当前自用后端契约，不扩大官方版本兼容承诺。
 
 监控接口不可用时显示局部错误，不伪造零值；不会让监控失败抹去成功的概览。站点未提供必需字段时返回协议错误，避免默默填充不真实的统计值。服务端趋势查询本身还有 30 秒预算；客户端隔离慢查询不能替代服务器侧数据库优化。自动刷新、格式化与布局的受控测试不替代真实站点响应耗时或签名后 iPhone 验收。
 
@@ -46,3 +46,17 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 会话失效、权限不足、验证码、TOTP/step-up、会话绑定不匹配和 `ADMIN_COMPLIANCE_ACK_REQUIRED` 分别显示中文原因。合规确认在 Web 完成；Admin Key 不能完成需要邮箱会话的 step-up。刷新采用 actor 内共享任务；只对明确令牌过期的安全 GET 自动重试，管理写入需用户重新确认。
 
 第二阶段再选定明确的官方版本执行兼容测试。新增其他后端支持应在 Sub2Core 适配层处理，不在各页面分散猜测字段。
+
+## 趋势、列表与用户管理
+
+用量趋势逐小时明细按时间倒序，最新桶置顶；图表本身仍按时间正序绘制。第四个“性能指标”趋势按需读取独立吞吐接口，默认近 1 小时，可选 6/24 小时，切换 RPM/TPM、点选和查看最新在上的性能明细；只在该页前台每次请求完成后间隔 30 秒刷新，离开、后台或切站取消。监控禁用、接口不支持、权限和超时在性能区局部显示，不用费用趋势合成性能数据。
+
+性能读取 `GET /admin/ops/dashboard/throughput-trend`，使用带时区的 `start_time` / `end_time` 和 `mode=auto`。服务端按范围返回 `1m` / `5m` / `1h` 桶；RPM = `request_count × 60 / bucketSeconds`，TPM = `token_consumed × 60 / bucketSeconds`，不把已舍入的 `qps` / `tps` 乘 60。请求包含成功与错误请求（不含 count_tokens 错误），Tokens 来自成功请求并包含缓存；边界桶仍按完整桶宽计算。当前后端此接口仍扫描原始 usage/error 日志，`mode=auto` 不保证预聚合，较长范围可能较慢。
+
+账号和用户列表支持本机显示字段开关、拖动或上下箭头排序，长字段自动换行。邮箱/账号名保留为目标身份。偏好按登录 profile UUID 隔离；同站点的不同登录身份也有独立配置。列表只使用批量响应已有字段，不为每行增加请求。账号可选平台、认证类型、分组、并发、优先级、倍率、状态、调度、过期/最后使用/创建、备注、基础 RPM 与配额已用；用户可选用户名、角色、状态、余额、当前/最大并发、创建/最后使用/最后活跃、备注与 RPM。不存在的字段显示不可用或无记录，不编造最后登录时间。
+
+用户支持创建及编辑邮箱、用户名、密码、角色、备注、并发和 RPM；创建可选初始 Decimal 余额，留空使用站点默认余额，既有余额调整保留独立页面。编辑只送实际变化字段，空密码不发送，空用户名/备注可明确清除。密码保留原始输入（不 trim），至少 6 个字符、最多 72 个 UTF-8 字节；仅存在表单和请求内存，不写入偏好、日志或未决文件，关闭即清除。
+
+确认框绑定创建/编辑时的站点、地址、用户和会话身份，迟到结果不能更新新身份。并发变更使用固定 UUID 的 `Idempotency-Key` 和冻结原始正文；结果不明锁定表单，只允许手动确认重试同一请求，不自动重放。创建及不含并发的编辑当前后端不提供幂等重试，结果不明时须先核对列表/Web。二次验证完成仍需重新确认；Admin Key 禁止敏感操作或 TOTP 未启用时明确提示。关闭未决表单会警告原始请求只在内存中，关闭后不能自动恢复。
+
+用户响应兼容字段：`notes`、`rpm_limit`、`current_concurrency`、`created_at`、`updated_at`、`last_used_at`、`last_active_at` 均可缺失/null；`last_login_at` 当前 DTO 不下发，不从活跃时间推断登录。创建和更新的角色只允许 `admin` / `user` / `vendor`；并发/RPM 接受非负整数，0 为不限制。创建不支持幂等，PUT 仅在提供 `concurrency` 时启用后端可选幂等；余额使用原有独立金额幂等协议。
