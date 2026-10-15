@@ -12,7 +12,7 @@
 | 费用兼容快照 | GET `/admin/dashboard/snapshot-v2`，只开启 `include_stats`，禁用所有趋势和模型/分组统计 |
 | Admin Key 权限探针 | GET `/admin/dashboard/realtime`（仅验证权限，不使用占位指标） |
 | 运行监控 | GET `/admin/ops/dashboard/overview`；性能另用 GET `/admin/ops/dashboard/throughput-trend`（默认近 1 小时按需加载） |
-| 账号列表 / 详情 / 今日统计 | GET `/admin/accounts`、`/admin/accounts/:id`、`/admin/accounts/:id/today-stats` |
+| 账号列表 / 详情 / 今日统计 | GET `/admin/accounts`、`/admin/accounts/:id`、`/admin/accounts/:id/today-stats`；POST `/admin/accounts/today-stats/batch` |
 | 调度 / 刷新 / 测试 | POST `/admin/accounts/:id/schedulable`、`/refresh`、`/test` |
 | 用户列表 / 详情 / 更新 | GET `/admin/users`、`/admin/users/:id`；POST `/admin/users` 创建；PUT `/admin/users/:id` 只提交变化字段；含并发变更时固定 `Idempotency-Key` |
 | 用户用量 | GET `/admin/usage/stats?user_id=:id&start_date=...&end_date=...&timezone=...` |
@@ -37,7 +37,7 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 图表交互使用 iOS 17 的原生 Swift Charts API：`chartScrollableAxes`、`chartXVisibleDomain`、`chartScrollPosition`、`chartXSelection` 和 `chartGesture`；双指手势与按钮共用可见时间窗口。加减按钮通过 `withAnimation` 执行 0.3 秒 ease-in-out 动画，显式 `AnimatableModifier` 插值缩放倍数，再按该倍数计算 `chartXVisibleDomain`；左侧时间边界固定，到达最大放大档时也不主动取整横向位置。系统开启“减弱动态效果”时停用该动画。双指缩放连续更新窗口，不等待按钮动画或轮询。动画实现本次未改；历史 `77a2462` / `20261015T073815Z-46faa0c1` 模拟器录屏观察到第二柱宽 17 → 21 → 29 → 34 → 37 像素、柱顶高度不变，范围左端保持 `10/14 00:00`；这是时间边界固定，首个可见柱栅格边缘仍有 2 像素差异。
 
-共享显示格式仍使用 `NSDecimalRound` 与十进制字符串舍入/补零。卡片金额最高 K，趋势完整两位；原值和接口精度不变。当前版本构建自干净源码 `d2c6cd3974abc00cceabfda64667127e6308642d`，运行 `20261015T094925Z-a169a236`，Mac 全流程退出 0；74 项核心、4 项凭据、22 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,233,875 字节，SHA-256 `94949ab3f57efe98e60eab68ad6125e3ea34f998238acf8877467e4992cf43e8`。 本轮只验证当前自用后端契约，不扩大官方版本兼容承诺。
+共享显示格式仍使用 `NSDecimalRound` 与十进制字符串，金额固定两位；卡片最高 K，趋势和用户列表余额保留两位。本轮构建自干净源码 `d07091d5da137c3c58dc1a881c354b08c6f4d3ec`，运行 `20261015T115051Z-b20011a3`，Mac 全流程退出 0；81 项核心、4 项凭据、27 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,324,867 字节，SHA-256 `978cbccbcc6b83028538a43e9e41c91d48e0ee44af5affed6b6bfe75c9ae3a43`。 本轮只验证当前自用后端契约，不扩大官方兼容承诺。
 
 监控接口不可用时显示局部错误，不伪造零值；不会让监控失败抹去成功的概览。站点未提供必需字段时返回协议错误，避免默默填充不真实的统计值。服务端趋势查询本身还有 30 秒预算；客户端隔离慢查询不能替代服务器侧数据库优化。自动刷新、格式化与布局的受控测试不替代真实站点响应耗时或签名后 iPhone 验收。
 
@@ -53,10 +53,36 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 性能读取 `GET /admin/ops/dashboard/throughput-trend`，使用带时区的 `start_time` / `end_time` 和 `mode=auto`。服务端按范围返回 `1m` / `5m` / `1h` 桶；RPM = `request_count × 60 / bucketSeconds`，TPM = `token_consumed × 60 / bucketSeconds`，不把已舍入的 `qps` / `tps` 乘 60。请求包含成功与错误请求（不含 count_tokens 错误），Tokens 来自成功请求并包含缓存；边界桶仍按完整桶宽计算。当前后端此接口仍扫描原始 usage/error 日志，`mode=auto` 不保证预聚合，较长范围可能较慢。
 
-账号和用户列表支持本机显示字段开关、拖动或上下箭头排序，长字段自动换行。邮箱/账号名保留为目标身份。偏好按登录 profile UUID 隔离；同站点的不同登录身份也有独立配置。列表只使用批量响应已有字段，不为每行增加请求。账号可选平台、认证类型、分组、并发、优先级、倍率、状态、调度、过期/最后使用/创建、备注、基础 RPM 与配额已用；用户可选用户名、角色、状态、余额、当前/最大并发、创建/最后使用/最后活跃、备注与 RPM。不存在的字段显示不可用或无记录，不编造最后登录时间。
+账号和用户列表保留按登录身份保存的字段配置；本轮账号字段与运行数据的边界见下节。用户列表首层余额固定两位，原始 Decimal 不变。
 
 用户支持创建及编辑邮箱、用户名、密码、角色、备注、并发和 RPM；创建可选初始 Decimal 余额，留空使用站点默认余额，既有余额调整保留独立页面。编辑只送实际变化字段，空密码不发送，空用户名/备注可明确清除。密码保留原始输入（不 trim），至少 6 个字符、最多 72 个 UTF-8 字节；仅存在表单和请求内存，不写入偏好、日志或未决文件，关闭即清除。
 
 确认框绑定创建/编辑时的站点、地址、用户和会话身份，迟到结果不能更新新身份。并发变更使用固定 UUID 的 `Idempotency-Key` 和冻结原始正文；结果不明锁定表单，只允许手动确认重试同一请求，不自动重放。创建及不含并发的编辑当前后端不提供幂等重试，结果不明时须先核对列表/Web。二次验证完成仍需重新确认；Admin Key 禁止敏感操作或 TOTP 未启用时明确提示。关闭未决表单会警告原始请求只在内存中，关闭后不能自动恢复。
 
 用户响应兼容字段：`notes`、`rpm_limit`、`current_concurrency`、`created_at`、`updated_at`、`last_used_at`、`last_active_at` 均可缺失/null；`last_login_at` 当前 DTO 不下发，不从活跃时间推断登录。创建和更新的角色只允许 `admin` / `user` / `vendor`；并发/RPM 接受非负整数，0 为不限制。创建不支持幂等，PUT 仅在提供 `concurrency` 时启用后端可选幂等；余额使用原有独立金额幂等协议。
+
+## 账号容量、在用指标与金额
+
+用户列表首层余额使用 Decimal 固定两位小数，例如 `$12.50`；不改变原金额或余额写入精度。账号列表与详情分别显示“在用并发”和“在用 RPM”，前者读取 `current_concurrency`，后者读取 `current_rpm`；配置容量 `concurrency` 和基础 RPM 限额 `base_rpm` 单独展示。缺失在用 RPM 显示不可用，不填零，也不以基础限额代替。
+
+“容量”汇总当前并发/配置容量、独立探测并发，以及已启用的窗口标准费用/限额、活跃会话/上限、RPM 当前值/基础限额和日/周/总配额。未下发的当前值保留不可用。详情账号快照与今日统计独立请求，两路读取由同一页面生命周期任务并行管理，今日慢查或失败不阻塞容量；父任务取消会传播到两路读取。任务使用本次渲染捕获的可见状态，防止初始停用任务迟启动后误发请求并在取消时留下“暂未加载”。详情只在前台每 30 秒刷新账号快照，离开、后台或切站取消，迟到结果不能覆盖新会话。列表在加载分页及下拉刷新时获取快照，不做全列表定时刷新。
+
+账号今日统计将 `user_cost` 显示为“扣费”（向用户/API Key 实际收取），将原 `cost` 明确显示为“成本”（上游账号成本）；`standard_cost` 单独保留，不拿它补齐扣费。金额以 Decimal 解码并固定两位显示。列表仅在显示“今日统计”字段时使用一个当前已加载账号 ID 集合的批量请求，不逐行发起统计；详情使用单账号统计接口。批量失败只在统计区域提示，不清空成功账号快照。
+
+账号共有 23 个可选字段：平台、认证类型、分组、在用并发、优先级、账号倍率、状态、调度、过期时间、最后使用、创建时间、备注、在用 RPM、配额已用、账号 ID、容量、今日统计、用量窗口、代理、负载系数、调度权值、上游声明倍率、基础 RPM 限额。开关、拖动/上下箭头排序和换行继续按登录 profile UUID 保存；名称始终保留。负载系数不是调度权值；只有调度权值列启用时，列表请求才设置 `include_scheduler_score=1`，避免默认计算候选池。详情不冒用列表调度分。
+
+当前“用量窗口”字段显示服务端会话窗口起止时间；完整上游 5h/7d 百分比仍应通过 Web 查看，App 不自动发起 `/usage/batch` 或上游探测。代理仅解码名称、编号等显示数据。上游声明倍率读取已有探测快照，标记“上次探测”和时间；每次渲染检查有效截止，过期、缺失或不受支持时显示不可用，不保证到秒自动隐藏。不触发探测，不宣称它是已核验的当前实际扣费。
+
+## 账号容量与今日统计契约
+
+`GET /admin/accounts` 的 full/lite 列表和 `GET /admin/accounts/:id` 详情自带 `current_concurrency: Int`；full/详情另有 `probe_concurrency: Int`，lite 当前不返回探测数。普通在用并发从 Redis 槽位/租约扣除独立探测计数，并非配置 `concurrency`。后端读取并发失败会静默返回 0，客户端无法把该响应与真实空闲区分；可选字段缺失仍保持不可用。
+
+`current_rpm: Int?` 目前仅为 Anthropic OAuth/setup-token 且基础限额大于 0 的账号返回。它是 Redis 服务端当前自然分钟内成功转发的计数，不是滚动 60 秒平均速率，也不是 `base_rpm` 配置。Redis 批量读取整体失败可能省略 RPM，个别键读取异常也可能成为 0；App 只忠实显示服务器快照，未提供时不伪造。
+
+容量还读取可选 `current_window_cost` / `window_cost_limit`（标准费用口径）、`active_sessions` / `max_sessions`、`current_rpm` / `base_rpm`，以及 API Key/Bedrock 的 `quota_daily_used/limit`、`quota_weekly_used/limit`、`quota_used/limit`。窗口、会话、RPM 和日/周/总配额只在对应限额大于 0 时显示；基础并发始终展示，配置 0 保留为 0，不自行解释为无限。后端已处理过期日/周配额，手机不自行重置。`session_window_start/end` 是调度会话窗口，不是完整上游用量百分比。
+
+`POST /admin/accounts/today-stats/batch` 正文 `{"account_ids":[1,2]}`，返回 `data.stats`，键为账号 ID 字符串。客户端去除非正 ID、去重、排序，空集合不发送，只接受本次请求的键；服务端先按工作区过滤，缓存 30 秒。`GET /admin/accounts/:id/today-stats` 返回同一统计对象。`user_cost = SUM(actual_cost)`；`cost = SUM(COALESCE(account_stats_cost,total_cost) × COALESCE(account_rate_multiplier,1))`，后者仅计入 `provider_cost_recorded`；`standard_cost` 是同条件下的标准费。今日起点由服务器时区决定。服务端批量 SQL 失败后回退单账号查询，失败项最终可能被补为零值，App 无法从成功响应识别这种后端降级；缺失键及 HTTP 失败不由 App 补零。
+
+`load_factor` 是负载系数，与 OpenAI `scheduler_score` / `scheduler_scores` 不同。启用对应列才发送 `include_scheduler_score=1`；分组权值为基础分和粘性分，`sticky_score` 已含基础分，不能重复相加，`sticky_score_infinity` 优先显示 ∞。full/lite 都会采样实时数据；开启窗口限额的 Anthropic 账号还会执行窗口 SQL，ETag 在计算后生成，因此不能把列表或 304 宣称为纯轻量实时接口。
+
+`extra.upstream_billing_probe` 是上游自行声明的已有快照；App 仅保留状态、历史倍率、观测时间和有效截止，每次渲染检查后只显示仍有效的历史观测，非严格计时失效；不保留凭据/代理地址/完整后端错误。没有自动调用 POST 探测或用量批量接口。普通字段与列表读取不新增逐行网络请求。
