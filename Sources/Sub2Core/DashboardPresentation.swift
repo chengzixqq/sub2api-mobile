@@ -35,13 +35,8 @@ public enum DashboardPresentation {
     /// A full currency amount rounded for display only. Keep rounding in Decimal
     /// so values beyond Double's integer precision retain their correct cents.
     public static func money(_ value: Decimal?) -> String {
-        guard var value, !value.isNaN else { return "不可用" }
-        var rounded = Decimal()
-        NSDecimalRound(&rounded, &value, 2, .plain)
-        let text = NSDecimalNumber(decimal: rounded == 0 ? 0 : rounded).stringValue
-        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
-        let cents = parts.count == 2 ? String((String(parts[1]) + "00").prefix(2)) : "00"
-        return "$" + String(parts[0]) + "." + cents
+        guard let value, !value.isNaN else { return "不可用" }
+        return "$" + fixed(value, digits: 2)
     }
 
     public static func duration(_ milliseconds: Double?) -> String {
@@ -76,18 +71,22 @@ public enum DashboardPresentation {
     }
 
     private static func fixed(_ value: Decimal, digits: Int) -> String {
-        fixed(NSDecimalNumber(decimal: value), digits: digits)
+        var value = value
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &value, digits, .plain)
+        let text = NSDecimalNumber(decimal: rounded == 0 ? 0 : rounded).stringValue
+        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
+        guard digits > 0 else { return String(parts[0]) }
+        let fraction = parts.count == 2 ? String(parts[1]) : ""
+        return String(parts[0]) + "." + String((fraction + String(repeating: "0", count: digits)).prefix(digits))
     }
 
     private static func fixed(_ value: Double, digits: Int) -> String {
-        fixed(NSNumber(value: value), digits: digits)
-    }
-
-    private static func fixed(_ value: NSNumber, digits: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = false; formatter.minimumFractionDigits = digits
-        formatter.maximumFractionDigits = digits; formatter.roundingMode = .halfUp
-        return formatter.string(from: value) ?? value.stringValue
+        let locale = Locale(identifier: "en_US_POSIX")
+        guard let decimal = Decimal(string: String(value), locale: locale), !decimal.isNaN else {
+            // Finite rates can exceed Decimal's range; keep fixed display safe.
+            return String(format: "%.*f", locale: locale, digits, value)
+        }
+        return fixed(decimal, digits: digits)
     }
 }
