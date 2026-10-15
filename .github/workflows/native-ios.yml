@@ -26,6 +26,11 @@ jobs:
           [[ ! "$version" =~ [Bb][Ee][Tt][Aa]|[Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt]|[Pp][Rr][Ee][Vv][Ii][Ee][Ww] ]]
       - name: Test core contracts
         run: swift test --parallel
+      - name: Parse native sources (Apple SDK semantic checks require Xcode)
+        shell: bash
+        run: |
+          shopt -s globstar
+          swiftc -frontend -parse NativeApp/**/*.swift UITests/*.swift
   ios:
     name: Release toolchain, simulator and device
     runs-on: xcode-27
@@ -42,7 +47,8 @@ jobs:
           if-no-files-found: warn
           path: |
             build/artifacts/
-            build/*.log
-            build/*.json
-            build/*.jsonl
-            build/*.xcresult/
+            build/toolchain.json
+            build/runs/**/*.log
+            build/runs/**/*.json
+            build/runs/**/*.jsonl
+            build/runs/**/*.xcresult/

@@ -96,6 +96,13 @@ private actor AttemptCounter {
     #expect(copy == operation); #expect(try copy.requestBody() == body)
     #expect(throws: APIError.self) { try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: -1, operation: .set).validate() }
     #expect(throws: APIError.self) { try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: Decimal.nan, operation: .set).validate() }
+    for raw in ["0.000000001", "1000000000000", "999999999999.999999999"] {
+        #expect(throws: APIError.invalidAmount) { try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: Decimal(string: raw)!, operation: .set).validate() }
+    }
+    #expect(throws: APIError.invalidAmount) { try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: 0, operation: .add).validate() }
+    #expect(throws: APIError.invalidAmount) { try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: 0, operation: .subtract).validate() }
+    try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: 0, operation: .set).validate()
+    try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: Decimal(string: "999999999999.99999999")!, operation: .add).validate()
 }
 
 @Test func streamsUTF8AcrossSingleByteChunksAndRequiresExplicitSuccess() throws {
@@ -302,4 +309,36 @@ private actor AttemptCounter {
     #expect(APIError.server(status: 403, reason: "LOGIN_AGREEMENT_REQUIRED").kind == .compliance)
     #expect(APIError.server(status: 423, reason: "TOTP_STEP_UP_REQUIRED").kind == .twoFactor)
     #expect(APIError.server(status: 403, reason: "FORBIDDEN").kind == .permission)
+}
+
+@Test func captchaBridgeAcceptsExactProviderProofsAndCancellation() throws {
+    let nonce = UUID()
+    for provider in ["turnstile", "aliyun"] {
+        let data = Data("{\"version\":1,\"nonce\":\"\(nonce.uuidString)\",\"provider\":\"\(provider)\",\"proof\":{\"turnstile_token\":\"fixture-proof\"}}".utf8)
+        guard case .proof(let proof) = try CaptchaBridgeValidator.parse(data, nonce: nonce, provider: provider) else { Issue.record("Expected proof"); continue }
+        #expect(proof.turnstileToken == "fixture-proof"); #expect(proof.tencentTicket == nil)
+    }
+    let tencent = Data("{\"version\":1,\"nonce\":\"\(nonce.uuidString)\",\"provider\":\"tencent\",\"proof\":{\"tencent_captcha_ticket\":\"ticket\",\"tencent_captcha_randstr\":\"random\"}}".utf8)
+    guard case .proof(let proof) = try CaptchaBridgeValidator.parse(tencent, nonce: nonce, provider: "tencent") else { Issue.record("Expected Tencent proof"); return }
+    #expect(proof.tencentTicket == "ticket"); #expect(proof.tencentRandstr == "random")
+    let cancel = Data("{\"version\":1,\"nonce\":\"\(nonce.uuidString)\",\"cancelled\":true}".utf8)
+    guard case .cancelled = try CaptchaBridgeValidator.parse(cancel, nonce: nonce, provider: "turnstile") else { Issue.record("Expected cancellation"); return }
+}
+
+@Test func captchaBridgeRejectsBooleanVersionsNonceProviderAndExtraFields() throws {
+    let nonce = UUID()
+    let envelope: [String: Any] = ["version": 1, "nonce": nonce.uuidString, "provider": "turnstile", "proof": ["turnstile_token": "fixture"]]
+    var wrongVersion = envelope; wrongVersion["version"] = true
+    var wrongNonce = envelope; wrongNonce["nonce"] = UUID().uuidString
+    var wrongProvider = envelope; wrongProvider["provider"] = "tencent"
+    var extra = envelope; extra["access_token"] = "MUST_NEVER_BE_ACCEPTED"
+    var emptyProof = envelope; emptyProof["proof"] = ["turnstile_token": " \n\t "]
+    var wrongProof = envelope; wrongProof["proof"] = ["turnstile_token": "fixture", "tencent_captcha_ticket": "extra"]
+    var oversized = envelope; oversized["proof"] = ["turnstile_token": String(repeating: "x", count: 16_385)]
+    let badCancel: [String: Any] = ["version": 1, "nonce": nonce.uuidString, "cancelled": 1]
+    let falseCancel: [String: Any] = ["version": 1, "nonce": nonce.uuidString, "cancelled": false]
+    for object in [wrongVersion, wrongNonce, wrongProvider, extra, emptyProof, wrongProof, oversized, badCancel, falseCancel] {
+        let data = try JSONSerialization.data(withJSONObject: object)
+        #expect(throws: APIError.self) { try CaptchaBridgeValidator.parse(data, nonce: nonce, provider: "turnstile") }
+    }
 }

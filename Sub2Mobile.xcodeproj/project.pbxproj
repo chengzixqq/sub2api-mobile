@@ -2,7 +2,7 @@
 {
 	archiveVersion = 1;
 	classes = {};
-	objectVersion = 77;
+	objectVersion = 56;
 	objects = {
 		FC74F58D9C1DEC04B2822754 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeApp/Features/AccountsView.swift"; sourceTree = SOURCE_ROOT; };
 		3EB95B0DD0EE5029A43FAFE4 = { isa = PBXBuildFile; fileRef = FC74F58D9C1DEC04B2822754; };
@@ -57,7 +57,7 @@
 		8A772DF779B74C618A65920B = { isa = PBXTargetDependency; target = 5A31B17C37FF20271C73A96F; targetProxy = 5CC0D122D46868950F270256; };
 		5A31B17C37FF20271C73A96F = { isa = PBXNativeTarget; buildConfigurationList = 900621C63942CF97857E701F; buildPhases = (C7DEC6FCCD74FC72557EBA8A, 2002E5C43A61715491C7A45B, 88EAC1297EFC578EA1E87A58,); buildRules = (); dependencies = (); name = Sub2Mobile; packageProductDependencies = (0D45F5FD462B8C70BFFB1002,); productName = Sub2Mobile; productReference = 38E5DADA22A1501D52A1596A; productType = "com.apple.product-type.application"; };
 		709B0C39F24A388349BE5BEE = { isa = PBXNativeTarget; buildConfigurationList = EF79EBE0C2499A175EA17E4D; buildPhases = (38ADD6A8C5D64C981CD0BCDB, C5597E7F74807B316B79E686,); buildRules = (); dependencies = (8A772DF779B74C618A65920B,); name = Sub2MobileUITests; productName = Sub2MobileUITests; productReference = 1E86CEC13645AEED5009ED4E; productType = "com.apple.product-type.bundle.ui-testing"; };
-		244210E48437B6556980A702 = { isa = PBXProject; attributes = { BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; TargetAttributes = { 5A31B17C37FF20271C73A96F = { CreatedOnToolsVersion = 27.0; }; 709B0C39F24A388349BE5BEE = { CreatedOnToolsVersion = 27.0; TestTargetID = 5A31B17C37FF20271C73A96F; }; }; }; buildConfigurationList = F905B102B4F13BD6617D8EB3; compatibilityVersion = "Xcode 16.0"; developmentRegion = "zh-Hans"; hasScannedForEncodings = 0; knownRegions = ("zh-Hans", en, Base); mainGroup = 4813494D137E1631BBA301D5; packageReferences = (BC4A71180870F7945155FBB0,); productRefGroup = 0A3E27B8CA818264D75C8D81; projectDirPath = ""; projectRoot = ""; targets = (5A31B17C37FF20271C73A96F, 709B0C39F24A388349BE5BEE,); };
+		244210E48437B6556980A702 = { isa = PBXProject; attributes = { BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; TargetAttributes = { 5A31B17C37FF20271C73A96F = { CreatedOnToolsVersion = 27.0; }; 709B0C39F24A388349BE5BEE = { CreatedOnToolsVersion = 27.0; TestTargetID = 5A31B17C37FF20271C73A96F; }; }; }; buildConfigurationList = F905B102B4F13BD6617D8EB3; compatibilityVersion = "Xcode 14.0"; developmentRegion = "zh-Hans"; hasScannedForEncodings = 0; knownRegions = ("zh-Hans", en, Base); mainGroup = 4813494D137E1631BBA301D5; packageReferences = (BC4A71180870F7945155FBB0,); productRefGroup = 0A3E27B8CA818264D75C8D81; projectDirPath = ""; projectRoot = ""; targets = (5A31B17C37FF20271C73A96F, 709B0C39F24A388349BE5BEE,); };
 	};
 	rootObject = 244210E48437B6556980A702;
 }

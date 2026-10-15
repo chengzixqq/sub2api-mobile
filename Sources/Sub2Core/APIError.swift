@@ -11,7 +11,7 @@ public struct APIError: LocalizedError, Sendable, Equatable {
         self.kind = kind; self.reason = reason; self.statusCode = statusCode; self.message = message
     }
     public static let invalidServer = APIError(kind: .validation, message: "请输入不含路径、账号或查询参数的 HTTPS 站点地址。")
-    public static let invalidAmount = APIError(kind: .validation, message: "金额必须为非负十进制数，用户编号必须有效。")
+    public static let invalidAmount = APIError(kind: .validation, message: "金额最多 8 位小数且不得超过 999999999999.99999999；增加或减少金额必须大于零。")
     public static let invalidResponse = APIError(kind: .response, message: "服务器响应格式不符合当前接口契约。")
     public static let authenticationRequired = APIError(kind: .authentication, statusCode: 401, message: "登录已失效，请重新登录。")
     public static let administratorRequired = APIError(kind: .permission, statusCode: 403, message: "当前版本仅支持管理员账号，普通用户功能尚未开放。")

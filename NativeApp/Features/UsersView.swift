@@ -3,6 +3,7 @@ import Sub2Core
 
 struct UsersView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
     @State private var users: [AdminUser] = []
     @State private var search = ""
     @State private var status = ""
@@ -10,6 +11,7 @@ struct UsersView: View {
     @State private var hasMore = false
     @State private var loading = false
     @State private var error: String?
+    @State private var failedPage: Int?
     @State private var requestID = UUID()
     private var query: String { search + "|" + status }
     var body: some View {
@@ -32,7 +34,7 @@ struct UsersView: View {
                 if users.isEmpty && !loading && error == nil { Text("没有符合条件的用户").foregroundStyle(.secondary) }
                 if hasMore { Button("加载更多用户") { Task { await load(nextPage: page + 1) } }.disabled(loading).frame(minHeight: 44).accessibilityIdentifier("users.more") }
                 if loading { ProgressView("正在加载…") }
-                if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load(nextPage: page == 0 ? 1 : page + 1) } }.frame(minHeight: 44) }
+                if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load(nextPage: failedPage ?? 1, replace: (failedPage ?? 1) == 1) } }.frame(minHeight: 44) }
             }
         }
         .navigationTitle("用户")
@@ -40,6 +42,7 @@ struct UsersView: View {
         .refreshable { await load(nextPage: 1, replace: true) }
         .task(id: query) {
             requestID = UUID(); loading = false
+            page = 0; hasMore = false; users = []; error = nil; failedPage = nil
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             await load(nextPage: 1, replace: true)
         }
@@ -47,20 +50,22 @@ struct UsersView: View {
     private func load(nextPage: Int, replace: Bool = false) async {
         guard !loading else { return }
         let ticket = UUID(); requestID = ticket
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
         loading = true; error = nil
         defer { if requestID == ticket { loading = false } }
         do {
             let result = try await model.users(page: nextPage, search: search, status: status.isEmpty ? nil : status)
             guard generation == model.sessionGeneration, requestID == ticket, !Task.isCancelled else { return }
             users = replace ? result.items : users + result.items.filter { next in !users.contains { $0.id == next.id } }
-            page = result.page; hasMore = result.hasMore
-        } catch { if generation == model.sessionGeneration && requestID == ticket && !(error is CancellationError) { self.error = error.localizedDescription } }
+            page = result.page; hasMore = result.hasMore; failedPage = nil
+        } catch { if generation == model.sessionGeneration && requestID == ticket && !(error is CancellationError) { self.error = error.localizedDescription; failedPage = nextPage } }
     }
 }
 
 struct UserDetailView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
     @State private var user: AdminUser
     @State private var usage: UserUsageSummary?
     @State private var keys: [UserAPIKey] = []
@@ -120,22 +125,25 @@ struct UserDetailView: View {
             Button("确认操作", role: .destructive) { Task { await changeStatus() } }
         } message: { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)（#\(user.id)）") }
         .sheet(isPresented: $balanceSheet, onDismiss: { Task { await reload() } }) { BalanceView(user: user) }
-        .sheet(isPresented: $stepUp) { if let client = model.client { StepUpView(client: client) { error = "验证通过，请重新确认用户操作。" } } }
+        .sheet(isPresented: $stepUp) { if let client = session?.client { StepUpView(client: client) { error = "验证通过，请重新确认用户操作。" } } }
     }
     private func reload() async {
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
         do {
             let result = try await model.user(id: user.id)
             guard generation == model.sessionGeneration, !Task.isCancelled else { return }; user = result
             let statistics = try await model.userUsage(id: user.id)
             guard generation == model.sessionGeneration, !Task.isCancelled else { return }; usage = statistics
+            error = nil
             await loadKeys(page: 1)
         } catch { if generation == model.sessionGeneration && !(error is CancellationError) { self.error = error.localizedDescription } }
     }
     private func loadKeys(page: Int) async {
         guard !loadingKeys else { return }; loadingKeys = true
         defer { loadingKeys = false }
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
         do {
             let result = try await model.userKeys(id: user.id, page: page)
             guard generation == model.sessionGeneration, !Task.isCancelled else { return }
@@ -146,10 +154,12 @@ struct UserDetailView: View {
     private func changeStatus() async {
         guard !busy else { return }; busy = true
         defer { busy = false }
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
         do {
             guard !model.isUITesting else { throw AppFailure("界面测试模式不执行服务器写操作。") }
-            let result = try await model.requireClient().setUserStatus(id: user.id, status: user.status == "active" ? "disabled" : "active")
+            guard let client = session?.client else { return }
+            let result = try await client.setUserStatus(id: user.id, status: user.status == "active" ? "disabled" : "active")
             guard generation == model.sessionGeneration else { return }; user = result; error = nil
         } catch { guard generation == model.sessionGeneration else { return }; if needsStepUp(error) { stepUp = true } else { self.error = error.localizedDescription } }
     }
@@ -158,6 +168,7 @@ struct UserDetailView: View {
 struct BalanceView: View {
     let user: AdminUser
     @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var amount = ""
     @State private var operation = BalanceOperation.add
@@ -210,7 +221,7 @@ struct BalanceView: View {
             } message: {
                 if let prepared { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)\n\(operationName(prepared.operation))：\(money(prepared.amount))") }
             }
-            .sheet(isPresented: $stepUp) { if let client = model.client { StepUpView(client: client) { message = "验证通过，请点击“重试原请求”并重新确认。" } } }
+            .sheet(isPresented: $stepUp) { if let client = session?.client { StepUpView(client: client) { message = "验证通过，请点击“重试原请求”并重新确认。" } } }
         }
     }
     private func operationName(_ value: BalanceOperation) -> String {
@@ -223,25 +234,43 @@ struct BalanceView: View {
               NSDecimalNumber(decimal: decimal).stringValue != "NaN", let serverID = model.activeProfile?.id else {
             message = "请输入有效的非负十进制金额。"; return
         }
-        prepared = PendingBalanceOperation(serverID: serverID, userID: user.id, amount: decimal, operation: operation, notes: notes)
+        let candidate = PendingBalanceOperation(serverID: serverID, userID: user.id, amount: decimal, operation: operation, notes: notes)
+        do { try candidate.validate() }
+        catch { message = error.localizedDescription; return }
+        prepared = candidate
         confirm = true; message = nil
     }
     private func send(_ item: PendingBalanceOperation) async {
         guard !busy, item.serverID == model.activeProfile?.id else { return }
         busy = true; defer { busy = false }
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
+        var submitted = false
         do {
             guard !model.isUITesting else { throw AppFailure("界面测试模式不执行余额写入。") }
+            guard let client = session?.client else { return }
             try model.remember(item)
-            let result = try await model.requireClient().updateBalance(item)
+            submitted = true
+            let result = try await client.updateBalance(item)
             // Resolve the exact server-bound operation even if the user has switched sites.
             try model.resolve(item)
             guard generation == model.sessionGeneration else { return }
             message = "操作成功，余额为 \(money(result.balance))。"; prepared = nil; amount = ""; notes = ""
         } catch {
             guard generation == model.sessionGeneration else { return }
-            if needsStepUp(error) { stepUp = true }
-            else { message = "\(error.localizedDescription)\n如请求已经发送，结果仍待确认。请保留并重试原操作。" }
+            if !submitted { message = "请求未发送。\n\(error.localizedDescription)" }
+            else if needsStepUp(error) { stepUp = true }
+            else if definitelyRejected(error) {
+                do { try model.resolve(item); prepared = nil; message = "请求已被拒绝，余额未调整。\n\(error.localizedDescription)" }
+                catch { message = "拒绝结果已收到，但无法更新本机记录。请检查设备存储，保留原操作编号。" }
+            } else { message = "\(error.localizedDescription)\n如请求已经发送，结果仍待确认。请保留并重试原操作。" }
         }
+    }
+    private func definitelyRejected(_ error: Error) -> Bool {
+        guard let failure = error as? APIError else { return false }
+        if failure.kind == .validation { return true }
+        if failure.statusCode == 401 || failure.statusCode == 403 { return true }
+        let reason = failure.reason?.uppercased() ?? ""
+        return failure.statusCode == 400 && ["VALIDATION_ERROR", "INVALID_REQUEST", "INVALID_AMOUNT", "BAD_REQUEST"].contains(reason)
     }
 }

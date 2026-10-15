@@ -72,6 +72,7 @@ struct StepUpView: View {
 
 func needsStepUp(_ error: Error) -> Bool {
     guard let error = error as? APIError else { return false }
+    if error.kind == .twoFactor { return true }
     let reason = error.reason?.lowercased() ?? ""
     return reason.contains("step_up") || reason.contains("stepup") || reason.contains("totp_required")
 }

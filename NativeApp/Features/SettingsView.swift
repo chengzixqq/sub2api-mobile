@@ -47,7 +47,7 @@ struct SettingsView: View {
                             Text(item.id.uuidString).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
                         }
                     }
-                    Text("切换到原站点并打开对应用户的余额页面，使用原操作编号重试。删除站点不会删除未决请求。").font(.footnote).foregroundStyle(.secondary)
+                    Text("切换到原站点并打开对应用户的余额页面，使用原操作编号重试。未决请求确认前无法删除站点。").font(.footnote).foregroundStyle(.secondary)
                 }
             }
             Section("关于") {
@@ -61,7 +61,7 @@ struct SettingsView: View {
         .sheet(isPresented: $adding) { NavigationStack { LoginView() } }
         .confirmationDialog("删除站点？", isPresented: Binding(get: { removeProfile != nil }, set: { if !$0 { removeProfile = nil } }), titleVisibility: .visible) {
             Button("删除站点和凭据", role: .destructive) { if let profile = removeProfile { removeProfile = nil; Task { await model.remove(profile) } } }
-        } message: { Text("\(removeProfile?.name ?? "")\n站点配置和本机凭据将被清除，未决余额请求将保留。") }
+        } message: { Text("\(removeProfile?.name ?? "")\n站点配置和本机凭据将被清除；请先确认此站点所有未决余额请求。") }
         .confirmationDialog("退出当前站点？", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("退出并清除凭据", role: .destructive) { Task { await model.logout() } }
         } message: { Text("\(model.activeProfile?.name ?? "")\n此设备上的登录凭据将被清除。") }

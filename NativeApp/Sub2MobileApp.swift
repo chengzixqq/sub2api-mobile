@@ -17,10 +17,10 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         Group {
-            if model.isRestoring {
-                ProgressView("正在恢复连接…")
+            if model.isRestoring || model.isSigningOut {
+                ProgressView(model.isSigningOut ? "正在退出并清除凭据…" : "正在恢复连接…")
             } else if model.activeProfile != nil {
-                MainTabs().id(model.sessionGeneration)
+                MainTabs().environment(\.sessionContext, model.sessionContext).id(model.sessionGeneration)
             } else {
                 NavigationStack { LoginView() }
             }

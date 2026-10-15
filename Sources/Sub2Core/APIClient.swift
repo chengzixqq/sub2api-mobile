@@ -37,7 +37,7 @@ public actor APIClient {
         return .authenticated(try await acceptLogin(reply, generation: snapshot))
     }
     public func completeTOTP(tempToken: String, code: String) async throws -> AuthSession {
-        guard code.count == 6, code.allSatisfy(\.isNumber), !tempToken.isEmpty else {
+        guard validTOTP(code), !tempToken.isEmpty else {
             throw APIError(kind: .twoFactor, message: "请输入六位双因素验证码。")
         }
         let snapshot = generation
@@ -110,7 +110,7 @@ public actor APIClient {
         return try await request("admin/users/\(validID(operation.userID))/balance", method: "POST", body: operation.requestBody(), headers: ["Idempotency-Key": operation.id.uuidString.lowercased()])
     }
     public func stepUp(code: String) async throws {
-        guard code.count == 6, code.allSatisfy(\.isNumber) else { throw APIError(kind: .twoFactor, message: "请输入六位双因素验证码。") }
+        guard validTOTP(code) else { throw APIError(kind: .twoFactor, message: "请输入六位双因素验证码。") }
         let reply: StepUpReply = try await request("user/totp/step-up", method: "POST", body: encode(["code": code]))
         guard reply.verified else { throw APIError(kind: .twoFactor, message: "二次验证未通过。") }
     }
@@ -311,6 +311,7 @@ public actor APIClient {
     }
     private func check(_ snapshot: UUID) throws { try Task.checkCancellation(); guard snapshot == generation else { throw CancellationError() } }
     private func removeCancellation(_ id: UUID) { cancellations[id] = nil }
+    private func validTOTP(_ code: String) -> Bool { code.utf8.count == 6 && code.utf8.allSatisfy { (48...57).contains($0) } }
     private func validID(_ value: Int) throws -> Int {
         guard value > 0 else { throw APIError(kind: .validation, message: "无效的对象编号。") }; return value
     }

@@ -1,6 +1,21 @@
 import Foundation
 import Observation
 import Sub2Core
+import SwiftUI
+
+struct SessionContext: Sendable {
+    let generation: UUID
+    let serverID: UUID
+    let client: APIClient
+}
+
+private struct SessionContextKey: EnvironmentKey { static let defaultValue: SessionContext? = nil }
+extension EnvironmentValues {
+    var sessionContext: SessionContext? {
+        get { self[SessionContextKey.self] }
+        set { self[SessionContextKey.self] = newValue }
+    }
+}
 
 @MainActor @Observable
 final class AppModel {
@@ -11,24 +26,36 @@ final class AppModel {
     private(set) var pendingBalances: [PendingBalanceOperation] = []
     var errorMessage: String?
     var isRestoring = true
+    private(set) var isSigningOut = false
     var isConnecting = false
     let isUITesting: Bool
-    @ObservationIgnored let credentials: any CredentialStore
-    @ObservationIgnored private let defaults: UserDefaults
+    let credentials: KeychainCredentialStore
+    private let defaults: UserDefaults
     @ObservationIgnored private var connectionAttempt = UUID()
+    @ObservationIgnored private var pendingCandidate: APIClient?
+    @ObservationIgnored private var activeLease: UUID?
     @ObservationIgnored private var savedActiveID: UUID?
+    private let pendingFileURL: URL?
+    @ObservationIgnored private var pendingPersistenceAvailable = true
+    var sessionContext: SessionContext? {
+        guard let client, let activeProfile else { return nil }
+        return SessionContext(generation: sessionGeneration, serverID: activeProfile.id, client: client)
+    }
 
     init(isUITesting: Bool = ProcessInfo.processInfo.arguments.contains("-ui-testing")) {
         self.isUITesting = isUITesting
-        credentials = isUITesting ? MemoryCredentialStore() : KeychainCredentialStore()
+        credentials = KeychainCredentialStore(memoryOnly: isUITesting)
         defaults = isUITesting ? UserDefaults(suiteName: "com.chengzixqq.sub2mobile.uitesting")! : .standard
+        pendingFileURL = isUITesting ? nil : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Sub2Mobile", isDirectory: true).appendingPathComponent("pending-balances.json")
         if isUITesting { defaults.removePersistentDomain(forName: "com.chengzixqq.sub2mobile.uitesting") }
         if let data = defaults.data(forKey: "profiles") {
             profiles = (try? JSONDecoder().decode([ServerProfile].self, from: data)) ?? []
         }
         if let raw = defaults.string(forKey: "activeProfile") { savedActiveID = UUID(uuidString: raw) }
-        if let data = defaults.data(forKey: "pendingBalances") {
-            pendingBalances = (try? JSONDecoder().decode([PendingBalanceOperation].self, from: data)) ?? []
+        if let pendingFileURL, FileManager.default.fileExists(atPath: pendingFileURL.path) {
+            do { pendingBalances = try JSONDecoder().decode([PendingBalanceOperation].self, from: Data(contentsOf: pendingFileURL)) }
+            catch { pendingPersistenceAvailable = false; errorMessage = "未决余额记录无法读取。请保留应用数据并检查设备存储；已暂停新的余额操作。" }
         }
     }
 
@@ -56,68 +83,108 @@ final class AppModel {
         return url
     }
 
-    func beginConnection() -> UUID { connectionAttempt = UUID(); return connectionAttempt }
-    func cancelConnection() { connectionAttempt = UUID(); isConnecting = false }
+    func beginConnection() -> UUID {
+        cancelConnection()
+        return connectionAttempt
+    }
+    func cancelConnection() {
+        connectionAttempt = UUID(); isConnecting = false
+        let pending = pendingCandidate; pendingCandidate = nil
+        Task { await pending?.cancelAll() }
+    }
 
     func connect(profile: ServerProfile, credential: Credential, attempt: UUID? = nil) async throws {
+        guard !isSigningOut else { throw CancellationError() }
         let ticket = attempt ?? beginConnection()
+        guard ticket == connectionAttempt else { throw CancellationError() }
         isConnecting = true
-        defer { if ticket == connectionAttempt { isConnecting = false } }
-        let candidate = APIClient(server: profile, credential: credential, credentialStore: credentials)
+        defer { if ticket == connectionAttempt { isConnecting = false; pendingCandidate = nil } }
+        // Verification may refresh a token, but never touches the shared vault.
+        let candidate = APIClient(server: profile, credential: credential)
+        pendingCandidate = candidate
+        defer { Task { await candidate.cancelAll() } }
         if !isUITesting { try await candidate.verifyAdministrator() }
         guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
         let verifiedCredential = await candidate.currentCredential() ?? credential
-        try await credentials.save(verifiedCredential, serverID: profile.id)
         guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
+        let lease = UUID()
+        let scopedStore = try await credentials.commit(verifiedCredential, serverID: profile.id, lease: lease)
+        guard ticket == connectionAttempt else {
+            try await credentials.revoke(serverID: profile.id, lease: lease, erase: true)
+            await candidate.cancelAll(); throw CancellationError()
+        }
         let previous = client
+        let previousProfileID = activeProfile?.id
+        let previousLease = activeLease
         sessionGeneration = UUID()
-        client = candidate
+        client = APIClient(server: profile, credential: verifiedCredential, credentialStore: scopedStore)
+        activeLease = lease
         activeProfile = profile
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
         else { profiles.append(profile) }
         savedActiveID = profile.id
         persistProfiles()
+        await candidate.cancelAll()
         await previous?.cancelAll()
+        if let previousProfileID, let previousLease { try await credentials.revoke(serverID: previousProfileID, lease: previousLease, erase: false) }
     }
 
     func switchTo(_ profile: ServerProfile) async {
+        guard !isSigningOut else { return }
+        let attempt = beginConnection()
         do {
             guard let credential = try await credentials.load(serverID: profile.id) else {
                 throw AppFailure("此站点凭据已清除，请重新登录。")
             }
-            try await connect(profile: profile, credential: credential)
+            try await connect(profile: profile, credential: credential, attempt: attempt)
         } catch { report(error) }
     }
 
     func logout() async {
+        guard !isSigningOut else { return }
+        isSigningOut = true
+        defer { isSigningOut = false }
         let old = client
         let id = activeProfile?.id
+        let lease = activeLease
         cancelConnection()
         sessionGeneration = UUID()
         client = nil
         activeProfile = nil
+        activeLease = nil
         savedActiveID = nil
         persistProfiles()
         await old?.cancelAll()
         if let id {
-            do { try await credentials.remove(serverID: id) } catch { report(error) }
+            do {
+                if let lease { try await credentials.revoke(serverID: id, lease: lease, erase: true) }
+                else { try await credentials.remove(serverID: id) }
+            } catch { report(error) }
         }
         do { try await old?.logout() } catch { report(error) }
     }
 
     func remove(_ profile: ServerProfile) async {
-        if activeProfile?.id == profile.id { await logout() }
+        guard !pendingBalances.contains(where: { $0.serverID == profile.id }) else {
+            errorMessage = "此站点仍有结果待确认的余额请求，请先处理原请求，再删除站点。"; return
+        }
+        let wasActive = activeProfile?.id == profile.id
+        if wasActive { await logout() }
+        cancelConnection()
+        profiles.removeAll { $0.id == profile.id }
+        persistProfiles()
+        if wasActive { return }
         do {
             try await credentials.remove(serverID: profile.id)
-            profiles.removeAll { $0.id == profile.id }
-            persistProfiles()
         } catch { report(error) }
     }
 
     func remember(_ operation: PendingBalanceOperation) throws {
+        guard pendingPersistenceAvailable else { throw AppFailure("未决余额记录无法读取，已阻止新请求。请保留应用数据并检查设备存储。") }
+        let old = pendingBalances
         if !pendingBalances.contains(where: { $0.id == operation.id }) { pendingBalances.append(operation) }
         do { try persistPending() }
-        catch { pendingBalances.removeAll { $0.id == operation.id }; throw error }
+        catch { pendingBalances = old; throw error }
     }
 
     func resolve(_ operation: PendingBalanceOperation) throws {
@@ -173,7 +240,11 @@ final class AppModel {
         defaults.set(try? JSONEncoder().encode(profiles), forKey: "profiles")
         defaults.set(savedActiveID?.uuidString, forKey: "activeProfile")
     }
-    private func persistPending() throws { defaults.set(try JSONEncoder().encode(pendingBalances), forKey: "pendingBalances") }
+    private func persistPending() throws {
+        guard let pendingFileURL else { return }
+        try FileManager.default.createDirectory(at: pendingFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(pendingBalances).write(to: pendingFileURL, options: [.atomic, .completeFileProtection])
+    }
 }
 
 struct AppFailure: LocalizedError {

@@ -4,6 +4,7 @@ import Sub2Core
 
 struct DashboardView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
     @State private var summary: DashboardSummary?
     @State private var error: String?
@@ -37,7 +38,7 @@ struct DashboardView: View {
                                 LabeledValue(label: "错误率", value: monitoring.errorRate.map { ($0 * 100).formatted(.number.precision(.fractionLength(0...2))) + "%" } ?? "不可用")
                                 LabeledValue(label: "QPS", value: monitoring.qps.map { $0.formatted(.number.precision(.fractionLength(0...2))) } ?? "不可用")
                                 LabeledValue(label: "活跃请求", value: monitoring.activeRequests.map(String.init) ?? "不可用")
-                            } else { Text("此站点未开放运行监控；概览数据仍可使用。").font(.footnote).foregroundStyle(.secondary).padding(.top) }
+                            } else { Text("运行监控暂不可用；概览数据仍可使用。").font(.footnote).foregroundStyle(.secondary).padding(.top) }
                             Divider()
                             LabeledValue(label: "用户总数", value: summary.stats.totalUsers.formatted())
                             LabeledValue(label: "账号总数", value: summary.stats.totalAccounts.formatted())
@@ -66,7 +67,8 @@ struct DashboardView: View {
     }
     private func load() async {
         guard !loading else { return }
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
         loading = true
         defer { loading = false }
         do {

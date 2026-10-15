@@ -16,6 +16,7 @@ struct LoginView: View {
     @State private var pendingProfile: ServerProfile?
     @State private var pendingAttempt: UUID?
     @State private var proof: CaptchaProof?
+    @State private var proofExpiresAt: Date?
     @State private var captcha: CaptchaRequest?
     @State private var error: String?
     @State private var busy = false
@@ -28,7 +29,7 @@ struct LoginView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Image(systemName: "square.stack.3d.up.fill").font(.largeTitle).foregroundStyle(.indigo)
                     Text("连接你的 Sub2API").font(.title2.bold())
-                    Text("管理站点、上游账号与用户。凭据仅保存在本机 Keychain。")
+                    Text("管理站点、上游账号与用户。凭据仅保存在本机安全存储。")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }.padding(.vertical, 12)
             }
@@ -37,7 +38,8 @@ struct LoginView: View {
                 TextField("https://sub2.example.com", text: $address)
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("login.url")
-            }
+                Text("同一站点可保存多个身份，建议为每个账号使用不同名称。新增登录将建立独立身份。").font(.footnote).foregroundStyle(.secondary)
+            }.disabled(busy || challenge != nil)
             Section("身份验证") {
                 Picker("登录方式", selection: $kind) {
                     Text("邮箱和密码").tag(AuthenticationKind.password)
@@ -51,7 +53,7 @@ struct LoginView: View {
                         .textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("login.email")
                     SecureField("密码", text: $password).textContentType(.password).accessibilityIdentifier("login.password")
                 }
-            }
+            }.disabled(busy || challenge != nil)
             if let challenge {
                 Section("两步验证") {
                     if let masked = challenge.maskedEmail { Text(masked).foregroundStyle(.secondary) }
@@ -80,6 +82,19 @@ struct LoginView: View {
                     }
                 }
             }
+            if model.activeProfile == nil && !model.pendingBalances.isEmpty {
+                Section("待核对的余额请求") {
+                    Text("以下请求保留原操作编号。退出后新增登录属于独立身份；请在原站点 Web 后台核对账务，勿新建重复操作。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    ForEach(model.pendingBalances) { item in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(model.profiles.first { $0.id == item.serverID }?.name ?? "原站点") · 用户 #\(item.userID)")
+                            Text("\(item.operation.rawValue) \(money(item.amount))").font(.caption)
+                            Text(item.id.uuidString).font(.caption2).textSelection(.enabled)
+                        }
+                    }
+                }
+            }
         }
         .navigationTitle("Sub2 Mobile")
         .toolbar { if model.activeProfile != nil { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
@@ -87,18 +102,18 @@ struct LoginView: View {
             CaptchaView(request: request) { result in
                 captcha = nil
                 switch result {
-                case .success(let proof): self.proof = proof; submit()
-                case .failure(let failure): proof = nil; error = failure.localizedDescription
+                case .success(let proof): self.proof = proof; proofExpiresAt = Date().addingTimeInterval(120); submit()
+                case .failure(let failure): proof = nil; proofExpiresAt = nil; error = failure.localizedDescription
                 }
             }
         }
         .onChange(of: kind) { _, _ in resetChallenge() }
         .onChange(of: address) { _, _ in resetChallenge() }
-        .onDisappear { task?.cancel(); model.cancelConnection(); password = ""; key = ""; proof = nil; code = "" }
+        .onDisappear { task?.cancel(); model.cancelConnection(); password = ""; key = ""; proof = nil; proofExpiresAt = nil; code = "" }
     }
 
     private func resetChallenge() {
-        challenge = nil; code = ""; proof = nil; loginClient = nil; pendingProfile = nil; pendingAttempt = nil
+        challenge = nil; code = ""; proof = nil; proofExpiresAt = nil; loginClient = nil; pendingProfile = nil; pendingAttempt = nil
     }
 
     private func submit() {
@@ -109,8 +124,7 @@ struct LoginView: View {
             let url = try AppModel.validatedURL(address)
             guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppFailure("请填写站点名称。") }
             guard kind == .adminKey ? !key.isEmpty : (!email.isEmpty && !password.isEmpty) else { throw AppFailure("请完整填写登录凭据。") }
-            profile = pendingProfile ?? model.profiles.first(where: { $0.baseURL == url && $0.authentication == kind })
-                ?? ServerProfile(name: name.trimmingCharacters(in: .whitespacesAndNewlines), baseURL: url, authentication: kind)
+            profile = pendingProfile ?? ServerProfile(name: name.trimmingCharacters(in: .whitespacesAndNewlines), baseURL: url, authentication: kind)
         } catch { self.error = error.localizedDescription; return }
         busy = true
         task = Task {
@@ -134,8 +148,9 @@ struct LoginView: View {
                         session = try await candidate.completeTOTP(tempToken: challenge.tempToken, code: code)
                     } else {
                         let settings = try await candidate.publicSettings()
+                        if let expiry = proofExpiresAt, expiry <= Date() { proof = nil; proofExpiresAt = nil }
                         if settings.captchaEnabled && proof == nil {
-                            guard settings.captchaProvider == "turnstile" || settings.captchaProvider == "tencent" else {
+                            guard ["turnstile", "tencent", "aliyun"].contains(settings.captchaProvider ?? "") else {
                                 throw AppFailure("此站点的验证码暂不支持原生验证，请使用 Web 后台。")
                             }
                             captcha = CaptchaRequest(server: profile, provider: settings.captchaProvider!)
@@ -143,6 +158,7 @@ struct LoginView: View {
                         }
                         let result = try await candidate.login(email: email, password: password, proof: proof)
                         proof = nil
+                        proofExpiresAt = nil
                         switch result {
                         case .twoFactor(let next): challenge = next; return
                         case .authenticated(let authenticated): session = authenticated
@@ -151,9 +167,11 @@ struct LoginView: View {
                     guard session.user.role == "admin" else { unsupported = true; throw AppFailure("此账号不是管理员，未建立管理会话。") }
                     try await model.connect(profile: profile, credential: .tokens(session.tokens), attempt: attempt)
                 }
-                password = ""; key = ""; code = ""; proof = nil; dismiss()
+                password = ""; key = ""; code = ""; proof = nil; proofExpiresAt = nil; dismiss()
             } catch {
                 proof = nil
+                proofExpiresAt = nil
+                if let failure = error as? APIError, failure == .administratorRequired { unsupported = true }
                 if !(error is CancellationError) { self.error = error.localizedDescription }
             }
         }

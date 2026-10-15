@@ -242,7 +242,13 @@ public struct PendingBalanceOperation: Identifiable, Codable, Sendable, Equatabl
         self.id = id; self.serverID = serverID; self.userID = userID; self.amount = amount; self.operation = operation; self.notes = notes
     }
     public func validate() throws {
-        guard !amount.isNaN, amount >= 0, userID > 0 else { throw APIError.invalidAmount }
+        let maximum = Decimal(string: "999999999999.99999999", locale: Locale(identifier: "en_US_POSIX"))!
+        guard !amount.isNaN, amount >= 0, amount <= maximum, userID > 0,
+              operation == .set || amount > 0 else { throw APIError.invalidAmount }
+        var original = amount
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &original, 8, .plain)
+        guard rounded == amount else { throw APIError.invalidAmount }
     }
     /// Exact bytes are deterministic across retries; never use Double for a balance operation.
     public func requestBody() throws -> Data {

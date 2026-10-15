@@ -1,15 +1,16 @@
 import XCTest
 
-@MainActor final class Sub2MobileUITests: XCTestCase {
-    private var app: XCUIApplication!
-    override func setUp() {
+final class Sub2MobileUITests: XCTestCase {
+    @MainActor private var app: XCUIApplication!
+    @MainActor private func launch() {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing"]
         app.launch()
     }
 
-    func testLoginRequiresHTTPSAndCredentials() {
+    @MainActor func testLoginRequiresHTTPSAndCredentials() {
+        launch()
         XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 10))
         app.buttons["login.submit"].tap()
         XCTAssertTrue(app.staticTexts["login.error"].exists)
@@ -19,7 +20,8 @@ import XCTest
         XCTAssertTrue(app.staticTexts["login.error"].label.contains("HTTPS"))
     }
 
-    func testLoginDashboardAccountPaginationAndDetails() {
+    @MainActor func testLoginDashboardAccountPaginationAndDetails() {
+        launch()
         login(name: "站点 A", url: "https://a.example.com")
         XCTAssertTrue(app.otherElements["dashboard.metrics"].waitForExistence(timeout: 10) || app.staticTexts["今日请求"].exists)
         app.tabBars.buttons["账号"].tap()
@@ -34,7 +36,8 @@ import XCTest
         XCTAssertFalse(app.staticTexts["测试成功"].exists)
     }
 
-    func testUserPaginationAndMaskedKeys() {
+    @MainActor func testUserPaginationAndMaskedKeys() {
+        launch()
         login(name: "站点 A", url: "https://a.example.com")
         app.tabBars.buttons["用户"].tap()
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
@@ -45,7 +48,8 @@ import XCTest
         XCTAssertFalse(app.staticTexts["sk-fixture-secret"].exists)
     }
 
-    func testAddAndSwitchStations() {
+    @MainActor func testAddAndSwitchStations() {
+        launch()
         login(name: "站点 A", url: "https://a.example.com")
         app.tabBars.buttons["设置"].tap()
         app.buttons["settings.add"].tap()
@@ -57,7 +61,7 @@ import XCTest
         XCTAssertTrue(app.navigationBars["站点 A"].waitForExistence(timeout: 10))
     }
 
-    private func login(name: String, url: String) {
+    @MainActor private func login(name: String, url: String) {
         XCTAssertTrue(app.textFields["login.name"].waitForExistence(timeout: 10))
         enter(name, in: app.textFields["login.name"])
         enter(url, in: app.textFields["login.url"])
@@ -68,5 +72,5 @@ import XCTest
         app.buttons["login.submit"].tap()
         XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10))
     }
-    private func enter(_ value: String, in field: XCUIElement) { field.tap(); field.typeText(value) }
+    @MainActor private func enter(_ value: String, in field: XCUIElement) { field.tap(); field.typeText(value) }
 }

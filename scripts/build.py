@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test and package with the pinned release toolchain, on a Mac or GitHub runner."""
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -11,21 +12,23 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
-EVIDENCE = BUILD / "commands.jsonl"
+RUN = BUILD / "runs" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8])
+EVIDENCE = RUN / "commands.jsonl"
 
 
 def run(command, name):
-    BUILD.mkdir(exist_ok=True)
+    RUN.mkdir(parents=True, exist_ok=True)
     print("+ " + " ".join(map(str, command)), flush=True)
     try:
         result = subprocess.run(list(map(str, command)), cwd=ROOT, text=True, capture_output=True)
     except OSError as error:
         result = subprocess.CompletedProcess(command, 127, "", str(error))
-    (BUILD / f"{name}.stdout.log").write_text(result.stdout, encoding="utf-8")
-    (BUILD / f"{name}.stderr.log").write_text(result.stderr, encoding="utf-8")
+    (RUN / f"{name}.stdout.log").write_text(result.stdout, encoding="utf-8")
+    (RUN / f"{name}.stderr.log").write_text(result.stderr, encoding="utf-8")
     with EVIDENCE.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps({"command": list(map(str, command)), "exit_status": result.returncode, "stdout": f"{name}.stdout.log", "stderr": f"{name}.stderr.log"}) + "\n")
     print(result.stdout, end="", flush=True)
@@ -78,7 +81,7 @@ def package():
     digest = hashlib.sha256(ipa.read_bytes()).hexdigest()
     (artifact_dir / "SHA256SUMS").write_text(f"{digest}  {ipa.name}\n", encoding="utf-8")
     shutil.copy2(BUILD / "toolchain.json", artifact_dir / "toolchain.json")
-    report = {"ipa": str(ipa), "sha256": digest, "bytes": ipa.stat().st_size, "architecture": architecture, "platform": "iphoneos", "signed": False, "deviceAcceptance": "NOT_RUN - sign locally, then verify on iPhone"}
+    report = {"ipa": str(ipa), "sha256": digest, "bytes": ipa.stat().st_size, "architecture": architecture, "platform": "iphoneos", "signed": False, "evidence": str(RUN), "deviceAcceptance": "NOT_RUN - sign locally, then verify on iPhone"}
     (artifact_dir / "manifest.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
 
@@ -87,12 +90,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=["all", "unit", "simulator", "package"], nargs="?", default="all")
     stage = parser.parse_args().stage
+    print("Evidence directory: " + str(RUN), flush=True)
     run([sys.executable, "scripts/check_toolchain.py"], "toolchain-check")
+    shutil.copy2(BUILD / "toolchain.json", RUN / "toolchain.json")
     if stage in ("all", "unit"):
         run(["xcrun", "swift", "test", "--parallel"], "core-tests")
     base = ["xcodebuild", "-project", "Sub2Mobile.xcodeproj", "-scheme", "Sub2Mobile", "-derivedDataPath", str(BUILD / "DerivedData")]
     if stage in ("all", "simulator"):
-        run(base + ["-configuration", "Debug", "-destination", "id=" + simulator(), "-resultBundlePath", str(BUILD / "UITests.xcresult"), "test", "CODE_SIGNING_ALLOWED=NO"], "simulator-tests")
+        run(base + ["-configuration", "Debug", "-destination", "id=" + simulator(), "-resultBundlePath", str(RUN / "UITests.xcresult"), "test", "CODE_SIGNING_ALLOWED=NO"], "simulator-tests")
     if stage in ("all", "package"):
         run(base + ["-configuration", "Release", "-sdk", "iphoneos", "-destination", "generic/platform=iOS", "build", "ARCHS=arm64", "ONLY_ACTIVE_ARCH=NO", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGN_IDENTITY="], "device-build")
         package()

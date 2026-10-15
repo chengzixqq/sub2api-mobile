@@ -3,6 +3,7 @@ import Sub2Core
 
 struct AccountsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
     @State private var accounts: [UpstreamAccount] = []
     @State private var search = ""
     @State private var status = ""
@@ -11,6 +12,7 @@ struct AccountsView: View {
     @State private var hasMore = false
     @State private var loading = false
     @State private var error: String?
+    @State private var failedPage: Int?
     @State private var requestID = UUID()
     private var query: String { search + "|" + status + "|" + platform }
 
@@ -32,14 +34,14 @@ struct AccountsView: View {
                             Text("\(account.platform) · \(account.type)").font(.caption).foregroundStyle(.secondary)
                             Label(account.schedulable ? "参与调度" : "暂停调度", systemImage: account.schedulable ? "checkmark.circle" : "pause.circle")
                                 .font(.caption).foregroundStyle(account.schedulable ? .green : .secondary)
-                            if let message = account.errorMessage, !message.isEmpty { Text(message).font(.caption).foregroundStyle(.red).lineLimit(2) }
+                            if let message = account.errorMessage, !message.isEmpty { Text("上游返回异常，请在 Web 后台查看详情。").font(.caption).foregroundStyle(.red).lineLimit(2) }
                         }.padding(.vertical, 4)
                     }.accessibilityIdentifier("account.\(account.id)")
                 }
                 if accounts.isEmpty && !loading && error == nil { Text("没有符合条件的账号").foregroundStyle(.secondary) }
                 if hasMore { Button("加载更多账号") { Task { await load(nextPage: page + 1) } }.frame(minHeight: 44).disabled(loading).accessibilityIdentifier("accounts.more") }
                 if loading { ProgressView("正在加载…") }
-                if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load(nextPage: page == 0 ? 1 : page + 1) } }.frame(minHeight: 44) }
+                if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load(nextPage: failedPage ?? 1, replace: (failedPage ?? 1) == 1) } }.frame(minHeight: 44) }
             }
         }
         .navigationTitle("上游账号")
@@ -47,13 +49,15 @@ struct AccountsView: View {
         .refreshable { await load(nextPage: 1, replace: true) }
         .task(id: query) {
             requestID = UUID(); loading = false
+            page = 0; hasMore = false; accounts = []; error = nil; failedPage = nil
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             await load(nextPage: 1, replace: true)
         }
     }
     private func load(nextPage: Int, replace: Bool = false) async {
         guard !loading else { return }
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
         let ticket = UUID(); requestID = ticket
         loading = true; error = nil
         defer { if requestID == ticket { loading = false } }
@@ -61,8 +65,8 @@ struct AccountsView: View {
             let result = try await model.accounts(page: nextPage, search: search, status: status.isEmpty ? nil : status, platform: platform.isEmpty ? nil : platform)
             guard generation == model.sessionGeneration, requestID == ticket, !Task.isCancelled else { return }
             accounts = replace ? result.items : accounts + result.items.filter { next in !accounts.contains { $0.id == next.id } }
-            page = result.page; hasMore = result.hasMore
-        } catch { if generation == model.sessionGeneration && requestID == ticket && !(error is CancellationError) { self.error = error.localizedDescription } }
+            page = result.page; hasMore = result.hasMore; failedPage = nil
+        } catch { if generation == model.sessionGeneration && requestID == ticket && !(error is CancellationError) { self.error = error.localizedDescription; failedPage = nextPage } }
     }
 }
 
@@ -70,6 +74,7 @@ private enum AccountAction: String, Identifiable { case schedule, refresh; var i
 
 struct AccountDetailView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
     @State private var account: UpstreamAccount
     @State private var stats: AccountTodayStats?
     @State private var error: String?
@@ -88,7 +93,7 @@ struct AccountDetailView: View {
                 LabeledValue(label: "状态", value: account.status)
                 LabeledValue(label: "调度", value: account.schedulable ? "已启用" : "已暂停")
                 if let concurrency = account.concurrency { LabeledValue(label: "并发", value: String(concurrency)) }
-                if let message = account.errorMessage { Text(message).foregroundStyle(.red) }
+                if let message = account.errorMessage, !message.isEmpty { Text("上游返回异常，请在 Web 后台查看详情。").foregroundStyle(.red) }
             }
             Section("今日用量") {
                 if let stats {
@@ -113,11 +118,12 @@ struct AccountDetailView: View {
         } message: { Text("站点：\(model.activeProfile?.name ?? "")\n账号：\(account.name)（#\(account.id)）") }
         .sheet(isPresented: $testing) { AccountTestView(account: account) }
         .sheet(isPresented: $stepUp) {
-            if let client = model.client { StepUpView(client: client) { error = "验证通过，请重新确认管理操作。" } }
+            if let client = session?.client { StepUpView(client: client) { error = "验证通过，请重新确认管理操作。" } }
         }
     }
     private func reload() async {
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
         do {
             let updated = try await model.account(id: account.id)
             guard generation == model.sessionGeneration, !Task.isCancelled else { return }
@@ -130,10 +136,11 @@ struct AccountDetailView: View {
     private func mutate(_ action: AccountAction) async {
         guard !busy else { return }; busy = true
         defer { busy = false }
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
         do {
             guard !model.isUITesting else { throw AppFailure("界面测试模式不执行服务器写操作。") }
-            let client = try model.requireClient()
+            guard let client = session?.client else { return }
             if action == .schedule {
                 let result = try await client.setSchedulable(id: account.id, enabled: !account.schedulable)
                 guard generation == model.sessionGeneration else { return }; account = result
@@ -149,6 +156,7 @@ struct AccountDetailView: View {
 struct AccountTestView: View {
     let account: UpstreamAccount
     @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var modelName = ""
     @State private var lines: [String] = []
@@ -172,23 +180,26 @@ struct AccountTestView: View {
             .navigationTitle("手动测试")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(running ? "停止并关闭" : "关闭") { task?.cancel(); dismiss() } } }
             .onDisappear { task?.cancel() }
-            .sheet(isPresented: $stepUp) { if let client = model.client { StepUpView(client: client) { outcome = "验证通过，请重新确认测试。" } } }
+            .sheet(isPresented: $stepUp) { if let client = session?.client { StepUpView(client: client) { outcome = "验证通过，请重新确认测试。" } } }
         }
     }
     private func start() {
         guard !running else { return }
-        let generation = model.sessionGeneration
+        let generation = session?.generation ?? UUID()
+        guard generation == model.sessionGeneration else { return }
+        guard let client = session?.client else { return }
         running = true; lines = []; outcome = nil
         task = Task {
             defer { running = false }
             do {
+                guard generation == model.sessionGeneration else { return }
                 guard !model.isUITesting else { throw AppFailure("界面测试模式不会发起上游测试。") }
-                let stream = try await model.requireClient().testAccount(id: account.id, model: modelName.isEmpty ? nil : modelName)
+                let stream = try await client.testAccount(id: account.id, model: modelName.isEmpty ? nil : modelName)
                 var completed = false
                 for try await event in stream {
                     guard generation == model.sessionGeneration, !Task.isCancelled else { return }
-                    if let content = event.content ?? event.message { lines.append(content); if lines.count > 500 { lines.removeFirst() } }
-                    if event.isTerminal { completed = true; outcome = event.isSuccess ? "测试成功" : (event.message ?? "测试失败") }
+                    if event.type != "error", let content = event.content ?? event.message { lines.append(sanitizedTestOutput(content)); if lines.count > 500 { lines.removeFirst() } }
+                    if event.isTerminal { completed = true; outcome = event.isSuccess ? "测试成功" : "测试失败，请在 Web 后台查看详细错误。" }
                 }
                 guard generation == model.sessionGeneration, !Task.isCancelled else { return }
                 if !completed { outcome = "连接结束，但未收到测试完成事件，不能判定成功。" }
@@ -198,5 +209,13 @@ struct AccountTestView: View {
                 else if !(error is CancellationError) { outcome = error.localizedDescription }
             }
         }
+    }
+
+    private func sanitizedTestOutput(_ value: String) -> String {
+        var result = value
+        for pattern in ["(?i)Bearer\\s+[^\\s]+", "(?i)sk-[A-Za-z0-9_-]{6,}", "https?://[^\\s]+"] {
+            result = result.replacingOccurrences(of: pattern, with: "[已隐藏]", options: .regularExpression)
+        }
+        return String(result.prefix(8_192))
     }
 }

@@ -72,18 +72,12 @@ private struct CaptchaWebView: UIViewRepresentable {
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard !done, Date().timeIntervalSince(createdAt) < 180,
                   message.frameInfo.isMainFrame, sameOrigin(message.frameInfo.request.url),
-                  let body = message.body as? [String: Any], body["version"] as? Int == 1,
-                  body["nonce"] as? String == request.id.uuidString else { return }
-            if body["cancelled"] as? Bool == true { finish(.failure(AppFailure("已取消安全验证。"))); return }
-            guard body["provider"] as? String == request.provider,
-                  let proof = body["proof"] as? [String: Any] else { return }
-            func value(_ key: String) -> String? {
-                guard let value = proof[key] as? String, !value.isEmpty, value.count < 16_384 else { return nil }; return value
-            }
-            if request.provider == "turnstile", let token = value("turnstile_token") {
-                finish(.success(CaptchaProof(turnstileToken: token)))
-            } else if request.provider == "tencent", let ticket = value("tencent_captcha_ticket"), let randstr = value("tencent_captcha_randstr") {
-                finish(.success(CaptchaProof(tencentTicket: ticket, tencentRandstr: randstr)))
+                  let body = message.body as? [String: Any], JSONSerialization.isValidJSONObject(body),
+                  let data = try? JSONSerialization.data(withJSONObject: body),
+                  let result = try? CaptchaBridgeValidator.parse(data, nonce: request.id, provider: request.provider) else { return }
+            switch result {
+            case .cancelled: finish(.failure(AppFailure("已取消安全验证。")))
+            case .proof(let proof): finish(.success(proof))
             }
         }
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
