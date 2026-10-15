@@ -2,7 +2,7 @@
 
 中文优先的 Sub2API 原生管理员客户端。使用 SwiftUI、Observation、Swift Concurrency、URLSession、Swift Charts 和 Keychain；最低 iOS 17，支持 iPhone 和基本 iPad 布局、深浅色与动态字体。
 
-本分支已在正式 Xcode 27 上完成原生构建：25 项 Swift Testing 测试和 6 项 iPhone 模拟器界面测试通过，已产出可自行签名的 iPhone IPA。**签名后真机、真实验证码服务及测试站点管理写入尚未验收**。
+本分支已在正式 Xcode 27 上完成原生构建：31 项 Swift Testing 测试和 7 项 iPhone 模拟器界面测试通过，已产出可自行签名的 iPhone IPA。**签名后真机、真实验证码服务及测试站点管理写入尚未验收**。
 
 ## 分支与旧版
 
@@ -15,7 +15,7 @@
 | 模块 | 实现范围 |
 | --- | --- |
 | 站点和认证 | HTTPS 多站点、邮箱密码、TOTP、Admin Key、Keychain、会话恢复、退出；验证通过后激活连接 |
-| 概览 | 请求、Tokens、费用、趋势、账号异常数量、可选运行监控；仅页面前台每 30 秒刷新 |
+| 概览 | 基础统计独立加载，前台每次完成后间隔 30 秒刷新；小时趋势、详细监控按需加载，各分区独立重试 |
 | 上游账号 | 搜索、状态/平台筛选、完整分页、详情/今日统计、调度开关、凭据刷新、手动 POST SSE 测试 |
 | 用户 | 搜索、状态筛选、分页、详情、本月真实用量、分页密钥列表、状态和 Decimal 余额操作 |
 | 设置 | 连接切换、删除本机凭据、版本信息、打开当前站点 Web 后台 |
@@ -44,7 +44,7 @@ python3 scripts/build.py all
 
 **未签名 IPA 不能直接安装到 iPhone。** 下载后使用你本地的证书和匹配的 provisioning profile 重签，证书/私钥不进入仓库或 CI。重签工具应同时处理嵌套 Frameworks；安装后的登录、切站、分页及管理写入必须在测试站点验收。构建通过与真机验收分别记录。
 
-Mac 已使用 `27A266a` 完成上述全流程；[Apple 的正式发布记录](https://developer.apple.com/news/releases/?id=09142026h)确认这一构建是 Xcode 27 正式版。IPA 对应源码 `6f16be05e2587ab0d996fd296e4e345e74217f26`，大小 2,772,306 字节；哈希、运行记录及验收边界见 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)。manifest 记录干净源码身份及 11 项构建输入的 Git 对象，交付时逐项核验。相同构建源码的 GitHub Actions [38681297253](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38681297253) 已全部通过，独立完成测试、iPhone Release 构建与 IPA 上传。
+Mac 已使用 `27A266a` 完成上述全流程；[Apple 的正式发布记录](https://developer.apple.com/news/releases/?id=09142026h)确认这一构建是 Xcode 27 正式版。当前修复 IPA 对应源码 `b6c921ba598ec17c50de8875838745dc16581610`，大小 2,807,240 字节；哈希、运行记录及验收边界见 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)。manifest 记录干净源码身份及 11 项构建输入的 Git 对象，交付时逐项核验。此前源码的 GitHub Actions [38681297253](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38681297253) 已通过；该历史运行不代表当前概览修复的云端验收。
 
 ## 验证码桥接
 
@@ -60,6 +60,6 @@ Mac 已使用 `27A266a` 完成上述全流程；[Apple 的正式发布记录](ht
 
 适配目标是当前自用 Sub2API 源码 `40bee5d2e`，并未宣称兼容所有官方版本。API/错误和兼容边界见 [`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md)，验收清单见 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)。
 
-已观察通过：Mac Apple Swift 6.4 的 21 项核心测试、4 项同源凭据协调测试、iPhone 18 Pro / iOS 27 模拟器的 6 项界面测试，以及 Apple SDK 下的 Debug 模拟器与 Release arm64 设备构建。配套 Web 桥接 47 项测试和生产构建通过。界面测试使用隔离数据，不代替真实站点、Keychain 持久化和签名后 iPhone 验收。
+已观察通过：Mac Apple Swift 6.4 的 27 项核心测试、4 项同源凭据协调测试、iPhone 18 Pro / iOS 27 模拟器的 7 项界面测试，以及 Apple SDK 下的 Debug 模拟器与 Release arm64 设备构建。概览回归覆盖明细超时不阻断基础统计、局部重试、切回页面及迟到请求取消。配套 Web 桥接此前 47 项测试和生产构建通过，本次未修改桥接。界面测试使用隔离数据，不代替真实站点、Keychain 持久化和签名后 iPhone 验收。
 
 余额操作在首次发送前持久化 UUID 和原始 Decimal 请求，网络结果不明时保留并复用原请求；不会对管理写入自动重试。退出后新登录分配新的身份连接，旧身份的未决请求仅供 Web 对账，不会在新身份重放。账号测试只有收到明确 `test_complete` 成功事件才判成功，EOF 不能代表成功。
