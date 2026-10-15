@@ -1,6 +1,6 @@
 # 构建与真机验收
 
-2026 年 10 月 15 日，Mac 执行 `python3 scripts/build.py all` 最终全流程退出 0，已生成概览独立自动加载、紧凑等高卡片和固定左侧时间边界缩放版的未签名 iPhone IPA。构建源码为 `77a246253053d1cce86a88c98efd65ecf7938290`，运行记录位于 `build/runs/20261015T073815Z-46faa0c1/`。
+2026 年 10 月 15 日，Mac 执行 `python3 scripts/build.py all` 全流程退出 0，已生成四卡费用嵌入版未签名 iPhone IPA。当前四卡版 IPA 对应干净源码 `e0bf7e54112d7ee695de7b9e85eeb527d03c29f8`，运行记录 `20261015T081613Z-5f322d22`，大小 2,970,688 字节，SHA-256 为 `1ea50fb7d852a38fc39c394583027b3b0b7ecc352e24010d8da30e28bd46d786`。Mac 全流程退出 0：57 项核心、4 项凭据、15 项 UI 测试和 Release arm64 设备构建通过。
 
 构建验收和签名后真机验收独立记录。下表未完成项不得以源码存在或静态检查替代。
 
@@ -8,32 +8,32 @@
 | --- | --- |
 | 正式工具链身份 | 本次 Mac 报告 Xcode 27.0 / `27A266a` / Apple Swift 6.4；该构建为 Apple 公布的正式版；本次 Linux Core 使用 Swift 6.4.1 RELEASE |
 | 工具链守卫 | Mac 正式工具链检查通过；Python 守卫单测 6 项通过 |
-| Swift 6.4 核心合同测试 | Mac Apple Swift 6.4 下 52 项通过；新增 4 项测试函数覆盖 Decimal 两位金额舍入、原值精度与 Tokens K/M/B；此前认证、费用、时间桶与缩放等回归保留 |
+| Swift 6.4 核心合同测试 | Mac Apple Swift 6.4 下 57 项通过；新增累计请求 Int/可选字段、累计快照完整配对和 21 组精确 Decimal 卡片金额测试，保留此前认证、费用、时间桶与缩放回归 |
 | 凭据撤销与并发提交 | 4 项通过；同一 CredentialVault 源码的 memoryOnly 路径，验证旧刷新/旧退出/旧候选不能覆盖或删除新凭据，站点相互隔离 |
 | 原生 Swift / Apple SDK 编译 | Debug 模拟器与 Release iPhone 设备构建通过 |
 | 验证码桥接 | 37 项新增 + 10 项路由回归通过；typecheck、改动 ESLint、生产构建通过 |
 | Xcode 工程与共享 scheme | 实际 xcodebuild 测试、设备构建通过；保留 xcresult |
-| iOS 模拟器 UI 测试 | iPhone 18 Pro / iOS 27 下全部 15 项通过；新增自动加载、慢趋势独立显示、辅助大字体等高测试，更新趋势金额与 Tokens 断言；保留站点/身份、分页、退出及费用回归 |
-| 本次最终截图人工复核 | 28 张截图与 30 份文本附件已导出并重开校验；六卡标准 112pt、辅助 XXXL 约 279.333pt，标题与数值左上对齐；8× 已有两位金额标签，Tokens 的柱上、点选和明细使用 M 单位，慢趋势不阻塞统计和监控 |
-| 本次按钮动画核验 | 模拟器录屏逐帧确认第二柱宽 17 → 21 → 29 → 34 → 37 像素、柱顶高度不变；当前范围左侧时间边界保持 `10/14 00:00`；不是仅比较缩放前后截图 |
+| iOS 模拟器 UI 测试 | iPhone 18 Pro / iOS 27 下 15 项通过，覆盖四卡布局、今日/累计嵌入费用、累计请求、快照局部错误与重试，并保留自动加载、慢趋势、辅助大字体和图表交互回归 |
+| 本次最终截图人工复核 | 最终四卡截图和辅助功能记录复核通过；标准 112pt、辅助 XXXL 约 279.333pt；费用绿/金并有文字标签、最高 K 格式，今日请求附累计请求，趋势在运行健康前 |
+| 本次按钮动画核验 | 本次动画实现未改，沿用历史 `77a2462` / `20261015T073815Z-46faa0c1` 逐帧证据：第二柱宽 17 → 21 → 29 → 34 → 37 像素、柱顶高度不变、左侧时间边界固定；本次 15 项 UI 交互回归重新运行通过 |
 | iphoneos arm64 Release / 未签名 IPA | 已产出；设备平台、arm64、ZIP、Bundle ID 和最低 iOS 17 校验通过 |
 | 未签名状态 | 无嵌入 provisioning / `_CodeSignature`；codesign 检查退出 1，输出 `code object is not signed at all` |
 | 构建源码身份 | manifest 记录干净源码、commit 及 11 项构建输入 Git 对象；构建前后身份一致 |
-| GitHub Actions Linux Core | 同一最终源码的 PR 38700023683 / job 116306163881 与 push 38700020721 / job 116306142815 均成功，各通过 52 核心 + 4 凭据测试及原生语法解析 |
+| GitHub Actions Linux Core | 同一最终源码的 PR 38704373188 / job 116320005400 与 push 38704364088 / job 116319975342 均成功，各通过 57 核心 + 4 凭据测试及原生语法解析 |
 | GitHub Actions iOS | 历史运行 38681297253 全部成功；最终源码的两个运行只记录 Linux Core 已完成，不宣称云端 iOS job 已完成；IPA 采用完整 Mac 构建证据 |
 | 签名后 iPhone | 未运行；证书保留在用户本地 |
 | 真实验证码服务 | 未运行；现有验证码测试为受控 proof/组件与路由测试 |
 | 测试站点管理写入 | 未运行；当前测试使用受控传输，不操作生产数据 |
 
-交付 IPA：`build/artifacts/Sub2Mobile-unsigned.ipa`，2,956,806 字节，Bundle ID 为 `com.chengzixqq.sub2mobile`。SHA-256：
+交付 IPA：`build/artifacts/Sub2Mobile-unsigned.ipa`，2,970,688 字节，Bundle ID 为 `com.chengzixqq.sub2mobile`。SHA-256：
 
 ```text
-d9e69ac20cf282580180c660deb56c432994855e58888d7680795f4e83b6a155
+1ea50fb7d852a38fc39c394583027b3b0b7ecc352e24010d8da30e28bd46d786
 ```
 
 同目录保留 `SHA256SUMS`、`manifest.json`、`toolchain.json`。构建输入对象随 manifest 保存；交付文档或辅助脚本之后的提交若与构建 commit 不同，交付检查仍逐项核对这些输入，并明确记录两个 revision。
 
-最终源码的 Linux Core 验证：[PR 38700023683](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38700023683) 与 [push 38700020721](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38700020721) 均使用 `swift:6.4-noble`、Swift 6.4.1 RELEASE，各通过 52 项核心和 4 项凭据测试。两个运行的云端 iOS job 在收集时仍为 `in_progress`，本次没有等待或据此宣称成功。
+同一源码的 GitHub Actions PR [38704373188](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38704373188) 和 push [38704364088](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38704364088) 的 Linux Core job 均成功，各通过 57 项核心、4 项凭据测试及原生语法解析；这不代表云端 iOS job 已完成，IPA 采用完整 Mac 构建证据。
 
 历史独立云端运行：[38681297253](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38681297253) 于 2026 年 10 月 15 日完成，整体和两个 job 均为 success；对应此前原生构建，不含当前概览修复。更早运行 [38677142697](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38677142697) 曾因旧守卫将 `27A266a` 误判为预发布而失败；[Apple 正式发布记录](https://developer.apple.com/news/releases/?id=09142026h)已确认正式版身份，守卫已修正。
 
@@ -55,11 +55,11 @@ MODIFIED: TREND_REGRESSION actual=12.345678910123456789 standard=99.99
 ROLLBACK: TREND_REGRESSION actual=unavailable standard=99.99
 ```
 
-当前模拟器测试通过：基础统计、小时趋势和监控无需点击即独立加载；延迟趋势不会阻塞已成功的统计和监控。各分区前台完成后间隔 30 秒独立刷新，下拉并发刷新；离开或后台取消旧请求，局部错误仍可单独重试。六张概要卡片标准字号和辅助功能 XXXL 字号下均等高。
+当前模拟器测试通过：基础统计、小时趋势和监控无需点击即独立加载；延迟趋势不会阻塞已成功的统计和监控。各分区前台完成后间隔 30 秒独立刷新，下拉并发刷新；离开或后台取消旧请求，局部错误仍可单独重试。四张概要卡片为今日请求、今日 Tokens、总 Tokens 和性能指标，标准字号实测均为 112pt，辅助功能 XXXL 字号均约 279.333pt，并使用单列布局；标题与数值左上对齐。今日请求底部显示 `total_requests` 全站累计请求，缺失显示不可用。今日/总 Tokens 底部分别显示今日/累计实际费用和上游成本，用绿色/金色区分，并提供“今日/累计实际费用”“今日/累计上游成本”辅助功能文字。费用行空间不足时改为两行；独立费用卡已移除，用量趋势排在运行健康之前。
 
-本次最终画面已人工核验：标准字号六卡均为 112pt（上一轮为 136pt），辅助 XXXL 均约 279.333pt（上一轮约 325pt），并切换单列；标题和数值左上对齐。标准性能卡的标题、RPM、TPM 和“最近 5 分钟平均”四行均可见。辅助 XXXL 的性能卡在留存截图中部分超出屏幕及底部浮动标签栏，辅助功能布局记录核验四行均位于卡片边界内，不宣称该截图同时显示完整四行。8× 的非最大缩放已显示 `$0.10` 等两位金额，点选与明细显示 `$0.10` / `$0.11`，Tokens 柱上、点选及明细显示 `1.00M` / `1.01M` 等。慢趋势用例在趋势仍加载时已显示请求数 128 与 QPS 0.2，随后趋势自动出现。
+本次四卡最终画面和辅助功能记录已人工核验，标准 112pt、辅助 XXXL 约 279.333pt。费用绿/金与辅助标签、总请求、四卡等高及两行适配见外部 `dashboard-polish/embedded-costs-final-screenshots/SCREENSHOT_REVIEW.json`。此前 `77a2462` 六卡截图、`dashboard-polish/compact-screenshots/SCREENSHOT_REVIEW.json` 及更早截图保留为历史，不替代本次四卡截图。
 
-最终录屏在实际解码时间 20.993333、21.138333、21.200000、21.250000、21.300000 秒可见第二柱宽 17、21、29、34、37 像素；首柱和第二柱的顶部分别保持 2076、2072 像素，后续柱向右展开。录屏当前范围由 `10/14 00:00 — 10/15 12:00` 变为 `10/14 00:00 — 10/14 18:00`；8× 和最大档 12× 的辅助功能记录分别为 `10/14 00:00 — 10/14 04:30` 与 `10/14 00:00 — 10/14 03:00`。这些结果证明所观察过程固定左侧时间边界；首个可见柱边缘仍有 202–204 像素的栅格差异，不宣称像素坐标绝对不变。静态截图本身不证明计时器；B 值趋势由核心格式测试覆盖，长趋势截图使用 M 值。最终证据保留在外部 `dashboard-polish/compact-screenshots/SCREENSHOT_REVIEW.json` 和 `dashboard-polish/animation/20261015T073815Z-46faa0c1/ANIMATION_VERIFICATION.json`；上一轮截图及 `20261015T070133Z-141fcdc1` 录屏继续保留为历史。少量部分可见的边缘柱标签会随滚动裁切，完整桶仍可通过点选和明细查看。
+历史 `77a2462` / `20261015T073815Z-46faa0c1` 录屏在实际解码时间 20.993333、21.138333、21.200000、21.250000、21.300000 秒可见第二柱宽 17、21、29、34、37 像素；首柱和第二柱的顶部分别保持 2076、2072 像素，后续柱向右展开。录屏当前范围由 `10/14 00:00 — 10/15 12:00` 变为 `10/14 00:00 — 10/14 18:00`；8× 和最大档 12× 的辅助功能记录分别为 `10/14 00:00 — 10/14 04:30` 与 `10/14 00:00 — 10/14 03:00`。这些结果证明所观察过程固定左侧时间边界；首个可见柱边缘仍有 202–204 像素的栅格差异，不宣称像素坐标绝对不变。静态截图本身不证明计时器；B 值趋势由核心格式测试覆盖，长趋势截图使用 M 值。最终证据保留在外部 `dashboard-polish/compact-screenshots/SCREENSHOT_REVIEW.json` 和 `dashboard-polish/animation/20261015T073815Z-46faa0c1/ANIMATION_VERIFICATION.json`；上一轮截图及 `20261015T070133Z-141fcdc1` 录屏继续保留为历史。少量部分可见的边缘柱标签会随滚动裁切，完整桶仍可通过点选和明细查看。 本次未修改动画实现，沿用这一逐帧证据；当前源码重新运行 15 项 UI 测试通过，不宣称该旧录屏来自新四卡构建。
 
 趋势仍默认实际消费，`DashboardTrendMetric.displayValue` 将所有可见金额以 Decimal 四舍五入到两位小数，Tokens 使用 K/M/B，请求数为整数；原始金额和计数保留。达到 6× 或可见窗口不超过 6 个桶时显示柱标签，最大放大仍为 3 桶；横滑、双指、点选及明细回归通过。按钮使用 0.3 秒显式缩放倍数插值，由倍数计算可见窗口，并固定当前左侧时间边界；到达最大档时取消主动取整横向位置。“减弱动态效果”开启时不播放。
 
@@ -67,9 +67,11 @@ ROLLBACK: TREND_REGRESSION actual=unavailable standard=99.99
 
 初次完整构建 `20261015T065947Z-6e56d794` 的动画组件触发 Swift 6 actor 隔离编译错误，退出 65；改为 nonisolated 值类型、保留 MainActor 的 body 后，当前完整构建退出 0。原错误日志保留。
 
+四卡首轮源码 `0ba837d` / `20261015T080627Z-8768bd2d` 的第 7 项 UI 用例仍按旧页面顺序向下查找已前置的趋势图，发生滚动方向断言失败。仅修正该用例的导航方向后，最终干净源码重新运行完整 15 项 UI 测试通过；原失败运行保留，不从失败运行交付 IPA。
+
 随后 Linux Core 暴露跨平台显示差异：历史运行 38697907880 和 38697902459 的 52 项核心测试中，5 项函数共出现 14 个问题，4 项凭据测试仍通过。同一 `NumberFormatter` 固定小数路径在该 Linux Foundation 上输出多余小数，例如 `1.2345K`、`$12.345679`，而 Mac 通过。最终版将共享显示舍入/补零改为 `NSDecimalRound` 与十进制字符串处理，保留 Decimal 原值、紧凑单位和既有测试预期；最终两次 Linux Core 及本次完整 Mac 构建均通过。诊断、原失败日志与中间修复构建继续保留在外部 `dashboard-polish/ci-diagnosis/` 和 `dashboard-polish/portable-build-evidence/`，不以最终成功覆盖历史失败。
 
-基础统计缺少账号成本时仍独立请求仅含 stats 的 snapshot，失败保留基础统计并在费用区重试。费用快照显示独立更新时间，视图重绘时按 90 秒检查过期，并非严格计时失效。上述结果来自受控测试，真实站点显示与签名后 iPhone 仍待验收。
+概览实际费用表示用户扣费，上游成本表示账号成本；今日和累计分别使用各自字段。基础统计返回 `total_requests`、`total_actual_cost`，当前后端 `/stats` handler 遗漏今日和累计账号成本，客户端独立补取只含 stats 的 snapshot-v2。今日或累计任一费用字段缺失时，仅在该周期快照提供同次响应的完整实际/成本对时整体替换；快照失败或不完整时保留基础统计已知值，缺失项显示不可用，不跨响应拼接成完整对，也不用标准计费或零值代替。费用快照附独立更新时间；视图重绘时判定超过 90 秒为过期，该判断并非严格计时失效。卡片金额使用 `compactCost(Decimal?)`：Decimal 全程舍入，固定两位，>=1000 最高使用 K，例如 `$45.08K`、`$3872.50K`；Tokens 继续使用 K/M/B，原始数值不变。 上述结果来自受控测试，真实站点显示与签名后 iPhone 仍待验收。
 
 可在相同正式工具链上运行 `python3 scripts/build.py all` 复验，保存 `build/` 中的日志、工具链和 xcresult。任何测试或平台校验失败都阻断 IPA 交付。当前 IPA 需本地签名后安装，以下真机和真实服务清单仍待完成。
 
