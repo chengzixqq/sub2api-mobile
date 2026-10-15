@@ -63,6 +63,22 @@ func overviewCostDisplayMatchesWebWithoutDoubleConversion(raw: String, expected:
     #expect(DashboardPresentation.cost(Decimal(string: raw)) == expected)
 }
 
+@Test(arguments: [
+    ("0", "$0.00"), ("1", "$1.00"), ("0.004", "$0.00"), ("0.005", "$0.01"),
+    ("1.005", "$1.01"), ("-1.005", "$-1.01"), ("-0.004", "$0.00"),
+    ("999.995", "$1000.00"), ("12345678901234567890.125", "$12345678901234567890.13")
+])
+func moneyDisplayUsesDecimalCentsWithoutCompactCurrency(raw: String, expected: String) {
+    let amount = Decimal(string: raw)
+    #expect(DashboardPresentation.money(amount) == expected)
+    #expect(amount == Decimal(string: raw))
+}
+
+@Test func moneyDisplayPreservesUnavailableValues() {
+    #expect(DashboardPresentation.money(nil) == "不可用")
+    #expect(DashboardPresentation.money(.nan) == "不可用")
+}
+
 @Test func overviewDurationUsesMillisecondsAndSeconds() {
     #expect(DashboardPresentation.duration(42.4) == "42ms")
     #expect(DashboardPresentation.duration(42.5) == "43ms")

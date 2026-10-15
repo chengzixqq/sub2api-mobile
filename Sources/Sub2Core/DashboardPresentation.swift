@@ -32,6 +32,18 @@ public enum DashboardPresentation {
         return "$" + fixed(value, digits: digits)
     }
 
+    /// A full currency amount rounded for display only. Keep rounding in Decimal
+    /// so values beyond Double's integer precision retain their correct cents.
+    public static func money(_ value: Decimal?) -> String {
+        guard var value, !value.isNaN else { return "不可用" }
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &value, 2, .plain)
+        let text = NSDecimalNumber(decimal: rounded == 0 ? 0 : rounded).stringValue
+        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
+        let cents = parts.count == 2 ? String((String(parts[1]) + "00").prefix(2)) : "00"
+        return "$" + String(parts[0]) + "." + cents
+    }
+
     public static func duration(_ milliseconds: Double?) -> String {
         guard let milliseconds, milliseconds.isFinite, milliseconds >= 0 else { return "不可用" }
         if milliseconds >= 1_000 {

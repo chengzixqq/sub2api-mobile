@@ -18,9 +18,12 @@ private func trendPoint(_ date: String = "2026-10-15 08:00", requests: Int = 12,
     #expect(DashboardTrendMetric.actualCost.unit == "USD")
     #expect(DashboardTrendMetric.requests.label == "请求数")
     #expect(DashboardTrendMetric.actualCost.exactValue(point) == "$12.345678910123456789")
+    #expect(DashboardTrendMetric.actualCost.displayValue(point) == "$12.35")
     #expect(DashboardTrendMetric.actualCost.plotValue(point) != 99.99)
     #expect(DashboardTrendMetric.requests.exactValue(point) == "12")
+    #expect(DashboardTrendMetric.requests.displayValue(point) == "12")
     #expect(DashboardTrendMetric.tokens.exactValue(point) == "9876543210")
+    #expect(DashboardTrendMetric.tokens.displayValue(point) == "9.88B")
 }
 
 @Test func trendMissingActualSpendStaysUnavailableAndOtherMetricsStillWork() throws {
@@ -32,6 +35,7 @@ private func trendPoint(_ date: String = "2026-10-15 08:00", requests: Int = 12,
         let point = try JSONDecoder().decode(TrendPoint.self, from: Data(input.utf8))
         #expect(point.actualCost == nil)
         #expect(DashboardTrendMetric.actualCost.exactValue(point) == "不可用")
+        #expect(DashboardTrendMetric.actualCost.displayValue(point) == "不可用")
         #expect(DashboardTrendMetric.actualCost.plotValue(point) == nil)
         #expect(DashboardTrendMetric.requests.plotValue(point) == 12)
         #expect(DashboardTrendMetric.tokens.plotValue(point) == 340)
@@ -40,6 +44,7 @@ private func trendPoint(_ date: String = "2026-10-15 08:00", requests: Int = 12,
     #expect(oldInitializer.actualCost == nil)
     let invalid = TrendPoint(date: "2026-10-15", requests: 1, totalTokens: 2, cost: 99, actualCost: .nan)
     #expect(DashboardTrendMetric.actualCost.exactValue(invalid) == "不可用")
+    #expect(DashboardTrendMetric.actualCost.displayValue(invalid) == "不可用")
     #expect(DashboardTrendMetric.actualCost.plotValue(invalid) == nil)
 }
 
@@ -55,9 +60,36 @@ func trendSelectedAmountPreservesDecimalPrecision(raw: String) throws {
 @Test func trendSelectedCountsRemainExactBeyondDoubleIntegerPrecision() throws {
     let point = trendPoint(requests: 9_007_199_254_740_993, tokens: Int.max)
     #expect(DashboardTrendMetric.requests.exactValue(point) == "9007199254740993")
+    #expect(DashboardTrendMetric.requests.displayValue(point) == "9007199254740993")
     #expect(DashboardTrendMetric.tokens.exactValue(point) == String(Int.max))
     let coordinate = try #require(DashboardTrendMetric.requests.plotValue(point))
     #expect(DashboardTrendMetric.requests.exactValue(point) != String(format: "%.0f", coordinate))
+}
+
+@Test(arguments: [
+    ("0", "$0.00"), ("0.0000000000000000000000000001", "$0.00"),
+    ("0.0049999999999999999999999999", "$0.00"), ("0.005", "$0.01"),
+    ("1.0049999999999999999999999999", "$1.00"), ("1.005", "$1.01"),
+    ("12.345678910123456789", "$12.35"), ("1000", "$1000.00"),
+    ("12345678901234567890.125", "$12345678901234567890.13")
+])
+func trendAmountDisplayRoundsToCentsWithoutChangingSource(raw: String, expected: String) {
+    let point = trendPoint(actual: raw)
+    #expect(DashboardTrendMetric.actualCost.displayValue(point) == expected)
+    #expect(point.actualCost == Decimal(string: raw))
+    #expect(DashboardTrendMetric.actualCost.exactValue(point) == "$" + raw)
+}
+
+@Test(arguments: [
+    (0, "0"), (999, "999"), (1_000, "1.00K"), (1_234, "1.23K"),
+    (1_000_000, "1.00M"), (1_234_567, "1.23M"),
+    (1_000_000_000, "1.00B"), (9_876_543_210, "9.88B")
+])
+func trendTokenDisplayUsesCompactUnitsAndRetainsRawCount(tokens: Int, expected: String) {
+    let point = trendPoint(tokens: tokens)
+    #expect(DashboardTrendMetric.tokens.displayValue(point) == expected)
+    #expect(point.totalTokens == tokens)
+    #expect(DashboardTrendMetric.tokens.exactValue(point) == String(tokens))
 }
 
 @Test func trendSortsBucketsAndKeepsLastDuplicateWithoutDoubleCounting() throws {

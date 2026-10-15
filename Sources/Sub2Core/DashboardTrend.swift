@@ -19,8 +19,18 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Complete values for selection details. Money never passes through Double
-    /// or the compact overview formatter, and missing actual spend stays missing.
+    /// Consistent labels for chart bars, selection details, and hourly rows.
+    /// Formatting never changes the original amount stored in the point.
+    public func displayValue(_ point: TrendPoint) -> String {
+        switch self {
+        case .actualCost: DashboardPresentation.money(point.actualCost)
+        case .requests: String(point.requests)
+        case .tokens: DashboardPresentation.compactNumber(point.totalTokens)
+        }
+    }
+
+    /// Raw values for data inspection and precision regression tests. Visible
+    /// trend labels use displayValue instead of exposing every Decimal digit.
     public func exactValue(_ point: TrendPoint) -> String {
         switch self {
         case .actualCost:
@@ -31,7 +41,7 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Chart coordinates are approximate; use exactValue for displayed details.
+    /// Chart coordinates are approximate; use displayValue for visible labels.
     public func plotValue(_ point: TrendPoint) -> Double? {
         let value: Double
         switch self {

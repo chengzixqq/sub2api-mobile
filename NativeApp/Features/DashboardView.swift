@@ -40,10 +40,24 @@ private final class DashboardLoadState<Value: Sendable> {
     }
 }
 
+/// Swift Charts' visible-domain length needs explicit interpolation when the
+/// zoom buttons change it; gestures continue to update without animation.
+private struct AnimatedTrendViewport: AnimatableModifier {
+    var duration: TimeInterval
+    var animatableData: Double {
+        get { duration }
+        set { duration = newValue }
+    }
+    func body(content: Content) -> some View {
+        content.chartXVisibleDomain(length: duration)
+    }
+}
+
 /// Native iOS 17 chart scrolling and selection keep horizontal panning separate
 /// from a tap; magnification and the buttons change the same visible time window.
 private struct DashboardTrendChart: View {
     let series: DashboardTrendSeries
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var metric = DashboardTrendMetric.actualCost
     @State private var zoom = 1.0
     @State private var gestureStartZoom: Double?
@@ -65,7 +79,7 @@ private struct DashboardTrendChart: View {
     private var visibleDuration: TimeInterval { span / zoom }
     private var visibleStart: Date { clampedStart(scrollDate, duration: visibleDuration) }
     private var visibleEnd: Date { min(endDate, visibleStart.addingTimeInterval(visibleDuration)) }
-    private var showBarValues: Bool { zoom >= maximumZoom || span <= bucketSeconds * 4 }
+    private var showBarValues: Bool { zoom >= 6 || visibleDuration <= bucketSeconds * 6 }
     private var selectedSample: DashboardTrendSample? {
         guard let selectedDate else { return nil }
         return series.samples.min {
@@ -76,7 +90,7 @@ private struct DashboardTrendChart: View {
     private var ticks: [Date] {
         let visible = series.samples.filter { $0.date >= visibleStart && $0.date < visibleEnd }
         guard let first = visible.first, let last = visible.last else { return [] }
-        if showBarValues { return visible.map(\.date) }
+        if visible.count <= 4 { return visible.map(\.date) }
         return Array(Set([first.date, visible[visible.count / 2].date, last.date])).sorted()
     }
     private var yDomain: ClosedRange<Double> {
@@ -112,13 +126,13 @@ private struct DashboardTrendChart: View {
                 if let sample = selectedSample {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(dateLabel(sample.date)) · \(metric.label)").font(.caption).foregroundStyle(.secondary)
-                        Text(exactLabel(sample)).font(.headline).monospacedDigit().textSelection(.enabled)
+                        Text(displayLabel(sample)).font(.headline).monospacedDigit().textSelection(.enabled)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading).padding(10)
                     .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.trend.selection")
                 } else {
-                    Text("点选柱子查看精确数值；放大后可左右滑动，双指缩放或使用按钮调整。")
+                    Text("点选柱子查看数值；放大后可左右滑动，双指缩放或使用按钮调整。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Button(series.isHourly ? "逐小时明细" : "逐日明细") { showingDetails = true }
@@ -139,13 +153,13 @@ private struct DashboardTrendChart: View {
 
     private var zoomControls: some View {
         HStack {
-            Button { changeZoom(zoom / 2) } label: { Image(systemName: "minus.magnifyingglass").frame(minWidth: 40, minHeight: 40) }
+            Button { animateZoom(zoom / 2) } label: { Image(systemName: "minus.magnifyingglass").frame(minWidth: 40, minHeight: 40) }
                 .accessibilityLabel("缩小趋势").accessibilityIdentifier("dashboard.trend.zoom-out").disabled(zoom <= 1)
             Spacer(minLength: 2)
             Text("放大 \(zoom.formatted(.number.precision(.fractionLength(0...1))))×")
                 .font(.subheadline).monospacedDigit().accessibilityIdentifier("dashboard.trend.zoom-level")
             Spacer(minLength: 2)
-            Button { changeZoom(zoom * 2) } label: { Image(systemName: "plus.magnifyingglass").frame(minWidth: 40, minHeight: 40) }
+            Button { animateZoom(zoom * 2) } label: { Image(systemName: "plus.magnifyingglass").frame(minWidth: 40, minHeight: 40) }
                 .accessibilityLabel("放大趋势").accessibilityIdentifier("dashboard.trend.zoom-in").disabled(zoom >= maximumZoom)
         }.buttonStyle(.bordered)
     }
@@ -159,12 +173,13 @@ private struct DashboardTrendChart: View {
                         .foregroundStyle(metric == .actualCost ? Color.purple.gradient : Color.indigo.gradient)
                         .annotation(position: .top, spacing: 4) {
                             if showBarValues {
-                                Text(metric.exactValue(sample.point)).font(.system(size: 10, design: .monospaced))
+                                Text(metric.displayValue(sample.point)).font(.system(size: 10, design: .monospaced))
                                     .lineLimit(1).minimumScaleFactor(0.7)
+                                    .transition(.opacity)
                             }
                         }
                         .accessibilityLabel(dateLabel(sample.date))
-                        .accessibilityValue(exactLabel(sample))
+                        .accessibilityValue(displayLabel(sample))
                 }
             }
             if let selectedSample, let value = metric.plotValue(selectedSample.point) {
@@ -178,7 +193,7 @@ private struct DashboardTrendChart: View {
         .chartYScale(domain: yDomain)
         .chartScrollableAxes(.horizontal)
         .chartScrollTargetBehavior(.valueAligned(matching: series.isHourly ? DateComponents(minute: 0) : DateComponents(hour: 0)))
-        .chartXVisibleDomain(length: visibleDuration)
+        .modifier(AnimatedTrendViewport(duration: visibleDuration))
         .chartScrollPosition(x: $scrollDate)
         .chartXSelection(value: $selectedDate)
         .chartGesture { proxy in
@@ -201,7 +216,7 @@ private struct DashboardTrendChart: View {
                 AxisGridLine()
                 AxisValueLabel {
                     if let value = value.as(Double.self) {
-                        Text(metric == .actualCost ? DashboardPresentation.cost(Decimal(value)) : DashboardPresentation.compactNumber(value))
+                        Text(metric == .actualCost ? DashboardPresentation.money(Decimal(value)) : DashboardPresentation.compactNumber(value))
                             .font(.caption2)
                     }
                 }
@@ -225,7 +240,7 @@ private struct DashboardTrendChart: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(dateLabel(sample.date)).font(.subheadline).foregroundStyle(.secondary)
-                        Text(exactLabel(sample)).font(.body.monospacedDigit()).foregroundStyle(.primary)
+                        Text(displayLabel(sample)).font(.body.monospacedDigit()).foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -236,12 +251,15 @@ private struct DashboardTrendChart: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingDetails = false } } }
         }
     }
-    private func exactLabel(_ sample: DashboardTrendSample) -> String {
-        metric.exactValue(sample.point) + (metric == .actualCost ? "" : " " + metric.unit)
+    private func displayLabel(_ sample: DashboardTrendSample) -> String {
+        metric.displayValue(sample.point) + (metric == .actualCost ? "" : " " + metric.unit)
     }
     private func dateLabel(_ date: Date) -> String { DashboardPresentation.trendAxisLabel(date, hourly: series.isHourly) }
     private func clampedStart(_ date: Date, duration: TimeInterval) -> Date {
         min(max(firstDate, date), max(firstDate, endDate.addingTimeInterval(-duration)))
+    }
+    private func animateZoom(_ next: Double) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) { changeZoom(next) }
     }
     private func changeZoom(_ next: Double) {
         let center = visibleStart.addingTimeInterval(visibleDuration / 2)
@@ -259,6 +277,8 @@ struct DashboardView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var summaryCardHeight = 104.0
     @State private var stats = DashboardLoadState<DashboardSummary>()
     @State private var costs = DashboardLoadState<DashboardCostSnapshot>()
     @State private var costAttemptAt: Date?
@@ -275,25 +295,26 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if let summary = stats.value {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)], spacing: 12) {
-                        MetricView(title: "今日请求", value: summary.stats.todayRequests.formatted(), symbol: "arrow.left.arrow.right")
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 300 : 150), alignment: .leading)], spacing: 12) {
+                        MetricView(title: "今日请求", value: summary.stats.todayRequests.formatted(), symbol: "arrow.left.arrow.right", contentHeight: summaryCardHeight)
                             .accessibilityIdentifier("dashboard.today-requests")
-                        MetricView(title: "今日 Tokens", value: DashboardPresentation.compactNumber(summary.stats.todayTokens), symbol: "text.alignleft")
+                        MetricView(title: "今日 Tokens", value: DashboardPresentation.compactNumber(summary.stats.todayTokens), symbol: "text.alignleft", contentHeight: summaryCardHeight)
                             .accessibilityIdentifier("dashboard.today-tokens")
-                        MetricView(title: "今日实际费用", value: DashboardPresentation.cost(currentCostSnapshot?.actual ?? summary.stats.todayActualCost), symbol: "dollarsign.circle")
+                        MetricView(title: "今日实际费用", value: DashboardPresentation.cost(currentCostSnapshot?.actual ?? summary.stats.todayActualCost), symbol: "dollarsign.circle", contentHeight: summaryCardHeight)
                             .accessibilityIdentifier("dashboard.today-actual-cost")
-                        MetricView(title: "今日账号成本", value: DashboardPresentation.cost(summary.stats.todayAccountCost ?? currentCostSnapshot?.account), symbol: "creditcard")
+                        MetricView(title: "今日账号成本", value: DashboardPresentation.cost(summary.stats.todayAccountCost ?? currentCostSnapshot?.account), symbol: "creditcard", contentHeight: summaryCardHeight)
                             .accessibilityIdentifier("dashboard.today-account-cost")
-                        MetricView(title: "总 Tokens", value: summary.stats.totalTokens.map { DashboardPresentation.compactNumber($0) } ?? "不可用", symbol: "sum")
+                        MetricView(title: "总 Tokens", value: summary.stats.totalTokens.map { DashboardPresentation.compactNumber($0) } ?? "不可用", symbol: "sum", contentHeight: summaryCardHeight)
                             .accessibilityIdentifier("dashboard.total-tokens")
                         performanceCard(summary.stats)
                     }.accessibilityIdentifier("dashboard.metrics")
                 }
                 if stats.isLoading {
                     ProgressView(stats.value == nil ? "正在加载基础统计…" : "正在更新基础统计…")
+                        .accessibilityIdentifier("dashboard.stats.loading")
                         .frame(maxWidth: .infinity).padding()
                     if stats.value == nil {
-                        Text("大站点首次统计可能较慢，请稍候。趋势与监控可单独加载。")
+                        Text("大站点首次统计可能较慢，各分区会独立加载并显示。")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
@@ -330,7 +351,7 @@ struct DashboardView: View {
                 }
                 GroupBox("用量趋势") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("昨日以来的小时趋势，按需加载。")
+                        Text("昨日以来的小时趋势，独立自动刷新。")
                             .font(.footnote).foregroundStyle(.secondary)
                         if let points = trend.value {
                             if points.isEmpty { Text("暂无趋势数据").foregroundStyle(.secondary) }
@@ -339,8 +360,8 @@ struct DashboardView: View {
                             }
                         }
                         sectionError(trend.error, identifier: "dashboard.trend.error") { Task { await loadTrend() } }
-                        if trend.isLoading { ProgressView("正在加载趋势…") }
-                        Button(trend.value == nil ? "加载趋势" : "刷新趋势") { Task { await loadTrend() } }
+                        if trend.isLoading { ProgressView("正在加载趋势…").accessibilityIdentifier("dashboard.trend.loading") }
+                        Button(trend.value == nil ? "重试趋势" : "刷新趋势") { Task { await loadTrend() } }
                             .accessibilityIdentifier("dashboard.trend.load").disabled(trend.isLoading)
                         if let date = trend.updatedAt { lastUpdated(date) }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
@@ -354,15 +375,18 @@ struct DashboardView: View {
                         }
                         if let snapshot = monitoring.value {
                             LabeledValue(label: "错误率", value: snapshot.errorRate.map { ($0 * 100).formatted(.number.precision(.fractionLength(0...2))) + "%" } ?? "不可用")
+                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.monitoring.error-rate")
                             LabeledValue(label: "QPS", value: snapshot.qps.map { $0.formatted(.number.precision(.fractionLength(0...2))) } ?? "不可用")
+                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.monitoring.qps")
                             LabeledValue(label: "活跃请求", value: snapshot.activeRequests.map(String.init) ?? "不可用")
+                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.monitoring.active-requests")
                         } else {
-                            Text("详细运行监控按需加载。")
+                            Text("运行监控独立自动刷新。")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                         sectionError(monitoring.error, identifier: "dashboard.monitoring.error") { Task { await loadMonitoring() } }
-                        if monitoring.isLoading { ProgressView("正在加载监控…") }
-                        Button(monitoring.value == nil ? "加载监控" : "刷新监控") { Task { await loadMonitoring() } }
+                        if monitoring.isLoading { ProgressView("正在加载监控…").accessibilityIdentifier("dashboard.monitoring.loading") }
+                        Button(monitoring.value == nil ? "重试监控" : "刷新监控") { Task { await loadMonitoring() } }
                             .accessibilityIdentifier("dashboard.monitoring.load").disabled(monitoring.isLoading)
                         if let date = monitoring.updatedAt { lastUpdated(date) }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
@@ -371,7 +395,12 @@ struct DashboardView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(model.activeProfile?.name ?? "概览")
-        .refreshable { await loadStats(forceCosts: true) }
+        .refreshable {
+            async let primary: Void = loadStats(forceCosts: true)
+            async let hourly: Void = loadTrend()
+            async let operations: Void = loadMonitoring()
+            _ = await (primary, hourly, operations)
+        }
         .onAppear { visible = true }
         .onDisappear { visible = false; cancelLoads() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { cancelLoads() } }
@@ -380,6 +409,20 @@ struct DashboardView: View {
             while !Task.isCancelled {
                 // A scheduled tick must not restart a slow pull-to-refresh.
                 if !stats.isLoading { await loadStats() }
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
+        }
+        .task(id: shouldPoll) {
+            guard shouldPoll else { return }
+            while !Task.isCancelled {
+                if !trend.isLoading { await loadTrend() }
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
+        }
+        .task(id: shouldPoll) {
+            guard shouldPoll else { return }
+            while !Task.isCancelled {
+                if !monitoring.isLoading { await loadMonitoring() }
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
         }
@@ -407,7 +450,7 @@ struct DashboardView: View {
                 .accessibilityIdentifier("dashboard.performance.tpm")
             Text("最近 5 分钟平均").font(.caption2).foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, minHeight: 85, alignment: .leading).padding()
+        .frame(maxWidth: .infinity).frame(height: summaryCardHeight, alignment: .leading).padding()
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
         .accessibilityElement(children: .contain).accessibilityIdentifier("dashboard.performance.card")
     }
@@ -451,11 +494,11 @@ struct DashboardView: View {
         await costs.load(isCurrent: { polling && generation == model.sessionGeneration }) { try await model.dashboardCostSnapshot() }
     }
     private func loadTrend() async {
-        guard let generation = session?.generation else { return }
+        guard !trend.isLoading, let generation = session?.generation else { return }
         await trend.load(isCurrent: { polling && generation == model.sessionGeneration }) { try await model.dashboardTrend() }
     }
     private func loadMonitoring() async {
-        guard let generation = session?.generation else { return }
+        guard !monitoring.isLoading, let generation = session?.generation else { return }
         await monitoring.load(isCurrent: { polling && generation == model.sessionGeneration }) { try await model.dashboardMonitoring() }
     }
 }
