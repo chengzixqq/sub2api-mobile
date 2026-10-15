@@ -174,6 +174,12 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [reversed], timeout: 5), .completed, app.debugDescription)
         dashboardDiagnostics(named: "dashboard-trend-horizontal-navigation")
 
+        reveal(chart)
+        chart.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard.trend.selection"].firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+        assertDashboardValue("dashboard.trend.selection", contains: ["实际消费", "$"])
+        dashboardDiagnostics(named: "dashboard-trend-chart-tap-selection")
+
         selectFirstTrendHour()
         let actual = assertDashboardValue("dashboard.trend.selection", contains: ["10/14", "00:00", "0.10000001"])
         XCTAssertFalse(actual.contains("9.10000001"), "The exact selected value must not use standard cost.")
@@ -203,6 +209,13 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertNotEqual(zoomLevel.label, priorZoom)
         XCTAssertTrue(zoomIn.isEnabled)
         dashboardDiagnostics(named: "dashboard-trend-zoomed-out")
+
+        reveal(chart, towardBottom: false)
+        let priorPinch = zoomLevel.label
+        chart.pinch(withScale: 0.6, velocity: -1)
+        let pinched = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", priorPinch), object: zoomLevel)
+        XCTAssertEqual(XCTWaiter.wait(for: [pinched], timeout: 5), .completed, app.debugDescription)
+        dashboardDiagnostics(named: "dashboard-trend-pinch-zoom")
     }
 
     @MainActor func testDashboardMissingAccountCostLoadsIndependentSnapshot() {

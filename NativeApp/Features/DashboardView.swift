@@ -83,7 +83,8 @@ private struct DashboardTrendChart: View {
         let values = series.samples.compactMap { metric.plotValue($0.point) }
         let lower = min(0, values.min() ?? 0)
         let upper = max(0, values.max() ?? 0)
-        return lower...max(lower + 0.001, upper == 0 ? 1 : upper * 1.25)
+        guard lower != 0 || upper != 0 else { return 0...1 }
+        return (lower * 1.25)...(upper * 1.25)
     }
 
     var body: some View {
