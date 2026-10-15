@@ -27,7 +27,7 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 概览金额明确区分 `today_actual_cost`（用户实际扣费）、`today_account_cost`（上游账号成本）和 `today_cost`（标准费用）；界面显示前两项，不用标准费用替代缺失值。当前 `/stats` handler 遗漏账号成本，因此仅在该字段缺失时，独立补取只含 stats 的 snapshot-v2（45 秒客户端预算，服务器共享计算预算仍为 30 秒）。费用请求不会阻塞基础统计，每次主统计完成后按 90 秒间隔检查是否需要更新，也可手动刷新；失败局部显示并保留基础数据。费用快照中的实际与成本成对显示，并标注单独更新时间；超过缓存有效期的值在下次页面刷新时显示不可用。服务端今日的边界由服务器决定，snapshot 请求日期/手机时区不能改变该统计日。
 
-累计 Tokens 使用 `total_tokens`，包含缓存 Tokens。今日和累计 Tokens 按 Web 的固定两位 K/M/B 格式缩写。顶部第 6 张卡片显示最近五分钟平均 RPM/TPM，替换原异常账号卡片；6 张概要卡片等高，内容高度随 Dynamic Type 缩放，辅助功能大字号提高最小列宽，让 iPhone 使用单列布局。异常账号移入“运行健康”，与累计请求平均响应时间并列。后者使用 `average_duration_ms`，单位毫秒，达到 1000 时转秒，不套用最近五分钟口径。新字段可缺，缺失或 null 显示不可用，畸形金额仍按协议错误处理。
+累计 Tokens 使用 `total_tokens`，包含缓存 Tokens。今日和累计 Tokens 按 Web 的固定两位 K/M/B 格式缩写。顶部第 6 张卡片显示最近五分钟平均 RPM/TPM，替换原异常账号卡片；6 张概要卡片等高，标题与数值左上对齐，标准字号实测由 136pt 缩至 112pt。内容高度随 Dynamic Type 缩放，辅助 XXXL 实测约 279.333pt；辅助功能大字号提高最小列宽，让 iPhone 使用单列布局。异常账号移入“运行健康”，与累计请求平均响应时间并列。后者使用 `average_duration_ms`，单位毫秒，达到 1000 时转秒，不套用最近五分钟口径。新字段可缺，缺失或 null 显示不可用，畸形金额仍按协议错误处理。
 
 趋势接口继续使用 GET `/admin/dashboard/trend`，查询范围不变；自动加载和前台轮询会发起请求。后端 `cost` 为标准计费，`actual_cost` 为用户实际消费；原生 `TrendPoint.actualCost` 为可选 Decimal，兼容原初始化接口。`actual_cost` 缺失或 null 时，实际消费显示不可用并跳过对应柱子，不使用 `cost`、零值或推算金额替代；请求数和 Tokens 指标仍可查看。响应中的重复日期桶保留最后一条，不累加重复的消费；非法日期单独提示并跳过。
 
@@ -35,7 +35,9 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 趋势桶 `yyyy-MM-dd HH:00` 按请求时区解析并排序，采用月/日与小时两行刻度，同时显示当前可见范围和完整起止时间。柱标签、点选读数和逐小时明细统一使用 `DashboardTrendMetric.displayValue`：金额通过 Decimal 四舍五入到固定两位小数，极小金额可显示 `$0.00`；Tokens 达到相应阈值后使用 K/M/B，选择和明细也采用相同格式；请求数保持完整整数。Y 轴金额同样显示两位小数；金额不缩写为 K。原始 Decimal 和整数不因显示格式而改变，`exactValue` 仅供原始数据与精度测试使用，只有绘图坐标转换为近似 Double。放大倍数达到 6×，或可见时间窗口不超过 6 个桶时，柱子显示数值；最大放大时仍为 3 个桶窗口，明细不依赖柱内标签的显示空间。
 
-图表交互使用 iOS 17 的原生 Swift Charts API：`chartScrollableAxes`、`chartXVisibleDomain`、`chartScrollPosition`、`chartXSelection` 和 `chartGesture`；双指手势与按钮共用可见时间窗口。加减按钮通过 `withAnimation` 执行 0.3 秒 ease-in-out 动画，显式 `AnimatableModifier` 插值 `chartXVisibleDomain` 的窗口长度；系统开启“减弱动态效果”时停用该动画。双指缩放连续更新窗口，不等待按钮动画或轮询。
+图表交互使用 iOS 17 的原生 Swift Charts API：`chartScrollableAxes`、`chartXVisibleDomain`、`chartScrollPosition`、`chartXSelection` 和 `chartGesture`；双指手势与按钮共用可见时间窗口。加减按钮通过 `withAnimation` 执行 0.3 秒 ease-in-out 动画，显式 `AnimatableModifier` 插值缩放倍数，再按该倍数计算 `chartXVisibleDomain`；左侧时间边界固定，到达最大放大档时也不主动取整横向位置。系统开启“减弱动态效果”时停用该动画。双指缩放连续更新窗口，不等待按钮动画或轮询。最终模拟器录屏观察到第二柱宽 17 → 21 → 29 → 34 → 37 像素、柱顶高度不变，范围左端保持 `10/14 00:00`；这是时间边界固定，首个可见柱栅格边缘仍有 2 像素差异。
+
+共享显示格式使用 `NSDecimalRound` 与十进制字符串舍入/补零，避免 Linux Foundation 的 `NumberFormatter` 固定小数行为差异；金额原值、单位阈值和接口字段不变。最终客户端源码 `77a246253053d1cce86a88c98efd65ecf7938290` 的 Mac 完整运行 `20261015T073815Z-46faa0c1` 通过 52 项核心、4 项凭据、15 项 UI 测试和设备构建，同一源码的两个 Linux Core job 也各通过 52 + 4。该结果验证受控契约与显示回归，不扩大本文件的后端版本兼容承诺。
 
 监控接口不可用时显示局部错误，不伪造零值；不会让监控失败抹去成功的概览。站点未提供必需字段时返回协议错误，避免默默填充不真实的统计值。服务端趋势查询本身还有 30 秒预算；客户端隔离慢查询不能替代服务器侧数据库优化。自动刷新、格式化与布局的受控测试不替代真实站点响应耗时或签名后 iPhone 验收。
 
