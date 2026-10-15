@@ -49,6 +49,7 @@ private struct CaptchaWebView: UIViewRepresentable {
         uiView.stopLoading()
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "sub2Captcha")
         uiView.navigationDelegate = nil
+        coordinator.invalidate()
     }
 
     @MainActor final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
@@ -56,9 +57,16 @@ private struct CaptchaWebView: UIViewRepresentable {
         private let completion: (Result<CaptchaProof, Error>) -> Void
         private let createdAt = Date()
         private var done = false
+        private var timeoutTask: Task<Void, Never>?
         init(request: CaptchaRequest, completion: @escaping (Result<CaptchaProof, Error>) -> Void) {
             self.request = request; self.completion = completion
+            super.init()
+            timeoutTask = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(180)) } catch { return }
+                self?.finish(.failure(AppFailure("安全验证已超时，请重新开始。")))
+            }
         }
+        func invalidate() { done = true; timeoutTask?.cancel(); timeoutTask = nil }
         private func sameOrigin(_ url: URL?) -> Bool {
             guard let url, let expected = URLComponents(url: request.server.baseURL, resolvingAgainstBaseURL: false),
                   let actual = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
@@ -67,7 +75,7 @@ private struct CaptchaWebView: UIViewRepresentable {
                 && actual.user == nil && actual.password == nil
         }
         private func finish(_ result: Result<CaptchaProof, Error>) {
-            guard !done else { return }; done = true; completion(result)
+            guard !done else { return }; done = true; timeoutTask?.cancel(); timeoutTask = nil; completion(result)
         }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard !done, Date().timeIntervalSince(createdAt) < 180,

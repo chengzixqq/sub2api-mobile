@@ -6,7 +6,8 @@
 | --- | --- |
 | 正式工具链守卫 | 已运行；拒绝云端 Xcode27 seed `27A266a`，退出 3 |
 | 工具链守卫单测 | 本机 Python 4 项通过 |
-| Swift 6.4 核心合同测试 | 已启动正式 Linux 编译；最终结果见 CI 和交付验证记录 |
+| Swift 6.4 核心合同测试 | 21 项通过，正式 Swift 6.4.1 Linux；含令牌刷新/取消、身份边界、余额精度/幂等与验证码消息解析 |
+| 原生 Swift 语法解析 | 12 个 app/UI test 文件通过；不含 Apple SDK 类型检查 |
 | 验证码桥接 | 37 项新增 + 10 项路由回归通过；typecheck、改动 ESLint、生产构建通过 |
 | Xcode 工程结构 | PBX、共享 scheme、Info.plist、工作流可解析；不代表 SwiftUI 编译通过 |
 | iOS 模拟器 UI 测试 | 被正式工具链守卫阻断，未运行 |

@@ -61,6 +61,31 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["站点 A"].waitForExistence(timeout: 10))
     }
 
+    @MainActor func testSameStationKeepsNewLoginAsSeparateIdentity() {
+        launch()
+        login(name: "管理员 A", url: "https://same.example.com")
+        app.tabBars.buttons["设置"].tap()
+        app.buttons["settings.add"].tap()
+        login(name: "管理员 B", url: "https://same.example.com")
+        app.tabBars.buttons["设置"].tap()
+        XCTAssertTrue(app.buttons["settings.site.管理员 A"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["settings.site.管理员 B"].exists)
+    }
+
+    @MainActor func testLogoutErasesCredentialInsteadOfRestoringSession() {
+        launch()
+        login(name: "站点 A", url: "https://a.example.com")
+        app.tabBars.buttons["设置"].tap()
+        app.buttons["settings.logout"].tap()
+        app.buttons["退出并清除凭据"].tap()
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 10))
+        app.swipeUp()
+        app.buttons["login.saved.站点 A"].tap()
+        XCTAssertTrue(app.alerts["操作未完成"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts.staticTexts["此站点凭据已清除，请重新登录。"].exists)
+        XCTAssertFalse(app.tabBars.buttons["概览"].exists)
+    }
+
     @MainActor private func login(name: String, url: String) {
         XCTAssertTrue(app.textFields["login.name"].waitForExistence(timeout: 10))
         enter(name, in: app.textFields["login.name"])

@@ -5,7 +5,7 @@ This file fixes interfaces shared by the parallel implementation. The source of 
 ## Ownership
 
 - Core agent: `Package.swift`, `Sources/Sub2Core/**`, `Tests/Sub2CoreTests/**`, `Fixtures/**`.
-- App agent: `App/**`, `UITests/**`.
+- App agent: `NativeApp/**`, `UITests/**`, credential coordination regression tests.
 - Root: Xcode project, scripts, CI, documentation, integration, verification artifacts.
 - Web bridge agent: isolated `G:/weixinProject/sub2-mobile-backend` worktree only.
 

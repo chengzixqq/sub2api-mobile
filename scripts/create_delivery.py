@@ -49,9 +49,9 @@ def main():
     rollback.chmod(0o755)
     check = [sys.executable, ROOT / "scripts/inspect_archive.py"]
     records.append("BASELINE behavior:")
-    run(check + [baseline_zip])
+    run(check + ["SOURCE.zip"], cwd=destination / "baseline")
     records.append("MODIFIED behavior:")
-    run(check + [modified_zip])
+    run(check + ["SOURCE.zip"], cwd=destination / "modified")
     scratch = destination / "rollback-check"
     scratch.mkdir(exist_ok=True)
     restored = scratch / "SOURCE.zip"
@@ -63,7 +63,7 @@ def main():
         raise SystemExit("A POSIX shell is required to execute rollback")
     run([bash, rollback.as_posix(), restored.as_posix()])
     records.append("ROLLBACK behavior (same inspector/input shape):")
-    run(check + [restored])
+    run(check + ["SOURCE.zip"], cwd=scratch)
     sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     assert sha(restored) == sha(baseline_zip), "Rollback hash mismatch"
     records.append("RESTORED_SHA256_EQUALS_BASELINE: true")
@@ -88,6 +88,7 @@ def main():
     verification = destination / "VERIFICATION.txt"
     verification.write_text("\n".join(records), encoding="utf-8")
     assert verification.read_text(encoding="utf-8")
+    (destination / "README.txt").write_text("MODIFIED_FILE.zip is the native source snapshot, NOT an IPA.\nDIFF_FILE.patch reconstructs that exact ZIP from BASELINE.zip:\n  cp BASELINE.zip SOURCE.zip\n  git apply --check -p2 DIFF_FILE.patch\n  git apply -p2 DIFF_FILE.patch\nROLLBACK.sh accepts a target ZIP copy and restores pristine BASELINE.zip bytes:\n  ./ROLLBACK.sh /absolute/path/to/SOURCE.zip\nKeep ROLLBACK.sh beside BASELINE.zip. The original repository is not modified.\nThe supplementary native-source.patch applies the code-tree change to legacy commit 3177500.\nVERIFICATION.txt contains actual commands, outputs, statuses, hashes, and CI logs.\n", encoding="utf-8")
     for path in (modified_zip, diff, verification, rollback):
         print(f"{path}\nSHA256 {sha(path)}\nBYTES {len(path.read_bytes())}")
 

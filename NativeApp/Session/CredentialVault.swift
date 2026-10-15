@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 import Sub2Core
 
 actor KeychainCredentialStore: CredentialStore {
@@ -11,6 +13,7 @@ actor KeychainCredentialStore: CredentialStore {
 
     func load(serverID: UUID) throws -> Credential? {
         if memoryOnly { return memoryValues[serverID] }
+        #if canImport(Security)
         var query = baseQuery(serverID)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -19,10 +22,14 @@ actor KeychainCredentialStore: CredentialStore {
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw VaultError(status) }
         return try JSONDecoder().decode(Credential.self, from: data)
+        #else
+        throw VaultError.unsupportedPlatform
+        #endif
     }
 
     func save(_ credential: Credential, serverID: UUID) throws {
         if memoryOnly { memoryValues[serverID] = credential; return }
+        #if canImport(Security)
         let data = try JSONEncoder().encode(credential)
         let query = baseQuery(serverID)
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
@@ -33,13 +40,20 @@ actor KeychainCredentialStore: CredentialStore {
             let added = SecItemAdd(item as CFDictionary, nil)
             guard added == errSecSuccess else { throw VaultError(added) }
         } else if status != errSecSuccess { throw VaultError(status) }
+        #else
+        throw VaultError.unsupportedPlatform
+        #endif
     }
 
     func remove(serverID: UUID) throws {
         leases.removeValue(forKey: serverID)
         if memoryOnly { memoryValues.removeValue(forKey: serverID); return }
+        #if canImport(Security)
         let status = SecItemDelete(baseQuery(serverID) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw VaultError(status) }
+        #else
+        throw VaultError.unsupportedPlatform
+        #endif
     }
 
     // Keychain calls and lease changes execute synchronously inside this one actor.
@@ -63,11 +77,13 @@ actor KeychainCredentialStore: CredentialStore {
         try save(credential, serverID: serverID)
     }
 
+    #if canImport(Security)
     private func baseQuery(_ id: UUID) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
          kSecAttrAccount as String: id.uuidString]
     }
+    #endif
 }
 
 struct LeasedCredentialStore: CredentialStore {
@@ -89,8 +105,12 @@ struct LeasedCredentialStore: CredentialStore {
 }
 
 private struct VaultError: LocalizedError {
-    let status: OSStatus
-    init(_ status: OSStatus) { self.status = status }
-    var errorDescription: String? { "无法访问本机安全凭据（\(status)）。请解锁设备后重试。" }
+    let status: Int32
+    static let unsupportedPlatform = VaultError(Int32.min)
+    init(_ status: Int32) { self.status = status }
+    var errorDescription: String? {
+        if status == Int32.min { return "当前平台不提供系统安全存储；仅允许显式内存测试模式。" }
+        return "无法访问本机安全凭据（\(status)）。请解锁设备后重试。"
+    }
 }
 

@@ -42,12 +42,13 @@ struct SettingsView: View {
                 Section("待确认余额请求") {
                     ForEach(model.pendingBalances) { item in
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("\(model.profiles.first { $0.id == item.serverID }?.name ?? "已移除站点") · 用户 #\(item.userID)")
+                            Text("\(model.profileForRecord(serverID: item.serverID)?.name ?? "原站点") · 用户 #\(item.userID)")
                             Text("\(item.operation.rawValue) \(money(item.amount))").font(.caption)
                             Text(item.id.uuidString).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                            if let profile = model.profileForRecord(serverID: item.serverID) { Link("打开原站点核对", destination: profile.baseURL).frame(minHeight: 44) }
                         }
                     }
-                    Text("切换到原站点并打开对应用户的余额页面，使用原操作编号重试。未决请求确认前无法删除站点。").font(.footnote).foregroundStyle(.secondary)
+                    Text("仍保存凭据的原身份可切换后打开对应用户，使用原操作编号重试。退出或删除凭据后的旧身份记录仅供 Web 核对；新增登录不能继承旧请求。").font(.footnote).foregroundStyle(.secondary)
                 }
             }
             Section("关于") {
@@ -61,7 +62,7 @@ struct SettingsView: View {
         .sheet(isPresented: $adding) { NavigationStack { LoginView() } }
         .confirmationDialog("删除站点？", isPresented: Binding(get: { removeProfile != nil }, set: { if !$0 { removeProfile = nil } }), titleVisibility: .visible) {
             Button("删除站点和凭据", role: .destructive) { if let profile = removeProfile { removeProfile = nil; Task { await model.remove(profile) } } }
-        } message: { Text("\(removeProfile?.name ?? "")\n站点配置和本机凭据将被清除；请先确认此站点所有未决余额请求。") }
+        } message: { Text("\(removeProfile?.name ?? "")\n站点配置和本机凭据将被清除。旧身份的未决余额记录仍保留，之后仅可在 Web 后台核对。") }
         .confirmationDialog("退出当前站点？", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("退出并清除凭据", role: .destructive) { Task { await model.logout() } }
         } message: { Text("\(model.activeProfile?.name ?? "")\n此设备上的登录凭据将被清除。") }

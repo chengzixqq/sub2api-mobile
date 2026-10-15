@@ -35,6 +35,7 @@ final class AppModel {
     @ObservationIgnored private var pendingCandidate: APIClient?
     @ObservationIgnored private var activeLease: UUID?
     @ObservationIgnored private var savedActiveID: UUID?
+    @ObservationIgnored private var profileArchive: [UUID: ServerProfile] = [:]
     private let pendingFileURL: URL?
     @ObservationIgnored private var pendingPersistenceAvailable = true
     var sessionContext: SessionContext? {
@@ -52,6 +53,7 @@ final class AppModel {
         if let data = defaults.data(forKey: "profiles") {
             profiles = (try? JSONDecoder().decode([ServerProfile].self, from: data)) ?? []
         }
+        if let data = defaults.data(forKey: "profileArchive") { profileArchive = (try? JSONDecoder().decode([UUID: ServerProfile].self, from: data)) ?? [:] }
         if let raw = defaults.string(forKey: "activeProfile") { savedActiveID = UUID(uuidString: raw) }
         if let pendingFileURL, FileManager.default.fileExists(atPath: pendingFileURL.path) {
             do { pendingBalances = try JSONDecoder().decode([PendingBalanceOperation].self, from: Data(contentsOf: pendingFileURL)) }
@@ -165,9 +167,7 @@ final class AppModel {
     }
 
     func remove(_ profile: ServerProfile) async {
-        guard !pendingBalances.contains(where: { $0.serverID == profile.id }) else {
-            errorMessage = "此站点仍有结果待确认的余额请求，请先处理原请求，再删除站点。"; return
-        }
+        if pendingBalances.contains(where: { $0.serverID == profile.id }) { profileArchive[profile.id] = profile }
         let wasActive = activeProfile?.id == profile.id
         if wasActive { await logout() }
         cancelConnection()
@@ -197,6 +197,8 @@ final class AppModel {
         guard !(error is CancellationError) else { return }
         errorMessage = error.localizedDescription
     }
+
+    func profileForRecord(serverID: UUID) -> ServerProfile? { profiles.first { $0.id == serverID } ?? profileArchive[serverID] }
 
     func requireClient() throws -> APIClient {
         guard let client else { throw AppFailure("请先连接站点。") }
@@ -239,6 +241,7 @@ final class AppModel {
     private func persistProfiles() {
         defaults.set(try? JSONEncoder().encode(profiles), forKey: "profiles")
         defaults.set(savedActiveID?.uuidString, forKey: "activeProfile")
+        defaults.set(try? JSONEncoder().encode(profileArchive), forKey: "profileArchive")
     }
     private func persistPending() throws {
         guard let pendingFileURL else { return }
