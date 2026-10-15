@@ -17,15 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check compiler
+        shell: bash
         run: |
           swift --version | tee compiler.txt
-          python3 - <<'PY'
-          import re
-          from pathlib import Path
-          text = Path('compiler.txt').read_text()
-          assert re.search(r'Swift version 6\.4(?:\.\d+)?\b', text), text
-          assert not re.search(r'beta|snapshot|preview|\bRC\b', text, re.I), text
-          PY
+          version=$(cat compiler.txt)
+          [[ "$version" =~ Swift\ version\ 6\.4(\.[0-9]+)?\  ]]
+          [[ "$version" == *-RELEASE* ]]
+          [[ ! "$version" =~ [Bb][Ee][Tt][Aa]|[Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt]|[Pp][Rr][Ee][Vv][Ii][Ee][Ww] ]]
       - name: Test core contracts
         run: swift test --parallel
   ios:
