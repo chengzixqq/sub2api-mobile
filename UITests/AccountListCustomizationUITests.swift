@@ -73,10 +73,148 @@ final class AccountListCustomizationUITests: XCTestCase {
         assertFields(groups: true, concurrency: true)
     }
 
-    @MainActor private func launch() {
+    @MainActor func testAccountRuntimeUsesOccupancyAndSeparatesUserChargeFromCost() {
+        launch()
+        defer { diagnostics("account-runtime-and-billing") }
+        login(name: "账号容量验收", email: "runtime@example.com")
+        showAccounts()
+        assertRowContains("在用并发：2")
+        assertRowContains("在用 RPM：37")
+        XCTAssertFalse(rowText().contains("在用并发：4"), rowText())
+        XCTAssertFalse(rowText().contains("在用 RPM：60"), rowText())
+        diagnostics("account-runtime-current-values-on-list")
+
+        openAccountDetail()
+        assertDetail("capacity", contains: "并发 2 / 4")
+        assertDetail("concurrency", contains: "2")
+        assertDetail("rpm", contains: "37")
+        assertDetail("user-cost", contains: "$0.31")
+        assertDetail("cost", contains: "$0.12")
+        XCTAssertFalse(element("account.detail.user-cost").label.contains("$0.12"))
+        XCTAssertFalse(element("account.detail.cost").label.contains("$0.31"))
+        diagnostics("account-detail-distinct-charge-and-cost")
+    }
+
+    @MainActor func testCapacityAndNewFieldsCanBeHiddenReorderedAndRestoredAcrossTabs() {
+        launch()
+        defer { diagnostics("account-capacity-field-customization") }
+        login(name: "容量字段验收", email: "capacity-fields@example.com")
+        showAccounts()
+        openEditor()
+        setField("rpm", enabled: false)
+        setField("capacity", enabled: false)
+        setField("todayStats", enabled: false)
+        finishEditor()
+        XCTAssertFalse(rowText().contains("容量："), rowText())
+        XCTAssertFalse(rowText().contains("在用 RPM："), rowText())
+        XCTAssertFalse(rowText().contains("今日统计："), rowText())
+
+        openEditor()
+        setField("rpm", enabled: true)
+        setField("accountID", enabled: true)
+        setField("capacity", enabled: true)
+        setField("todayStats", enabled: true)
+        setField("baseRPM", enabled: true)
+        moveFieldToFirst("capacity")
+        finishEditor()
+        assertRowContains("容量：")
+        assertRowContains("在用 RPM：37")
+        assertRowContains("账号 ID：1")
+        assertRowContains("基础 RPM 限额：60")
+        assertRowContains("$0.31")
+        assertRowContains("$0.12")
+        assertCapacityPrecedesPlatform()
+        diagnostics("account-capacity-and-today-stats-reordered")
+
+        app.tabBars.buttons["用户"].tap()
+        showAccounts()
+        assertRowContains("容量：")
+        assertRowContains("在用 RPM：37")
+        assertRowContains("今日统计：")
+        assertCapacityPrecedesPlatform()
+        openEditor()
+        for field in ["capacity", "rpm", "accountID", "todayStats", "baseRPM"] {
+            let toggle = app.switches["list-fields.accounts.\(field)"]
+            reveal(toggle)
+            XCTAssertEqual(toggle.value as? String, "1", field)
+        }
+        reveal(app.buttons["list-fields.accounts.capacity.up"], towardBottom: false)
+        XCTAssertFalse(app.buttons["list-fields.accounts.capacity.up"].isEnabled)
+        finishEditor()
+    }
+
+    @MainActor func testMissingRuntimeRPMStaysUnavailableDespiteConfiguredLimit() {
+        launch(arguments: ["-ui-account-runtime-missing"])
+        defer { diagnostics("account-runtime-missing-rpm") }
+        login(name: "缺失占用验收", email: "missing-rpm@example.com")
+        showAccounts()
+        assertRowContains("在用并发：2")
+        assertRowContains("在用 RPM：不可用")
+        XCTAssertFalse(rowText().contains("在用 RPM：0"), rowText())
+        XCTAssertFalse(rowText().contains("在用 RPM：60"), rowText())
+        diagnostics("account-list-missing-rpm-unavailable")
+        openAccountDetail()
+        assertDetail("rpm", contains: "不可用")
+        let rpm = element("account.detail.rpm").label
+        XCTAssertFalse(rpm.contains("60"), rpm)
+        XCTAssertFalse(rpm.contains("0"), rpm)
+        assertDetail("concurrency", contains: "2", towardBottom: false)
+    }
+
+    @MainActor func testTodayStatsFailureDoesNotBlockListOrDetailRuntime() {
+        launch(arguments: ["-ui-account-stats-error"])
+        defer { diagnostics("account-stats-failure-keeps-runtime") }
+        login(name: "统计隔离验收", email: "stats-error@example.com")
+        showAccounts()
+        openEditor()
+        setField("todayStats", enabled: true)
+        finishEditor()
+        let batchError = element("accounts.today-stats.error")
+        reveal(batchError)
+        XCTAssertTrue(batchError.label.contains("账号今日统计测试失败"), batchError.label)
+        reveal(app.buttons["account.1"], towardBottom: false)
+        assertRowContains("在用并发：2")
+        assertRowContains("在用 RPM：37")
+        diagnostics("account-batch-stats-error-keeps-list-runtime")
+        openAccountDetail()
+        assertDetail("concurrency", contains: "2")
+        assertDetail("rpm", contains: "37")
+        let detailError = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "账号今日统计测试失败")).firstMatch
+        reveal(detailError)
+        XCTAssertTrue(detailError.exists)
+        XCTAssertFalse(element("account.detail.user-cost").exists)
+        XCTAssertFalse(element("account.detail.cost").exists)
+    }
+
+    @MainActor func testSlowTodayStatsAllowsIndependentRuntimeRefresh() {
+        launch(arguments: ["-ui-account-slow-stats"])
+        defer { diagnostics("account-slow-stats-independent-runtime") }
+        login(name: "慢统计验收", email: "stats-slow@example.com")
+        showAccounts()
+        openAccountDetail()
+        assertDetail("concurrency", contains: "2")
+        assertDetail("rpm", contains: "37")
+        let updated = element("account.detail.runtime-updated")
+        reveal(updated)
+        XCTAssertTrue(updated.waitForExistence(timeout: 5), app.debugDescription)
+        let refresh = app.buttons["account.detail.reload-runtime"]
+        reveal(refresh)
+        XCTAssertTrue(refresh.isEnabled)
+        refresh.tap()
+        let completed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)
+        XCTAssertEqual(XCTWaiter.wait(for: [completed], timeout: 5), .completed)
+        diagnostics("account-runtime-refreshed-while-today-pending")
+        let pending = app.staticTexts["正在读取今日用量…"]
+        reveal(pending)
+        XCTAssertTrue(pending.exists, app.debugDescription)
+        XCTAssertFalse(element("account.detail.user-cost").exists)
+        XCTAssertFalse(element("account.detail.cost").exists)
+    }
+
+    @MainActor private func launch(arguments: [String] = []) {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["-ui-testing"]
+        app.launchArguments = ["-ui-testing"] + arguments
         app.launch()
     }
 
@@ -141,12 +279,62 @@ final class AccountListCustomizationUITests: XCTestCase {
         // stored outside the rendered account row.
         let text = row.label + " " + row.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " ")
         XCTAssertEqual(text.contains("分组："), groups, text, file: file, line: line)
-        XCTAssertEqual(text.contains("并发："), concurrency, text, file: file, line: line)
+        XCTAssertEqual(text.contains("在用并发："), concurrency, text, file: file, line: line)
         if groups {
             XCTAssertTrue(text.contains("标准分组"), text, file: file, line: line)
             XCTAssertTrue(text.contains("高级分组"), text, file: file, line: line)
         }
-        if concurrency { XCTAssertTrue(text.contains("并发：4"), text, file: file, line: line) }
+        if concurrency { XCTAssertTrue(text.contains("在用并发：2"), text, file: file, line: line) }
+    }
+
+    @MainActor private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    @MainActor private func rowText() -> String {
+        let row = app.buttons["account.1"]
+        return row.label + " " + row.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " ")
+    }
+
+    @MainActor private func assertRowContains(_ expected: String,
+                                             file: StaticString = #filePath, line: UInt = #line) {
+        let rendered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", expected),
+                                                 object: app.buttons["account.1"])
+        XCTAssertEqual(XCTWaiter.wait(for: [rendered], timeout: 10), .completed, rowText(), file: file, line: line)
+    }
+
+    @MainActor private func openAccountDetail() {
+        let row = app.buttons["account.1"]
+        reveal(row, towardBottom: false)
+        row.tap()
+        XCTAssertTrue(element("account.detail.capacity").waitForExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor private func assertDetail(_ field: String, contains expected: String, towardBottom: Bool = true,
+                                        file: StaticString = #filePath, line: UInt = #line) {
+        let value = element("account.detail.\(field)")
+        reveal(value, towardBottom: towardBottom)
+        let updated = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", expected), object: value)
+        XCTAssertEqual(XCTWaiter.wait(for: [updated], timeout: 10), .completed, value.label, file: file, line: line)
+    }
+
+    @MainActor private func moveFieldToFirst(_ name: String) {
+        for _ in 0..<30 {
+            let up = app.buttons["list-fields.accounts.\(name).up"]
+            reveal(up, towardBottom: false)
+            if !up.isEnabled { return }
+            up.tap()
+        }
+        XCTFail("Field did not reach the first position: \(name)")
+    }
+
+    @MainActor private func assertCapacityPrecedesPlatform(file: StaticString = #filePath, line: UInt = #line) {
+        let text = rowText()
+        guard let capacity = text.range(of: "容量："), let platform = text.range(of: "平台：") else {
+            XCTFail("Missing capacity/platform in rendered row: \(text)", file: file, line: line)
+            return
+        }
+        XCTAssertLessThan(capacity.lowerBound, platform.lowerBound, text, file: file, line: line)
     }
 
     @MainActor private func assertGroupsPrecedePlatform(file: StaticString = #filePath, line: UInt = #line) {

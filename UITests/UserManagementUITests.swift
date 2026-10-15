@@ -86,6 +86,7 @@ final class UserManagementUITests: XCTestCase {
         defer { diagnostics("users-fields-final") }
         app.tabBars.buttons["用户"].tap()
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
+        XCTAssertTrue(element("user.1.field.balance").label.contains("$12.50"), app.debugDescription)
         app.buttons["users.fields"].tap()
         reveal(app.buttons["list-fields.users.reset"])
         app.buttons["list-fields.users.reset"].tap()

@@ -26,7 +26,10 @@ enum DemoData {
                         priority: 7, rateMultiplier: Decimal(string: "0.5"), notes: "工作日上游",
                         lastUsedAt: "2026-10-15T08:00:00Z", expiresAt: 1_800_000_000,
                         createdAt: "2026-10-01T00:00:00Z", baseRPM: 60, quotaUsed: Decimal(string: "12.3456"),
-                        groupIDs: [10, 11], groups: [.init(id: 10, name: "标准分组"), .init(id: 11, name: "高级分组")]),
+                        groupIDs: [10, 11], groups: [.init(id: 10, name: "标准分组"), .init(id: 11, name: "高级分组")],
+                        currentConcurrency: 2, probeConcurrency: 1, currentRPM: 37,
+                        quotaLimit: 100, quotaDailyLimit: 20, quotaDailyUsed: Decimal(string: "3.45"),
+                        quotaWeeklyLimit: 80, quotaWeeklyUsed: Decimal(string: "8.90")),
         UpstreamAccount(id: 2, name: "测试上游 B", platform: "anthropic", type: "oauth", concurrency: 2)
     ]
     static let allUsers = [
@@ -36,6 +39,7 @@ enum DemoData {
         AdminUser(id: 2, email: "bob@example.com", username: "Bob", balance: 20, role: "user", concurrency: 2)
     ]
     static let keys = [UserAPIKey(id: 1, name: "开发密钥", key: "sk-fixture-secret", status: "active", quota: 100, quotaUsed: 2)]
+    static let accountStats = AccountTodayStats(requests: 12, tokens: 4200, cost: Decimal(string: "0.12")!, userCost: Decimal(string: "0.31"), standardCost: Decimal(string: "0.62"))
 
     static func accounts(page: Int, search: String, status: String?, platform: String?) -> Page<UpstreamAccount> {
         let matches = allAccounts.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && (status == nil || status == $0.status) && (platform == nil || platform == $0.platform) }

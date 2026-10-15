@@ -270,17 +270,36 @@ final class AppModel {
         let end = Date()
         return try await requireClient().dashboardPerformanceTrend(start: end.addingTimeInterval(-Double(hours) * 3_600), end: end)
     }
-    func accounts(page: Int, search: String, status: String?, platform: String?) async throws -> Page<UpstreamAccount> {
-        if isUITesting { return DemoData.accounts(page: page, search: search, status: status, platform: platform) }
-        return try await requireClient().accounts(page: page, search: search, status: status, platform: platform)
+    func accounts(page: Int, search: String, status: String?, platform: String?, includeSchedulerScore: Bool = false) async throws -> Page<UpstreamAccount> {
+        if isUITesting {
+            let result = DemoData.accounts(page: page, search: search, status: status, platform: platform)
+            return Page(items: result.items.map(accountFixture), total: result.total, page: result.page, pageSize: result.pageSize, pages: result.pages)
+        }
+        return try await requireClient().accounts(page: page, search: search, status: status, platform: platform, includeSchedulerScore: includeSchedulerScore)
     }
     func account(id: Int) async throws -> UpstreamAccount {
-        if isUITesting { return DemoData.allAccounts.first { $0.id == id }! }
+        if isUITesting { return accountFixture(DemoData.allAccounts.first { $0.id == id }!) }
         return try await requireClient().account(id: id)
     }
     func accountTodayStats(id: Int) async throws -> AccountTodayStats {
-        if isUITesting { return AccountTodayStats(requests: 12, tokens: 4200, cost: Decimal(string: "0.12")!) }
+        if isUITesting { try await accountStatsFixtureDelay(); return DemoData.accountStats }
         return try await requireClient().accountTodayStats(id: id)
+    }
+    func accountTodayStats(ids: [Int]) async throws -> [Int: AccountTodayStats] {
+        if isUITesting {
+            try await accountStatsFixtureDelay()
+            return Dictionary(uniqueKeysWithValues: Set(ids).map { ($0, DemoData.accountStats) })
+        }
+        return try await requireClient().accountTodayStats(ids: ids)
+    }
+    private func accountFixture(_ initial: UpstreamAccount) -> UpstreamAccount {
+        var account = initial
+        if ProcessInfo.processInfo.arguments.contains("-ui-account-runtime-missing") { account.currentRPM = nil }
+        return account
+    }
+    private func accountStatsFixtureDelay() async throws {
+        if ProcessInfo.processInfo.arguments.contains("-ui-account-slow-stats") { try await Task.sleep(for: .seconds(45)) }
+        if ProcessInfo.processInfo.arguments.contains("-ui-account-stats-error") { throw AppFailure("账号今日统计测试失败") }
     }
     func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser> {
         if isUITesting {

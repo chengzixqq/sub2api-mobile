@@ -83,7 +83,7 @@ struct UsersView: View {
         case .username: return user.username.flatMap { $0.isEmpty ? nil : $0 } ?? "未设置"
         case .role: return AdminUserRole(rawValue: user.role ?? "")?.title ?? user.role ?? "未知"
         case .status: return user.status == "active" ? "正常" : user.status == "disabled" ? "已禁用" : user.status
-        case .balance: return money(user.balance)
+        case .balance: return DashboardPresentation.money(user.balance)
         case .concurrency:
             if let maximum = user.concurrency {
                 let limit = maximum == 0 ? "不限制" : String(maximum)

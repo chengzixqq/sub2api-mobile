@@ -58,24 +58,34 @@ private struct StoredSelection: Codable { let version: Int; let order: [String];
 public enum AccountListField: String, ListField, Codable {
     case platform, authenticationType, groups, concurrency, priority, rateMultiplier, status, schedulable
     case expiresAt, lastUsedAt, createdAt, notes, rpm, usage
+    case accountID, capacity, todayStats, window, proxy, loadFactor, schedulerScore, upstreamBilling, baseRPM
     public static let storageNamespace = "accounts"
-    public static let defaultFields: [Self] = [.platform, .authenticationType, .groups, .concurrency, .status, .schedulable]
+    public static let defaultFields: [Self] = [.platform, .authenticationType, .groups, .concurrency, .capacity, .rpm, .status, .schedulable]
     public var title: String {
         switch self {
         case .platform: "平台"
         case .authenticationType: "认证类型"
         case .groups: "分组"
-        case .concurrency: "并发"
+        case .concurrency: "在用并发"
         case .priority: "优先级"
-        case .rateMultiplier: "倍率"
+        case .rateMultiplier: "账号倍率"
         case .status: "状态"
         case .schedulable: "调度"
         case .expiresAt: "过期时间"
         case .lastUsedAt: "最后使用"
         case .createdAt: "创建时间"
         case .notes: "备注"
-        case .rpm: "基础 RPM 限额"
+        case .rpm: "在用 RPM"
         case .usage: "配额已用"
+        case .accountID: "账号 ID"
+        case .capacity: "容量"
+        case .todayStats: "今日统计"
+        case .window: "用量窗口"
+        case .proxy: "代理"
+        case .loadFactor: "负载系数"
+        case .schedulerScore: "调度权值"
+        case .upstreamBilling: "上游声明倍率"
+        case .baseRPM: "基础 RPM 限额"
         }
     }
 }

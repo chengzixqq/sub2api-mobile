@@ -129,7 +129,11 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
     public var status: String
     public var schedulable: Bool
     public var errorMessage: String?
+    /// Configured request concurrency capacity; never substitute it for current use.
     public var concurrency: Int?
+    public var currentConcurrency: Int?
+    public var probeConcurrency: Int?
+    public var currentRPM: Int?
     public var priority: Int?
     public var rateMultiplier: Decimal?
     public var notes: String?
@@ -138,6 +142,23 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
     public var createdAt: String?
     public var baseRPM: Int?
     public var quotaUsed: Decimal?
+    public var quotaLimit: Decimal?
+    public var quotaDailyLimit: Decimal?
+    public var quotaDailyUsed: Decimal?
+    public var quotaWeeklyLimit: Decimal?
+    public var quotaWeeklyUsed: Decimal?
+    public var windowCostLimit: Decimal?
+    public var currentWindowCost: Decimal?
+    public var activeSessions: Int?
+    public var maxSessions: Int?
+    public var sessionWindowStart: String?
+    public var sessionWindowEnd: String?
+    public var sessionWindowStatus: String?
+    public var loadFactor: Int?
+    public var proxy: AccountProxy?
+    public var extra: AccountExtra?
+    public var schedulerScore: AccountSchedulerScore?
+    public var schedulerScores: [AccountSchedulerScore]?
     public var groupIDs: [Int]
     public var groups: [Group]
     public struct Group: Identifiable, Codable, Sendable, Equatable {
@@ -146,18 +167,34 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
         public init(id: Int, name: String) { self.id = id; self.name = name }
     }
     private struct GroupBinding: Decodable { let group: Group? }
-    public init(id: Int, name: String, platform: String, type: String, status: String = "active", schedulable: Bool = true, errorMessage: String? = nil, concurrency: Int? = nil, priority: Int? = nil, rateMultiplier: Decimal? = nil, notes: String? = nil, lastUsedAt: String? = nil, expiresAt: Int64? = nil, createdAt: String? = nil, baseRPM: Int? = nil, quotaUsed: Decimal? = nil, groupIDs: [Int] = [], groups: [Group] = []) {
+    public init(id: Int, name: String, platform: String, type: String, status: String = "active", schedulable: Bool = true, errorMessage: String? = nil, concurrency: Int? = nil, priority: Int? = nil, rateMultiplier: Decimal? = nil, notes: String? = nil, lastUsedAt: String? = nil, expiresAt: Int64? = nil, createdAt: String? = nil, baseRPM: Int? = nil, quotaUsed: Decimal? = nil, groupIDs: [Int] = [], groups: [Group] = [], currentConcurrency: Int? = nil, probeConcurrency: Int? = nil, currentRPM: Int? = nil, quotaLimit: Decimal? = nil, quotaDailyLimit: Decimal? = nil, quotaDailyUsed: Decimal? = nil, quotaWeeklyLimit: Decimal? = nil, quotaWeeklyUsed: Decimal? = nil, windowCostLimit: Decimal? = nil, currentWindowCost: Decimal? = nil, activeSessions: Int? = nil, maxSessions: Int? = nil, sessionWindowStart: String? = nil, sessionWindowEnd: String? = nil, sessionWindowStatus: String? = nil, loadFactor: Int? = nil, proxy: AccountProxy? = nil, extra: AccountExtra? = nil, schedulerScore: AccountSchedulerScore? = nil, schedulerScores: [AccountSchedulerScore]? = nil) {
         self.id = id; self.name = name; self.platform = platform; self.type = type; self.status = status
         self.schedulable = schedulable; self.errorMessage = errorMessage; self.concurrency = concurrency
         self.priority = priority; self.rateMultiplier = rateMultiplier; self.notes = notes; self.lastUsedAt = lastUsedAt
         self.expiresAt = expiresAt; self.createdAt = createdAt; self.baseRPM = baseRPM; self.quotaUsed = quotaUsed
         self.groupIDs = groupIDs; self.groups = groups
+        self.currentConcurrency = currentConcurrency; self.probeConcurrency = probeConcurrency; self.currentRPM = currentRPM
+        self.quotaLimit = quotaLimit; self.quotaDailyLimit = quotaDailyLimit; self.quotaDailyUsed = quotaDailyUsed
+        self.quotaWeeklyLimit = quotaWeeklyLimit; self.quotaWeeklyUsed = quotaWeeklyUsed
+        self.windowCostLimit = windowCostLimit; self.currentWindowCost = currentWindowCost
+        self.activeSessions = activeSessions; self.maxSessions = maxSessions
+        self.sessionWindowStart = sessionWindowStart; self.sessionWindowEnd = sessionWindowEnd; self.sessionWindowStatus = sessionWindowStatus
+        self.loadFactor = loadFactor; self.proxy = proxy; self.extra = extra
+        self.schedulerScore = schedulerScore; self.schedulerScores = schedulerScores
     }
     enum CodingKeys: String, CodingKey {
         case id, name, platform, type, status, schedulable, concurrency, priority, notes, groups
         case errorMessage = "error_message", rateMultiplier = "rate_multiplier", lastUsedAt = "last_used_at"
         case expiresAt = "expires_at", createdAt = "created_at", baseRPM = "base_rpm", quotaUsed = "quota_used"
         case groupIDs = "group_ids"
+        case currentConcurrency = "current_concurrency", probeConcurrency = "probe_concurrency", currentRPM = "current_rpm"
+        case quotaLimit = "quota_limit", quotaDailyLimit = "quota_daily_limit", quotaDailyUsed = "quota_daily_used"
+        case quotaWeeklyLimit = "quota_weekly_limit", quotaWeeklyUsed = "quota_weekly_used"
+        case windowCostLimit = "window_cost_limit", currentWindowCost = "current_window_cost"
+        case activeSessions = "active_sessions", maxSessions = "max_sessions"
+        case sessionWindowStart = "session_window_start", sessionWindowEnd = "session_window_end", sessionWindowStatus = "session_window_status"
+        case loadFactor = "load_factor", proxy, extra
+        case schedulerScore = "scheduler_score", schedulerScores = "scheduler_scores"
     }
     private enum RelationshipKeys: String, CodingKey { case accountGroups = "account_groups" }
     public init(from decoder: any Decoder) throws {
@@ -167,6 +204,21 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
         status = try c.decode(String.self, forKey: .status); schedulable = try c.decode(Bool.self, forKey: .schedulable)
         errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
         concurrency = try c.decodeIfPresent(Int.self, forKey: .concurrency); priority = try c.decodeIfPresent(Int.self, forKey: .priority)
+        currentConcurrency = try c.decodeIfPresent(Int.self, forKey: .currentConcurrency)
+        probeConcurrency = try c.decodeIfPresent(Int.self, forKey: .probeConcurrency)
+        currentRPM = try c.decodeIfPresent(Int.self, forKey: .currentRPM)
+        quotaLimit = try c.optionalDecimal(.quotaLimit); quotaDailyLimit = try c.optionalDecimal(.quotaDailyLimit)
+        quotaDailyUsed = try c.optionalDecimal(.quotaDailyUsed); quotaWeeklyLimit = try c.optionalDecimal(.quotaWeeklyLimit)
+        quotaWeeklyUsed = try c.optionalDecimal(.quotaWeeklyUsed); windowCostLimit = try c.optionalDecimal(.windowCostLimit)
+        currentWindowCost = try c.optionalDecimal(.currentWindowCost)
+        activeSessions = try c.decodeIfPresent(Int.self, forKey: .activeSessions); maxSessions = try c.decodeIfPresent(Int.self, forKey: .maxSessions)
+        sessionWindowStart = try c.decodeIfPresent(String.self, forKey: .sessionWindowStart)
+        sessionWindowEnd = try c.decodeIfPresent(String.self, forKey: .sessionWindowEnd)
+        sessionWindowStatus = try c.decodeIfPresent(String.self, forKey: .sessionWindowStatus)
+        loadFactor = try c.decodeIfPresent(Int.self, forKey: .loadFactor)
+        proxy = try c.decodeIfPresent(AccountProxy.self, forKey: .proxy); extra = try c.decodeIfPresent(AccountExtra.self, forKey: .extra)
+        schedulerScore = try c.decodeIfPresent(AccountSchedulerScore.self, forKey: .schedulerScore)
+        schedulerScores = try c.decodeIfPresent([AccountSchedulerScore].self, forKey: .schedulerScores)
         rateMultiplier = try c.optionalDecimal(.rateMultiplier); quotaUsed = try c.optionalDecimal(.quotaUsed)
         notes = try c.decodeIfPresent(String.self, forKey: .notes); lastUsedAt = try c.decodeIfPresent(String.self, forKey: .lastUsedAt)
         expiresAt = try c.decodeIfPresent(Int64.self, forKey: .expiresAt); createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
@@ -257,12 +309,20 @@ public struct OpsSnapshot: Codable, Sendable {
 public struct AccountTodayStats: Codable, Sendable {
     public let requests: Int
     public let tokens: Int
+    /// Provider/account cost. This is not the user's actual charge.
     public let cost: Decimal
-    public init(requests: Int, tokens: Int, cost: Decimal) { self.requests = requests; self.tokens = tokens; self.cost = cost }
-    enum CodingKeys: String, CodingKey { case requests, tokens, cost }
+    /// Aggregated usage_logs.actual_cost, exposed by today-stats as user_cost.
+    public let userCost: Decimal?
+    public let standardCost: Decimal?
+    public init(requests: Int, tokens: Int, cost: Decimal, userCost: Decimal? = nil, standardCost: Decimal? = nil) {
+        self.requests = requests; self.tokens = tokens; self.cost = cost
+        self.userCost = userCost; self.standardCost = standardCost
+    }
+    enum CodingKeys: String, CodingKey { case requests, tokens, cost; case userCost = "user_cost", standardCost = "standard_cost" }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         requests = try c.decode(Int.self, forKey: .requests); tokens = try c.decode(Int.self, forKey: .tokens); cost = try c.decimal(.cost)
+        userCost = try c.optionalDecimal(.userCost); standardCost = try c.optionalDecimal(.standardCost)
     }
 }
 public struct UserUsageSummary: Codable, Sendable {
