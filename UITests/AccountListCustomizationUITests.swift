@@ -200,11 +200,14 @@ final class AccountListCustomizationUITests: XCTestCase {
         let refresh = app.buttons["account.detail.reload-runtime"]
         reveal(refresh)
         XCTAssertTrue(refresh.isEnabled)
+        let previousUpdate = updated.label
         refresh.tap()
         let completed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)
         XCTAssertEqual(XCTWaiter.wait(for: [completed], timeout: 5), .completed)
+        let refreshed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", previousUpdate), object: updated)
+        XCTAssertEqual(XCTWaiter.wait(for: [refreshed], timeout: 5), .completed)
         diagnostics("account-runtime-refreshed-while-today-pending")
-        let pending = app.staticTexts["正在读取今日用量…"]
+        let pending = element("account.detail.stats-loading")
         reveal(pending)
         XCTAssertTrue(pending.exists, app.debugDescription)
         XCTAssertFalse(element("account.detail.user-cost").exists)
@@ -319,12 +322,40 @@ final class AccountListCustomizationUITests: XCTestCase {
     }
 
     @MainActor private func moveFieldToFirst(_ name: String) {
-        for _ in 0..<30 {
+        for _ in 0..<60 {
             let up = app.buttons["list-fields.accounts.\(name).up"]
             reveal(up, towardBottom: false)
             if !up.isEnabled { return }
-            up.tap()
+            // A reordered row may keep its AX element while moving behind the
+            // sheet's navigation bar. isHittable alone can still accept it.
+            let top = app.navigationBars["账号列表字段"].frame.maxY + 8
+            let bottom = app.frame.maxY - 40
+            if up.frame.minY < top {
+                scroll(towardBottom: false)
+                continue
+            }
+            if up.frame.maxY > bottom {
+                scroll(towardBottom: true)
+                continue
+            }
+            let frame = up.frame
+            print("LIST_FIELD_MOVE \(name) frame=\(frame)")
+            // XCTest's element tap used a stale synthesized hit point after
+            // repeated reorders. Use the observed, visible control center.
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                dx: frame.midX - app.frame.minX,
+                dy: frame.midY - app.frame.minY)).tap()
+            let moved = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+                guard let button = object as? XCUIElement else { return false }
+                return !button.isEnabled || button.frame != frame
+            }, object: up)
+            if XCTWaiter.wait(for: [moved], timeout: 3) != .completed {
+                diagnostics("account-field-\(name)-move-no-change")
+                XCTFail("Field did not move after tapping its visible center: \(name)")
+                return
+            }
         }
+        diagnostics("account-field-\(name)-move-stalled")
         XCTFail("Field did not reach the first position: \(name)")
     }
 

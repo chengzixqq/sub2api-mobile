@@ -204,7 +204,10 @@ struct AccountDetailView: View {
                     Text("扣费为此账号今日实际向用户收取的费用，成本为账号上游成本。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                if statsLoading { ProgressView("正在读取今日用量…") }
+                if statsLoading {
+                    ProgressView("正在读取今日用量…")
+                        .accessibilityIdentifier("account.detail.stats-loading")
+                }
                 if let statsError { Text(statsError).font(.footnote).foregroundStyle(.red) }
                 if stats == nil && !statsLoading && statsError == nil { Text("暂未加载").foregroundStyle(.secondary) }
                 Button("刷新今日用量") { Task { await reloadStats() } }.disabled(statsLoading)
@@ -224,16 +227,9 @@ struct AccountDetailView: View {
         .onChange(of: scenePhase) { _, phase in if phase != .active { cancelReads() } }
         .task(id: polling) {
             guard polling else { return }
-            await reloadStats()
-        }
-        .task(id: polling) {
-            guard polling else { return }
-            await reloadAccount()
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
-                guard polling else { return }
-                await reloadAccount()
-            }
+            async let today: Void = reloadStats()
+            async let current: Void = pollAccount()
+            _ = await (today, current)
         }
         .confirmationDialog(action == .schedule ? (account.schedulable ? "暂停调度？" : "启用调度？") : "刷新账号凭据？", isPresented: Binding(get: { action != nil }, set: { if !$0 { action = nil } }), titleVisibility: .visible) {
             Button("确认操作", role: .destructive) { let selected = action; action = nil; Task { if let selected { await mutate(selected) } } }
@@ -247,6 +243,14 @@ struct AccountDetailView: View {
         async let current: Void = reloadAccount()
         async let today: Void = reloadStats()
         _ = await (current, today)
+    }
+    private func pollAccount() async {
+        await reloadAccount()
+        while !Task.isCancelled {
+            do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            guard polling else { return }
+            await reloadAccount()
+        }
     }
     private func cancelReads() {
         accountRequest = UUID(); statsRequest = UUID()
