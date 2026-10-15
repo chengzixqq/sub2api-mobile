@@ -202,7 +202,7 @@ final class Sub2MobileUITests: XCTestCase {
         dashboardDiagnostics(named: "dashboard-trend-exact-request-selection")
 
         let zoomOut = app.buttons["dashboard.trend.zoom-out"]
-        reveal(zoomOut, towardBottom: false)
+        revealTrendZoomControl(zoomOut)
         let priorZoom = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch.label
         zoomOut.tap()
         let zoomLevel = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch
@@ -324,6 +324,21 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(first.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
         first.tap()
         XCTAssertTrue(app.descendants(matching: .any)["dashboard.trend.selection"].firstMatch.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+    }
+
+    @MainActor private func revealTrendZoomControl(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        // A chart control can report isHittable while above the navigation bar.
+        // Require its complete frame to be inside the visible content region.
+        let navigationBar = app.navigationBars.firstMatch
+        let tabBar = app.tabBars.firstMatch
+        for attempt in 0...8 {
+            if element.exists && element.isHittable && navigationBar.exists && tabBar.exists {
+                let frame = element.frame
+                if frame.minY >= navigationBar.frame.maxY + 4 && frame.maxY <= tabBar.frame.minY { return }
+            }
+            if attempt < 8 { scroll(towardBottom: false) }
+        }
+        XCTFail("Trend zoom control was not fully visible after bounded scrolling: \(element.frame)\n\(app.debugDescription)", file: file, line: line)
     }
 
     @MainActor @discardableResult

@@ -177,6 +177,7 @@ private struct DashboardTrendChart: View {
         .chartXScale(domain: firstDate...endDate)
         .chartYScale(domain: yDomain)
         .chartScrollableAxes(.horizontal)
+        .chartScrollTargetBehavior(.valueAligned(matching: series.isHourly ? DateComponents(minute: 0) : DateComponents(hour: 0)))
         .chartXVisibleDomain(length: visibleDuration)
         .chartScrollPosition(x: $scrollDate)
         .chartXSelection(value: $selectedDate)
@@ -245,7 +246,12 @@ private struct DashboardTrendChart: View {
     private func changeZoom(_ next: Double) {
         let center = visibleStart.addingTimeInterval(visibleDuration / 2)
         zoom = DashboardTrend.clampedZoom(next, maximum: maximumZoom)
-        scrollDate = clampedStart(center.addingTimeInterval(-visibleDuration / 2), duration: visibleDuration)
+        var start = clampedStart(center.addingTimeInterval(-visibleDuration / 2), duration: visibleDuration)
+        if zoom >= maximumZoom,
+           let bucket = Calendar.current.dateInterval(of: series.isHourly ? .hour : .day, for: start) {
+            start = bucket.start
+        }
+        scrollDate = clampedStart(start, duration: visibleDuration)
     }
 }
 
