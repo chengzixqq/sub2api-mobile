@@ -107,8 +107,24 @@ final class AccountListCustomizationUITests: XCTestCase {
     @MainActor private func setField(_ name: String, enabled: Bool) {
         let toggle = app.switches["list-fields.accounts.\(name)"]
         reveal(toggle)
-        if (toggle.value as? String == "1") != enabled { toggle.tap() }
-        XCTAssertEqual(toggle.value as? String, enabled ? "1" : "0")
+        let expected = enabled ? "1" : "0"
+        print("LIST_FIELD_BEFORE \(name) expected=\(expected) value=\(String(describing: toggle.value)) frame=\(toggle.frame)")
+        print(app.debugDescription)
+        diagnostics("account-field-\(name)-before-\(expected)")
+        if (toggle.value as? String == "1") != enabled {
+            // Target the trailing switch track explicitly. A Toggle's AX bounds
+            // can also include its title, whose midpoint need not toggle it.
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+                .withOffset(CGVector(dx: -20, dy: 0)).tap()
+        }
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
+        let result = XCTWaiter.wait(for: [changed], timeout: 3)
+        print("LIST_FIELD_AFTER \(name) expected=\(expected) value=\(String(describing: toggle.value)) frame=\(toggle.frame)")
+        print(app.debugDescription)
+        // Keep evidence before a failed assertion; XCTest can stop before defer.
+        diagnostics("account-field-\(name)-after-\(expected)")
+        XCTAssertEqual(result, .completed, "The rendered field switch did not change value.")
+        XCTAssertEqual(toggle.value as? String, expected)
     }
 
     @MainActor private func finishEditor() {

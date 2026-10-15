@@ -33,7 +33,7 @@ final class UserManagementUITests: XCTestCase {
         set("45", field: "user-editor.rpm")
         set("测试调整并发", field: "user-editor.adjustment-notes")
         confirmWrite(email: "edited@example.invalid")
-        reveal(app.staticTexts["edited@example.invalid"], towardBottom: false)
+        reveal(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "edited@example.invalid")).firstMatch, towardBottom: false)
         openEditor()
         assertField("user-editor.email", equals: "edited@example.invalid")
         assertField("user-editor.username", equals: "编辑用户名")
@@ -49,7 +49,7 @@ final class UserManagementUITests: XCTestCase {
         XCTAssertFalse(secureValue.contains("•") || secureValue.contains("fixture-new-password"))
         set("仅修改名称", field: "user-editor.username", towardBottom: false)
         confirmWrite(email: "edited@example.invalid")
-        reveal(app.staticTexts["仅修改名称"], towardBottom: false)
+        reveal(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "仅修改名称")).firstMatch, towardBottom: false)
         XCTAssertFalse(app.staticTexts["fixture-create-password"].exists)
         XCTAssertFalse(app.staticTexts["fixture-new-password"].exists)
     }
@@ -61,16 +61,19 @@ final class UserManagementUITests: XCTestCase {
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
         app.buttons["users.create"].tap()
         prepareWrite()
+        reveal(element("user-editor.result"))
         XCTAssertTrue(element("user-editor.result").waitForExistence(timeout: 5))
         XCTAssertTrue(element("user-editor.result").label.contains("邮箱"), app.debugDescription)
         set("validation@example.invalid", field: "user-editor.email", towardBottom: false)
         prepareWrite()
+        reveal(element("user-editor.result"))
         XCTAssertTrue(element("user-editor.result").label.contains("密码"), app.debugDescription)
         app.buttons["user-editor.close"].tap()
         app.buttons["user.1"].tap()
         openEditor()
         set("short", field: "user-editor.password", towardBottom: false)
         prepareWrite()
+        reveal(element("user-editor.result"))
         XCTAssertTrue(element("user-editor.result").waitForExistence(timeout: 5))
         XCTAssertTrue(element("user-editor.result").label.contains("密码"), app.debugDescription)
         set("valid-password", field: "user-editor.password", towardBottom: false)
@@ -86,12 +89,8 @@ final class UserManagementUITests: XCTestCase {
         app.buttons["users.fields"].tap()
         reveal(app.buttons["list-fields.users.reset"])
         app.buttons["list-fields.users.reset"].tap()
-        let createdToggle = app.switches["list-fields.users.createdAt"]
-        reveal(createdToggle, towardBottom: false)
-        if createdToggle.value as? String == "0" { createdToggle.tap() }
-        let notesToggle = app.switches["list-fields.users.notes"]
-        reveal(notesToggle)
-        if notesToggle.value as? String == "0" { notesToggle.tap() }
+        setField("createdAt", enabled: true, towardBottom: false)
+        setField("notes", enabled: true)
         let moveDown = app.buttons["list-fields.users.username.down"]
         reveal(moveDown, towardBottom: false)
         moveDown.tap()
@@ -104,6 +103,7 @@ final class UserManagementUITests: XCTestCase {
         app.tabBars.buttons["账号"].tap()
         app.tabBars.buttons["用户"].tap()
         app.buttons["users.fields"].tap()
+        reveal(app.switches["list-fields.users.createdAt"])
         XCTAssertEqual(app.switches["list-fields.users.createdAt"].value as? String, "1")
         reveal(app.switches["list-fields.users.notes"])
         XCTAssertEqual(app.switches["list-fields.users.notes"].value as? String, "1")
@@ -144,6 +144,26 @@ final class UserManagementUITests: XCTestCase {
         let field = element(identifier); reveal(field)
         XCTAssertEqual(field.value as? String, value, app.debugDescription)
     }
+    @MainActor private func setField(_ name: String, enabled: Bool, towardBottom: Bool = true) {
+        let toggle = app.switches["list-fields.users.\(name)"]
+        reveal(toggle, towardBottom: towardBottom)
+        let expected = enabled ? "1" : "0"
+        print("USER_LIST_FIELD_BEFORE \(name) expected=\(expected) value=\(String(describing: toggle.value)) frame=\(toggle.frame)")
+        print(app.debugDescription)
+        diagnostics("user-field-\(name)-before-\(expected)")
+        if (toggle.value as? String == "1") != enabled {
+            // The switch's AX bounds include its title; tap the trailing track.
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+                .withOffset(CGVector(dx: -20, dy: 0)).tap()
+        }
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
+        let result = XCTWaiter.wait(for: [changed], timeout: 3)
+        print("USER_LIST_FIELD_AFTER \(name) expected=\(expected) value=\(String(describing: toggle.value)) frame=\(toggle.frame)")
+        print(app.debugDescription)
+        diagnostics("user-field-\(name)-after-\(expected)")
+        XCTAssertEqual(result, .completed, "The rendered user field switch did not change value.")
+        XCTAssertEqual(toggle.value as? String, expected)
+    }
     @MainActor private func set(_ value: String, field identifier: String, towardBottom: Bool = true) {
         let field = element(identifier); reveal(field, towardBottom: towardBottom); field.tap()
         let current = field.value as? String ?? ""
@@ -158,6 +178,7 @@ final class UserManagementUITests: XCTestCase {
             if element.exists && element.isHittable { return }
             if attempt < 10 { scroll(towardBottom: towardBottom) }
         }
+        diagnostics("users-reveal-failure")
         XCTAssertTrue(element.exists && element.isHittable, app.debugDescription)
     }
     @MainActor private func scroll(towardBottom: Bool) {
