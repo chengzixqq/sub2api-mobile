@@ -168,7 +168,15 @@ final class UserManagementUITests: XCTestCase {
         let field = element(identifier); reveal(field, towardBottom: towardBottom); field.tap()
         let current = field.value as? String ?? ""
         if !current.isEmpty && current != field.placeholderValue {
+            // A multiline field's default activation point can place the caret
+            // before its text. Tap its trailing last line before backspacing.
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+            let cleared = field.value as? String ?? ""
+            let isCleared = cleared.isEmpty || cleared == field.placeholderValue
+            if !isCleared { diagnostics("users-clear-field-\(identifier)-failure") }
+            XCTAssertTrue(isCleared, "Field \(identifier) must be empty before replacement.\n\(app.debugDescription)")
+            guard isCleared else { return }
         }
         field.typeText(value)
     }
