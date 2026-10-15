@@ -50,7 +50,7 @@ public actor APIClient {
         switch credential {
         case .adminKey(let key):
             guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw APIError.authenticationRequired }
-            let _: DashboardStats = try await request("admin/dashboard/stats")
+            let _: EmptyReply = try await request("admin/dashboard/realtime")
         case .tokens:
             let user: AdminUser = try await request("auth/me")
             guard user.role == "admin" else { throw APIError.administratorRequired }
@@ -70,13 +70,23 @@ public actor APIClient {
     }
     public func dashboard() async throws -> DashboardSummary {
         let snapshot = generation
-        let range = dateRange(days: 6)
-        async let stats: DashboardStats = request("admin/dashboard/stats")
-        async let trend: TrendReply = request("admin/dashboard/trend", query: range + [URLQueryItem(name: "granularity", value: "day")])
-        async let monitoring = optionalMonitoring()
-        let result = try await DashboardSummary(stats: stats, trend: trend.trend, monitoring: monitoring)
+        // Large stations can need longer to calculate an uncached aggregate. Optional
+        // historical and operational queries must not delay these primary metrics.
+        let stats: DashboardStats = try await request("admin/dashboard/stats", timeout: 90)
         try check(snapshot)
-        return result
+        return DashboardSummary(stats: stats, trend: [])
+    }
+    public func dashboardTrend() async throws -> [TrendPoint] {
+        let snapshot = generation
+        let reply: TrendReply = try await request("admin/dashboard/trend", query: dateRange(days: 1) + [URLQueryItem(name: "granularity", value: "hour")], timeout: 45)
+        try check(snapshot)
+        return reply.trend
+    }
+    public func dashboardMonitoring() async throws -> OpsSnapshot {
+        let snapshot = generation
+        let reply: OpsReply = try await request("admin/ops/dashboard/overview", query: [URLQueryItem(name: "time_range", value: "5m")], timeout: 15)
+        try check(snapshot)
+        return OpsSnapshot(errorRate: reply.errorRate, qps: reply.qps?.current, activeRequests: nil)
     }
     public func accounts(page: Int, search: String, status: String?, platform: String?) async throws -> Page<UpstreamAccount> {
         try await request("admin/accounts", query: pagination(page, search: search, status: status) + optionalQuery("platform", platform))
@@ -228,12 +238,12 @@ public actor APIClient {
         credential = value; refreshTask = nil; refreshID = nil
     }
     private func refreshFailed(_ id: UUID) { if refreshID == id { refreshTask = nil; refreshID = nil } }
-    private func request<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:], authenticated: Bool = true) async throws -> T {
+    private func request<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:], authenticated: Bool = true, timeout: TimeInterval? = nil) async throws -> T {
         let snapshot = generation
         let auth: Credential?
         if authenticated { auth = try await validCredential() } else { auth = nil }
         try check(snapshot)
-        let outgoing = try makeRequest(path, method: method, query: query, body: body, credential: auth, headers: headers)
+        let outgoing = try makeRequest(path, method: method, query: query, body: body, credential: auth, headers: headers, timeout: timeout)
         var response = try await execute(outgoing, generation: snapshot)
         // Only safe reads can be retried, and only an explicit expired-token response permits refresh.
         if authenticated, method == "GET", response.statusCode == 401,
@@ -241,7 +251,7 @@ public actor APIClient {
            let auth, case .tokens(let old) = auth {
             let fresh = try await validCredential(forceRefresh: true, rejectedAccess: old.accessToken)
             try check(snapshot)
-            response = try await execute(makeRequest(path, method: method, query: query, body: body, credential: fresh, headers: headers), generation: snapshot)
+            response = try await execute(makeRequest(path, method: method, query: query, body: body, credential: fresh, headers: headers, timeout: timeout), generation: snapshot)
         }
         return try Self.decode(response)
     }
@@ -270,12 +280,13 @@ public actor APIClient {
         } catch is CancellationError { throw CancellationError() }
         catch { if snapshot != generation || Task.isCancelled { throw CancellationError() }; throw APIError.transport(error) }
     }
-    private func makeRequest(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, credential: Credential?, headers: [String: String] = [:]) throws -> URLRequest {
+    private func makeRequest(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, credential: Credential?, headers: [String: String] = [:], timeout: TimeInterval? = nil) throws -> URLRequest {
         let base = try server.validatedURL()
         var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
         components.path = "/api/v1/" + path; components.queryItems = query.isEmpty ? nil : query
         guard let url = components.url else { throw APIError.invalidServer }
         var request = URLRequest(url: url); request.httpMethod = method; request.httpBody = body
+        if let timeout { request.timeoutInterval = timeout }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Sub2Mobile/1.0 (iOS)", forHTTPHeaderField: "User-Agent")
         request.setValue("zh-CN", forHTTPHeaderField: "Accept-Language")
@@ -302,12 +313,6 @@ public actor APIClient {
             return result
         } catch let error as APIError { throw error }
         catch { throw APIError.invalidResponse }
-    }
-    private func optionalMonitoring() async -> OpsSnapshot? {
-        do {
-            let reply: OpsReply = try await request("admin/ops/dashboard/overview", query: [URLQueryItem(name: "time_range", value: "5m")])
-            return OpsSnapshot(errorRate: reply.errorRate, qps: reply.qps?.current, activeRequests: nil)
-        } catch { return nil }
     }
     private func check(_ snapshot: UUID) throws { try Task.checkCancellation(); guard snapshot == generation else { throw CancellationError() } }
     private func removeCancellation(_ id: UUID) { cancellations[id] = nil }

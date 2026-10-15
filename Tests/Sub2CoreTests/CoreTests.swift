@@ -267,23 +267,130 @@ private actor AttemptCounter {
     #expect(query.first { $0.name == "page" }?.value == "2")
 }
 
-@Test func dashboardSurvivesOptionalOpsFailureAndUserUsageUsesRealAggregate() async throws {
+@Test func initialDashboardOnlyLoadsStatsAndUserUsageUsesRealAggregate() async throws {
     let transport = MockTransport { request in
         let path = request.url?.path ?? ""
-        if path.contains("/ops/") { return HTTPResponse(statusCode: 403, data: Data(#"{"reason":"FORBIDDEN"}"#.utf8)) }
-        if path.hasSuffix("/trend") { return ok(#"{"trend":[{"date":"2026-10-15","requests":12,"total_tokens":340,"cost":"0.12345678"}]}"#) }
         if path.contains("/usage/") { return ok(#"{"total_requests":5,"total_tokens":200,"total_cost":"0.25"}"#) }
+        guard path.hasSuffix("/stats") else { throw URLError(.timedOut) }
         return ok(dashboardJSON)
     }
     let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
     let dashboard = try await client.dashboard()
-    #expect(dashboard.stats.todayRequests == 12); #expect(dashboard.trend.count == 1); #expect(dashboard.monitoring == nil)
+    #expect(dashboard.stats.todayRequests == 12); #expect(dashboard.trend.isEmpty); #expect(dashboard.monitoring == nil)
+    let initialRequests = await transport.requests()
+    #expect(initialRequests.count == 1)
+    #expect(initialRequests.first?.url?.path == "/api/v1/admin/dashboard/stats")
+    #expect(initialRequests.first?.timeoutInterval == 90)
     let usage = try await client.userUsage(id: 7)
     #expect(usage.totalRequests == 5)
     let request = try #require(await transport.requests().last)
     #expect(request.url?.path == "/api/v1/admin/usage/stats")
     let url = try #require(request.url)
     #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "user_id" }?.value == "7")
+}
+
+@Test func adminKeyVerificationUsesLightweightAuthenticatedRealtimeProbe() async throws {
+    let transport = MockTransport { request in
+        #expect(request.httpMethod == "GET")
+        #expect(request.value(forHTTPHeaderField: "x-api-key") == "fixture")
+        guard request.url?.path == "/api/v1/admin/dashboard/realtime" else { throw URLError(.timedOut) }
+        // This is only a permission probe; none of these placeholder metrics enter the dashboard.
+        return ok(#"{"requests":0,"tokens":0,"cost":0}"#)
+    }
+    let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
+    try await client.verifyAdministrator()
+    #expect(await transport.requests().count == 1)
+}
+
+@Test func dashboardDetailsLoadExplicitlyWithShortRangeAndOwnTimeouts() async throws {
+    let transport = MockTransport { request in
+        if request.url?.path.hasSuffix("/trend") == true {
+            return ok(#"{"trend":[{"date":"2026-10-15 10:00","requests":12,"total_tokens":340,"cost":"0.12345678"}]}"#)
+        }
+        return ok(#"{"error_rate":0.125,"qps":{"current":2.5}}"#)
+    }
+    let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
+    let trend = try await client.dashboardTrend()
+    #expect(trend.count == 1); #expect(trend.first?.requests == 12)
+    let monitoring = try await client.dashboardMonitoring()
+    #expect(monitoring.errorRate == 0.125); #expect(monitoring.qps == 2.5); #expect(monitoring.activeRequests == nil)
+    let requests = await transport.requests()
+    #expect(requests.count == 2)
+    let trendRequest = try #require(requests.first)
+    #expect(trendRequest.timeoutInterval == 45)
+    let trendURL = try #require(trendRequest.url)
+    let query = try #require(URLComponents(url: trendURL, resolvingAgainstBaseURL: false)?.queryItems)
+    #expect(query.first { $0.name == "granularity" }?.value == "hour")
+    #expect(query.first { $0.name == "timezone" }?.value == TimeZone.current.identifier)
+    let start = try #require(query.first { $0.name == "start_date" }?.value)
+    let end = try #require(query.first { $0.name == "end_date" }?.value)
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian); formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current; formatter.dateFormat = "yyyy-MM-dd"
+    let startDate = try #require(formatter.date(from: start)); let endDate = try #require(formatter.date(from: end))
+    #expect(formatter.calendar.dateComponents([.day], from: startDate, to: endDate).day == 1)
+    let opsRequest = try #require(requests.last)
+    #expect(opsRequest.timeoutInterval == 15)
+    #expect(opsRequest.url?.path == "/api/v1/admin/ops/dashboard/overview")
+    let opsURL = try #require(opsRequest.url)
+    #expect(URLComponents(url: opsURL, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "time_range" }?.value == "5m")
+}
+
+@Test func dashboardDetailsSurfaceTheirOwnErrorsWithoutDiscardingStats() async throws {
+    let transport = MockTransport { request in
+        if request.url?.path.hasSuffix("/trend") == true {
+            return HTTPResponse(statusCode: 503, data: Data(#"{"code":503,"reason":"UNAVAILABLE"}"#.utf8))
+        }
+        if request.url?.path.contains("/ops/") == true {
+            return HTTPResponse(statusCode: 403, data: Data(#"{"code":403,"reason":"FORBIDDEN"}"#.utf8))
+        }
+        return ok(dashboardJSON)
+    }
+    let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
+    let dashboard = try await client.dashboard()
+    do { _ = try await client.dashboardTrend(); Issue.record("Expected trend failure") }
+    catch let error as APIError { #expect(error.statusCode == 503) }
+    do { _ = try await client.dashboardMonitoring(); Issue.record("Expected monitoring failure") }
+    catch let error as APIError { #expect(error.kind == .permission) }
+    #expect(dashboard.stats.todayRequests == 12)
+    #expect(try await client.dashboard().stats.todayRequests == 12)
+}
+
+@Test func dashboardTimeoutSurvivesExpiredTokenRefreshRetry() async throws {
+    let transport = MockTransport { request in
+        if request.url?.path.hasSuffix("/auth/refresh") == true { return ok(refreshJSON) }
+        #expect(request.timeoutInterval == 90)
+        if request.value(forHTTPHeaderField: "Authorization") == "Bearer old-access" {
+            return HTTPResponse(statusCode: 401, data: Data(#"{"code":401,"reason":"TOKEN_EXPIRED"}"#.utf8))
+        }
+        return ok(dashboardJSON)
+    }
+    let client = APIClient(server: server(), credential: token(), transport: transport)
+    #expect(try await client.dashboard().stats.todayRequests == 12)
+    let requests = await transport.requests()
+    #expect(requests.count == 3)
+    #expect(requests.filter { $0.url?.path.hasSuffix("/stats") == true }.count == 2)
+}
+
+@Test(arguments: ["stats", "trend", "monitoring"])
+func dashboardReadsRejectLateResultsAfterStationCancellation(section: String) async throws {
+    let started = Gate(); let release = Gate()
+    let transport = MockTransport { request in
+        await started.open(); await release.wait()
+        if request.url?.path.hasSuffix("/trend") == true { return ok(#"{"trend":[]}"#) }
+        if request.url?.path.contains("/ops/") == true { return ok(#"{"qps":{"current":1}}"#) }
+        return ok(dashboardJSON)
+    }
+    let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
+    let pending = Task {
+        switch section {
+        case "trend": _ = try await client.dashboardTrend()
+        case "monitoring": _ = try await client.dashboardMonitoring()
+        default: _ = try await client.dashboard()
+        }
+    }
+    await started.wait(); await client.cancelAll(); await release.open()
+    await #expect(throws: CancellationError.self) { try await pending.value }
 }
 
 @Test func POSTStreamIsIncrementalAndEOFIsFailure() async throws {

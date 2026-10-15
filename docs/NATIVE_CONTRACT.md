@@ -68,7 +68,7 @@ actor APIClient {
 - `Page<T>`: items, total, page, pageSize, pages; `hasMore: Bool`.
 - `AdminUser`: id Int, email String, username String?, balance Decimal, status String, role String?, concurrency Int?.
 - `UpstreamAccount`: id Int, name String, platform String, type String, status String, schedulable Bool, errorMessage String?, concurrency Int?.
-- `DashboardSummary`: stats DashboardStats, trend [TrendPoint], monitoring OpsSnapshot? (optional ops must not discard dashboard success).
+- `DashboardSummary`: initial stats DashboardStats, empty trend and nil monitoring. `dashboardTrend()` and `dashboardMonitoring()` load details explicitly with independent states/errors; slow or failed details must not delay or discard the counters.
 - `DashboardStats`: todayRequests Int, todayTokens Int, todayCost Decimal, totalUsers Int, totalAccounts Int, errorAccounts Int, rpm Double, tpm Double.
 - `TrendPoint`: date String, requests Int, totalTokens Int, cost Decimal; Identifiable.
 - `OpsSnapshot`: errorRate Double?, qps Double?, activeRequests Int? (missing is unavailable, never fabricated zero).

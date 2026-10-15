@@ -2,10 +2,10 @@ import XCTest
 
 final class Sub2MobileUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
-    @MainActor private func launch() {
+    @MainActor private func launch(arguments: [String] = []) {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["-ui-testing"]
+        app.launchArguments = ["-ui-testing"] + arguments
         app.launch()
     }
 
@@ -47,6 +47,25 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["••••••••cret"].exists)
         XCTAssertFalse(app.staticTexts["sk-fixture-secret"].exists)
         reveal(app.buttons["user.balance"])
+    }
+
+    @MainActor func testDashboardCountersSurviveDetailTimeouts() {
+        launch(arguments: ["-ui-dashboard-detail-errors"])
+        login(name: "慢统计站点", url: "https://slow.example.com")
+        let counter = app.descendants(matching: .any)["dashboard.today-requests"].firstMatch
+        XCTAssertTrue(counter.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["dashboard.trend.error"].exists)
+        reveal(app.buttons["dashboard.trend.load"])
+        app.buttons["dashboard.trend.load"].tap()
+        XCTAssertTrue(app.staticTexts["dashboard.trend.error"].waitForExistence(timeout: 5))
+        XCTAssertTrue(counter.exists)
+        reveal(app.buttons["dashboard.monitoring.load"])
+        app.buttons["dashboard.monitoring.load"].tap()
+        XCTAssertTrue(app.staticTexts["dashboard.monitoring.error"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["账号"].tap()
+        app.tabBars.buttons["概览"].tap()
+        reveal(counter, towardBottom: false)
+        XCTAssertTrue(counter.exists)
     }
 
     @MainActor func testAddAndSwitchStations() {

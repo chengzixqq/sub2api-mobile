@@ -209,6 +209,24 @@ final class AppModel {
         if isUITesting { return DemoData.dashboard }
         return try await requireClient().dashboard()
     }
+    func dashboardTrend() async throws -> [TrendPoint] {
+        if isUITesting {
+            if ProcessInfo.processInfo.arguments.contains("-ui-dashboard-detail-errors") {
+                throw APIError(kind: .transport, message: "趋势请求超时，请重试。")
+            }
+            return DemoData.dashboard.trend
+        }
+        return try await requireClient().dashboardTrend()
+    }
+    func dashboardMonitoring() async throws -> OpsSnapshot {
+        if isUITesting {
+            if ProcessInfo.processInfo.arguments.contains("-ui-dashboard-detail-errors") {
+                throw APIError(kind: .transport, message: "监控请求超时，请重试。")
+            }
+            return DemoData.dashboard.monitoring!
+        }
+        return try await requireClient().dashboardMonitoring()
+    }
     func accounts(page: Int, search: String, status: String?, platform: String?) async throws -> Page<UpstreamAccount> {
         if isUITesting { return DemoData.accounts(page: page, search: search, status: status, platform: platform) }
         return try await requireClient().accounts(page: page, search: search, status: status, platform: platform)
