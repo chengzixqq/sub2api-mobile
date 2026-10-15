@@ -73,8 +73,10 @@ public struct Page<T: Codable & Sendable>: Codable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         items = try c.decode([T].self, forKey: .items); total = try c.decode(Int.self, forKey: .total)
         page = try c.decode(Int.self, forKey: .page); pageSize = try c.decode(Int.self, forKey: .pageSize)
-        pages = try c.decodeIfPresent(Int.self, forKey: .pages) ?? (pageSize > 0 ? Int(ceil(Double(total) / Double(pageSize))) : 0)
-        guard total >= 0, page >= 1, pageSize > 0, pages >= 0 else { throw APIError.invalidResponse }
+        guard total >= 0, page >= 1, pageSize > 0 else { throw APIError.invalidResponse }
+        let calculated = total / pageSize + (total % pageSize == 0 ? 0 : 1)
+        pages = try c.decodeIfPresent(Int.self, forKey: .pages) ?? calculated
+        guard pages >= 0 else { throw APIError.invalidResponse }
     }
 }
 
@@ -214,9 +216,15 @@ public struct PublicSettings: Decodable, Sendable {
     enum CodingKeys: String, CodingKey { case turnstile = "turnstile_enabled", tencent = "tencent_captcha_enabled", aliyun = "aliyun_captcha_enabled" }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        if try c.decodeIfPresent(Bool.self, forKey: .tencent) == true { captchaProvider = "tencent" }
-        else if try c.decodeIfPresent(Bool.self, forKey: .aliyun) == true { captchaProvider = "aliyun" }
-        else if try c.decodeIfPresent(Bool.self, forKey: .turnstile) == true { captchaProvider = "turnstile" }
+        let tencent = try c.decodeIfPresent(Bool.self, forKey: .tencent) == true
+        let aliyun = try c.decodeIfPresent(Bool.self, forKey: .aliyun) == true
+        let turnstile = try c.decodeIfPresent(Bool.self, forKey: .turnstile) == true
+        guard [tencent, aliyun, turnstile].filter({ $0 }).count <= 1 else {
+            throw APIError(kind: .captcha, reason: "CAPTCHA_PROVIDER_CONFLICT", message: "站点启用了多个验证码服务，请先在 Web 后台修正配置。")
+        }
+        if tencent { captchaProvider = "tencent" }
+        else if aliyun { captchaProvider = "aliyun" }
+        else if turnstile { captchaProvider = "turnstile" }
         else { captchaProvider = nil }
         captchaEnabled = captchaProvider != nil
     }

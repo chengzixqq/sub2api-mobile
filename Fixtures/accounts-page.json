@@ -1,0 +1,1 @@
+{"code":0,"message":"success","data":{"items":[{"id":9,"name":"Example Anthropic account","platform":"anthropic","type":"oauth","status":"active","schedulable":true,"error_message":null,"concurrency":5}],"total":41,"page":2,"page_size":20,"pages":3}}

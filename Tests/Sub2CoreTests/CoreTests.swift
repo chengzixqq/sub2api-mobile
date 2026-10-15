@@ -68,11 +68,14 @@ private actor AttemptCounter {
     #expect(!last.hasMore)
 }
 
-@Test func publicSettingsSelectsActualCaptchaPriority() throws {
-    let settings = try JSONDecoder().decode(PublicSettings.self, from: Data(#"{"turnstile_enabled":true,"tencent_captcha_enabled":true,"aliyun_captcha_enabled":false}"#.utf8))
+@Test func publicSettingsMatchesCaptchaProviderAndRejectsConfigurationConflict() throws {
+    let settings = try JSONDecoder().decode(PublicSettings.self, from: Data(#"{"turnstile_enabled":false,"tencent_captcha_enabled":true,"aliyun_captcha_enabled":false}"#.utf8))
     #expect(settings.captchaEnabled); #expect(settings.captchaProvider == "tencent")
     let none = try JSONDecoder().decode(PublicSettings.self, from: Data("{}".utf8))
     #expect(!none.captchaEnabled); #expect(none.captchaProvider == nil)
+    #expect(throws: APIError.self) {
+        try JSONDecoder().decode(PublicSettings.self, from: Data(#"{"turnstile_enabled":true,"tencent_captcha_enabled":true}"#.utf8))
+    }
 }
 
 @Test func secureStationValidation() throws {
@@ -133,7 +136,8 @@ private actor AttemptCounter {
     let session = try await client.completeTOTP(tempToken: challenge.tempToken, code: "123456")
     #expect(session.user.role == "admin")
     let requests = await transport.requests()
-    let body = try #require(JSONSerialization.jsonObject(with: #require(requests[0].httpBody)) as? [String: String])
+    let bodyData = try #require(requests[0].httpBody)
+    let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: String])
     #expect(body["tencent_captcha_ticket"] == "proof"); #expect(body["tencent_captcha_randstr"] == "random")
     #expect(requests[1].url?.path == "/api/v1/auth/login/2fa")
     let regular = MockTransport { _ in ok("{\"access_token\":\"secret\",\"user\":\(userJSON.replacingOccurrences(of: "admin\"", with: "user\""))}") }
@@ -155,7 +159,9 @@ private actor AttemptCounter {
     for read in reads { #expect(try await read.value.id == 7) }
     let requests = await transport.requests()
     #expect(requests.filter { $0.url?.path.hasSuffix("/auth/refresh") == true }.count == 1)
-    #expect(await store.values[profile.id] == await client.currentCredential())
+    let saved = await store.values[profile.id]
+    let current = await client.currentCredential()
+    #expect(saved == current)
 }
 
 @Test func cancellingOneRefreshWaiterDoesNotCancelSharedRefresh() async throws {
@@ -183,9 +189,30 @@ private actor AttemptCounter {
     await started.wait(); await client.cancelAll(); await release.open()
     await #expect(throws: CancellationError.self) { try await pending.value }
     #expect(await store.values[profile.id] == nil)
-    #expect(await client.currentCredential() == token(expired: true) == false) // Compare actual identity below; dates intentionally differ.
     if case .tokens(let pair) = await client.currentCredential() { #expect(pair.accessToken == "old-access") }
     else { Issue.record("Old credential should remain available until explicit logout") }
+}
+
+@Test func cancelAllRejectsLateReadEvenWhenTransportIgnoresCancellation() async throws {
+    let started = Gate(); let release = Gate()
+    let transport = MockTransport { _ in await started.open(); await release.wait(); return ok(userJSON) }
+    let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
+    let pending = Task { try await client.user(id: 7) }
+    await started.wait(); await client.cancelAll(); await release.open()
+    await #expect(throws: CancellationError.self) { try await pending.value }
+}
+
+@Test func logoutErasesLocalCredentialsEvenWhenServerIsOffline() async throws {
+    let profile = server(); let store = MemoryStore(); let credential = token()
+    try await store.save(credential, serverID: profile.id)
+    let transport = MockTransport { _ in throw URLError(.notConnectedToInternet) }
+    let client = APIClient(server: profile, credential: credential, credentialStore: store, transport: transport)
+    await #expect(throws: APIError.self) { try await client.logout() }
+    #expect(await client.currentCredential() == nil)
+    #expect(await store.values[profile.id] == nil)
+    let request = try #require(await transport.requests().first)
+    #expect(request.url?.path == "/api/v1/auth/logout")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
 }
 
 @Test func stationIsolationAndBalanceRetriesUseSameIdentityAndBytes() async throws {
@@ -227,7 +254,8 @@ private actor AttemptCounter {
     let page = try await client.accounts(page: 2, search: " a&b 中文 ", status: "active", platform: "anthropic")
     #expect(page.hasMore); #expect(page.page == 2)
     let requests = await transport.requests(); #expect(requests.count == 3)
-    let query = try #require(URLComponents(url: #require(requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems)
+    let finalURL = try #require(requests.last?.url)
+    let query = try #require(URLComponents(url: finalURL, resolvingAgainstBaseURL: false)?.queryItems)
     #expect(query.first { $0.name == "search" }?.value == "a&b 中文")
     #expect(query.first { $0.name == "page" }?.value == "2")
 }
@@ -247,7 +275,8 @@ private actor AttemptCounter {
     #expect(usage.totalRequests == 5)
     let request = try #require(await transport.requests().last)
     #expect(request.url?.path == "/api/v1/admin/usage/stats")
-    #expect(URLComponents(url: #require(request.url), resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "user_id" }?.value == "7")
+    let url = try #require(request.url)
+    #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "user_id" }?.value == "7")
 }
 
 @Test func POSTStreamIsIncrementalAndEOFIsFailure() async throws {

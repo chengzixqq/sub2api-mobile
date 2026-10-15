@@ -121,9 +121,15 @@ public actor APIClient {
         let request = try makeRequest("admin/accounts/\(validID(id))/test", method: "POST", body: body, credential: auth, headers: ["Accept": "text/event-stream"])
         let response = try await openStream(request, generation: snapshot)
         guard (200..<300).contains(response.statusCode) else {
-            defer { response.cancel() }
+            let errorReadID = UUID()
+            cancellations[errorReadID] = { response.cancel() }
+            defer { cancellations[errorReadID] = nil; response.cancel() }
             var body = Data()
-            for try await chunk in response.bytes { body.append(chunk); if body.count > 64 * 1_024 { break } }
+            for try await chunk in response.bytes {
+                try check(snapshot)
+                body.append(chunk); if body.count > 64 * 1_024 { break }
+            }
+            try check(snapshot)
             throw responseError(status: response.statusCode, data: body)
         }
         guard response.headers.first(where: { $0.key.lowercased() == "content-type" })?.value.lowercased().hasPrefix("text/event-stream") == true else {
@@ -145,7 +151,10 @@ public actor APIClient {
                 _ = try parser.finish()
                 pair.continuation.finish()
             } catch is CancellationError { pair.continuation.finish(throwing: CancellationError()) }
-            catch { pair.continuation.finish(throwing: APIError.transport(error)) }
+            catch {
+                if Task.isCancelled { pair.continuation.finish(throwing: CancellationError()) }
+                else { pair.continuation.finish(throwing: APIError.transport(error)) }
+            }
             await self?.removeCancellation(streamID)
         }
         cancellations[streamID] = { task.cancel(); response.cancel() }
@@ -180,13 +189,11 @@ public actor APIClient {
         guard !tokens.refreshToken.isEmpty else { throw APIError.authenticationRequired }
         let snapshot = generation
         let flight: Task<TokenPair, any Error>
-        let flightID: UUID
-        if let existing = refreshTask, let existingID = refreshID { flight = existing; flightID = existingID }
+        if let existing = refreshTask, refreshID != nil { flight = existing }
         else {
             let request = try makeRequest("auth/refresh", method: "POST", body: encode(["refresh_token": tokens.refreshToken]), credential: nil)
             let transport = transport
             let newFlightID = UUID()
-            flightID = newFlightID
             flight = Task { [self] in
                 do {
                     let response = try await transport.data(for: request)
@@ -200,13 +207,14 @@ public actor APIClient {
                     throw error
                 }
             }
-            refreshTask = flight; refreshID = flightID
+            refreshTask = flight; refreshID = newFlightID
         }
         do {
             let pair = try await flight.value
             try check(snapshot)
             return .tokens(pair)
         } catch {
+            if snapshot != generation || Task.isCancelled { throw CancellationError() }
             if error is CancellationError { throw CancellationError() }
             throw APIError.transport(error)
         }
@@ -222,14 +230,15 @@ public actor APIClient {
     private func refreshFailed(_ id: UUID) { if refreshID == id { refreshTask = nil; refreshID = nil } }
     private func request<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:], authenticated: Bool = true) async throws -> T {
         let snapshot = generation
-        let auth = authenticated ? try await validCredential() : nil
+        let auth: Credential?
+        if authenticated { auth = try await validCredential() } else { auth = nil }
         try check(snapshot)
         let outgoing = try makeRequest(path, method: method, query: query, body: body, credential: auth, headers: headers)
         var response = try await execute(outgoing, generation: snapshot)
         // Only safe reads can be retried, and only an explicit expired-token response permits refresh.
         if authenticated, method == "GET", response.statusCode == 401,
            (try? JSONDecoder().decode(ErrorReply.self, from: response.data).reason) == "TOKEN_EXPIRED",
-           case .tokens(let old) = auth {
+           let auth, case .tokens(let old) = auth {
             let fresh = try await validCredential(forceRefresh: true, rejectedAccess: old.accessToken)
             try check(snapshot)
             response = try await execute(makeRequest(path, method: method, query: query, body: body, credential: fresh, headers: headers), generation: snapshot)
@@ -247,7 +256,7 @@ public actor APIClient {
             try check(snapshot)
             return response
         } catch is CancellationError { throw CancellationError() }
-        catch { if Task.isCancelled { throw CancellationError() }; throw APIError.transport(error) }
+        catch { if snapshot != generation || Task.isCancelled { throw CancellationError() }; throw APIError.transport(error) }
     }
     private func openStream(_ request: URLRequest, generation snapshot: UUID) async throws -> HTTPStreamResponse {
         let id = UUID(); let transport = transport
@@ -259,7 +268,7 @@ public actor APIClient {
             do { try check(snapshot) } catch { result.cancel(); throw error }
             return result
         } catch is CancellationError { throw CancellationError() }
-        catch { throw APIError.transport(error) }
+        catch { if snapshot != generation || Task.isCancelled { throw CancellationError() }; throw APIError.transport(error) }
     }
     private func makeRequest(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, credential: Credential?, headers: [String: String] = [:]) throws -> URLRequest {
         let base = try server.validatedURL()
