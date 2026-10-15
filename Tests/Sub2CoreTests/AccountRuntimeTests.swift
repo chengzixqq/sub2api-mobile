@@ -30,7 +30,7 @@ private func runtimeAccount(_ fields: String = "") throws -> UpstreamAccount {
 }
 
 @Test func capacityPreservesWindowSessionAndQuotaSourcesWithoutInventingUsage() throws {
-    let account = try runtimeAccount(#""current_concurrency":3,"current_rpm":47,"window_cost_limit":"100.00000001","current_window_cost":"1.005","active_sessions":2,"max_sessions":5,"quota_limit":1000,"quota_used":"12.34567890123456789","quota_daily_limit":10,"quota_daily_used":0,"quota_weekly_limit":70,"session_window_start":"2026-10-15T00:00:00Z","session_window_end":"2026-10-15T05:00:00Z","session_window_status":"active","load_factor":4"#)
+    let account = try runtimeAccount(#""current_concurrency":3,"current_rpm":47,"scheduling_rpm":17,"window_cost_limit":"100.00000001","current_window_cost":"1.005","active_sessions":2,"max_sessions":5,"quota_limit":1000,"quota_used":"12.34567890123456789","quota_daily_limit":10,"quota_daily_used":0,"quota_weekly_limit":70,"session_window_start":"2026-10-15T00:00:00Z","session_window_end":"2026-10-15T05:00:00Z","session_window_status":"active","load_factor":4"#)
     #expect(account.windowCostLimit == Decimal(string: "100.00000001"))
     #expect(account.quotaUsed == Decimal(string: "12.34567890123456789"))
     #expect(account.sessionWindowStatus == "active" && account.loadFactor == 4)
@@ -38,7 +38,7 @@ private func runtimeAccount(_ fields: String = "") throws -> UpstreamAccount {
     #expect(display.contains("并发 3 / 8"))
     #expect(display.contains("窗口标准费用 $1.01 / $100.00"))
     #expect(display.contains("会话 2 / 5"))
-    #expect(display.contains("RPM 47 / 120"))
+    #expect(display.contains("调度 RPM 17 / 120（自然分钟）"))
     #expect(display.contains("日配额 $0.00 / $10.00"))
     #expect(display.contains("周配额 不可用 / $70.00"))
     #expect(display.contains("总配额 $12.35 / $1000.00"))

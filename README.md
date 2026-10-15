@@ -2,7 +2,9 @@
 
 中文优先的 Sub2API 原生管理员客户端。使用 SwiftUI、Observation、Swift Concurrency、URLSession、Swift Charts 和 Keychain；最低 iOS 17，支持 iPhone 和基本 iPad 布局、深浅色与动态字体。
 
-本轮构建自干净源码 `d07091d5da137c3c58dc1a881c354b08c6f4d3ec`，运行 `20261015T115051Z-b20011a3`，Mac 全流程退出 0；81 项核心、4 项凭据、27 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,324,867 字节，SHA-256 `978cbccbcc6b83028538a43e9e41c91d48e0ee44af5affed6b6bfe75c9ae3a43`。 **签名后真机、真实验证码服务及测试站点管理写入尚未验收**。
+历史账号容量版构建自干净源码 `d07091d5da137c3c58dc1a881c354b08c6f4d3ec`，运行 `20261015T115051Z-b20011a3`，Mac 全流程退出 0；81 项核心、4 项凭据、27 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,324,867 字节，SHA-256 `978cbccbcc6b83028538a43e9e41c91d48e0ee44af5affed6b6bfe75c9ae3a43`。 **签名后真机、真实验证码服务及测试站点管理写入尚未验收**。
+
+本次新增请求与错误日志、账号筛选/前台刷新/快捷编辑/批量操作、统计分析与分组管理，概览 RPM 对齐近 60 秒并区分不可用。使用入口、接口边界和验证说明见 [管理模块契约](docs/ADMIN_MODULES.md)。最新构建结果见 [验收记录](docs/ACCEPTANCE.md)。
 
 ## 分支与旧版
 

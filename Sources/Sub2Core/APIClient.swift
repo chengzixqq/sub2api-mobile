@@ -308,7 +308,7 @@ public actor APIClient {
         credential = value; refreshTask = nil; refreshID = nil
     }
     private func refreshFailed(_ id: UUID) { if refreshID == id { refreshTask = nil; refreshID = nil } }
-    private func request<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:], authenticated: Bool = true, timeout: TimeInterval? = nil) async throws -> T {
+    func request<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:], authenticated: Bool = true, timeout: TimeInterval? = nil) async throws -> T {
         let snapshot = generation
         let auth: Credential?
         if authenticated { auth = try await validCredential() } else { auth = nil }
@@ -387,15 +387,15 @@ public actor APIClient {
     private func check(_ snapshot: UUID) throws { try Task.checkCancellation(); guard snapshot == generation else { throw CancellationError() } }
     private func removeCancellation(_ id: UUID) { cancellations[id] = nil }
     private func validTOTP(_ code: String) -> Bool { code.utf8.count == 6 && code.utf8.allSatisfy { (48...57).contains($0) } }
-    private func validID(_ value: Int) throws -> Int {
+    func validID(_ value: Int) throws -> Int {
         guard value > 0 else { throw APIError(kind: .validation, message: "无效的对象编号。") }; return value
     }
-    private func pagination(_ page: Int, search: String, status: String?) throws -> [URLQueryItem] {
+    func pagination(_ page: Int, search: String, status: String?) throws -> [URLQueryItem] {
         guard page >= 1 else { throw APIError(kind: .validation, message: "页码必须从 1 开始。") }
         return [URLQueryItem(name: "page", value: String(page)), URLQueryItem(name: "page_size", value: "20")]
             + optionalQuery("search", search.trimmingCharacters(in: .whitespacesAndNewlines)) + optionalQuery("status", status)
     }
-    private func optionalQuery(_ name: String, _ value: String?) -> [URLQueryItem] {
+    func optionalQuery(_ name: String, _ value: String?) -> [URLQueryItem] {
         guard let value, !value.isEmpty else { return [] }; return [URLQueryItem(name: name, value: value)]
     }
     private func dateRange(days: Int) -> [URLQueryItem] {
@@ -410,7 +410,7 @@ public actor APIClient {
         let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
         return [URLQueryItem(name: "start_date", value: f.string(from: start)), URLQueryItem(name: "end_date", value: f.string(from: end)), URLQueryItem(name: "timezone", value: TimeZone.current.identifier)]
     }
-    private func encode<T: Encodable>(_ value: T) throws -> Data { let e = JSONEncoder(); e.outputFormatting = [.sortedKeys]; return try e.encode(value) }
+    func encode<T: Encodable>(_ value: T) throws -> Data { let e = JSONEncoder(); e.outputFormatting = [.sortedKeys]; return try e.encode(value) }
 }
 
 private struct Envelope<T: Decodable & Sendable>: Decodable, Sendable { let code: Int; let reason: String?; let data: T? }

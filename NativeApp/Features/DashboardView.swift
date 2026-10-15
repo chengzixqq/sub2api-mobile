@@ -405,6 +405,12 @@ struct DashboardView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(model.activeProfile?.name ?? "概览")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { AnalyticsView() } label: { Label("统计分析", systemImage: "chart.xyaxis.line") }
+                    .accessibilityIdentifier("dashboard.analytics")
+            }
+        }
         .refreshable {
             async let primary: Void = loadStats(forceCosts: true)
             async let hourly: Void = loadTrend()
@@ -485,11 +491,13 @@ struct DashboardView: View {
     private func performanceCard(_ stats: DashboardStats) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Label("性能指标", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(.secondary)
-            performanceLine(DashboardPresentation.compactNumber(stats.rpm), unit: "RPM", prominent: true)
+            performanceLine(DashboardPresentation.rpmValue(stats), unit: "RPM", prominent: true)
                 .accessibilityIdentifier("dashboard.performance.rpm")
             performanceLine(DashboardPresentation.compactNumber(stats.tpm), unit: "TPM", prominent: false)
                 .accessibilityIdentifier("dashboard.performance.tpm")
-            Text("最近 5 分钟平均").font(.caption2).foregroundStyle(.secondary)
+            Text(DashboardPresentation.performanceWindow(stats)).font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("dashboard.performance.window")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: summaryCardHeight, alignment: .topLeading).padding(10)

@@ -1,6 +1,6 @@
 # 首版接口适配边界
 
-源码基线：自用 Sub2API `40bee5d2e`。以下路径均以 `/api/v1` 为前缀。传输使用显式 snake_case CodingKeys、`{code,data,reason}` 响应 envelope。Admin Key 使用 `x-api-key`，邮箱会话使用 Bearer；禁止自动跨源重定向和共享 Cookie。
+源码核对基线：自用 Sub2API `e5ab7e4f4c136a8faf40fd06694ab0a6bf6f6925`。新增模块的具体能力、独立日志筛选边界和滚动 RPM 见 [管理模块契约](ADMIN_MODULES.md)。以下路径均以 `/api/v1` 为前缀。传输使用显式 snake_case CodingKeys、`{code,data,reason}` 响应 envelope。Admin Key 使用 `x-api-key`，邮箱会话使用 Bearer；禁止自动跨源重定向和共享 Cookie。
 
 | 能力 | 方法和路径 |
 | --- | --- |
@@ -37,7 +37,7 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 图表交互使用 iOS 17 的原生 Swift Charts API：`chartScrollableAxes`、`chartXVisibleDomain`、`chartScrollPosition`、`chartXSelection` 和 `chartGesture`；双指手势与按钮共用可见时间窗口。加减按钮通过 `withAnimation` 执行 0.3 秒 ease-in-out 动画，显式 `AnimatableModifier` 插值缩放倍数，再按该倍数计算 `chartXVisibleDomain`；左侧时间边界固定，到达最大放大档时也不主动取整横向位置。系统开启“减弱动态效果”时停用该动画。双指缩放连续更新窗口，不等待按钮动画或轮询。动画实现本次未改；历史 `77a2462` / `20261015T073815Z-46faa0c1` 模拟器录屏观察到第二柱宽 17 → 21 → 29 → 34 → 37 像素、柱顶高度不变，范围左端保持 `10/14 00:00`；这是时间边界固定，首个可见柱栅格边缘仍有 2 像素差异。
 
-共享显示格式仍使用 `NSDecimalRound` 与十进制字符串，金额固定两位；卡片最高 K，趋势和用户列表余额保留两位。本轮构建自干净源码 `d07091d5da137c3c58dc1a881c354b08c6f4d3ec`，运行 `20261015T115051Z-b20011a3`，Mac 全流程退出 0；81 项核心、4 项凭据、27 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,324,867 字节，SHA-256 `978cbccbcc6b83028538a43e9e41c91d48e0ee44af5affed6b6bfe75c9ae3a43`。 本轮只验证当前自用后端契约，不扩大官方兼容承诺。
+共享显示格式仍使用 `NSDecimalRound` 与十进制字符串，金额固定两位；卡片最高 K，趋势和用户列表余额保留两位。历史账号容量版构建自干净源码 `d07091d5da137c3c58dc1a881c354b08c6f4d3ec`，运行 `20261015T115051Z-b20011a3`，Mac 全流程退出 0；81 项核心、4 项凭据、27 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,324,867 字节，SHA-256 `978cbccbcc6b83028538a43e9e41c91d48e0ee44af5affed6b6bfe75c9ae3a43`。 本轮只验证当前自用后端契约，不扩大官方兼容承诺。
 
 监控接口不可用时显示局部错误，不伪造零值；不会让监控失败抹去成功的概览。站点未提供必需字段时返回协议错误，避免默默填充不真实的统计值。服务端趋势查询本身还有 30 秒预算；客户端隔离慢查询不能替代服务器侧数据库优化。自动刷新、格式化与布局的受控测试不替代真实站点响应耗时或签名后 iPhone 验收。
 
@@ -65,7 +65,7 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 用户列表首层余额使用 Decimal 固定两位小数，例如 `$12.50`；不改变原金额或余额写入精度。账号列表与详情分别显示“在用并发”和“在用 RPM”，前者读取 `current_concurrency`，后者读取 `current_rpm`；配置容量 `concurrency` 和基础 RPM 限额 `base_rpm` 单独展示。缺失在用 RPM 显示不可用，不填零，也不以基础限额代替。
 
-“容量”汇总当前并发/配置容量、独立探测并发，以及已启用的窗口标准费用/限额、活跃会话/上限、RPM 当前值/基础限额和日/周/总配额。未下发的当前值保留不可用。详情账号快照与今日统计独立请求，两路读取由同一页面生命周期任务并行管理，今日慢查或失败不阻塞容量；父任务取消会传播到两路读取。任务使用本次渲染捕获的可见状态，防止初始停用任务迟启动后误发请求并在取消时留下“暂未加载”。详情只在前台每 30 秒刷新账号快照，离开、后台或切站取消，迟到结果不能覆盖新会话。列表在加载分页及下拉刷新时获取快照，不做全列表定时刷新。
+“容量”汇总当前并发/配置容量、独立探测并发，以及已启用的窗口标准费用/限额、活跃会话/上限、RPM 当前值/基础限额和日/周/总配额。未下发的当前值保留不可用。详情账号快照与今日统计独立请求，两路读取由同一页面生命周期任务并行管理，今日慢查或失败不阻塞容量；父任务取消会传播到两路读取。任务使用本次渲染捕获的可见状态，防止初始停用任务迟启动后误发请求并在取消时留下“暂未加载”。详情只在前台每 30 秒刷新账号快照，离开、后台或切站取消，迟到结果不能覆盖新会话。列表支持可选前台每 30 秒刷新全部已加载页；选择、编辑、批量操作、离页和后台期间暂停，失败保留旧值。
 
 账号今日统计将 `user_cost` 显示为“扣费”（向用户/API Key 实际收取），将原 `cost` 明确显示为“成本”（上游账号成本）；`standard_cost` 单独保留，不拿它补齐扣费。金额以 Decimal 解码并固定两位显示。列表仅在显示“今日统计”字段时使用一个当前已加载账号 ID 集合的批量请求，不逐行发起统计；详情使用单账号统计接口。批量失败只在统计区域提示，不清空成功账号快照。
 
@@ -77,9 +77,9 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 `GET /admin/accounts` 的 full/lite 列表和 `GET /admin/accounts/:id` 详情自带 `current_concurrency: Int`；full/详情另有 `probe_concurrency: Int`，lite 当前不返回探测数。普通在用并发从 Redis 槽位/租约扣除独立探测计数，并非配置 `concurrency`。后端读取并发失败会静默返回 0，客户端无法把该响应与真实空闲区分；可选字段缺失仍保持不可用。
 
-`current_rpm: Int?` 目前仅为 Anthropic OAuth/setup-token 且基础限额大于 0 的账号返回。它是 Redis 服务端当前自然分钟内成功转发的计数，不是滚动 60 秒平均速率，也不是 `base_rpm` 配置。Redis 批量读取整体失败可能省略 RPM，个别键读取异常也可能成为 0；App 只忠实显示服务器快照，未提供时不伪造。
+`current_rpm: Int?` 为所有平台和认证类型的账号返回近 60 秒成功上游请求数，不受 `base_rpm` 是否配置限制。Redis 读取失败时缺失指标显示不可用，不以 0 或基础限额代替。概览 `rpm` 使用相同滚动口径并携带 `rpm_available`；false 显示不可用，true 的 0 是真实零，旧站点缺失标记时不声称近 60 秒。TPM 保持近 5 分钟平均。
 
-容量还读取可选 `current_window_cost` / `window_cost_limit`（标准费用口径）、`active_sessions` / `max_sessions`、`current_rpm` / `base_rpm`，以及 API Key/Bedrock 的 `quota_daily_used/limit`、`quota_weekly_used/limit`、`quota_used/limit`。窗口、会话、RPM 和日/周/总配额只在对应限额大于 0 时显示；基础并发始终展示，配置 0 保留为 0，不自行解释为无限。后端已处理过期日/周配额，手机不自行重置。`session_window_start/end` 是调度会话窗口，不是完整上游用量百分比。
+容量还读取可选 `current_window_cost` / `window_cost_limit`（标准费用口径）、`active_sessions` / `max_sessions`、`scheduling_rpm` / `base_rpm`（自然分钟调度限流），以及 API Key/Bedrock 的 `quota_daily_used/limit`、`quota_weekly_used/limit`、`quota_used/limit`。窗口、会话、RPM 和日/周/总配额只在对应限额大于 0 时显示；基础并发始终展示，配置 0 保留为 0，不自行解释为无限。后端已处理过期日/周配额，手机不自行重置。`session_window_start/end` 是调度会话窗口，不是完整上游用量百分比。
 
 `POST /admin/accounts/today-stats/batch` 正文 `{"account_ids":[1,2]}`，返回 `data.stats`，键为账号 ID 字符串。客户端去除非正 ID、去重、排序，空集合不发送，只接受本次请求的键；服务端先按工作区过滤，缓存 30 秒。`GET /admin/accounts/:id/today-stats` 返回同一统计对象。`user_cost = SUM(actual_cost)`；`cost = SUM(COALESCE(account_stats_cost,total_cost) × COALESCE(account_rate_multiplier,1))`，后者仅计入 `provider_cost_recorded`；`standard_cost` 是同条件下的标准费。今日起点由服务器时区决定。服务端批量 SQL 失败后回退单账号查询，失败项最终可能被补为零值，App 无法从成功响应识别这种后端降级；缺失键及 HTTP 失败不由 App 补零。
 

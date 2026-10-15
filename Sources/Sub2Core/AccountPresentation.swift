@@ -119,7 +119,7 @@ public enum AccountFieldPresentation {
             values.append("窗口标准费用 \(DashboardPresentation.money(account.currentWindowCost)) / \(DashboardPresentation.money(limit))")
         }
         if let limit = account.maxSessions, limit > 0 { values.append("会话 \(number(account.activeSessions)) / \(limit)") }
-        if let limit = account.baseRPM, limit > 0 { values.append("RPM \(number(account.currentRPM)) / \(limit)") }
+        if let limit = account.baseRPM, limit > 0 { values.append("调度 RPM \(number(account.schedulingRPM)) / \(limit)（自然分钟）") }
         for (title, used, limit) in [("日配额", account.quotaDailyUsed, account.quotaDailyLimit), ("周配额", account.quotaWeeklyUsed, account.quotaWeeklyLimit), ("总配额", account.quotaUsed, account.quotaLimit)] {
             if let limit, limit > 0 { values.append("\(title) \(DashboardPresentation.money(used)) / \(DashboardPresentation.money(limit))") }
         }

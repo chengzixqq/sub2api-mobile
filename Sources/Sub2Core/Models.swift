@@ -134,6 +134,8 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
     public var currentConcurrency: Int?
     public var probeConcurrency: Int?
     public var currentRPM: Int?
+    /// Separate natural-minute counter used for provider scheduling limits.
+    public var schedulingRPM: Int?
     public var priority: Int?
     public var rateMultiplier: Decimal?
     public var notes: String?
@@ -167,13 +169,14 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
         public init(id: Int, name: String) { self.id = id; self.name = name }
     }
     private struct GroupBinding: Decodable { let group: Group? }
-    public init(id: Int, name: String, platform: String, type: String, status: String = "active", schedulable: Bool = true, errorMessage: String? = nil, concurrency: Int? = nil, priority: Int? = nil, rateMultiplier: Decimal? = nil, notes: String? = nil, lastUsedAt: String? = nil, expiresAt: Int64? = nil, createdAt: String? = nil, baseRPM: Int? = nil, quotaUsed: Decimal? = nil, groupIDs: [Int] = [], groups: [Group] = [], currentConcurrency: Int? = nil, probeConcurrency: Int? = nil, currentRPM: Int? = nil, quotaLimit: Decimal? = nil, quotaDailyLimit: Decimal? = nil, quotaDailyUsed: Decimal? = nil, quotaWeeklyLimit: Decimal? = nil, quotaWeeklyUsed: Decimal? = nil, windowCostLimit: Decimal? = nil, currentWindowCost: Decimal? = nil, activeSessions: Int? = nil, maxSessions: Int? = nil, sessionWindowStart: String? = nil, sessionWindowEnd: String? = nil, sessionWindowStatus: String? = nil, loadFactor: Int? = nil, proxy: AccountProxy? = nil, extra: AccountExtra? = nil, schedulerScore: AccountSchedulerScore? = nil, schedulerScores: [AccountSchedulerScore]? = nil) {
+    public init(id: Int, name: String, platform: String, type: String, status: String = "active", schedulable: Bool = true, errorMessage: String? = nil, concurrency: Int? = nil, priority: Int? = nil, rateMultiplier: Decimal? = nil, notes: String? = nil, lastUsedAt: String? = nil, expiresAt: Int64? = nil, createdAt: String? = nil, baseRPM: Int? = nil, quotaUsed: Decimal? = nil, groupIDs: [Int] = [], groups: [Group] = [], currentConcurrency: Int? = nil, probeConcurrency: Int? = nil, currentRPM: Int? = nil, quotaLimit: Decimal? = nil, quotaDailyLimit: Decimal? = nil, quotaDailyUsed: Decimal? = nil, quotaWeeklyLimit: Decimal? = nil, quotaWeeklyUsed: Decimal? = nil, windowCostLimit: Decimal? = nil, currentWindowCost: Decimal? = nil, activeSessions: Int? = nil, maxSessions: Int? = nil, sessionWindowStart: String? = nil, sessionWindowEnd: String? = nil, sessionWindowStatus: String? = nil, loadFactor: Int? = nil, proxy: AccountProxy? = nil, extra: AccountExtra? = nil, schedulerScore: AccountSchedulerScore? = nil, schedulerScores: [AccountSchedulerScore]? = nil, schedulingRPM: Int? = nil) {
         self.id = id; self.name = name; self.platform = platform; self.type = type; self.status = status
         self.schedulable = schedulable; self.errorMessage = errorMessage; self.concurrency = concurrency
         self.priority = priority; self.rateMultiplier = rateMultiplier; self.notes = notes; self.lastUsedAt = lastUsedAt
         self.expiresAt = expiresAt; self.createdAt = createdAt; self.baseRPM = baseRPM; self.quotaUsed = quotaUsed
         self.groupIDs = groupIDs; self.groups = groups
         self.currentConcurrency = currentConcurrency; self.probeConcurrency = probeConcurrency; self.currentRPM = currentRPM
+        self.schedulingRPM = schedulingRPM
         self.quotaLimit = quotaLimit; self.quotaDailyLimit = quotaDailyLimit; self.quotaDailyUsed = quotaDailyUsed
         self.quotaWeeklyLimit = quotaWeeklyLimit; self.quotaWeeklyUsed = quotaWeeklyUsed
         self.windowCostLimit = windowCostLimit; self.currentWindowCost = currentWindowCost
@@ -188,6 +191,7 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
         case expiresAt = "expires_at", createdAt = "created_at", baseRPM = "base_rpm", quotaUsed = "quota_used"
         case groupIDs = "group_ids"
         case currentConcurrency = "current_concurrency", probeConcurrency = "probe_concurrency", currentRPM = "current_rpm"
+        case schedulingRPM = "scheduling_rpm"
         case quotaLimit = "quota_limit", quotaDailyLimit = "quota_daily_limit", quotaDailyUsed = "quota_daily_used"
         case quotaWeeklyLimit = "quota_weekly_limit", quotaWeeklyUsed = "quota_weekly_used"
         case windowCostLimit = "window_cost_limit", currentWindowCost = "current_window_cost"
@@ -207,6 +211,7 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
         currentConcurrency = try c.decodeIfPresent(Int.self, forKey: .currentConcurrency)
         probeConcurrency = try c.decodeIfPresent(Int.self, forKey: .probeConcurrency)
         currentRPM = try c.decodeIfPresent(Int.self, forKey: .currentRPM)
+        schedulingRPM = try c.decodeIfPresent(Int.self, forKey: .schedulingRPM)
         quotaLimit = try c.optionalDecimal(.quotaLimit); quotaDailyLimit = try c.optionalDecimal(.quotaDailyLimit)
         quotaDailyUsed = try c.optionalDecimal(.quotaDailyUsed); quotaWeeklyLimit = try c.optionalDecimal(.quotaWeeklyLimit)
         quotaWeeklyUsed = try c.optionalDecimal(.quotaWeeklyUsed); windowCostLimit = try c.optionalDecimal(.windowCostLimit)
@@ -246,6 +251,8 @@ public struct DashboardStats: Codable, Sendable {
     public let totalAccounts: Int
     public let errorAccounts: Int
     public let rpm: Double
+    /// nil is a legacy server; false is unavailable, never a measured zero.
+    public let rpmAvailable: Bool?
     public let tpm: Double
     public let todayActualCost: Decimal?
     public let todayAccountCost: Decimal?
@@ -254,9 +261,10 @@ public struct DashboardStats: Codable, Sendable {
     public let totalTokens: Int?
     public let totalRequests: Int?
     public let averageDurationMs: Double?
-    public init(todayRequests: Int, todayTokens: Int, todayCost: Decimal, totalUsers: Int, totalAccounts: Int, errorAccounts: Int, rpm: Double, tpm: Double, todayActualCost: Decimal? = nil, todayAccountCost: Decimal? = nil, totalActualCost: Decimal? = nil, totalAccountCost: Decimal? = nil, totalTokens: Int? = nil, averageDurationMs: Double? = nil, totalRequests: Int? = nil) {
+    public init(todayRequests: Int, todayTokens: Int, todayCost: Decimal, totalUsers: Int, totalAccounts: Int, errorAccounts: Int, rpm: Double, tpm: Double, todayActualCost: Decimal? = nil, todayAccountCost: Decimal? = nil, totalActualCost: Decimal? = nil, totalAccountCost: Decimal? = nil, totalTokens: Int? = nil, averageDurationMs: Double? = nil, totalRequests: Int? = nil, rpmAvailable: Bool? = nil) {
         self.todayRequests = todayRequests; self.todayTokens = todayTokens; self.todayCost = todayCost; self.totalUsers = totalUsers
         self.totalAccounts = totalAccounts; self.errorAccounts = errorAccounts; self.rpm = rpm; self.tpm = tpm
+        self.rpmAvailable = rpmAvailable
         self.todayActualCost = todayActualCost; self.todayAccountCost = todayAccountCost
         self.totalActualCost = totalActualCost; self.totalAccountCost = totalAccountCost
         self.totalTokens = totalTokens; self.totalRequests = totalRequests; self.averageDurationMs = averageDurationMs
@@ -264,6 +272,7 @@ public struct DashboardStats: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case todayRequests = "today_requests", todayTokens = "today_tokens", todayCost = "today_cost", totalUsers = "total_users"
         case totalAccounts = "total_accounts", errorAccounts = "error_accounts", rpm, tpm
+        case rpmAvailable = "rpm_available"
         case todayActualCost = "today_actual_cost", todayAccountCost = "today_account_cost"
         case totalActualCost = "total_actual_cost", totalAccountCost = "total_account_cost"
         case totalTokens = "total_tokens", totalRequests = "total_requests", averageDurationMs = "average_duration_ms"
@@ -274,6 +283,7 @@ public struct DashboardStats: Codable, Sendable {
         todayCost = try c.decimal(.todayCost); totalUsers = try c.decode(Int.self, forKey: .totalUsers)
         totalAccounts = try c.decode(Int.self, forKey: .totalAccounts); errorAccounts = try c.decode(Int.self, forKey: .errorAccounts)
         rpm = try c.decode(Double.self, forKey: .rpm); tpm = try c.decode(Double.self, forKey: .tpm)
+        rpmAvailable = try c.decodeIfPresent(Bool.self, forKey: .rpmAvailable)
         todayActualCost = try c.optionalDecimal(.todayActualCost); todayAccountCost = try c.optionalDecimal(.todayAccountCost)
         totalActualCost = try c.optionalDecimal(.totalActualCost); totalAccountCost = try c.optionalDecimal(.totalAccountCost)
         totalTokens = try c.decodeIfPresent(Int.self, forKey: .totalTokens)

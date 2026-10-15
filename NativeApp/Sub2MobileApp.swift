@@ -37,8 +37,26 @@ struct MainTabs: View {
             NavigationStack { DashboardView() }.tabItem { Label("概览", systemImage: "chart.bar.xaxis") }.accessibilityIdentifier("tab.dashboard")
             NavigationStack { AccountsView() }.tabItem { Label("账号", systemImage: "server.rack") }.accessibilityIdentifier("tab.accounts")
             NavigationStack { UsersView() }.tabItem { Label("用户", systemImage: "person.2") }.accessibilityIdentifier("tab.users")
+            NavigationStack { ManagementView() }.tabItem { Label("管理", systemImage: "square.grid.2x2") }.accessibilityIdentifier("tab.management")
             NavigationStack { SettingsView() }.tabItem { Label("设置", systemImage: "gearshape") }.accessibilityIdentifier("tab.settings")
         }
         .tint(.indigo)
+    }
+}
+
+struct ManagementView: View {
+    var body: some View {
+        List {
+            Section("排查与分析") {
+                NavigationLink { RequestLogsView() } label: { Label("请求记录与错误日志", systemImage: "list.bullet.rectangle") }
+                    .accessibilityIdentifier("management.logs")
+                NavigationLink { AnalyticsView() } label: { Label("统计分析", systemImage: "chart.xyaxis.line") }
+                    .accessibilityIdentifier("management.analytics")
+            }
+            Section("资源管理") {
+                NavigationLink { GroupsView() } label: { Label("分组管理", systemImage: "folder.badge.gearshape") }
+                    .accessibilityIdentifier("management.groups")
+            }
+        }.navigationTitle("管理")
     }
 }

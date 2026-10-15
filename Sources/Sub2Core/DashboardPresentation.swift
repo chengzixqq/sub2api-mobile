@@ -3,6 +3,13 @@ import Foundation
 /// Display rules shared with the administrator Web dashboard. Missing actual
 /// billing and account-cost values stay unavailable; standard cost is distinct.
 public enum DashboardPresentation {
+    public static func rpmValue(_ stats: DashboardStats) -> String {
+        stats.rpmAvailable == false ? "不可用" : compactNumber(stats.rpm)
+    }
+
+    public static func performanceWindow(_ stats: DashboardStats) -> String {
+        stats.rpmAvailable == nil ? "RPM 窗口由站点决定 · TPM 近5分钟均值" : "RPM 近60秒 · TPM 近5分钟均值"
+    }
     public static func compactNumber(_ value: Int, locale: Locale = .current) -> String {
         if value >= 1_000_000_000 { return fixed(Decimal(value) / 1_000_000_000, digits: 2) + "B" }
         if value >= 1_000_000 { return fixed(Decimal(value) / 1_000_000, digits: 2) + "M" }
