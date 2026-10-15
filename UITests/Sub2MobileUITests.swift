@@ -45,6 +45,8 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.buttons["user.2"].waitForExistence(timeout: 10))
         app.buttons["user.1"].tap()
         XCTAssertTrue(app.buttons["user.balance"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["开发密钥"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["••••••••cret"].exists)
         XCTAssertFalse(app.staticTexts["sk-fixture-secret"].exists)
     }
 
