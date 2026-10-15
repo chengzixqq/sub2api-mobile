@@ -60,6 +60,16 @@ manifest 记录 IPA 的构建提交和输入 Git 对象。后续文档提交可�
 
 ## 代码与兼容范围
 
+本项目已接入 CodeGraph，支持 Swift/Python 代码符号和调用关系查询。开发工具版本为 1.6.2，可用 `npm install -g @colbymchenry/codegraph@1.6.2` 安装。在每个源码 checkout 中分别运行：
+
+```sh
+codegraph init --yes
+codegraph status
+codegraph explore "DashboardStats"
+```
+
+源码变更后用 `codegraph sync` 更新索引；Codex 已配置 CodeGraph MCP 时也可直接调用 `codegraph_explore`，并指定当前 checkout 的绝对路径。索引位于本机 `.codegraph/`，不提交数据库；新 checkout 需要独立初始化。后续代理的使用约定见 [AGENTS.md](AGENTS.md)。
+
 - `Sources/Sub2Core`：Sendable DTO、API actor、共享令牌刷新、分页、Decimal、POST SSE 和可注入传输层。
 - `NativeApp/Session`：MainActor 界面状态、站点配置、Keychain 和会话身份隔离。
 - `NativeApp/Features`：SwiftUI 业务页面。

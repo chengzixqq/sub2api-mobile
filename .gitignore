@@ -13,4 +13,5 @@ xcuserdata/
 *.xcarchive/
 __pycache__/
 .env
+.codegraph/
 
