@@ -151,7 +151,7 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(performance.isHittable, "The combined performance card should be visible before scrolling.")
         XCTAssertTrue(performance.descendants(matching: .any)["dashboard.performance.rpm"].firstMatch.exists)
         XCTAssertTrue(performance.descendants(matching: .any)["dashboard.performance.tpm"].firstMatch.exists)
-        assertSummaryCardsHaveEqualHeights()
+        assertSummaryCardsHaveEqualHeights(maximumHeight: 116)
         assertDashboardValue("dashboard.performance.rpm", contains: ["1.23K", "RPM"])
         assertDashboardValue("dashboard.performance.tpm", contains: ["987.65K", "TPM"])
         dashboardDiagnostics(named: "dashboard-top-performance-card")
@@ -185,6 +185,8 @@ final class Sub2MobileUITests: XCTestCase {
         let zoomIn = app.buttons["dashboard.trend.zoom-in"]
         reveal(zoomIn)
         let initialZoom = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch.label
+        let visibleRange = app.descendants(matching: .any)["dashboard.trend.visible-range"].firstMatch
+        let anchoredStart = visibleRange.label.components(separatedBy: " — ").first
         for step in 0..<4 {
             if !zoomIn.isEnabled { break }
             let beforeZoom = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch.label
@@ -194,6 +196,8 @@ final class Sub2MobileUITests: XCTestCase {
             let zoomLabel = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch
             let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", beforeZoom), object: zoomLabel)
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, app.debugDescription)
+            XCTAssertEqual(visibleRange.label.components(separatedBy: " — ").first, anchoredStart,
+                           "Zooming in should hold the left time boundary instead of panning to the old center.")
             if step == 2 {
                 reveal(chart)
                 dashboardDiagnostics(named: "dashboard-trend-readable-labels-before-maximum")
@@ -206,7 +210,6 @@ final class Sub2MobileUITests: XCTestCase {
         reveal(chart)
         dashboardDiagnostics(named: "dashboard-trend-max-zoom-actual-consumption")
 
-        let visibleRange = app.descendants(matching: .any)["dashboard.trend.visible-range"].firstMatch
         reveal(visibleRange)
         let beforeScroll = visibleRange.label
         chart.swipeLeft()
@@ -360,7 +363,7 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10))
     }
 
-    @MainActor private func assertSummaryCardsHaveEqualHeights(file: StaticString = #filePath, line: UInt = #line) {
+    @MainActor private func assertSummaryCardsHaveEqualHeights(maximumHeight: CGFloat? = nil, file: StaticString = #filePath, line: UInt = #line) {
         let identifiers = [
             "dashboard.today-requests", "dashboard.today-tokens", "dashboard.today-actual-cost",
             "dashboard.today-account-cost", "dashboard.total-tokens", "dashboard.performance.card"
@@ -374,6 +377,9 @@ final class Sub2MobileUITests: XCTestCase {
         }
         let shortest = heights.min() ?? 0
         let tallest = heights.max() ?? 0
+        if let maximumHeight {
+            XCTAssertLessThanOrEqual(tallest, maximumHeight, "Standard summary cards should stay compact.", file: file, line: line)
+        }
         XCTAssertLessThanOrEqual(tallest - shortest, 1, "All six cards should have equal heights: \(zip(identifiers, heights).map { "\($0.0)=\($0.1)" }.joined(separator: ", "))", file: file, line: line)
         let attachment = XCTAttachment(string: zip(identifiers, heights).map { "\($0.0)=\($0.1)" }.joined(separator: "\n"))
         attachment.name = "dashboard-summary-card-heights"

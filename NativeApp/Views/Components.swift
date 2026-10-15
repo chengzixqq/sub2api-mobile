@@ -34,8 +34,9 @@ struct MetricView: View {
             Label(title, systemImage: symbol).font(.subheadline).foregroundStyle(.secondary)
             Text(value).font(.title2.bold()).minimumScaleFactor(0.6).lineLimit(2)
         }
-        .frame(maxWidth: .infinity).frame(height: contentHeight, alignment: .leading)
-        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: contentHeight, alignment: .topLeading)
+        .padding(10)
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
         .accessibilityElement(children: .combine)
     }

@@ -40,16 +40,17 @@ private final class DashboardLoadState<Value: Sendable> {
     }
 }
 
-/// Swift Charts' visible-domain length needs explicit interpolation when the
-/// zoom buttons change it; gestures continue to update without animation.
+/// Interpolate the scale so bar widths grow smoothly from the anchored edge;
+/// gestures continue to update the same scale without a separate animation.
 nonisolated private struct AnimatedTrendViewport: AnimatableModifier {
-    var duration: TimeInterval
+    let span: TimeInterval
+    var zoom: Double
     var animatableData: Double {
-        get { duration }
-        set { duration = newValue }
+        get { zoom }
+        set { zoom = newValue }
     }
     @MainActor func body(content: Content) -> some View {
-        content.chartXVisibleDomain(length: duration)
+        content.chartXVisibleDomain(length: span / max(1, zoom))
     }
 }
 
@@ -193,7 +194,7 @@ private struct DashboardTrendChart: View {
         .chartYScale(domain: yDomain)
         .chartScrollableAxes(.horizontal)
         .chartScrollTargetBehavior(.valueAligned(matching: series.isHourly ? DateComponents(minute: 0) : DateComponents(hour: 0)))
-        .modifier(AnimatedTrendViewport(duration: visibleDuration))
+        .modifier(AnimatedTrendViewport(span: span, zoom: zoom))
         .chartScrollPosition(x: $scrollDate)
         .chartXSelection(value: $selectedDate)
         .chartGesture { proxy in
@@ -262,14 +263,11 @@ private struct DashboardTrendChart: View {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) { changeZoom(next) }
     }
     private func changeZoom(_ next: Double) {
-        let center = visibleStart.addingTimeInterval(visibleDuration / 2)
+        // Keep the visible left edge in place: bars stretch to the right instead
+        // of combining a centered pan with the visible-domain animation.
+        let anchoredStart = visibleStart
         zoom = DashboardTrend.clampedZoom(next, maximum: maximumZoom)
-        var start = clampedStart(center.addingTimeInterval(-visibleDuration / 2), duration: visibleDuration)
-        if zoom >= maximumZoom,
-           let bucket = Calendar.current.dateInterval(of: series.isHourly ? .hour : .day, for: start) {
-            start = bucket.start
-        }
-        scrollDate = clampedStart(start, duration: visibleDuration)
+        scrollDate = clampedStart(anchoredStart, duration: visibleDuration)
     }
 }
 
@@ -278,7 +276,7 @@ struct DashboardView: View {
     @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric(relativeTo: .body) private var summaryCardHeight = 104.0
+    @ScaledMetric(relativeTo: .body) private var summaryCardHeight = 92.0
     @State private var stats = DashboardLoadState<DashboardSummary>()
     @State private var costs = DashboardLoadState<DashboardCostSnapshot>()
     @State private var costAttemptAt: Date?
@@ -442,7 +440,7 @@ struct DashboardView: View {
             .font(.caption).foregroundStyle(.secondary)
     }
     private func performanceCard(_ stats: DashboardStats) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Label("性能指标", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(.secondary)
             performanceLine(DashboardPresentation.compactNumber(stats.rpm), unit: "RPM", prominent: true)
                 .accessibilityIdentifier("dashboard.performance.rpm")
@@ -450,7 +448,8 @@ struct DashboardView: View {
                 .accessibilityIdentifier("dashboard.performance.tpm")
             Text("最近 5 分钟平均").font(.caption2).foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity).frame(height: summaryCardHeight, alignment: .leading).padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: summaryCardHeight, alignment: .topLeading).padding(10)
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
         .accessibilityElement(children: .contain).accessibilityIdentifier("dashboard.performance.card")
     }
