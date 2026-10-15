@@ -17,8 +17,10 @@ def validate(xcode, swift, developer_dir, specification):
     if not version or normalized(version[1])[:2] != normalized(expected)[:2]:
         raise ValueError(f"Required Xcode {expected} release; found {xcode!r}")
     build = re.search(r"^Build version\s+(\S+)", xcode, re.MULTILINE)
-    if not build or not re.fullmatch(r"\d+[A-Z]\d+[A-Z]?", build[1]):
-        raise ValueError("Missing or prerelease Xcode build identity")
+    # Release builds can retain a lowercase suffix when Apple promotes an RC.
+    # Accept only the exact build published for the pinned official release.
+    if not build or build[1] != specification["xcodeBuild"]:
+        raise ValueError(f"Required official Xcode build {specification['xcodeBuild']}")
     if re.search(r"beta|(?:^|[^a-z])rc(?:[^a-z]|$)|snapshot|preview", xcode + " " + swift + " " + developer_dir, re.I):
         raise ValueError("Beta, RC, snapshot and preview toolchains are not accepted")
     compiler = re.search(r"Swift version\s+(\d+\.\d+)(?:\.\d+)?", swift)
