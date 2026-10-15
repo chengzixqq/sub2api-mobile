@@ -1,0 +1,50 @@
+name: Native iOS tests and unsigned IPA
+on:
+  push:
+    branches: [codex/native-ios-rebuild]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-ios-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core:
+    name: Swift 6.4 core contracts
+    runs-on: ubuntu-24.04
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check compiler
+        run: |
+          swift --version | tee compiler.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('compiler.txt').read_text()
+          assert re.search(r'Swift version 6\.4(?:\.\d+)?\b', text), text
+          assert not re.search(r'beta|snapshot|preview|\bRC\b', text, re.I), text
+          PY
+      - name: Test core contracts
+        run: swift test --parallel
+  ios:
+    name: Release toolchain, simulator and device
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify
+        run: python3 scripts/build.py all
+      - name: Retain build evidence and unsigned IPA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sub2Mobile-build-evidence
+          if-no-files-found: warn
+          path: |
+            build/artifacts/
+            build/*.log
+            build/*.json
+            build/*.jsonl
+            build/*.xcresult/
