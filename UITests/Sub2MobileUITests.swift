@@ -136,7 +136,9 @@ final class Sub2MobileUITests: XCTestCase {
 
         let chart = app.descendants(matching: .any)["dashboard.trend.chart"].firstMatch
         XCTAssertTrue(chart.waitForExistence(timeout: 10), app.debugDescription)
-        reveal(chart)
+        // Runtime health now follows the chart, so return upward after reading
+        // its average response time rather than continuing below the chart.
+        reveal(chart, towardBottom: false)
         XCTAssertGreaterThan(chart.frame.height, 100)
         assertDashboardValue("dashboard.trend.range", contains: ["10/14", "22:00", "10/15", "02:00"])
         // Keep the rendered chart and AX tree: the cross-day tick spacing is
