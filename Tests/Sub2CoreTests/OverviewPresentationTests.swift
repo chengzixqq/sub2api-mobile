@@ -35,6 +35,16 @@ private func overview(adding fields: String = "") throws -> DashboardStats {
     #expect(throws: (any Error).self) { try overview(adding: #""today_actual_cost":"invalid""#) }
 }
 
+@Test func overviewTotalRequestsPreservesExactIntegerAndOptionalCompatibility() throws {
+    let stats = try overview(adding: #""total_requests":9007199254740993"#)
+    #expect(stats.totalRequests == 9_007_199_254_740_993)
+    let roundTrip = try JSONDecoder().decode(DashboardStats.self, from: JSONEncoder().encode(stats))
+    #expect(roundTrip.totalRequests == stats.totalRequests)
+    #expect(try overview().totalRequests == nil)
+    #expect(try overview(adding: #""total_requests":null"#).totalRequests == nil)
+    #expect(throws: (any Error).self) { try overview(adding: #""total_requests":"invalid""#) }
+}
+
 @Test(arguments: [
     (0, "0"), (999, "999"), (1_000, "1.00K"), (1_234, "1.23K"),
     (999_999, "1000.00K"), (1_000_000, "1.00M"), (1_234_567, "1.23M"),
@@ -61,6 +71,29 @@ func overviewCompactCountsMatchWebThresholds(value: Int, expected: String) {
 ])
 func overviewCostDisplayMatchesWebWithoutDoubleConversion(raw: String, expected: String) {
     #expect(DashboardPresentation.cost(Decimal(string: raw)) == expected)
+}
+
+@Test(arguments: [
+    ("0", "$0.00"), ("0.004", "$0.00"), ("0.005", "$0.01"),
+    ("1.005", "$1.01"), ("999.995", "$1000.00"), ("1000", "$1.00K"),
+    ("45080", "$45.08K"), ("45085", "$45.09K"), ("999999.995", "$1000.00K"),
+    ("1000000", "$1000.00K"), ("1005000", "$1005.00K"),
+    ("3872500", "$3872.50K"), ("1772920", "$1772.92K"),
+    ("1000000000", "$1000000.00K"), ("-45085", "$-45.09K"),
+    ("-0.004", "$0.00"), ("999.994999999999999999999999", "$999.99"),
+    ("999999.99999999999999999999", "$1000.00K"),
+    ("1004999999.999999999999999", "$1005000.00K"), ("1005000000", "$1005000.00K"),
+    ("12345678901234567890.125", "$12345678901234567.89K")
+])
+func compactCostDisplayKeepsDecimalPrecisionAndCompactUnits(raw: String, expected: String) {
+    let amount = Decimal(string: raw)
+    #expect(DashboardPresentation.compactCost(amount) == expected)
+    #expect(amount == Decimal(string: raw))
+}
+
+@Test func compactCostDisplayKeepsUnavailableValues() {
+    #expect(DashboardPresentation.compactCost(nil) == "不可用")
+    #expect(DashboardPresentation.compactCost(.nan) == "不可用")
 }
 
 @Test(arguments: [

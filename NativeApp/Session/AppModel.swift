@@ -211,6 +211,7 @@ final class AppModel {
                 let original = try JSONEncoder().encode(DemoData.dashboard.stats)
                 var fields = try JSONSerialization.jsonObject(with: original) as! [String: Any]
                 fields.removeValue(forKey: "today_account_cost")
+                fields.removeValue(forKey: "total_account_cost")
                 let stats = try JSONDecoder().decode(DashboardStats.self, from: JSONSerialization.data(withJSONObject: fields))
                 return DashboardSummary(stats: stats, trend: [])
             }
@@ -223,7 +224,8 @@ final class AppModel {
             if ProcessInfo.processInfo.arguments.contains("-ui-cost-snapshot-error") {
                 throw APIError(kind: .transport, message: "费用快照超时，请重试。")
             }
-            return DashboardCostSnapshot(actual: Decimal(string: "12.34")!, account: Decimal(string: "4.56")!)
+            return DashboardCostSnapshot(actual: Decimal(string: "12.34")!, account: Decimal(string: "4.56")!,
+                                         totalActual: Decimal(string: "1234.56")!, totalAccount: Decimal(string: "456.78")!)
         }
         return try await requireClient().dashboardCostSnapshot()
     }

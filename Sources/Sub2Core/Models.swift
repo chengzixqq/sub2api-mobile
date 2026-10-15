@@ -137,20 +137,21 @@ public struct DashboardStats: Codable, Sendable {
     public let totalActualCost: Decimal?
     public let totalAccountCost: Decimal?
     public let totalTokens: Int?
+    public let totalRequests: Int?
     public let averageDurationMs: Double?
-    public init(todayRequests: Int, todayTokens: Int, todayCost: Decimal, totalUsers: Int, totalAccounts: Int, errorAccounts: Int, rpm: Double, tpm: Double, todayActualCost: Decimal? = nil, todayAccountCost: Decimal? = nil, totalActualCost: Decimal? = nil, totalAccountCost: Decimal? = nil, totalTokens: Int? = nil, averageDurationMs: Double? = nil) {
+    public init(todayRequests: Int, todayTokens: Int, todayCost: Decimal, totalUsers: Int, totalAccounts: Int, errorAccounts: Int, rpm: Double, tpm: Double, todayActualCost: Decimal? = nil, todayAccountCost: Decimal? = nil, totalActualCost: Decimal? = nil, totalAccountCost: Decimal? = nil, totalTokens: Int? = nil, averageDurationMs: Double? = nil, totalRequests: Int? = nil) {
         self.todayRequests = todayRequests; self.todayTokens = todayTokens; self.todayCost = todayCost; self.totalUsers = totalUsers
         self.totalAccounts = totalAccounts; self.errorAccounts = errorAccounts; self.rpm = rpm; self.tpm = tpm
         self.todayActualCost = todayActualCost; self.todayAccountCost = todayAccountCost
         self.totalActualCost = totalActualCost; self.totalAccountCost = totalAccountCost
-        self.totalTokens = totalTokens; self.averageDurationMs = averageDurationMs
+        self.totalTokens = totalTokens; self.totalRequests = totalRequests; self.averageDurationMs = averageDurationMs
     }
     enum CodingKeys: String, CodingKey {
         case todayRequests = "today_requests", todayTokens = "today_tokens", todayCost = "today_cost", totalUsers = "total_users"
         case totalAccounts = "total_accounts", errorAccounts = "error_accounts", rpm, tpm
         case todayActualCost = "today_actual_cost", todayAccountCost = "today_account_cost"
         case totalActualCost = "total_actual_cost", totalAccountCost = "total_account_cost"
-        case totalTokens = "total_tokens", averageDurationMs = "average_duration_ms"
+        case totalTokens = "total_tokens", totalRequests = "total_requests", averageDurationMs = "average_duration_ms"
     }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -161,6 +162,7 @@ public struct DashboardStats: Codable, Sendable {
         todayActualCost = try c.optionalDecimal(.todayActualCost); todayAccountCost = try c.optionalDecimal(.todayAccountCost)
         totalActualCost = try c.optionalDecimal(.totalActualCost); totalAccountCost = try c.optionalDecimal(.totalAccountCost)
         totalTokens = try c.decodeIfPresent(Int.self, forKey: .totalTokens)
+        totalRequests = try c.decodeIfPresent(Int.self, forKey: .totalRequests)
         averageDurationMs = try c.decodeIfPresent(Double.self, forKey: .averageDurationMs)
     }
 }

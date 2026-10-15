@@ -116,13 +116,17 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["dashboard.today-requests"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
 
         assertDashboardValue("dashboard.today-requests", contains: ["128"])
+        let totalRequests = assertDashboardValue("dashboard.total-requests", contains: ["总计"])
+        XCTAssertTrue(totalRequests.replacingOccurrences(of: ",", with: "").contains("213009545"), totalRequests)
         assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"])
-        let actual = assertDashboardValue("dashboard.today-actual-cost", contains: ["$12.34"])
-        let account = assertDashboardValue("dashboard.today-account-cost", contains: ["$4.56"])
+        let actual = assertDashboardValue("dashboard.today-actual-cost", contains: ["今日实际费用", "$12.34"])
+        let account = assertDashboardValue("dashboard.today-account-cost", contains: ["今日上游成本", "$4.56"])
         // Distinct fixture prices catch accidentally displaying standard cost.
         XCTAssertFalse(actual.contains("99.99"))
         XCTAssertFalse(account.contains("99.99"))
         assertDashboardValue("dashboard.total-tokens", contains: ["9.88B"])
+        assertDashboardValue("dashboard.total-actual-cost", contains: ["累计实际费用", "$1.23K"])
+        assertDashboardValue("dashboard.total-account-cost", contains: ["累计上游成本", "$456.78"])
         dashboardDiagnostics(named: "dashboard-compact-tokens-and-real-costs")
 
         assertDashboardValue("dashboard.performance.rpm", contains: ["1.23K", "RPM"])
@@ -152,12 +156,17 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(performance.descendants(matching: .any)["dashboard.performance.rpm"].firstMatch.exists)
         XCTAssertTrue(performance.descendants(matching: .any)["dashboard.performance.tpm"].firstMatch.exists)
         assertSummaryCardsHaveEqualHeights(maximumHeight: 116)
+        assertEmbeddedSummaryFootersFit(diagnosticSuffix: "standard")
         assertDashboardValue("dashboard.performance.rpm", contains: ["1.23K", "RPM"])
         assertDashboardValue("dashboard.performance.tpm", contains: ["987.65K", "TPM"])
         dashboardDiagnostics(named: "dashboard-top-performance-card")
 
         let health = app.descendants(matching: .any)["dashboard.health"].firstMatch
         reveal(health)
+        let trend = app.descendants(matching: .any)["dashboard.trend.section"].firstMatch
+        XCTAssertTrue(trend.exists, app.debugDescription)
+        // Read both frames after scrolling: they must share the same viewport.
+        XCTAssertLessThan(trend.frame.minY, health.frame.minY, "Usage trend should precede runtime health.")
         XCTAssertTrue(health.descendants(matching: .any)["dashboard.health.errors"].firstMatch.exists)
         XCTAssertTrue(health.descendants(matching: .any)["dashboard.performance.duration"].firstMatch.exists)
         assertDashboardValue("dashboard.health.errors", contains: ["1"])
@@ -170,6 +179,7 @@ final class Sub2MobileUITests: XCTestCase {
         defer { dashboardDiagnostics(named: "dashboard-equal-cards-accessibility-text") }
         login(name: "大字体等高验收", url: "https://large-text.example.com")
         assertSummaryCardsHaveEqualHeights()
+        assertEmbeddedSummaryFootersFit(diagnosticSuffix: "accessibility-text")
     }
 
     @MainActor func testDashboardTrendSupportsMetricsZoomScrollingAndExactHourlySelection() {
@@ -280,6 +290,8 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [snapshotReady], timeout: 10), .completed, app.debugDescription)
         let accountText = assertDashboardValue("dashboard.today-account-cost", contains: ["$4.56"])
         XCTAssertFalse(accountText.contains("99.99"))
+        assertDashboardValue("dashboard.total-actual-cost", contains: ["$1.23K"])
+        assertDashboardValue("dashboard.total-account-cost", contains: ["$456.78"])
         XCTAssertFalse(app.descendants(matching: .any)["dashboard.costs.error"].firstMatch.exists)
         dashboardDiagnostics(named: "dashboard-cost-snapshot-amounts")
         assertDashboardValue("dashboard.performance.duration", contains: ["1.25s"])
@@ -312,6 +324,8 @@ final class Sub2MobileUITests: XCTestCase {
         assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"], towardBottom: false)
         assertDashboardValue("dashboard.today-actual-cost", contains: ["$12.34"])
         assertDashboardValue("dashboard.today-account-cost", contains: ["不可用"])
+        assertDashboardValue("dashboard.total-actual-cost", contains: ["$1.23K"])
+        assertDashboardValue("dashboard.total-account-cost", contains: ["不可用"])
         XCTAssertFalse(app.alerts["操作未完成"].exists)
     }
 
@@ -365,8 +379,7 @@ final class Sub2MobileUITests: XCTestCase {
 
     @MainActor private func assertSummaryCardsHaveEqualHeights(maximumHeight: CGFloat? = nil, file: StaticString = #filePath, line: UInt = #line) {
         let identifiers = [
-            "dashboard.today-requests", "dashboard.today-tokens", "dashboard.today-actual-cost",
-            "dashboard.today-account-cost", "dashboard.total-tokens", "dashboard.performance.card"
+            "dashboard.today-requests", "dashboard.today-tokens", "dashboard.total-tokens", "dashboard.performance.card"
         ]
         var heights: [CGFloat] = []
         for identifier in identifiers {
@@ -380,11 +393,74 @@ final class Sub2MobileUITests: XCTestCase {
         if let maximumHeight {
             XCTAssertLessThanOrEqual(tallest, maximumHeight, "Standard summary cards should stay compact.", file: file, line: line)
         }
-        XCTAssertLessThanOrEqual(tallest - shortest, 1, "All six cards should have equal heights: \(zip(identifiers, heights).map { "\($0.0)=\($0.1)" }.joined(separator: ", "))", file: file, line: line)
+        XCTAssertLessThanOrEqual(tallest - shortest, 1, "All four cards should have equal heights: \(zip(identifiers, heights).map { "\($0.0)=\($0.1)" }.joined(separator: ", "))", file: file, line: line)
         let attachment = XCTAttachment(string: zip(identifiers, heights).map { "\($0.0)=\($0.1)" }.joined(separator: "\n"))
         attachment.name = "dashboard-summary-card-heights"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor private func assertEmbeddedSummaryFootersFit(diagnosticSuffix: String, file: StaticString = #filePath, line: UInt = #line) {
+        let footers: [(card: String, footer: String, values: [String])] = [
+            ("dashboard.today-requests", "dashboard.total-requests", ["dashboard.total-requests"]),
+            ("dashboard.today-tokens", "dashboard.today-costs", ["dashboard.today-actual-cost", "dashboard.today-account-cost"]),
+            ("dashboard.total-tokens", "dashboard.total-costs", ["dashboard.total-actual-cost", "dashboard.total-account-cost"])
+        ]
+        let expectedValues = [
+            "dashboard.total-requests": ["总计", "213009545"],
+            "dashboard.today-actual-cost": ["今日实际费用", "$12.34"],
+            "dashboard.today-account-cost": ["今日上游成本", "$4.56"],
+            "dashboard.total-actual-cost": ["累计实际费用", "$1.23K"],
+            "dashboard.total-account-cost": ["累计上游成本", "$456.78"]
+        ]
+        for specification in footers {
+            let card = app.descendants(matching: .any)[specification.card].firstMatch
+            revealSummaryCardFully(card, file: file, line: line)
+            let footer = card.descendants(matching: .any)[specification.footer].firstMatch
+            XCTAssertTrue(footer.exists, "Footer must be embedded in \(specification.card)", file: file, line: line)
+            assertFrame(footer, fitsInside: card, file: file, line: line)
+            for identifier in specification.values {
+                let value = identifier == specification.footer ? footer : footer.descendants(matching: .any)[identifier].firstMatch
+                XCTAssertTrue(value.exists, "Missing footer value \(identifier)", file: file, line: line)
+                assertFrame(value, fitsInside: footer, file: file, line: line)
+                assertFrame(value, fitsInside: card, file: file, line: line)
+                let text = (value.label + " " + (value.value as? String ?? "")).replacingOccurrences(of: ",", with: "")
+                for expected in expectedValues[identifier] ?? [] {
+                    XCTAssertTrue(text.contains(expected), "Expected \(identifier) to contain \(expected); observed \(text)", file: file, line: line)
+                }
+            }
+            dashboardDiagnostics(named: "\(specification.footer)-\(diagnosticSuffix)")
+        }
+    }
+
+    @MainActor private func assertFrame(_ child: XCUIElement, fitsInside parent: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let inner = child.frame
+        let outer = parent.frame.insetBy(dx: -1, dy: -1)
+        XCTAssertGreaterThan(inner.width, 0, child.identifier, file: file, line: line)
+        XCTAssertGreaterThan(inner.height, 0, child.identifier, file: file, line: line)
+        XCTAssertTrue(outer.contains(inner), "\(child.identifier) \(inner) overflows \(parent.identifier) \(parent.frame)", file: file, line: line)
+    }
+
+    @MainActor private func revealSummaryCardFully(_ card: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(card.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        for attempt in 0...10 {
+            let top = app.navigationBars.firstMatch.frame.maxY
+            let bottom = app.tabBars.firstMatch.frame.minY
+            if card.isHittable && card.frame.minY >= top && card.frame.maxY <= bottom { return }
+            if attempt < 10 {
+                // Move only the measured overflow, so a large text card is not
+                // repeatedly scrolled past the opposite edge of the viewport.
+                let overflow = card.frame.minY < top ? card.frame.minY - top - 12 : card.frame.maxY - bottom + 12
+                let distance = min(abs(overflow), (bottom - top) * 0.6)
+                let startY = overflow > 0 ? bottom - 30 : top + 30
+                let endY = startY + (overflow > 0 ? -distance : distance)
+                let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+                let start = origin.withOffset(CGVector(dx: 0, dy: startY - app.frame.minY))
+                let end = origin.withOffset(CGVector(dx: 0, dy: endY - app.frame.minY))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
+        }
+        XCTFail("Summary card was not fully visible after bounded scrolling: \(card.identifier) \(card.frame)\n\(app.debugDescription)", file: file, line: line)
     }
 
     @MainActor private func selectFirstTrendHour(contains values: [String] = [], diagnosticName: String? = nil, file: StaticString = #filePath, line: UInt = #line) {
@@ -421,7 +497,10 @@ final class Sub2MobileUITests: XCTestCase {
     private func assertDashboardValue(_ identifier: String, contains values: [String], towardBottom: Bool = true, file: StaticString = #filePath, line: UInt = #line) -> String {
         let element = app.descendants(matching: .any)[identifier].firstMatch
         reveal(element, towardBottom: towardBottom, file: file, line: line)
-        let text = element.label + " " + (element.value as? String ?? "")
+        // Metric cards expose children so their individual footer values remain
+        // accessible. Include child text when asserting a whole card's value.
+        let text = ([element] + element.descendants(matching: .staticText).allElementsBoundByIndex)
+            .map { $0.label + " " + ($0.value as? String ?? "") }.joined(separator: " ")
         for value in values {
             XCTAssertTrue(text.contains(value), "Expected \(identifier) to contain \(value); observed \(text)\n\(app.debugDescription)", file: file, line: line)
         }

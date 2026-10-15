@@ -24,21 +24,27 @@ struct LabeledValue: View {
     }
 }
 
-struct MetricView: View {
+struct MetricView<Footer: View>: View {
     let title: String
     let value: String
     let symbol: String
-    var contentHeight: CGFloat = 85
+    let contentHeight: CGFloat
+    let footer: Footer
+    init(title: String, value: String, symbol: String, contentHeight: CGFloat = 85, @ViewBuilder footer: () -> Footer) {
+        self.title = title; self.value = value; self.symbol = symbol
+        self.contentHeight = contentHeight; self.footer = footer()
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             Label(title, systemImage: symbol).font(.subheadline).foregroundStyle(.secondary)
             Text(value).font(.title2.bold()).minimumScaleFactor(0.6).lineLimit(2)
+            footer
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: contentHeight, alignment: .topLeading)
         .padding(10)
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 

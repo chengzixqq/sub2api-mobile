@@ -32,6 +32,15 @@ public enum DashboardPresentation {
         return "$" + fixed(value, digits: digits)
     }
 
+    /// Compact dashboard card currency; rounding and scaling never pass through Double.
+    /// Currency uses K as its highest unit, matching the administrator Web cards.
+    public static func compactCost(_ value: Decimal?) -> String {
+        guard let value, !value.isNaN else { return "不可用" }
+        let magnitude = value < 0 ? -value : value
+        if magnitude >= 1_000 { return "$" + fixed(value / 1_000, digits: 2) + "K" }
+        return "$" + fixed(value, digits: 2)
+    }
+
     /// A full currency amount rounded for display only. Keep rounding in Decimal
     /// so values beyond Double's integer precision retain their correct cents.
     public static func money(_ value: Decimal?) -> String {

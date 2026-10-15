@@ -276,6 +276,7 @@ struct DashboardView: View {
     @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var summaryCardHeight = 92.0
     @State private var stats = DashboardLoadState<DashboardSummary>()
     @State private var costs = DashboardLoadState<DashboardCostSnapshot>()
@@ -294,15 +295,24 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 20) {
                 if let summary = stats.value {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 300 : 150), alignment: .leading)], spacing: 12) {
-                        MetricView(title: "今日请求", value: summary.stats.todayRequests.formatted(), symbol: "arrow.left.arrow.right", contentHeight: summaryCardHeight)
+                        MetricView(title: "今日请求", value: summary.stats.todayRequests.formatted(), symbol: "arrow.left.arrow.right", contentHeight: summaryCardHeight) {
+                            Text("总计：\(summary.stats.totalRequests?.formatted() ?? "不可用")")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("dashboard.total-requests")
+                        }
                             .accessibilityIdentifier("dashboard.today-requests")
-                        MetricView(title: "今日 Tokens", value: DashboardPresentation.compactNumber(summary.stats.todayTokens), symbol: "text.alignleft", contentHeight: summaryCardHeight)
+                        MetricView(title: "今日 Tokens", value: DashboardPresentation.compactNumber(summary.stats.todayTokens), symbol: "text.alignleft", contentHeight: summaryCardHeight) {
+                            costBreakdown(actual: summary.stats.todayActualCost, account: summary.stats.todayAccountCost,
+                                          snapshotActual: currentCostSnapshot?.actual, snapshotAccount: currentCostSnapshot?.account,
+                                          period: "今日", identifier: "dashboard.today")
+                        }
                             .accessibilityIdentifier("dashboard.today-tokens")
-                        MetricView(title: "今日实际费用", value: DashboardPresentation.cost(currentCostSnapshot?.actual ?? summary.stats.todayActualCost), symbol: "dollarsign.circle", contentHeight: summaryCardHeight)
-                            .accessibilityIdentifier("dashboard.today-actual-cost")
-                        MetricView(title: "今日账号成本", value: DashboardPresentation.cost(summary.stats.todayAccountCost ?? currentCostSnapshot?.account), symbol: "creditcard", contentHeight: summaryCardHeight)
-                            .accessibilityIdentifier("dashboard.today-account-cost")
-                        MetricView(title: "总 Tokens", value: summary.stats.totalTokens.map { DashboardPresentation.compactNumber($0) } ?? "不可用", symbol: "sum", contentHeight: summaryCardHeight)
+                        MetricView(title: "总 Tokens", value: summary.stats.totalTokens.map { DashboardPresentation.compactNumber($0) } ?? "不可用", symbol: "sum", contentHeight: summaryCardHeight) {
+                            costBreakdown(actual: summary.stats.totalActualCost, account: summary.stats.totalAccountCost,
+                                          snapshotActual: currentCostSnapshot?.totalActual, snapshotAccount: currentCostSnapshot?.totalAccount,
+                                          period: "累计", identifier: "dashboard.total")
+                        }
                             .accessibilityIdentifier("dashboard.total-tokens")
                         performanceCard(summary.stats)
                     }.accessibilityIdentifier("dashboard.metrics")
@@ -322,9 +332,9 @@ struct DashboardView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if stats.value != nil {
-                    Text("实际费用为用户扣费，账号成本为上游成本；均按站点的今日统计。")
+                    Text("绿色为实际费用，黄色为上游成本；分别显示今日和累计统计。")
                         .font(.caption).foregroundStyle(.secondary)
-                    if stats.value?.stats.todayAccountCost == nil {
+                    if needsCostSnapshot {
                         if costs.isLoading { ProgressView("正在加载费用快照…") }
                         sectionError(costs.error, identifier: "dashboard.costs.error") { requestCosts(force: true) }
                         if let date = costs.updatedAt {
@@ -334,18 +344,6 @@ struct DashboardView: View {
                         Button("刷新费用") { requestCosts(force: true) }
                             .disabled(costs.isLoading).accessibilityIdentifier("dashboard.costs.load")
                     }
-                }
-                if let summary = stats.value {
-                    GroupBox("运行健康") {
-                        VStack(spacing: 10) {
-                            LabeledValue(label: "异常账号", value: summary.stats.errorAccounts.formatted())
-                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.health.errors")
-                            LabeledValue(label: "平均响应时间", value: DashboardPresentation.duration(summary.stats.averageDurationMs))
-                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.performance.duration")
-                            Text("平均响应时间为累计请求平均值。")
-                                .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                        }.padding(.top, 8)
-                    }.accessibilityIdentifier("dashboard.health")
                 }
                 GroupBox("用量趋势") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -363,6 +361,18 @@ struct DashboardView: View {
                             .accessibilityIdentifier("dashboard.trend.load").disabled(trend.isLoading)
                         if let date = trend.updatedAt { lastUpdated(date) }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                }.accessibilityIdentifier("dashboard.trend.section")
+                if let summary = stats.value {
+                    GroupBox("运行健康") {
+                        VStack(spacing: 10) {
+                            LabeledValue(label: "异常账号", value: summary.stats.errorAccounts.formatted())
+                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.health.errors")
+                            LabeledValue(label: "平均响应时间", value: DashboardPresentation.duration(summary.stats.averageDurationMs))
+                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.performance.duration")
+                            Text("平均响应时间为累计请求平均值。")
+                                .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                        }.padding(.top, 8)
+                    }.accessibilityIdentifier("dashboard.health")
                 }
                 GroupBox("运行监控") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -439,6 +449,37 @@ struct DashboardView: View {
         Text("更新于 \(date.formatted(date: .omitted, time: .standard))")
             .font(.caption).foregroundStyle(.secondary)
     }
+    private func costBreakdown(actual: Decimal?, account: Decimal?, snapshotActual: Decimal?, snapshotAccount: Decimal?, period: String, identifier: String) -> some View {
+        // A complete fallback pair comes from one response, never mixed timestamps.
+        let useSnapshot = (actual == nil || account == nil) && snapshotActual != nil && snapshotAccount != nil
+        let actual = useSnapshot ? snapshotActual : actual
+        let account = useSnapshot ? snapshotAccount : account
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                costValue(actual, actual: true, period: period, identifier: identifier + "-actual-cost")
+                Text("/").foregroundStyle(.secondary).accessibilityHidden(true)
+                costValue(account, actual: false, period: period, identifier: identifier + "-account-cost")
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                costValue(actual, actual: true, period: period, identifier: identifier + "-actual-cost")
+                costValue(account, actual: false, period: period, identifier: identifier + "-account-cost")
+            }
+        }
+        .font(.caption).monospacedDigit()
+        .accessibilityElement(children: .contain).accessibilityIdentifier(identifier + "-costs")
+    }
+    private func costValue(_ value: Decimal?, actual: Bool, period: String, identifier: String) -> some View {
+        // Darker green/gold keep the small values legible on light cards.
+        let tint: Color = actual
+            ? (colorScheme == .dark ? .green : Color(red: 0.08, green: 0.47, blue: 0.23))
+            : (colorScheme == .dark ? .yellow : Color(red: 0.55, green: 0.37, blue: 0))
+        return Text(DashboardPresentation.compactCost(value))
+            .foregroundStyle(value == nil ? Color.secondary : tint)
+            .fixedSize()
+            .accessibilityLabel("\(period)\(actual ? "实际费用" : "上游成本")")
+            .accessibilityValue(DashboardPresentation.compactCost(value))
+            .accessibilityIdentifier(identifier)
+    }
     private func performanceCard(_ stats: DashboardStats) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Label("性能指标", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(.secondary)
@@ -460,8 +501,12 @@ struct DashboardView: View {
         }
         .lineLimit(1).minimumScaleFactor(0.6).accessibilityElement(children: .combine)
     }
+    private var needsCostSnapshot: Bool {
+        guard let current = stats.value?.stats else { return false }
+        return current.todayActualCost == nil || current.todayAccountCost == nil || current.totalActualCost == nil || current.totalAccountCost == nil
+    }
     private var currentCostSnapshot: DashboardCostSnapshot? {
-        guard stats.value?.stats.todayAccountCost == nil,
+        guard needsCostSnapshot,
               let updatedAt = costs.updatedAt, Date().timeIntervalSince(updatedAt) < 90 else { return nil }
         return costs.value
     }
@@ -476,7 +521,7 @@ struct DashboardView: View {
         requestCosts(force: forceCosts)
     }
     private func requestCosts(force: Bool = false) {
-        guard polling, stats.value != nil, stats.value?.stats.todayAccountCost == nil,
+        guard polling, needsCostSnapshot,
               costLaunchID == nil, !costs.isLoading else { return }
         if !force, let costAttemptAt, Date().timeIntervalSince(costAttemptAt) < 90 { return }
         costAttemptAt = Date()

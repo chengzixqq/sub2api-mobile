@@ -17,7 +17,7 @@ private actor CostSnapshotTransport: HTTPTransport {
     func requests() -> [URLRequest] { seen }
 }
 
-private let costStats = #"{"today_requests":12,"today_tokens":1234567,"today_cost":"99.99","today_actual_cost":"12.34567891","today_account_cost":"4.56789123","total_users":8,"total_accounts":3,"error_accounts":1,"rpm":1234,"tpm":987654}"#
+private let costStats = #"{"today_requests":12,"today_tokens":1234567,"today_cost":"99.99","today_actual_cost":"12.34567891","today_account_cost":"4.56789123","total_actual_cost":"45080.1234567890123456789","total_account_cost":"12345.67890123456789","total_users":8,"total_accounts":3,"error_accounts":1,"rpm":1234,"tpm":987654}"#
 
 @Test func overviewCostSnapshotUsesOnlyStatsAndPreservesBothMoneyValues() async throws {
     let transport = CostSnapshotTransport(stats: costStats)
@@ -26,6 +26,8 @@ private let costStats = #"{"today_requests":12,"today_tokens":1234567,"today_cos
     let snapshot = try await client.dashboardCostSnapshot()
     #expect(snapshot.actual == Decimal(string: "12.34567891"))
     #expect(snapshot.account == Decimal(string: "4.56789123"))
+    #expect(snapshot.totalActual == Decimal(string: "45080.1234567890123456789"))
+    #expect(snapshot.totalAccount == Decimal(string: "12345.67890123456789"))
     let requests = await transport.requests()
     let request = try #require(requests.first)
     #expect(requests.count == 1)
@@ -37,6 +39,36 @@ private let costStats = #"{"today_requests":12,"today_tokens":1234567,"today_cos
         #expect(query[key] == "false")
     }
     #expect(query["start_date"] == query["end_date"])
+}
+
+@Test(arguments: ["total_actual_cost", "total_account_cost"])
+func overviewCostSnapshotKeepsCumulativePairUnavailableWhenIncomplete(missing: String) async throws {
+    var fields = try JSONSerialization.jsonObject(with: Data(costStats.utf8)) as! [String: Any]
+    fields.removeValue(forKey: missing)
+    let incomplete = try JSONSerialization.data(withJSONObject: fields)
+    let transport = CostSnapshotTransport(stats: String(decoding: incomplete, as: UTF8.self))
+    let server = ServerProfile(name: "Fixture", baseURL: URL(string: "https://costs.example.invalid")!, authentication: .adminKey)
+    let client = APIClient(server: server, credential: .adminKey("fixture"), transport: transport)
+    let snapshot = try await client.dashboardCostSnapshot()
+    #expect(snapshot.totalActual == nil)
+    #expect(snapshot.totalAccount == nil)
+    #expect(snapshot.actual == Decimal(string: "12.34567891"))
+    #expect(snapshot.account == Decimal(string: "4.56789123"))
+    #expect(await transport.requests().count == 1)
+}
+
+@Test func overviewCostSnapshotKeepsLegacyMissingCumulativeValuesCompatible() async throws {
+    var fields = try JSONSerialization.jsonObject(with: Data(costStats.utf8)) as! [String: Any]
+    fields.removeValue(forKey: "total_actual_cost")
+    fields["total_account_cost"] = NSNull()
+    let incomplete = try JSONSerialization.data(withJSONObject: fields)
+    let transport = CostSnapshotTransport(stats: String(decoding: incomplete, as: UTF8.self))
+    let server = ServerProfile(name: "Fixture", baseURL: URL(string: "https://costs.example.invalid")!, authentication: .adminKey)
+    let client = APIClient(server: server, credential: .adminKey("fixture"), transport: transport)
+    let snapshot = try await client.dashboardCostSnapshot()
+    #expect(snapshot.totalActual == nil)
+    #expect(snapshot.totalAccount == nil)
+    #expect(snapshot.actual == Decimal(string: "12.34567891"))
 }
 
 @Test func overviewCostSnapshotNeverSubstitutesStandardCostForMissingAccountCost() async throws {

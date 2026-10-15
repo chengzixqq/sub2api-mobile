@@ -9,7 +9,7 @@ enum DemoData {
             totalUsers: 22, totalAccounts: 8, errorAccounts: 1, rpm: 1234, tpm: 987_654,
             todayActualCost: Decimal(string: "12.34")!, todayAccountCost: Decimal(string: "4.56")!,
             totalActualCost: Decimal(string: "1234.56")!, totalAccountCost: Decimal(string: "456.78")!,
-            totalTokens: 9_876_543_210, averageDurationMs: 1250),
+            totalTokens: 9_876_543_210, averageDurationMs: 1250, totalRequests: 213_009_545),
         trend: [
             TrendPoint(date: "2026-10-14 22:00", requests: 90, totalTokens: 32_000, cost: Decimal(string: "0.80")!, actualCost: Decimal(string: "0.31")!),
             TrendPoint(date: "2026-10-15 00:00", requests: 128, totalTokens: 54_000, cost: Decimal(string: "1.25")!, actualCost: Decimal(string: "0.52")!),

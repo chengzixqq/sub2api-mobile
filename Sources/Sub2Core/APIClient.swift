@@ -6,7 +6,14 @@ import FoundationNetworking
 public struct DashboardCostSnapshot: Sendable {
     public let actual: Decimal
     public let account: Decimal
-    public init(actual: Decimal, account: Decimal) { self.actual = actual; self.account = account }
+    public let totalActual: Decimal?
+    public let totalAccount: Decimal?
+    public init(actual: Decimal, account: Decimal, totalActual: Decimal? = nil, totalAccount: Decimal? = nil) {
+        self.actual = actual; self.account = account
+        // Never combine a partial cumulative pair with another response's value.
+        self.totalActual = totalAccount == nil ? nil : totalActual
+        self.totalAccount = totalActual == nil ? nil : totalAccount
+    }
 }
 
 public actor APIClient {
@@ -90,7 +97,7 @@ public actor APIClient {
     }
     public func dashboardCostSnapshot() async throws -> DashboardCostSnapshot {
         let snapshot = generation
-        // Some servers omit account cost from /stats. Request only snapshot stats,
+        // Some servers omit today's and cumulative account cost from /stats. Request only snapshot stats,
         // independently from the cached overview and without chart queries.
         let reply: DashboardStatsSnapshotReply = try await request("admin/dashboard/snapshot-v2", query: dateRange(days: 0) + [
             URLQueryItem(name: "include_stats", value: "true"),
@@ -103,7 +110,7 @@ public actor APIClient {
         guard let actual = reply.stats?.todayActualCost, let account = reply.stats?.todayAccountCost else {
             throw APIError(kind: .response, message: "站点未提供实际费用或账号成本，请在网页核对。")
         }
-        return DashboardCostSnapshot(actual: actual, account: account)
+        return DashboardCostSnapshot(actual: actual, account: account, totalActual: reply.stats?.totalActualCost, totalAccount: reply.stats?.totalAccountCost)
     }
     public func dashboardMonitoring() async throws -> OpsSnapshot {
         let snapshot = generation
