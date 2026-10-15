@@ -42,6 +42,8 @@ private func groupClient(_ transport: GroupTransport) -> APIClient {
     let zero = GroupUpdateRequest(dailyLimitUSD: .amount(0))
     let zeroBody = try #require(JSONSerialization.jsonObject(with: zero.requestBody()) as? [String: Any])
     #expect(zeroBody["daily_limit_usd"] as? Int == 0 && !(zeroBody["daily_limit_usd"] is NSNull))
+    #expect(zero.matches(AdminGroup(id: 10, name: "zero", dailyLimitUSD: 0)))
+    #expect(!zero.matches(AdminGroup(id: 10, name: "unlimited", dailyLimitUSD: nil)))
     var observed = AdminGroup(id: 10, name: "unchanged", description: "", isExclusive: false, monthlyLimitUSD: Decimal(string: "123.45678901"))
     #expect(input.matches(observed))
     observed.monthlyLimitUSD = 9

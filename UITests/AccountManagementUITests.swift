@@ -46,8 +46,18 @@ final class AccountManagementUITests: XCTestCase {
         XCTAssertTrue(app.buttons["account.2"].waitForExistence(timeout: 10))
         app.buttons["accounts.select"].tap()
         app.buttons["选择已加载账号"].tap()
-        app.buttons["accounts.batch-actions"].tap()
-        app.buttons["暂停调度"].tap()
+        XCTAssertTrue(app.staticTexts["已选 2 / 50"].waitForExistence(timeout: 5))
+        let menu = element("accounts.batch-actions")
+        // The iOS 27 list exposes a full-row AX wrapper around the actual
+        // popup trigger. Tap its visible title, whose bounds are the menu's
+        // observed control, rather than the wrapper's empty center.
+        let menuTitle = menu.staticTexts["批量操作"].firstMatch
+        XCTAssertTrue(menuTitle.waitForExistence(timeout: 5), app.debugDescription)
+        menuTitle.tap()
+        let pause = element("accounts.batch.pause")
+        XCTAssertTrue(pause.waitForExistence(timeout: 5), app.debugDescription)
+        capture("account-batch-menu-open")
+        pause.tap()
         XCTAssertTrue(app.buttons["确认执行"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.navigationBars["批量操作结果"].exists)
         app.buttons["确认执行"].tap()

@@ -43,5 +43,12 @@ final class AnalyticsUITests: XCTestCase {
         reveal(difference)
         XCTAssertTrue(difference.exists, app.debugDescription)
         XCTAssertTrue(app.staticTexts["$6.67"].exists, app.debugDescription)
+        let chart = app.descendants(matching: .any)["analytics.chart"].firstMatch
+        reveal(chart)
+        XCTAssertTrue(chart.exists, app.debugDescription)
+        let capture = XCTAttachment(screenshot: app.screenshot())
+        capture.name = "analytics-single-bucket-chart"
+        capture.lifetime = .keepAlways
+        add(capture)
     }
 }

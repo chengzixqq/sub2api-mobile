@@ -65,14 +65,24 @@ struct AnalyticsView: View {
                             Text("部分时段的实际消费不可用，图表只绘制已返回的金额。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        Chart(points) { point in
+                        // A continuous index keeps the scroll domain nonzero even for one bucket.
+                        // A categorical one-bucket domain can trap inside Charts' scroll geometry.
+                        Chart(Array(points.enumerated()), id: \.element.id) { index, point in
                             if let cost = point.actualCost {
-                                BarMark(x: .value("时间", point.date), y: .value("实际扣费", NSDecimalNumber(decimal: cost).doubleValue))
+                                BarMark(x: .value("时段", Double(index)), y: .value("实际扣费", NSDecimalNumber(decimal: cost).doubleValue))
                                     .foregroundStyle(.green)
                             }
                         }
+                        .chartXScale(domain: -0.5...max(0.5, Double(points.count) - 0.5))
                         .chartScrollableAxes(.horizontal)
-                        .chartXVisibleDomain(length: min(10, max(1, points.count)))
+                        .chartXVisibleDomain(length: Double(min(10, max(1, points.count))))
+                        .chartXAxis {
+                            AxisMarks(values: .stride(by: 1)) { value in
+                                if let index = value.as(Int.self), points.indices.contains(index) {
+                                    AxisValueLabel(points[index].date)
+                                }
+                            }
+                        }
                         .frame(height: 190).accessibilityIdentifier("analytics.chart")
                         NavigationLink("\(query.hourly ? "逐小时" : "逐日")明细") {
                             List(points.reversed()) { point in

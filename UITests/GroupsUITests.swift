@@ -19,7 +19,8 @@ final class GroupsUITests: XCTestCase {
         set("移动分组更新", field: "group-editor.name", towardBottom: false)
         set("仅修改描述与名称", field: "group-editor.description")
         confirmEditor()
-        reveal(element("移动分组更新"), towardBottom: false)
+        // An Any query by the new title also matches the editor TextField's
+        // value while the sheet is dismissing. Wait for the destination bar.
         XCTAssertTrue(app.navigationBars["移动分组更新"].waitForExistence(timeout: 10), app.debugDescription)
         reveal(app.buttons["group.status"])
         app.buttons["group.status"].tap()
@@ -28,6 +29,7 @@ final class GroupsUITests: XCTestCase {
         reveal(statusResult)
         XCTAssertTrue(statusResult.label.contains("状态已更新"), app.debugDescription)
         XCTAssertTrue(app.buttons["group.status"].label.contains("启用"), app.debugDescription)
+        diagnostics("group-edit-and-status-success")
         reveal(app.buttons["group.delete"])
         app.buttons["group.delete"].tap()
         confirmDialog()
@@ -92,7 +94,7 @@ final class GroupsUITests: XCTestCase {
     }
     @MainActor private func reveal(_ item: XCUIElement, towardBottom: Bool = true) {
         for _ in 0..<12 {
-            if item.exists && item.isHittable { return }
+            if visibleFrame(item), item.isHittable { return }
             let frame = app.frame
             let top = max(frame.minY + 100, app.navigationBars.firstMatch.frame.maxY + 20)
             let bottom = min(frame.maxY - 100, app.keyboards.firstMatch.exists ? app.keyboards.firstMatch.frame.minY - 20 : frame.maxY - 100)
@@ -102,7 +104,15 @@ final class GroupsUITests: XCTestCase {
             let lower = origin.withOffset(CGVector(dx: 0, dy: top - frame.minY + height * 0.85))
             (towardBottom ? lower : upper).press(forDuration: 0.05, thenDragTo: towardBottom ? upper : lower)
         }
-        XCTAssertTrue(item.exists && item.isHittable, app.debugDescription)
+        guard visibleFrame(item) else {
+            XCTFail("Expected a visible, nonempty element frame.\n\(app.debugDescription)"); return
+        }
+        XCTAssertTrue(item.isHittable, app.debugDescription)
+    }
+    @MainActor private func visibleFrame(_ item: XCUIElement) -> Bool {
+        guard item.exists else { return false }
+        let frame = item.frame
+        return !frame.isEmpty && !frame.isNull && !frame.isInfinite && frame.minX.isFinite && frame.minY.isFinite && frame.intersects(app.frame)
     }
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)

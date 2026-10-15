@@ -5,6 +5,7 @@ struct RequestLogsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sessionContext) private var session
     @State private var filter: RequestLogFilter
+    @State private var rollingLastDay = true
     @State private var mode = LogMode.requests
     @State private var records: [UsageRequestRecord] = []
     @State private var errors: [RequestErrorRecord] = []
@@ -32,6 +33,18 @@ struct RequestLogsView: View {
                 }.pickerStyle(.segmented).accessibilityIdentifier("logs.mode")
                 Text("\(filter.start.formatted(date: .abbreviated, time: .shortened)) — \(filter.end.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption).foregroundStyle(.secondary)
+                if rollingLastDay {
+                    Text("最近 24 小时；下拉刷新时更新至现在。")
+                        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("logs.range.rolling")
+                } else {
+                    Text("固定时间范围；下拉刷新保留以上起止时间。")
+                        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("logs.range.fixed")
+                    Button("查看最新记录（近 24 小时）") {
+                        rollingLastDay = true
+                        advanceLastDay()
+                        revision = UUID()
+                    }.accessibilityIdentifier("logs.range.latest")
+                }
                 if let id = filter.accountID { Text("账号 #\(id)").font(.caption).accessibilityIdentifier("logs.account-filter") }
                 if let id = filter.groupID { Text("分组 #\(id)").font(.caption) }
                 if !effectiveFilter.model.isEmpty { Text("模型：\(effectiveFilter.model)").font(.caption) }
@@ -80,7 +93,7 @@ struct RequestLogsView: View {
         } }
         .sheet(isPresented: $editingFilter) {
             RequestLogFilterEditor(initial: effectiveFilter, errors: mode != .requests, upstream: mode == .upstream) { value in
-                filter = value; revision = UUID()
+                filter = value; rollingLastDay = false; revision = UUID()
             }
         }
         .task(id: queryKey) {
@@ -88,8 +101,17 @@ struct RequestLogsView: View {
             records = []; errors = []; page = 0; total = nil; updatedAt = nil; hasMore = false; failure = nil
             await load(page: 1)
         }
-        .refreshable { await load(page: 1) }
+        .refreshable {
+            guard !loading else { return }
+            if rollingLastDay { advanceLastDay() }
+            await load(page: 1)
+        }
         .onDisappear { invalidate() }
+    }
+    private func advanceLastDay() {
+        let now = Date()
+        filter.start = now.addingTimeInterval(-86_400)
+        filter.end = now
     }
     private func requestRow(_ record: UsageRequestRecord) -> some View {
         VStack(alignment: .leading, spacing: 5) {

@@ -75,10 +75,15 @@ struct AccountsView: View {
                         Button("选择已加载账号") { selected = Set(accounts.prefix(50).map(\.id)) }
                         Spacer(); Text("已选 \(selected.count) / 50").foregroundStyle(.secondary)
                     }
-                    Menu("批量操作") {
+                    Menu {
                         ForEach([AccountBatchAction.pause, .resume, .refresh]) { action in
                             Button(action.title) { prepareBatch(action) }
+                                .accessibilityIdentifier("accounts.batch.\(action.rawValue)")
                         }
+                    } label: {
+                        Label("批量操作", systemImage: "checklist")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }.disabled(selected.isEmpty || batchRunning).accessibilityIdentifier("accounts.batch-actions")
                 }
             }
