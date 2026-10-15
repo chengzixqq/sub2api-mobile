@@ -170,12 +170,16 @@ public struct TrendPoint: Identifiable, Codable, Sendable {
     public let requests: Int
     public let totalTokens: Int
     public let cost: Decimal
-    public init(date: String, requests: Int, totalTokens: Int, cost: Decimal) { self.date = date; self.requests = requests; self.totalTokens = totalTokens; self.cost = cost }
-    enum CodingKeys: String, CodingKey { case date, requests, totalTokens = "total_tokens", cost }
+    public let actualCost: Decimal?
+    public init(date: String, requests: Int, totalTokens: Int, cost: Decimal, actualCost: Decimal? = nil) {
+        self.date = date; self.requests = requests; self.totalTokens = totalTokens; self.cost = cost; self.actualCost = actualCost
+    }
+    enum CodingKeys: String, CodingKey { case date, requests, totalTokens = "total_tokens", cost, actualCost = "actual_cost" }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         date = try c.decode(String.self, forKey: .date); requests = try c.decode(Int.self, forKey: .requests)
         totalTokens = try c.decode(Int.self, forKey: .totalTokens); cost = try c.decimal(.cost)
+        actualCost = try c.optionalDecimal(.actualCost)
     }
 }
 public struct OpsSnapshot: Codable, Sendable {

@@ -232,6 +232,7 @@ final class AppModel {
             if ProcessInfo.processInfo.arguments.contains("-ui-dashboard-detail-errors") {
                 throw APIError(kind: .transport, message: "趋势请求超时，请重试。")
             }
+            if ProcessInfo.processInfo.arguments.contains("-ui-trend-long-series") { return DemoData.longHourlyTrend }
             return DemoData.dashboard.trend
         }
         return try await requireClient().dashboardTrend()

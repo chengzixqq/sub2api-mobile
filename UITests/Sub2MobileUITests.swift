@@ -112,6 +112,99 @@ final class Sub2MobileUITests: XCTestCase {
         dashboardDiagnostics(named: "dashboard-cross-day-trend-axis")
     }
 
+    @MainActor func testDashboardPerformanceCardAndHealthContainTheirMetrics() {
+        launch()
+        defer { dashboardDiagnostics(named: "dashboard-performance-card-and-health-final") }
+        login(name: "性能卡与健康验收", url: "https://health.example.com")
+        let metrics = app.descendants(matching: .any)["dashboard.metrics"].firstMatch
+        XCTAssertTrue(metrics.waitForExistence(timeout: 10), app.debugDescription)
+        let performance = metrics.descendants(matching: .any)["dashboard.performance.card"].firstMatch
+        XCTAssertTrue(performance.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(performance.isHittable, "The combined performance card should be visible before scrolling.")
+        XCTAssertTrue(performance.descendants(matching: .any)["dashboard.performance.rpm"].firstMatch.exists)
+        XCTAssertTrue(performance.descendants(matching: .any)["dashboard.performance.tpm"].firstMatch.exists)
+        assertDashboardValue("dashboard.performance.rpm", contains: ["1.23K", "RPM"])
+        assertDashboardValue("dashboard.performance.tpm", contains: ["987.65K", "TPM"])
+        dashboardDiagnostics(named: "dashboard-top-performance-card")
+
+        let health = app.descendants(matching: .any)["dashboard.health"].firstMatch
+        reveal(health)
+        XCTAssertTrue(health.descendants(matching: .any)["dashboard.health.errors"].firstMatch.exists)
+        XCTAssertTrue(health.descendants(matching: .any)["dashboard.performance.duration"].firstMatch.exists)
+        assertDashboardValue("dashboard.health.errors", contains: ["1"])
+        assertDashboardValue("dashboard.performance.duration", contains: ["1.25s"])
+        dashboardDiagnostics(named: "dashboard-running-health")
+    }
+
+    @MainActor func testDashboardTrendSupportsMetricsZoomScrollingAndExactHourlySelection() {
+        launch(arguments: ["-ui-trend-long-series"])
+        defer { dashboardDiagnostics(named: "dashboard-trend-interaction-final") }
+        login(name: "趋势交互验收", url: "https://trend.example.com")
+        let load = app.buttons["dashboard.trend.load"]
+        reveal(load)
+        load.tap()
+        let chart = app.descendants(matching: .any)["dashboard.trend.chart"].firstMatch
+        XCTAssertTrue(chart.waitForExistence(timeout: 10), app.debugDescription)
+        let metric = app.segmentedControls["dashboard.trend.metric"]
+        reveal(metric)
+        XCTAssertTrue(metric.buttons["实际消费"].isSelected, "Actual consumption should be the initial trend metric.")
+
+        let zoomIn = app.buttons["dashboard.trend.zoom-in"]
+        reveal(zoomIn)
+        let initialZoom = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch.label
+        for _ in 0..<4 {
+            if !zoomIn.isEnabled { break }
+            zoomIn.tap()
+        }
+        XCTAssertFalse(zoomIn.isEnabled, "Zoom should reach its bounded maximum.")
+        let maximumZoom = assertDashboardValue("dashboard.trend.zoom-level", contains: ["放大"])
+        XCTAssertNotEqual(maximumZoom, initialZoom)
+        reveal(chart)
+        dashboardDiagnostics(named: "dashboard-trend-max-zoom-actual-consumption")
+
+        let visibleRange = app.descendants(matching: .any)["dashboard.trend.visible-range"].firstMatch
+        reveal(visibleRange)
+        let beforeScroll = visibleRange.label
+        chart.swipeLeft()
+        let advanced = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", beforeScroll), object: visibleRange)
+        XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 5), .completed, app.debugDescription)
+        let afterScroll = visibleRange.label
+        chart.swipeRight()
+        let reversed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", afterScroll), object: visibleRange)
+        XCTAssertEqual(XCTWaiter.wait(for: [reversed], timeout: 5), .completed, app.debugDescription)
+        dashboardDiagnostics(named: "dashboard-trend-horizontal-navigation")
+
+        selectFirstTrendHour()
+        let actual = assertDashboardValue("dashboard.trend.selection", contains: ["10/14", "00:00", "0.10000001"])
+        XCTAssertFalse(actual.contains("9.10000001"), "The exact selected value must not use standard cost.")
+        dashboardDiagnostics(named: "dashboard-trend-exact-actual-selection")
+
+        reveal(metric, towardBottom: false)
+        metric.buttons["Tokens"].tap()
+        XCTAssertTrue(metric.buttons["Tokens"].isSelected)
+        selectFirstTrendHour()
+        let tokens = assertDashboardValue("dashboard.trend.selection", contains: ["Tokens"])
+        XCTAssertTrue(tokens.replacingOccurrences(of: ",", with: "").contains("1000000"), tokens)
+        XCTAssertFalse(tokens.contains("1.00M"), "Selected hourly values should preserve exact counts.")
+        dashboardDiagnostics(named: "dashboard-trend-exact-token-selection")
+
+        reveal(metric, towardBottom: false)
+        metric.buttons["请求数"].tap()
+        XCTAssertTrue(metric.buttons["请求数"].isSelected)
+        selectFirstTrendHour()
+        assertDashboardValue("dashboard.trend.selection", contains: ["请求数", "100 次"])
+        dashboardDiagnostics(named: "dashboard-trend-exact-request-selection")
+
+        let zoomOut = app.buttons["dashboard.trend.zoom-out"]
+        reveal(zoomOut, towardBottom: false)
+        let priorZoom = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch.label
+        zoomOut.tap()
+        let zoomLevel = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch
+        XCTAssertNotEqual(zoomLevel.label, priorZoom)
+        XCTAssertTrue(zoomIn.isEnabled)
+        dashboardDiagnostics(named: "dashboard-trend-zoomed-out")
+    }
+
     @MainActor func testDashboardMissingAccountCostLoadsIndependentSnapshot() {
         launch(arguments: ["-ui-missing-account-cost"])
         defer { dashboardDiagnostics(named: "dashboard-cost-snapshot-success") }
@@ -207,6 +300,16 @@ final class Sub2MobileUITests: XCTestCase {
         enter("fixture-password", in: app.secureTextFields["login.password"])
         submitLogin()
         XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor private func selectFirstTrendHour(file: StaticString = #filePath, line: UInt = #line) {
+        let details = app.buttons["dashboard.trend.details"]
+        reveal(details, file: file, line: line)
+        details.tap()
+        let first = app.buttons["dashboard.trend.hour.2026-10-14 00:00"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        first.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard.trend.selection"].firstMatch.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
     }
 
     @MainActor @discardableResult

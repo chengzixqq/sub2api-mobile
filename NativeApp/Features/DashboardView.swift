@@ -40,6 +40,214 @@ private final class DashboardLoadState<Value: Sendable> {
     }
 }
 
+/// Native iOS 17 chart scrolling and selection keep horizontal panning separate
+/// from a tap; magnification and the buttons change the same visible time window.
+private struct DashboardTrendChart: View {
+    let series: DashboardTrendSeries
+    @State private var metric = DashboardTrendMetric.actualCost
+    @State private var zoom = 1.0
+    @State private var gestureStartZoom: Double?
+    @State private var scrollDate: Date
+    @State private var selectedDate: Date?
+    @State private var showingDetails = false
+
+    init(points: [TrendPoint]) {
+        let parsed = DashboardTrend.series(points)
+        series = parsed
+        _scrollDate = State(initialValue: parsed.samples.first?.date ?? .now)
+    }
+
+    private var bucketSeconds: TimeInterval { series.isHourly ? 3_600 : 86_400 }
+    private var firstDate: Date { series.samples.first?.date ?? .now }
+    private var endDate: Date { (series.samples.last?.date ?? firstDate).addingTimeInterval(bucketSeconds) }
+    private var span: TimeInterval { max(bucketSeconds, endDate.timeIntervalSince(firstDate)) }
+    private var maximumZoom: Double { max(1, span / (bucketSeconds * 3)) }
+    private var visibleDuration: TimeInterval { span / zoom }
+    private var visibleStart: Date { clampedStart(scrollDate, duration: visibleDuration) }
+    private var visibleEnd: Date { min(endDate, visibleStart.addingTimeInterval(visibleDuration)) }
+    private var showBarValues: Bool { zoom >= maximumZoom || span <= bucketSeconds * 4 }
+    private var selectedSample: DashboardTrendSample? {
+        guard let selectedDate else { return nil }
+        return series.samples.min {
+            abs($0.date.addingTimeInterval(bucketSeconds / 2).timeIntervalSince(selectedDate)) <
+            abs($1.date.addingTimeInterval(bucketSeconds / 2).timeIntervalSince(selectedDate))
+        }
+    }
+    private var ticks: [Date] {
+        let visible = series.samples.filter { $0.date >= visibleStart && $0.date < visibleEnd }
+        guard let first = visible.first, let last = visible.last else { return [] }
+        if showBarValues { return visible.map(\.date) }
+        return Array(Set([first.date, visible[visible.count / 2].date, last.date])).sorted()
+    }
+    private var yDomain: ClosedRange<Double> {
+        let values = series.samples.compactMap { metric.plotValue($0.point) }
+        let lower = min(0, values.min() ?? 0)
+        let upper = max(0, values.max() ?? 0)
+        return lower...max(lower + 0.001, upper == 0 ? 1 : upper * 1.25)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("趋势指标", selection: $metric) {
+                ForEach(DashboardTrendMetric.allCases) { metric in Text(metric.label).tag(metric) }
+            }.pickerStyle(.segmented).accessibilityIdentifier("dashboard.trend.metric")
+
+            if series.samples.isEmpty {
+                Text("趋势时间格式无法识别，请在网页查看。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                zoomControls
+                chart
+                Text("当前：\(dateLabel(visibleStart)) — \(dateLabel(visibleEnd))")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("dashboard.trend.visible-range")
+                Text("全部：\(dateLabel(firstDate)) — \(dateLabel(series.samples.last!.date))")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("dashboard.trend.range")
+                if metric == .actualCost && series.samples.contains(where: { $0.point.actualCost == nil }) {
+                    Text("部分时段未返回实际消费，显示为不可用；未以标准费用代替。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let sample = selectedSample {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(dateLabel(sample.date)) · \(metric.label)").font(.caption).foregroundStyle(.secondary)
+                        Text(exactLabel(sample)).font(.headline).monospacedDigit().textSelection(.enabled)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.trend.selection")
+                } else {
+                    Text("点选柱子查看精确数值；放大后可左右滑动，双指缩放或使用按钮调整。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Button(series.isHourly ? "逐小时明细" : "逐日明细") { showingDetails = true }
+                    .buttonStyle(.bordered).accessibilityIdentifier("dashboard.trend.details")
+            }
+            if series.invalidDateCount > 0 {
+                Text("\(series.invalidDateCount) 个时间点无法解析，未绘入图表。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: series.samples.map(\.date)) { _, _ in
+            zoom = DashboardTrend.clampedZoom(zoom, maximum: maximumZoom)
+            scrollDate = clampedStart(scrollDate, duration: visibleDuration)
+            if let selectedDate, selectedDate < firstDate || selectedDate >= endDate { self.selectedDate = nil }
+        }
+        .sheet(isPresented: $showingDetails) { details }
+    }
+
+    private var zoomControls: some View {
+        HStack {
+            Button { changeZoom(zoom / 2) } label: { Image(systemName: "minus.magnifyingglass").frame(minWidth: 40, minHeight: 40) }
+                .accessibilityLabel("缩小趋势").accessibilityIdentifier("dashboard.trend.zoom-out").disabled(zoom <= 1)
+            Spacer(minLength: 2)
+            Text("放大 \(zoom.formatted(.number.precision(.fractionLength(0...1))))×")
+                .font(.subheadline).monospacedDigit().accessibilityIdentifier("dashboard.trend.zoom-level")
+            Spacer(minLength: 2)
+            Button { changeZoom(zoom * 2) } label: { Image(systemName: "plus.magnifyingglass").frame(minWidth: 40, minHeight: 40) }
+                .accessibilityLabel("放大趋势").accessibilityIdentifier("dashboard.trend.zoom-in").disabled(zoom >= maximumZoom)
+        }.buttonStyle(.bordered)
+    }
+
+    private var chart: some View {
+        Chart {
+            ForEach(series.samples) { sample in
+                if let value = metric.plotValue(sample.point) {
+                    BarMark(x: .value("时间", sample.date, unit: series.isHourly ? .hour : .day),
+                            y: .value(metric.label, value), width: .ratio(0.75))
+                        .foregroundStyle(metric == .actualCost ? Color.purple.gradient : Color.indigo.gradient)
+                        .annotation(position: .top, spacing: 4) {
+                            if showBarValues {
+                                Text(metric.exactValue(sample.point)).font(.system(size: 10, design: .monospaced))
+                                    .lineLimit(1).minimumScaleFactor(0.7)
+                            }
+                        }
+                        .accessibilityLabel(dateLabel(sample.date))
+                        .accessibilityValue(exactLabel(sample))
+                }
+            }
+            if let selectedSample, let value = metric.plotValue(selectedSample.point) {
+                RuleMark(x: .value("选中时间", selectedSample.date.addingTimeInterval(bucketSeconds / 2)))
+                    .foregroundStyle(Color.secondary.opacity(0.5)).lineStyle(StrokeStyle(dash: [4]))
+                PointMark(x: .value("选中时间", selectedSample.date.addingTimeInterval(bucketSeconds / 2)), y: .value(metric.label, value))
+                    .foregroundStyle(Color.primary)
+            }
+        }
+        .chartXScale(domain: firstDate...endDate)
+        .chartYScale(domain: yDomain)
+        .chartScrollableAxes(.horizontal)
+        .chartXVisibleDomain(length: visibleDuration)
+        .chartScrollPosition(x: $scrollDate)
+        .chartXSelection(value: $selectedDate)
+        .chartGesture { proxy in
+            SpatialTapGesture().onEnded { event in proxy.selectXValue(at: event.location.x) }
+        }
+        .chartXAxis {
+            AxisMarks(values: ticks) { value in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(dateLabel(date).replacingOccurrences(of: " ", with: "\n"))
+                            .font(.caption2).multilineTextAlignment(.center).fixedSize()
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let value = value.as(Double.self) {
+                        Text(metric == .actualCost ? DashboardPresentation.cost(Decimal(value)) : DashboardPresentation.compactNumber(value))
+                            .font(.caption2)
+                    }
+                }
+            }
+        }
+        .frame(height: 250).accessibilityLabel("\(series.isHourly ? "每小时" : "每日")\(metric.label)趋势")
+        .accessibilityIdentifier("dashboard.trend.chart")
+        .simultaneousGesture(MagnifyGesture().onChanged { value in
+            if gestureStartZoom == nil { gestureStartZoom = zoom }
+            changeZoom((gestureStartZoom ?? zoom) * value.magnification)
+        }.onEnded { _ in gestureStartZoom = nil })
+    }
+
+    private var details: some View {
+        NavigationStack {
+            List(series.samples) { sample in
+                Button {
+                    selectedDate = sample.date.addingTimeInterval(bucketSeconds / 2)
+                    scrollDate = clampedStart(sample.date, duration: visibleDuration)
+                    showingDetails = false
+                } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(dateLabel(sample.date)).font(.subheadline).foregroundStyle(.secondary)
+                        Text(exactLabel(sample)).font(.body.monospacedDigit()).foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityIdentifier("dashboard.trend.hour.\(sample.point.date)")
+            }
+            .accessibilityIdentifier("dashboard.trend.hour-values")
+            .navigationTitle("\(metric.label)明细")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingDetails = false } } }
+        }
+    }
+    private func exactLabel(_ sample: DashboardTrendSample) -> String {
+        metric.exactValue(sample.point) + (metric == .actualCost ? "" : " " + metric.unit)
+    }
+    private func dateLabel(_ date: Date) -> String { DashboardPresentation.trendAxisLabel(date, hourly: series.isHourly) }
+    private func clampedStart(_ date: Date, duration: TimeInterval) -> Date {
+        min(max(firstDate, date), max(firstDate, endDate.addingTimeInterval(-duration)))
+    }
+    private func changeZoom(_ next: Double) {
+        let center = visibleStart.addingTimeInterval(visibleDuration / 2)
+        zoom = DashboardTrend.clampedZoom(next, maximum: maximumZoom)
+        scrollDate = clampedStart(center.addingTimeInterval(-visibleDuration / 2), duration: visibleDuration)
+    }
+}
+
 struct DashboardView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sessionContext) private var session
@@ -71,7 +279,7 @@ struct DashboardView: View {
                             .accessibilityIdentifier("dashboard.today-account-cost")
                         MetricView(title: "总 Tokens", value: summary.stats.totalTokens.map { DashboardPresentation.compactNumber($0) } ?? "不可用", symbol: "sum")
                             .accessibilityIdentifier("dashboard.total-tokens")
-                        MetricView(title: "异常账号", value: summary.stats.errorAccounts.formatted(), symbol: "exclamationmark.triangle")
+                        performanceCard(summary.stats)
                     }.accessibilityIdentifier("dashboard.metrics")
                 }
                 if stats.isLoading {
@@ -102,27 +310,25 @@ struct DashboardView: View {
                     }
                 }
                 if let summary = stats.value {
-                    GroupBox("性能指标") {
-                        VStack(spacing: 8) {
-                            Text("RPM / TPM 为最近 5 分钟平均值。")
-                                .font(.caption).foregroundStyle(.secondary)
-                            LabeledValue(label: "RPM · 每分钟请求", value: DashboardPresentation.compactNumber(summary.stats.rpm) + " RPM")
-                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.performance.rpm")
-                            LabeledValue(label: "TPM · 每分钟 Tokens", value: DashboardPresentation.compactNumber(summary.stats.tpm) + " TPM")
-                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.performance.tpm")
+                    GroupBox("运行健康") {
+                        VStack(spacing: 10) {
+                            LabeledValue(label: "异常账号", value: summary.stats.errorAccounts.formatted())
+                                .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.health.errors")
                             LabeledValue(label: "平均响应时间", value: DashboardPresentation.duration(summary.stats.averageDurationMs))
                                 .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.performance.duration")
+                            Text("平均响应时间为累计请求平均值。")
+                                .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                         }.padding(.top, 8)
-                    }
+                    }.accessibilityIdentifier("dashboard.health")
                 }
-                GroupBox("请求趋势") {
+                GroupBox("用量趋势") {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("昨日以来的小时趋势，按需加载。")
                             .font(.footnote).foregroundStyle(.secondary)
                         if let points = trend.value {
                             if points.isEmpty { Text("暂无趋势数据").foregroundStyle(.secondary) }
                             else {
-                                requestChart(points)
+                                DashboardTrendChart(points: points)
                             }
                         }
                         sectionError(trend.error, identifier: "dashboard.trend.error") { Task { await loadTrend() } }
@@ -185,50 +391,25 @@ struct DashboardView: View {
         Text("更新于 \(date.formatted(date: .omitted, time: .standard))")
             .font(.caption).foregroundStyle(.secondary)
     }
-    private struct DatedPoint: Identifiable {
-        let date: Date
-        let requests: Int
-        var id: Date { date }
-    }
-    @ViewBuilder private func requestChart(_ points: [TrendPoint]) -> some View {
-        let dated = points.compactMap { point in
-            DashboardPresentation.trendDate(point.date).map { DatedPoint(date: $0, requests: point.requests) }
-        }.sorted { $0.date < $1.date }
-        let hourly = points.contains { $0.date.contains(":") }
-        if let first = dated.first, let last = dated.last {
-            let ticks = Array(Set([first.date, dated[dated.count / 2].date, last.date])).sorted()
-            let range = DashboardPresentation.trendAxisLabel(first.date, hourly: hourly) + " — " + DashboardPresentation.trendAxisLabel(last.date, hourly: hourly)
-            VStack(alignment: .leading, spacing: 8) {
-                Chart(dated) { point in
-                    BarMark(x: .value("时间", point.date, unit: hourly ? .hour : .day), y: .value("请求", point.requests), width: .ratio(0.8))
-                        .foregroundStyle(.indigo.gradient)
-                }
-                .chartXAxis {
-                    AxisMarks(values: ticks) { value in
-                        AxisGridLine()
-                        AxisTick()
-                        AxisValueLabel {
-                            if let date = value.as(Date.self) {
-                                Text(DashboardPresentation.trendAxisLabel(date, hourly: hourly).replacingOccurrences(of: " ", with: "\n"))
-                                    .font(.caption2).multilineTextAlignment(.center).fixedSize()
-                            }
-                        }
-                    }
-                }
-                .chartXScale(range: .plotDimension(startPadding: 28, endPadding: 28))
-                .frame(height: 220).accessibilityLabel(hourly ? "每小时请求趋势" : "每日请求趋势")
-                .accessibilityIdentifier("dashboard.trend.chart")
-                Text(range).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("dashboard.trend.range")
-                if dated.count != points.count {
-                    Text("部分时间点无法解析，未绘入图表。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-            }
-        } else {
-            Text("趋势时间格式无法识别，请在网页查看。")
-                .font(.footnote).foregroundStyle(.secondary)
+    private func performanceCard(_ stats: DashboardStats) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("性能指标", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(.secondary)
+            performanceLine(DashboardPresentation.compactNumber(stats.rpm), unit: "RPM", prominent: true)
+                .accessibilityIdentifier("dashboard.performance.rpm")
+            performanceLine(DashboardPresentation.compactNumber(stats.tpm), unit: "TPM", prominent: false)
+                .accessibilityIdentifier("dashboard.performance.tpm")
+            Text("最近 5 分钟平均").font(.caption2).foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, minHeight: 85, alignment: .leading).padding()
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+        .accessibilityElement(children: .contain).accessibilityIdentifier("dashboard.performance.card")
+    }
+    private func performanceLine(_ value: String, unit: String, prominent: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(value).font(prominent ? .title2.bold() : .headline).foregroundStyle(prominent ? Color.primary : Color.purple)
+            Text(unit).font(.caption).foregroundStyle(.secondary)
+        }
+        .lineLimit(1).minimumScaleFactor(0.6).accessibilityElement(children: .combine)
     }
     private var currentCostSnapshot: DashboardCostSnapshot? {
         guard stats.value?.stats.todayAccountCost == nil,
