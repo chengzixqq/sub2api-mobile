@@ -1,0 +1,7 @@
+{
+  "xcode": "27.0",
+  "swiftCompiler": "6.4",
+  "swiftLanguageMode": "6",
+  "minimumIOS": "17.0",
+  "bundleIdentifier": "com.chengzixqq.sub2mobile"
+}

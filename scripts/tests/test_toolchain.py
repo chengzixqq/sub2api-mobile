@@ -1,0 +1,31 @@
+import importlib.util
+from pathlib import Path
+import unittest
+
+spec = importlib.util.spec_from_file_location("toolchain", Path(__file__).resolve().parents[1] / "check_toolchain.py")
+toolchain = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(toolchain)
+
+
+class ToolchainTests(unittest.TestCase):
+    specification = {"xcode": "27.0", "swiftCompiler": "6.4"}
+
+    def test_accepts_release_and_patch_compiler(self):
+        toolchain.validate("Xcode 27.0\nBuild version 27A100\n", "Apple Swift version 6.4.1", "/Applications/Xcode_27.0.app/Contents/Developer", self.specification)
+
+    def test_rejects_old_compiler(self):
+        with self.assertRaises(ValueError):
+            toolchain.validate("Xcode 27.0\nBuild version 27A100", "Apple Swift version 6.3.3", "/Applications/Xcode.app", self.specification)
+
+    def test_rejects_seed_build_even_without_beta_label(self):
+        with self.assertRaises(ValueError):
+            toolchain.validate("Xcode 27.0\nBuild version 27A5218g", "Apple Swift version 6.4", "/Applications/Xcode.app", self.specification)
+
+    def test_rejects_rc_path_and_mismatched_xcode(self):
+        for xcode, path in [("27.0", "Xcode_27_RC.app"), ("27.1", "Xcode.app"), ("26.6", "Xcode.app")]:
+            with self.subTest(xcode=xcode, path=path), self.assertRaises(ValueError):
+                toolchain.validate(f"Xcode {xcode}\nBuild version 27A100", "Apple Swift version 6.4", path, self.specification)
+
+
+if __name__ == "__main__":
+    unittest.main()
