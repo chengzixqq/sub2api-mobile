@@ -7,6 +7,7 @@
 | 正式工具链守卫 | 已运行；拒绝云端 Xcode27 seed `27A266a`，退出 3 |
 | 工具链守卫单测 | 本机 Python 4 项通过 |
 | Swift 6.4 核心合同测试 | 21 项通过，正式 Swift 6.4.1 Linux；含令牌刷新/取消、身份边界、余额精度/幂等与验证码消息解析 |
+| 凭据撤销与并发提交 | 4 项通过；同一 CredentialVault 源码的 memoryOnly 路径，验证旧刷新/旧退出/旧候选不能覆盖或删除新凭据，站点相互隔离 |
 | 原生 Swift 语法解析 | 12 个 app/UI test 文件通过；不含 Apple SDK 类型检查 |
 | 验证码桥接 | 37 项新增 + 10 项路由回归通过；typecheck、改动 ESLint、生产构建通过 |
 | Xcode 工程结构 | PBX、共享 scheme、Info.plist、工作流可解析；不代表 SwiftUI 编译通过 |
@@ -14,6 +15,8 @@
 | iphoneos arm64 Release / 未签名 IPA | 被正式工具链守卫阻断，未产出 |
 | 签名后 iPhone | 未运行；证书保留在用户本地 |
 | 测试站点管理写入 | 未运行；当前测试使用受控传输，不操作生产数据 |
+
+已核验运行：[38677142697](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38677142697)，代码提交 `66420f746c33ca91700be9119c77c58a560d779d`。核心 job 成功，原生语法解析成功；iOS job 在工具链核验阶段退出 3，因此整个 workflow 为失败。这与测试失败、模拟器失败或已生成 IPA 是不同状态。真实 Security.framework 路径和 SwiftUI 类型检查仍需 Apple SDK 验证。
 
 在 Mac 安装正式工具链后，运行 `python3 scripts/build.py all`，保存 `build/` 中的日志、工具链和 xcresult。任何测试或平台校验失败都阻断 IPA 交付。
 

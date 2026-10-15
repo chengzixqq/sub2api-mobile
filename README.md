@@ -60,4 +60,6 @@ GitHub Actions 的 `xcode-27` 镜像目前实测为 `27A266a`，检查已拒绝�
 
 适配目标是当前自用 Sub2API 源码 `40bee5d2e`，并未宣称兼容所有官方版本。API/错误和兼容边界见 [`docs/API_COMPATIBILITY.md`](docs/API_COMPATIBILITY.md)，验收清单见 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)。
 
+已观察通过：正式 Swift 6.4.1 的 21 项核心测试、4 项同源凭据协调测试，以及 12 个原生源码文件的语法解析；配套 Web 桥接 47 项测试和生产构建通过。Linux 检查不代表 Apple SDK 编译、Security.framework 或 iPhone 验收通过。
+
 余额操作在首次发送前持久化 UUID 和原始 Decimal 请求，网络结果不明时保留并复用原请求；不会对管理写入自动重试。退出后新登录分配新的身份连接，旧身份的未决请求仅供 Web 对账，不会在新身份重放。账号测试只有收到明确 `test_complete` 成功事件才判成功，EOF 不能代表成功。
