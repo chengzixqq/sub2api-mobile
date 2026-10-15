@@ -42,7 +42,7 @@ final class AnalyticsUITests: XCTestCase {
         let difference = app.descendants(matching: .any)["analytics.difference"].firstMatch
         reveal(difference)
         XCTAssertTrue(difference.exists, app.debugDescription)
-        XCTAssertTrue(app.staticTexts["$6.67"].exists, app.debugDescription)
+        XCTAssertTrue(difference.label.contains("$6.67"), difference.label)
         let chart = app.descendants(matching: .any)["analytics.chart"].firstMatch
         reveal(chart)
         XCTAssertTrue(chart.exists, app.debugDescription)
