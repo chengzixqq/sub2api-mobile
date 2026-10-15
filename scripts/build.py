@@ -18,6 +18,12 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
 RUN = BUILD / "runs" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8])
 EVIDENCE = RUN / "commands.jsonl"
+SOURCE_INPUTS = (
+    "NativeApp", "Sources", "Tests", "UITests", "Package.swift", "Toolchain.json",
+    "Sub2Mobile.xcodeproj/project.pbxproj",
+    "Sub2Mobile.xcodeproj/xcshareddata/xcschemes/Sub2Mobile.xcscheme",
+    "scripts/build.py", "scripts/check_toolchain.py", "scripts/generate_project.py",
+)
 
 
 def run(command, name):
@@ -54,7 +60,17 @@ def simulator():
     raise SystemExit("No available iPhone simulator. Install an iOS runtime in Xcode Settings > Components.")
 
 
-def package():
+def source_identity(label):
+    dirty = run(["git", "status", "--porcelain", "--untracked-files=all"], label + "-status").strip()
+    if dirty:
+        raise SystemExit("Commit the source before building a traceable delivery artifact")
+    revisions = run(["git", "rev-parse", "HEAD"] + ["HEAD:" + path for path in SOURCE_INPUTS], label + "-objects").splitlines()
+    if len(revisions) != len(SOURCE_INPUTS) + 1:
+        raise SystemExit("Incomplete source identity")
+    return {"sourceRevision": revisions[0], "sourceDirty": False, "sourceInputObjects": dict(zip(SOURCE_INPUTS, revisions[1:]))}
+
+
+def package(source):
     app = BUILD / "DerivedData/Build/Products/Release-iphoneos/Sub2Mobile.app"
     if not app.is_dir():
         raise SystemExit(f"Missing device build: {app}")
@@ -86,7 +102,7 @@ def package():
     digest = hashlib.sha256(ipa.read_bytes()).hexdigest()
     (artifact_dir / "SHA256SUMS").write_text(f"{digest}  {ipa.name}\n", encoding="utf-8")
     shutil.copy2(BUILD / "toolchain.json", artifact_dir / "toolchain.json")
-    report = {"ipa": str(ipa), "sha256": digest, "bytes": ipa.stat().st_size, "architecture": architecture, "platform": "iphoneos", "signed": False, "evidence": str(RUN), "deviceAcceptance": "NOT_RUN - sign locally, then verify on iPhone"}
+    report = {"ipa": str(ipa), "sha256": digest, "bytes": ipa.stat().st_size, "architecture": architecture, "platform": "iphoneos", "signed": False, "evidence": str(RUN), "deviceAcceptance": "NOT_RUN - sign locally, then verify on iPhone", **source}
     (artifact_dir / "manifest.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
 
@@ -98,6 +114,7 @@ def main():
     print("Evidence directory: " + str(RUN), flush=True)
     run([sys.executable, "scripts/check_toolchain.py"], "toolchain-check")
     shutil.copy2(BUILD / "toolchain.json", RUN / "toolchain.json")
+    source = source_identity("source-start")
     if stage in ("all", "unit"):
         run(["xcrun", "swift", "test", "--parallel"], "core-tests")
     base = ["xcodebuild", "-project", "Sub2Mobile.xcodeproj", "-scheme", "Sub2Mobile", "-derivedDataPath", str(BUILD / "DerivedData")]
@@ -105,7 +122,9 @@ def main():
         run(base + ["-configuration", "Debug", "-destination", "id=" + simulator(), "-resultBundlePath", str(RUN / "UITests.xcresult"), "-collect-test-diagnostics", "never", "test", "CODE_SIGNING_ALLOWED=NO"], "simulator-tests")
     if stage in ("all", "package"):
         run(base + ["-configuration", "Release", "-sdk", "iphoneos", "-destination", "generic/platform=iOS", "build", "ARCHS=arm64", "ONLY_ACTIVE_ARCH=NO", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGN_IDENTITY="], "device-build")
-        package()
+        if source_identity("source-final") != source:
+            raise SystemExit("Source changed during the build; refusing to package")
+        package(source)
 
 
 if __name__ == "__main__":
