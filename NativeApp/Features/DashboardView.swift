@@ -51,6 +51,9 @@ struct DashboardView: View {
     private var polling: Bool { visible && scenePhase == .active }
 
     var body: some View {
+        // The closure must use its own task ID, even if onAppear has already
+        // changed visibility before SwiftUI starts the initial inactive task.
+        let shouldPoll = polling
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if let summary = stats.value {
@@ -127,8 +130,8 @@ struct DashboardView: View {
         .onAppear { visible = true }
         .onDisappear { visible = false; cancelLoads() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { cancelLoads() } }
-        .task(id: polling) {
-            guard polling else { return }
+        .task(id: shouldPoll) {
+            guard shouldPoll else { return }
             while !Task.isCancelled {
                 // A scheduled tick must not restart a slow pull-to-refresh.
                 if !stats.isLoading { await loadStats() }
@@ -153,14 +156,14 @@ struct DashboardView: View {
     private func cancelLoads() { stats.cancel(); trend.cancel(); monitoring.cancel() }
     private func loadStats() async {
         guard let generation = session?.generation else { return }
-        await stats.load(isCurrent: { generation == model.sessionGeneration }) { try await model.dashboard() }
+        await stats.load(isCurrent: { polling && generation == model.sessionGeneration }) { try await model.dashboard() }
     }
     private func loadTrend() async {
         guard let generation = session?.generation else { return }
-        await trend.load(isCurrent: { generation == model.sessionGeneration }) { try await model.dashboardTrend() }
+        await trend.load(isCurrent: { polling && generation == model.sessionGeneration }) { try await model.dashboardTrend() }
     }
     private func loadMonitoring() async {
         guard let generation = session?.generation else { return }
-        await monitoring.load(isCurrent: { generation == model.sessionGeneration }) { try await model.dashboardMonitoring() }
+        await monitoring.load(isCurrent: { polling && generation == model.sessionGeneration }) { try await model.dashboardMonitoring() }
     }
 }

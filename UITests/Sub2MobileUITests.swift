@@ -53,7 +53,16 @@ final class Sub2MobileUITests: XCTestCase {
         launch(arguments: ["-ui-dashboard-detail-errors"])
         login(name: "慢统计站点", url: "https://slow.example.com")
         let counter = app.descendants(matching: .any)["dashboard.today-requests"].firstMatch
-        XCTAssertTrue(counter.waitForExistence(timeout: 10))
+        let counterExists = counter.waitForExistence(timeout: 10)
+        if !counterExists {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+        }
+        XCTAssertTrue(counterExists, app.debugDescription)
         XCTAssertFalse(app.staticTexts["dashboard.trend.error"].exists)
         reveal(app.buttons["dashboard.trend.load"])
         app.buttons["dashboard.trend.load"].tap()
