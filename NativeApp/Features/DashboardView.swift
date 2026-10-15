@@ -42,13 +42,13 @@ private final class DashboardLoadState<Value: Sendable> {
 
 /// Swift Charts' visible-domain length needs explicit interpolation when the
 /// zoom buttons change it; gestures continue to update without animation.
-private struct AnimatedTrendViewport: AnimatableModifier {
+nonisolated private struct AnimatedTrendViewport: AnimatableModifier {
     var duration: TimeInterval
     var animatableData: Double {
         get { duration }
         set { duration = newValue }
     }
-    func body(content: Content) -> some View {
+    @MainActor func body(content: Content) -> some View {
         content.chartXVisibleDomain(length: duration)
     }
 }
