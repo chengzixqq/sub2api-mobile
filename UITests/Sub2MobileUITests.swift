@@ -206,7 +206,8 @@ final class Sub2MobileUITests: XCTestCase {
         let priorZoom = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch.label
         zoomOut.tap()
         let zoomLevel = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch
-        XCTAssertNotEqual(zoomLevel.label, priorZoom)
+        let zoomedOut = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", priorZoom), object: zoomLevel)
+        XCTAssertEqual(XCTWaiter.wait(for: [zoomedOut], timeout: 5), .completed, app.debugDescription)
         XCTAssertTrue(zoomIn.isEnabled)
         dashboardDiagnostics(named: "dashboard-trend-zoomed-out")
 
