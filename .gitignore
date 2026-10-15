@@ -1,73 +1,16 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
-node_modules/
-
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
-
-# Native
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
 .DS_Store
+.build/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.p12
+*.p8
+*.key
 *.pem
+*.mobileprovision
+*.ipa
+*.xcarchive/
+__pycache__/
+.env
 
-# local env files
-.env*.local
-
-# local AI tooling
-.adal/
-.agent/
-.agents/
-.augment/
-.claude/
-.codebuddy/
-.commandcode/
-.continue/
-.crush/
-.factory/
-.goose/
-.junie/
-.kilocode/
-.kiro/
-.kode/
-.mcpjam/
-.mux/
-.neovate/
-.openhands/
-.pi/
-.pochi/
-.qoder/
-.qwen/
-.roo/
-.trae/
-.vibe/
-.windsurf/
-.zencoder/
-skills/
-skills-lock.json
-
-# typescript
-*.tsbuildinfo
-
-# generated native folders
-/ios
-/android
