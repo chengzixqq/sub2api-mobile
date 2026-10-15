@@ -97,6 +97,7 @@ struct LoginView: View {
                 }
             }
         }
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle("Sub2 Mobile")
         .toolbar { if model.activeProfile != nil { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
         .sheet(item: $captcha) { request in

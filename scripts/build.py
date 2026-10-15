@@ -23,19 +23,24 @@ EVIDENCE = RUN / "commands.jsonl"
 def run(command, name):
     RUN.mkdir(parents=True, exist_ok=True)
     print("+ " + " ".join(map(str, command)), flush=True)
+    stdout_path = RUN / f"{name}.stdout.log"
+    stderr_path = RUN / f"{name}.stderr.log"
     try:
-        result = subprocess.run(list(map(str, command)), cwd=ROOT, text=True, capture_output=True)
+        # Keep stage logs readable while Xcode runs or collects diagnostics.
+        with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
+            result = subprocess.run(list(map(str, command)), cwd=ROOT, text=True, stdout=stdout, stderr=stderr)
     except OSError as error:
-        result = subprocess.CompletedProcess(command, 127, "", str(error))
-    (RUN / f"{name}.stdout.log").write_text(result.stdout, encoding="utf-8")
-    (RUN / f"{name}.stderr.log").write_text(result.stderr, encoding="utf-8")
+        stderr_path.write_text(str(error), encoding="utf-8")
+        result = subprocess.CompletedProcess(command, 127)
+    output = stdout_path.read_text(encoding="utf-8")
+    errors = stderr_path.read_text(encoding="utf-8")
     with EVIDENCE.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps({"command": list(map(str, command)), "exit_status": result.returncode, "stdout": f"{name}.stdout.log", "stderr": f"{name}.stderr.log"}) + "\n")
-    print(result.stdout, end="", flush=True)
-    print(result.stderr, end="", file=sys.stderr, flush=True)
+    print(output, end="", flush=True)
+    print(errors, end="", file=sys.stderr, flush=True)
     if result.returncode:
         raise SystemExit(result.returncode)
-    return result.stdout
+    return output
 
 
 def simulator():
@@ -97,7 +102,7 @@ def main():
         run(["xcrun", "swift", "test", "--parallel"], "core-tests")
     base = ["xcodebuild", "-project", "Sub2Mobile.xcodeproj", "-scheme", "Sub2Mobile", "-derivedDataPath", str(BUILD / "DerivedData")]
     if stage in ("all", "simulator"):
-        run(base + ["-configuration", "Debug", "-destination", "id=" + simulator(), "-resultBundlePath", str(RUN / "UITests.xcresult"), "test", "CODE_SIGNING_ALLOWED=NO"], "simulator-tests")
+        run(base + ["-configuration", "Debug", "-destination", "id=" + simulator(), "-resultBundlePath", str(RUN / "UITests.xcresult"), "-collect-test-diagnostics", "never", "test", "CODE_SIGNING_ALLOWED=NO"], "simulator-tests")
     if stage in ("all", "package"):
         run(base + ["-configuration", "Release", "-sdk", "iphoneos", "-destination", "generic/platform=iOS", "build", "ARCHS=arm64", "ONLY_ACTIVE_ARCH=NO", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGN_IDENTITY="], "device-build")
         package()
