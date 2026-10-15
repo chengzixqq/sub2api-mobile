@@ -44,7 +44,7 @@ python3 scripts/build.py all
 
 **未签名 IPA 不能直接安装到 iPhone。** 下载后使用你本地的证书和匹配的 provisioning profile 重签，证书/私钥不进入仓库或 CI。重签工具应同时处理嵌套 Frameworks；安装后的登录、切站、分页及管理写入必须在测试站点验收。构建通过与真机验收分别记录。
 
-Mac 已使用 `27A266a` 完成上述全流程；[Apple 的正式发布记录](https://developer.apple.com/news/releases/?id=09142026h)确认这一构建是 Xcode 27 正式版。IPA 对应源码 `6f16be05e2587ab0d996fd296e4e345e74217f26`，大小 2,772,306 字节；哈希、运行记录及验收边界见 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)。manifest 记录干净源码身份及 11 项构建输入的 Git 对象，交付时逐项核验。GitHub Actions [38681297253](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38681297253) 的独立云端结果仍待确认。
+Mac 已使用 `27A266a` 完成上述全流程；[Apple 的正式发布记录](https://developer.apple.com/news/releases/?id=09142026h)确认这一构建是 Xcode 27 正式版。IPA 对应源码 `6f16be05e2587ab0d996fd296e4e345e74217f26`，大小 2,772,306 字节；哈希、运行记录及验收边界见 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)。manifest 记录干净源码身份及 11 项构建输入的 Git 对象，交付时逐项核验。相同构建源码的 GitHub Actions [38681297253](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38681297253) 已全部通过，独立完成测试、iPhone Release 构建与 IPA 上传。
 
 ## 验证码桥接
 

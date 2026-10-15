@@ -17,7 +17,7 @@
 | iphoneos arm64 Release / 未签名 IPA | 已产出；设备平台、arm64、ZIP、Bundle ID 和最低 iOS 17 校验通过 |
 | 未签名状态 | 无嵌入 provisioning / `_CodeSignature`；codesign 检查退出 1，输出 `code object is not signed at all` |
 | 构建源码身份 | manifest 记录干净源码、commit 及 11 项构建输入 Git 对象；构建前后身份一致 |
-| GitHub Actions 独立云端构建 | 运行 38681297253 结果待确认，不以 Mac 成功替代云端结果 |
+| GitHub Actions 独立云端构建 | 运行 38681297253 全部成功；Linux 核心测试、正式工具链、模拟器测试、设备 Release 构建及 IPA 上传均通过 |
 | 签名后 iPhone | 未运行；证书保留在用户本地 |
 | 真实验证码服务 | 未运行；现有验证码测试为受控 proof/组件与路由测试 |
 | 测试站点管理写入 | 未运行；当前测试使用受控传输，不操作生产数据 |
@@ -30,7 +30,7 @@
 
 同目录保留 `SHA256SUMS`、`manifest.json`、`toolchain.json`。构建输入对象随 manifest 保存；交付文档或辅助脚本之后的提交若与构建 commit 不同，交付检查仍逐项核对这些输入，并明确记录两个 revision。
 
-独立云端运行：[38681297253](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38681297253)，结果待确认。历史运行 [38677142697](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38677142697) 曾因旧守卫将 `27A266a` 误判为预发布而失败；[Apple 正式发布记录](https://developer.apple.com/news/releases/?id=09142026h)已确认正式版身份，守卫已修正。
+独立云端运行：[38681297253](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38681297253) 于 2026 年 10 月 15 日完成，整体和两个 job 均为 success；代码提交与本次 Mac 构建相同。历史运行 [38677142697](https://github.com/chengzixqq/sub2api-mobile/actions/runs/38677142697) 曾因旧守卫将 `27A266a` 误判为预发布而失败；[Apple 正式发布记录](https://developer.apple.com/news/releases/?id=09142026h)已确认正式版身份，守卫已修正。
 
 可在相同正式工具链上运行 `python3 scripts/build.py all` 复验，保存 `build/` 中的日志、工具链和 xcresult。任何测试或平台校验失败都阻断 IPA 交付。当前 IPA 需本地签名后安装，以下真机和真实服务清单仍待完成。
 
