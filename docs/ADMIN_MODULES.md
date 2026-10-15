@@ -8,6 +8,8 @@
 
 请求记录读取 `GET /admin/usage`，使用 `count_mode=deferred`、时间倒序、按需分页。`total`/`pages` 可以为 null，按 `has_more` 判断是否继续；不要求大站点先执行全量计数。时间、用户、账号、分组、API Key、模型、请求 ID 等过滤由后端执行。实际扣费读取 `actual_cost`；上游成本读取 `(account_stats_cost ?? total_cost) × (account_rate_multiplier ?? 1)`，保留 Decimal 和缺失值。详情展示请求 ID、Token 分解、费用、时延及关联账号，不读取请求/响应正文。
 
+日志默认显示最近 24 小时，下拉刷新同时推进开始和结束时间至当前窗口。应用时间与其他筛选后，页面明确切换为固定范围，下拉刷新保留原起止时间；“查看最新记录（近 24 小时）”可恢复滚动窗口，同时保留账号、用户、模型等对象筛选。
+
 错误日志分为客户端失败请求 `/admin/ops/request-errors` 和上游错误 `/admin/ops/upstream-errors`，按需读取同路径 `/:id` 的详情。两种日志的筛选能力不同，以当前 Web 和后端各自契约为准；上游错误也可能对应重试后恢复的请求。站点禁用 Ops 或权限不足时局部报告错误。正文、堆栈、完整 headers 不进入 DTO；可见摘要额外脱敏授权、Cookie、密钥、URL 中的凭据等字段。
 
 ## 账号

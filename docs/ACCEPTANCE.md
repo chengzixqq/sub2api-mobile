@@ -1,5 +1,33 @@
 # 构建与真机验收
 
+## 2026-10-16 管理扩展版
+
+IPA 构建自干净源码 `c635e288f3ea67e5c3294fc6b33ba51a24e9e994`，设备打包运行 `20261015T174836Z-9bda2fe3`。Xcode 27.0 `27A266a` / Apple Swift 6.4 / Swift 6 语言模式。证据分别保留完整测试、单项修复复验和设备打包，不把它们记成同一次全量通过。
+
+| 检查 | 观察结果 |
+| --- | --- |
+| 核心与凭据 | Swift Testing 分别 105 和 4 项通过 |
+| iPhone 模拟器 | 完整运行 34 通过、1 条测试定位断言失败；修正后该 1 条定向通过；按真实用例 ID 共覆盖 35 项 |
+| 设备构建 | Release iphoneos arm64；最低 iOS 17；Bundle ID `com.chengzixqq.sub2mobile` |
+| IPA | 4,051,145 字节，ZIP 完整性通过；每个归档文件与 Release 构建目录字节一致 |
+| 签名状态 | codesign 退出 1，明确输出 `code object is not signed at all`；无嵌入描述文件与签名目录 |
+| 来源 | 定向复验与打包开始/结束均干净；完整测试与最终提交仅差一行 UI 断言，除 UITests 外所有 canonical 输入对象完全一致 |
+| 真机与真实写入 | 签名后 iPhone 安装、真实验证码和测试站点管理写入尚未验收 |
+
+IPA SHA-256：`6d82265d91b74ea25db418c8ec7547f6153a830f5e1f7538ca92be9bca239478`。文件：`build/artifacts/Sub2Mobile-unsigned.ipa`；完整测试：`/Users/bolin/Developer/sub2api-mobile-dashboard-fix/build/runs/20261015T172029Z-b3d972af`；定向复验：`/Users/bolin/Developer/sub2api-mobile-dashboard-fix/build/runs/analytics-c635e28-20261016-r1`；设备打包：`/Users/bolin/Developer/sub2api-mobile-dashboard-fix/build/runs/20261015T174836Z-9bda2fe3`。原完整运行的退出 65、唯一失败和未执行 source-final 状态原样保留；修正的是组合辅助功能标签的测试查询，页面当时已正确显示 `$6.67`。后续文档提交不改变上述 IPA 来源，交付脚本再次逐项核对构建输入对象。
+
+本轮覆盖请求/失败/上游错误日志、deferred 分页、扣费与成本、日志筛选；账号筛选、前台刷新开关、快捷编辑与批量逐项确认；分组创建、稀疏编辑、启停、删除与分析跳转；分析范围、Decimal 差额和单桶消费图。新页面的截图已从对应运行导出，导出本身不代表人工视觉审阅。已有图标资源和验证码代理签名编译警告保留，不声称零警告。
+
+概览原字段 `rpm` 读取近 60 秒值，`rpm_available=false` 显示不可用，true 的 0 保留；缺少标记的旧站点不宣称近 60 秒。账号在用 RPM 使用 `current_rpm`，自然分钟容量使用 `scheduling_rpm`，两者不混用。TPM 仍为近 5 分钟均值。
+
+补充同一 `dashboardRPMAvailabilitySurvivesWireRoundtrip` 回归：基线 `82ff0f2` 退出 1（旧 Codable 丢失标记），功能提交 `0e33a3d` 退出 0，独立副本执行回滚后退出 1 并恢复同一失败；恢复 ZIP SHA 与基线完全一致。完整测试提交 `438dccd` 的核心运行再次包含并通过此测试；它与最终 IPA 的核心源码/测试对象相同。literal 三态记录与本轮完整日志保留在外部交付台账。
+
+此前两轮定向 UI 的失败与修正均保留：登录辅助方法、单桶类别滚动图崩溃、批量菜单有效触控区、分组保存后的过渡元素误匹配。完整运行采用这些产品修正后的源码，统计分析断言随后单独修复并复验。同步阶段的 Git 换行索引误报也保留原退出 1，重新确认内容无差异、更新索引后干净构建。
+
+## 2026-10-15 账号容量版及此前历史
+
+以下保留此前验收记录。以下“本轮”“当前”只指各自历史运行，旧测试数量、IPA 和截图不作为上面管理扩展版的证据。
+
 本轮构建自干净源码 `d07091d5da137c3c58dc1a881c354b08c6f4d3ec`，运行 `20261015T115051Z-b20011a3`，Mac 全流程退出 0；81 项核心、4 项凭据、27 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,324,867 字节，SHA-256 `978cbccbcc6b83028538a43e9e41c91d48e0ee44af5affed6b6bfe75c9ae3a43`。
 
 结果依据本轮原始日志、最后一个 XCTest 总汇总及独立设备 IPA 检查；构建与签名后 iPhone 验收分开。当前云端 CI、生产站点性能和真实管理写入不在这些受控结果内。
