@@ -102,6 +102,8 @@ func trendTokenDisplayUsesCompactUnitsAndRetainsRawCount(tokens: Int, expected: 
     ], timeZone: timezone)
     #expect(series.samples.map(\.point.date) == ["2026-10-14 23:00", "2026-10-15 02:00"])
     #expect(series.samples.map(\.point.requests) == [5, 8])
+    #expect(series.newestFirst.map(\.point.date) == ["2026-10-15 02:00", "2026-10-14 23:00"])
+    #expect(series.newestFirst.map(\.point.requests) == [8, 5])
     #expect(series.samples.last?.point.actualCost == Decimal(string: "1.23456789"))
     #expect(series.samples.last!.date.timeIntervalSince(series.samples.first!.date) == 3 * 3_600)
     #expect(Set(series.samples.map(\.id)).count == series.samples.count)

@@ -88,16 +88,36 @@ public struct AdminUser: Identifiable, Codable, Sendable {
     public var status: String
     public var role: String?
     public var concurrency: Int?
-    public init(id: Int, email: String, username: String? = nil, balance: Decimal = 0, status: String = "active", role: String? = nil, concurrency: Int? = nil) {
+    public var notes: String?
+    public var rpmLimit: Int?
+    public var currentConcurrency: Int?
+    public var createdAt: String?
+    public var updatedAt: String?
+    public var lastUsedAt: String?
+    public var lastActiveAt: String?
+    public init(id: Int, email: String, username: String? = nil, balance: Decimal = 0, status: String = "active", role: String? = nil, concurrency: Int? = nil, notes: String? = nil, rpmLimit: Int? = nil, currentConcurrency: Int? = nil, createdAt: String? = nil, updatedAt: String? = nil, lastUsedAt: String? = nil, lastActiveAt: String? = nil) {
         self.id = id; self.email = email; self.username = username; self.balance = balance; self.status = status; self.role = role; self.concurrency = concurrency
+        self.notes = notes; self.rpmLimit = rpmLimit; self.currentConcurrency = currentConcurrency
+        self.createdAt = createdAt; self.updatedAt = updatedAt; self.lastUsedAt = lastUsedAt; self.lastActiveAt = lastActiveAt
     }
-    enum CodingKeys: String, CodingKey { case id, email, username, balance, status, role, concurrency }
+    enum CodingKeys: String, CodingKey {
+        case id, email, username, balance, status, role, concurrency, notes
+        case rpmLimit = "rpm_limit", currentConcurrency = "current_concurrency"
+        case createdAt = "created_at", updatedAt = "updated_at", lastUsedAt = "last_used_at", lastActiveAt = "last_active_at"
+    }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(Int.self, forKey: .id); email = try c.decode(String.self, forKey: .email)
         username = try c.decodeIfPresent(String.self, forKey: .username); balance = try c.decimal(.balance)
         status = try c.decode(String.self, forKey: .status); role = try c.decodeIfPresent(String.self, forKey: .role)
         concurrency = try c.decodeIfPresent(Int.self, forKey: .concurrency)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        rpmLimit = try c.decodeIfPresent(Int.self, forKey: .rpmLimit)
+        currentConcurrency = try c.decodeIfPresent(Int.self, forKey: .currentConcurrency)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
+        lastUsedAt = try c.decodeIfPresent(String.self, forKey: .lastUsedAt)
+        lastActiveAt = try c.decodeIfPresent(String.self, forKey: .lastActiveAt)
     }
 }
 
@@ -110,11 +130,54 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
     public var schedulable: Bool
     public var errorMessage: String?
     public var concurrency: Int?
-    public init(id: Int, name: String, platform: String, type: String, status: String = "active", schedulable: Bool = true, errorMessage: String? = nil, concurrency: Int? = nil) {
+    public var priority: Int?
+    public var rateMultiplier: Decimal?
+    public var notes: String?
+    public var lastUsedAt: String?
+    public var expiresAt: Int64?
+    public var createdAt: String?
+    public var baseRPM: Int?
+    public var quotaUsed: Decimal?
+    public var groupIDs: [Int]
+    public var groups: [Group]
+    public struct Group: Identifiable, Codable, Sendable, Equatable {
+        public let id: Int
+        public let name: String
+        public init(id: Int, name: String) { self.id = id; self.name = name }
+    }
+    private struct GroupBinding: Decodable { let group: Group? }
+    public init(id: Int, name: String, platform: String, type: String, status: String = "active", schedulable: Bool = true, errorMessage: String? = nil, concurrency: Int? = nil, priority: Int? = nil, rateMultiplier: Decimal? = nil, notes: String? = nil, lastUsedAt: String? = nil, expiresAt: Int64? = nil, createdAt: String? = nil, baseRPM: Int? = nil, quotaUsed: Decimal? = nil, groupIDs: [Int] = [], groups: [Group] = []) {
         self.id = id; self.name = name; self.platform = platform; self.type = type; self.status = status
         self.schedulable = schedulable; self.errorMessage = errorMessage; self.concurrency = concurrency
+        self.priority = priority; self.rateMultiplier = rateMultiplier; self.notes = notes; self.lastUsedAt = lastUsedAt
+        self.expiresAt = expiresAt; self.createdAt = createdAt; self.baseRPM = baseRPM; self.quotaUsed = quotaUsed
+        self.groupIDs = groupIDs; self.groups = groups
     }
-    enum CodingKeys: String, CodingKey { case id, name, platform, type, status, schedulable, errorMessage = "error_message", concurrency }
+    enum CodingKeys: String, CodingKey {
+        case id, name, platform, type, status, schedulable, concurrency, priority, notes, groups
+        case errorMessage = "error_message", rateMultiplier = "rate_multiplier", lastUsedAt = "last_used_at"
+        case expiresAt = "expires_at", createdAt = "created_at", baseRPM = "base_rpm", quotaUsed = "quota_used"
+        case groupIDs = "group_ids"
+    }
+    private enum RelationshipKeys: String, CodingKey { case accountGroups = "account_groups" }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id); name = try c.decode(String.self, forKey: .name)
+        platform = try c.decode(String.self, forKey: .platform); type = try c.decode(String.self, forKey: .type)
+        status = try c.decode(String.self, forKey: .status); schedulable = try c.decode(Bool.self, forKey: .schedulable)
+        errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
+        concurrency = try c.decodeIfPresent(Int.self, forKey: .concurrency); priority = try c.decodeIfPresent(Int.self, forKey: .priority)
+        rateMultiplier = try c.optionalDecimal(.rateMultiplier); quotaUsed = try c.optionalDecimal(.quotaUsed)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes); lastUsedAt = try c.decodeIfPresent(String.self, forKey: .lastUsedAt)
+        expiresAt = try c.decodeIfPresent(Int64.self, forKey: .expiresAt); createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        baseRPM = try c.decodeIfPresent(Int.self, forKey: .baseRPM)
+        groupIDs = try c.decodeIfPresent([Int].self, forKey: .groupIDs) ?? []
+        let direct = try c.decodeIfPresent([Group?].self, forKey: .groups)?.compactMap { $0 } ?? []
+        let relationships = try decoder.container(keyedBy: RelationshipKeys.self)
+        let bindings = try relationships.decodeIfPresent([GroupBinding].self, forKey: .accountGroups) ?? []
+        var seen = Set<Int>()
+        groups = (direct + bindings.compactMap(\.group)).filter { seen.insert($0.id).inserted }
+    }
 }
 
 public struct DashboardSummary: Sendable {

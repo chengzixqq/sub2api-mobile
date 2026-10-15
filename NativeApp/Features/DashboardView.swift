@@ -5,7 +5,7 @@ import Sub2Core
 
 // A cancelled or late request cannot replace a newer foreground load.
 @MainActor @Observable
-private final class DashboardLoadState<Value: Sendable> {
+final class DashboardLoadState<Value: Sendable> {
     var value: Value?
     var error: String?
     var updatedAt: Date?
@@ -108,8 +108,15 @@ private struct DashboardTrendChart: View {
                 ForEach(DashboardTrendMetric.allCases) { metric in Text(metric.label).tag(metric) }
             }.pickerStyle(.segmented).accessibilityIdentifier("dashboard.trend.metric")
 
-            if series.samples.isEmpty {
-                Text("趋势时间格式无法识别，请在网页查看。")
+            if metric != .performance {
+                Text("昨日以来的小时趋势，独立自动刷新。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+
+            if metric == .performance {
+                PerformanceTrendView()
+            } else if series.samples.isEmpty {
+                Text("暂无可绘制的用量趋势，请检查加载状态或稍后重试。")
                     .font(.footnote).foregroundStyle(.secondary)
             } else {
                 zoomControls
@@ -233,7 +240,7 @@ private struct DashboardTrendChart: View {
 
     private var details: some View {
         NavigationStack {
-            List(series.samples) { sample in
+            List(series.newestFirst) { sample in
                 Button {
                     selectedDate = sample.date.addingTimeInterval(bucketSeconds / 2)
                     scrollDate = clampedStart(sample.date, duration: visibleDuration)
@@ -347,14 +354,9 @@ struct DashboardView: View {
                 }
                 GroupBox("用量趋势") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("昨日以来的小时趋势，独立自动刷新。")
-                            .font(.footnote).foregroundStyle(.secondary)
-                        if let points = trend.value {
-                            if points.isEmpty { Text("暂无趋势数据").foregroundStyle(.secondary) }
-                            else {
-                                DashboardTrendChart(points: points)
-                            }
-                        }
+                        // Performance has an independent endpoint and must remain
+                        // reachable even while the usage query is slow or fails.
+                        DashboardTrendChart(points: trend.value ?? [])
                         sectionError(trend.error, identifier: "dashboard.trend.error") { Task { await loadTrend() } }
                         if trend.isLoading { ProgressView("正在加载趋势…").accessibilityIdentifier("dashboard.trend.loading") }
                         Button(trend.value == nil ? "重试趋势" : "刷新趋势") { Task { await loadTrend() } }

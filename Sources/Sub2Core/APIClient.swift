@@ -118,6 +118,21 @@ public actor APIClient {
         try check(snapshot)
         return OpsSnapshot(errorRate: reply.errorRate, qps: reply.qps?.current, activeRequests: nil)
     }
+    public func dashboardPerformanceTrend(start: Date? = nil, end: Date = Date()) async throws -> PerformanceTrend {
+        let start = start ?? end.addingTimeInterval(-3_600)
+        guard start < end, end.timeIntervalSince(start) <= 30 * 86_400 else {
+            throw APIError(kind: .validation, message: "请选择 30 天以内的性能趋势范围。")
+        }
+        let formatter = ISO8601DateFormatter()
+        let snapshot = generation
+        let result: PerformanceTrend = try await request("admin/ops/dashboard/throughput-trend", query: [
+            URLQueryItem(name: "start_time", value: formatter.string(from: start)),
+            URLQueryItem(name: "end_time", value: formatter.string(from: end)),
+            URLQueryItem(name: "mode", value: "auto")
+        ], timeout: 45)
+        try check(snapshot)
+        return result
+    }
     public func accounts(page: Int, search: String, status: String?, platform: String?) async throws -> Page<UpstreamAccount> {
         try await request("admin/accounts", query: pagination(page, search: search, status: status) + optionalQuery("platform", platform))
     }
@@ -133,6 +148,17 @@ public actor APIClient {
         try await request("admin/users", query: pagination(page, search: search, status: status))
     }
     public func user(id: Int) async throws -> AdminUser { try await request("admin/users/\(validID(id))") }
+    public func userWriteIdentity() -> UUID { generation }
+    public func createUser(_ input: UserCreateRequest, identity: UUID) async throws -> AdminUser {
+        try check(identity)
+        return try await request("admin/users", method: "POST", body: input.requestBody())
+    }
+    public func updateUser(_ operation: PendingUserUpdateOperation) async throws -> AdminUser {
+        guard operation.serverID == server.id else { throw APIError.stationMismatch }
+        try check(operation.identity)
+        let headers = operation.supportsSafeRetry ? ["Idempotency-Key": operation.id.uuidString.lowercased()] : [:]
+        return try await request("admin/users/\(validID(operation.userID))", method: "PUT", body: operation.body, headers: headers)
+    }
     public func userUsage(id: Int) async throws -> UserUsageSummary {
         // The legacy /admin/users/:id/usage endpoint currently returns mock zeros in this backend.
         // Query real monthly usage aggregates instead.

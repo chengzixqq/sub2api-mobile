@@ -21,8 +21,20 @@ enum DemoData {
         return TrendPoint(date: date, requests: 100 + hour * 3, totalTokens: 1_000_000 + hour * 12_345,
                           cost: actual + 9, actualCost: actual)
     }
-    static let allAccounts = [UpstreamAccount(id: 1, name: "测试上游 A", platform: "openai", type: "apikey", concurrency: 4), UpstreamAccount(id: 2, name: "测试上游 B", platform: "anthropic", type: "oauth", concurrency: 2)]
-    static let allUsers = [AdminUser(id: 1, email: "alice@example.com", username: "Alice", balance: Decimal(string: "12.50")!, role: "user", concurrency: 2), AdminUser(id: 2, email: "bob@example.com", username: "Bob", balance: 20, role: "user", concurrency: 2)]
+    static let allAccounts = [
+        UpstreamAccount(id: 1, name: "测试上游 A", platform: "openai", type: "apikey", concurrency: 4,
+                        priority: 7, rateMultiplier: Decimal(string: "0.5"), notes: "工作日上游",
+                        lastUsedAt: "2026-10-15T08:00:00Z", expiresAt: 1_800_000_000,
+                        createdAt: "2026-10-01T00:00:00Z", baseRPM: 60, quotaUsed: Decimal(string: "12.3456"),
+                        groupIDs: [10, 11], groups: [.init(id: 10, name: "标准分组"), .init(id: 11, name: "高级分组")]),
+        UpstreamAccount(id: 2, name: "测试上游 B", platform: "anthropic", type: "oauth", concurrency: 2)
+    ]
+    static let allUsers = [
+        AdminUser(id: 1, email: "alice@example.com", username: "Alice", balance: Decimal(string: "12.50")!, role: "user", concurrency: 2,
+                  notes: "常用测试用户", rpmLimit: 120, currentConcurrency: 1, createdAt: "2026-10-01T00:00:00Z",
+                  updatedAt: "2026-10-15T08:00:00Z", lastUsedAt: "2026-10-15T08:00:00Z", lastActiveAt: "2026-10-15T07:00:00Z"),
+        AdminUser(id: 2, email: "bob@example.com", username: "Bob", balance: 20, role: "user", concurrency: 2)
+    ]
     static let keys = [UserAPIKey(id: 1, name: "开发密钥", key: "sk-fixture-secret", status: "active", quota: 100, quotaUsed: 2)]
 
     static func accounts(page: Int, search: String, status: String?, platform: String?) -> Page<UpstreamAccount> {

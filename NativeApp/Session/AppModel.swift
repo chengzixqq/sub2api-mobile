@@ -31,6 +31,8 @@ final class AppModel {
     let isUITesting: Bool
     let credentials: KeychainCredentialStore
     private let defaults: UserDefaults
+    @ObservationIgnored private var demoUsersBySession: [UUID: [AdminUser]] = [:]
+    @ObservationIgnored private var demoUserUpdates: [UUID: AdminUser] = [:]
     @ObservationIgnored private var connectionAttempt = UUID()
     @ObservationIgnored private var pendingCandidate: APIClient?
     @ObservationIgnored private var activeLease: UUID?
@@ -251,6 +253,23 @@ final class AppModel {
         }
         return try await requireClient().dashboardMonitoring()
     }
+    func dashboardPerformanceTrend(hours: Int) async throws -> PerformanceTrend {
+        if isUITesting {
+            if ProcessInfo.processInfo.arguments.contains("-ui-performance-error") {
+                throw APIError(kind: .response, reason: "OPS_DISABLED", statusCode: 404, message: "站点未启用运行监控。")
+            }
+            let bucket: PerformanceTrend.Bucket = hours == 1 ? .minute : .fiveMinutes
+            let end = Date(timeIntervalSince1970: 1_792_026_000)
+            let start = end.addingTimeInterval(-Double(hours) * 3_600)
+            let count = Int(Double(hours) * 3_600 / bucket.seconds)
+            return PerformanceTrend(bucket: bucket, points: (0..<count).map { index in
+                PerformanceTrend.Point(date: start.addingTimeInterval(Double(index) * bucket.seconds), requestCount: 10 + index,
+                                       tokenConsumed: 100_000 + index * 10_000)
+            })
+        }
+        let end = Date()
+        return try await requireClient().dashboardPerformanceTrend(start: end.addingTimeInterval(-Double(hours) * 3_600), end: end)
+    }
     func accounts(page: Int, search: String, status: String?, platform: String?) async throws -> Page<UpstreamAccount> {
         if isUITesting { return DemoData.accounts(page: page, search: search, status: status, platform: platform) }
         return try await requireClient().accounts(page: page, search: search, status: status, platform: platform)
@@ -264,12 +283,56 @@ final class AppModel {
         return try await requireClient().accountTodayStats(id: id)
     }
     func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser> {
-        if isUITesting { return DemoData.users(page: page, search: search, status: status) }
+        if isUITesting {
+            let matches = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).filter {
+                (search.isEmpty || $0.email.localizedCaseInsensitiveContains(search) || ($0.username?.localizedCaseInsensitiveContains(search) ?? false)) && (status == nil || status == $0.status)
+            }
+            return Page(items: Array(matches.dropFirst(max(0, page - 1)).prefix(1)), total: matches.count, page: page, pageSize: 1, pages: matches.count)
+        }
         return try await requireClient().users(page: page, search: search, status: status)
     }
     func user(id: Int) async throws -> AdminUser {
-        if isUITesting { return DemoData.allUsers.first { $0.id == id }! }
+        if isUITesting {
+            guard let result = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).first(where: { $0.id == id }) else { throw APIError.invalidResponse }
+            return result
+        }
         return try await requireClient().user(id: id)
+    }
+    func createUser(_ input: UserCreateRequest, identity: UUID) async throws -> AdminUser {
+        let client = try requireClient()
+        if !isUITesting { return try await client.createUser(input, identity: identity) }
+        let generation = sessionGeneration
+        guard identity == (await client.userWriteIdentity()), generation == sessionGeneration else { throw CancellationError() }
+        var payload = try JSONSerialization.jsonObject(with: input.requestBody()) as! [String: Any]
+        payload.removeValue(forKey: "password")
+        var users = demoUsersBySession[generation] ?? DemoData.allUsers
+        guard !users.contains(where: { $0.email == input.email }) else {
+            throw APIError(kind: .validation, message: "此邮箱已经存在。")
+        }
+        payload["id"] = (users.map(\.id).max() ?? 0) + 1
+        payload["balance"] = payload["balance"] ?? 0
+        payload["status"] = "active"
+        payload["created_at"] = ISO8601DateFormatter().string(from: Date())
+        let user = try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
+        users.insert(user, at: 0); demoUsersBySession[generation] = users
+        return user
+    }
+    func updateUser(_ operation: PendingUserUpdateOperation) async throws -> AdminUser {
+        let client = try requireClient()
+        if !isUITesting { return try await client.updateUser(operation) }
+        let generation = sessionGeneration
+        guard operation.serverID == activeProfile?.id, operation.identity == (await client.userWriteIdentity()), generation == sessionGeneration else {
+            throw APIError.stationMismatch
+        }
+        if let result = demoUserUpdates[operation.id] { return result }
+        var users = demoUsersBySession[generation] ?? DemoData.allUsers
+        guard let index = users.firstIndex(where: { $0.id == operation.userID }) else { throw APIError.invalidResponse }
+        var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(users[index])) as! [String: Any]
+        let changes = try JSONSerialization.jsonObject(with: operation.body) as! [String: Any]
+        for (key, value) in changes where key != "password" && key != "adjustment_notes" { payload[key] = value }
+        let user = try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
+        users[index] = user; demoUsersBySession[generation] = users; demoUserUpdates[operation.id] = user
+        return user
     }
     func userUsage(id: Int) async throws -> UserUsageSummary {
         if isUITesting { return UserUsageSummary(totalRequests: 12, totalTokens: 4200, totalCost: Decimal(string: "0.12")!) }

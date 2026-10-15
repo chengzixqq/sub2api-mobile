@@ -14,6 +14,9 @@ struct AccountsView: View {
     @State private var error: String?
     @State private var failedPage: Int?
     @State private var requestID = UUID()
+    @State private var fieldSelection = ListFieldSelection<AccountListField>()
+    @State private var editingFields = false
+    @State private var fieldProfileID: UUID?
     private var query: String { search + "|" + status + "|" + platform }
 
     var body: some View {
@@ -31,9 +34,14 @@ struct AccountsView: View {
                     NavigationLink { AccountDetailView(initial: account) } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(account.name).font(.headline)
-                            Text("\(account.platform) · \(account.type)").font(.caption).foregroundStyle(.secondary)
-                            Label(account.schedulable ? "参与调度" : "暂停调度", systemImage: account.schedulable ? "checkmark.circle" : "pause.circle")
-                                .font(.caption).foregroundStyle(account.schedulable ? .green : .secondary)
+                            ListFieldFlow {
+                                ForEach(fieldSelection.visibleFields, id: \.rawValue) { field in
+                                    Text("\(field.title)：\(fieldValue(field, account: account))")
+                                        .font(.caption).foregroundStyle(field == .schedulable && account.schedulable ? .green : .secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .accessibilityIdentifier("account.\(account.id).field.\(field.rawValue)")
+                                }
+                            }
                             if let message = account.errorMessage, !message.isEmpty { Text("上游返回异常，请在 Web 后台查看详情。").font(.caption).foregroundStyle(.red).lineLimit(2) }
                         }.padding(.vertical, 4)
                     }.accessibilityIdentifier("account.\(account.id)")
@@ -45,6 +53,21 @@ struct AccountsView: View {
             }
         }
         .navigationTitle("上游账号")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("显示字段", systemImage: "line.3.horizontal.decrease") { editingFields = true }
+                    .accessibilityIdentifier("accounts.fields")
+            }
+        }
+        .sheet(isPresented: $editingFields) { ListFieldEditor(title: "账号列表字段", selection: $fieldSelection) }
+        .task(id: model.activeProfile?.id) {
+            fieldProfileID = model.activeProfile?.id
+            fieldSelection = ListFieldSelection(rawValue: UserDefaults.standard.string(forKey: ListFieldSelection<AccountListField>.storageKey(profileID: fieldProfileID)))
+        }
+        .onChange(of: fieldSelection) { _, value in
+            guard fieldProfileID == model.activeProfile?.id else { return }
+            UserDefaults.standard.set(value.rawValue, forKey: ListFieldSelection<AccountListField>.storageKey(profileID: fieldProfileID))
+        }
         .searchable(text: $search, prompt: "搜索账号名称")
         .refreshable { await load(nextPage: 1, replace: true) }
         .task(id: query) {
@@ -52,6 +75,33 @@ struct AccountsView: View {
             page = 0; hasMore = false; accounts = []; error = nil; failedPage = nil
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             await load(nextPage: 1, replace: true)
+        }
+    }
+    private func fieldValue(_ field: AccountListField, account: UpstreamAccount) -> String {
+        switch field {
+        case .platform: account.platform
+        case .authenticationType: account.type
+        case .groups:
+            if !account.groups.isEmpty { account.groups.map(\.name).joined(separator: "、") }
+            else if !account.groupIDs.isEmpty { account.groupIDs.map { "#\($0)" }.joined(separator: "、") }
+            else { "未分组" }
+        case .concurrency: account.concurrency.map(String.init) ?? "不可用"
+        case .priority: account.priority.map(String.init) ?? "不可用"
+        case .rateMultiplier: account.rateMultiplier.map { NSDecimalNumber(decimal: $0).stringValue + "×" } ?? "不可用"
+        case .status:
+            switch account.status {
+            case "active": "正常"
+            case "inactive": "已禁用"
+            case "error": "异常"
+            default: account.status
+            }
+        case .schedulable: account.schedulable ? "参与调度" : "暂停调度"
+        case .expiresAt: ListFieldPresentation.timestamp(seconds: account.expiresAt)
+        case .lastUsedAt: ListFieldPresentation.timestamp(account.lastUsedAt)
+        case .createdAt: ListFieldPresentation.timestamp(account.createdAt)
+        case .notes: account.notes.flatMap { $0.isEmpty ? nil : $0 } ?? "无"
+        case .rpm: account.baseRPM.map(String.init) ?? "不可用"
+        case .usage: account.quotaUsed.map { NSDecimalNumber(decimal: $0).stringValue } ?? "不可用"
         }
     }
     private func load(nextPage: Int, replace: Bool = false) async {

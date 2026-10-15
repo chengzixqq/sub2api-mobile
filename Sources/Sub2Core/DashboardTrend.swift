@@ -1,7 +1,7 @@
 import Foundation
 
 public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
-    case actualCost, requests, tokens
+    case actualCost, requests, tokens, performance
 
     public var id: String { rawValue }
     public var label: String {
@@ -9,6 +9,7 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
         case .actualCost: "实际消费"
         case .requests: "请求数"
         case .tokens: "Tokens"
+        case .performance: "性能指标"
         }
     }
     public var unit: String {
@@ -16,6 +17,7 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
         case .actualCost: "USD"
         case .requests: "次"
         case .tokens: "Tokens"
+        case .performance: "RPM / TPM"
         }
     }
 
@@ -26,6 +28,7 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
         case .actualCost: DashboardPresentation.money(point.actualCost)
         case .requests: String(point.requests)
         case .tokens: DashboardPresentation.compactNumber(point.totalTokens)
+        case .performance: "不可用"
         }
     }
 
@@ -38,6 +41,7 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
             return "$" + NSDecimalNumber(decimal: amount).stringValue
         case .requests: return String(point.requests)
         case .tokens: return String(point.totalTokens)
+        case .performance: return "不可用"
         }
     }
 
@@ -50,6 +54,7 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
             value = NSDecimalNumber(decimal: amount).doubleValue
         case .requests: value = Double(point.requests)
         case .tokens: value = Double(point.totalTokens)
+        case .performance: return nil
         }
         return value.isFinite ? value : nil
     }
@@ -66,6 +71,8 @@ public struct DashboardTrendSeries: Sendable {
     public let invalidDateCount: Int
     public let duplicateCount: Int
     public let isHourly: Bool
+    /// Tables read newest first; the chart keeps chronological X coordinates.
+    public var newestFirst: [DashboardTrendSample] { Array(samples.reversed()) }
 }
 
 public enum DashboardTrend {

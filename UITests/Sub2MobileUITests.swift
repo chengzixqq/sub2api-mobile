@@ -239,8 +239,8 @@ final class Sub2MobileUITests: XCTestCase {
         assertDashboardValue("dashboard.trend.selection", contains: ["实际消费", "$"])
         dashboardDiagnostics(named: "dashboard-trend-chart-tap-selection")
 
-        selectFirstTrendHour(contains: ["$0.10"], diagnosticName: "dashboard-trend-amount-details-two-digits")
-        let actual = assertDashboardValue("dashboard.trend.selection", contains: ["10/14", "00:00", "$0.10"])
+        selectNewestTrendHour(contains: ["$0.14"], diagnosticName: "dashboard-trend-amount-details-two-digits")
+        let actual = assertDashboardValue("dashboard.trend.selection", contains: ["10/15", "11:00", "$0.14"])
         XCTAssertFalse(actual.contains("0.10000001"), "Displayed amounts should use at most two fraction digits.")
         XCTAssertFalse(actual.contains("9.10"), "Selected consumption must not use standard cost.")
         dashboardDiagnostics(named: "dashboard-trend-exact-actual-selection")
@@ -248,16 +248,16 @@ final class Sub2MobileUITests: XCTestCase {
         reveal(metric, towardBottom: false)
         metric.buttons["Tokens"].tap()
         XCTAssertTrue(metric.buttons["Tokens"].isSelected)
-        selectFirstTrendHour(contains: ["1.00M", "Tokens"], diagnosticName: "dashboard-trend-token-details-compact")
-        let tokens = assertDashboardValue("dashboard.trend.selection", contains: ["Tokens", "1.00M"])
+        selectNewestTrendHour(contains: ["1.43M", "Tokens"], diagnosticName: "dashboard-trend-token-details-compact")
+        let tokens = assertDashboardValue("dashboard.trend.selection", contains: ["Tokens", "1.43M"])
         XCTAssertFalse(tokens.replacingOccurrences(of: ",", with: "").contains("1000000"), "Selected Tokens should use K/M/B units.")
         dashboardDiagnostics(named: "dashboard-trend-exact-token-selection")
 
         reveal(metric, towardBottom: false)
         metric.buttons["请求数"].tap()
         XCTAssertTrue(metric.buttons["请求数"].isSelected)
-        selectFirstTrendHour()
-        assertDashboardValue("dashboard.trend.selection", contains: ["请求数", "100 次"])
+        selectNewestTrendHour()
+        assertDashboardValue("dashboard.trend.selection", contains: ["请求数", "205 次"])
         dashboardDiagnostics(named: "dashboard-trend-exact-request-selection")
 
         let zoomOut = app.buttons["dashboard.trend.zoom-out"]
@@ -329,6 +329,59 @@ final class Sub2MobileUITests: XCTestCase {
         assertDashboardValue("dashboard.total-actual-cost", contains: ["$1.23K"])
         assertDashboardValue("dashboard.total-account-cost", contains: ["不可用"])
         XCTAssertFalse(app.alerts["操作未完成"].exists)
+    }
+
+    @MainActor func testPerformanceTrendFourthTabShowsRealRatesAndNewestDetails() {
+        launch(arguments: ["-ui-dashboard-detail-errors"])
+        login(name: "性能趋势验收", url: "https://performance.example.com")
+        XCTAssertTrue(app.staticTexts["dashboard.trend.error"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["dashboard.performance.chart"].firstMatch.exists,
+                       "Historical performance loads only after selecting its tab.")
+        let tabs = app.segmentedControls["dashboard.trend.metric"]
+        reveal(tabs)
+        XCTAssertEqual(tabs.buttons.count, 4)
+        tabs.buttons["性能指标"].tap()
+        let chart = app.descendants(matching: .any)["dashboard.performance.chart"].firstMatch
+        XCTAssertTrue(chart.waitForExistence(timeout: 10), app.debugDescription)
+        reveal(chart)
+        dashboardDiagnostics(named: "performance-trend-rpm")
+        let selector = app.segmentedControls["dashboard.performance.metric"]
+        reveal(selector, towardBottom: false)
+        selector.buttons["TPM"].tap()
+        XCTAssertTrue(selector.buttons["TPM"].isSelected)
+        reveal(app.buttons["dashboard.performance.details"])
+        app.buttons["dashboard.performance.details"].tap()
+        let latest = app.buttons["dashboard.performance.row.69"]
+        XCTAssertTrue(latest.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "dashboard.performance.row.")).firstMatch.identifier,
+                       latest.identifier)
+        XCTAssertTrue(latest.label.contains("RPM 69"), latest.label)
+        XCTAssertTrue(latest.label.contains("TPM 690.00K"), latest.label)
+        dashboardDiagnostics(named: "performance-trend-newest-details")
+        latest.tap()
+        assertDashboardValue("dashboard.performance.selection", contains: ["TPM", "690.00K"])
+        let ranges = app.segmentedControls["dashboard.performance.range"]
+        reveal(ranges, towardBottom: false)
+        ranges.buttons["近 6 小时"].tap()
+        XCTAssertTrue(chart.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "每桶 5 分钟平均速率")).firstMatch.waitForExistence(timeout: 5))
+        dashboardDiagnostics(named: "performance-trend-six-hours")
+    }
+
+    @MainActor func testPerformanceDisabledKeepsOtherOverviewMetrics() {
+        launch(arguments: ["-ui-performance-error"])
+        login(name: "未开启性能监控", url: "https://disabled.example.com")
+        let tabs = app.segmentedControls["dashboard.trend.metric"]
+        XCTAssertTrue(tabs.waitForExistence(timeout: 10))
+        reveal(tabs)
+        tabs.buttons["性能指标"].tap()
+        XCTAssertTrue(app.staticTexts["dashboard.performance.error"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["dashboard.performance.chart"].firstMatch.exists)
+        dashboardDiagnostics(named: "performance-trend-disabled")
+        reveal(tabs, towardBottom: false)
+        tabs.buttons["实际消费"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard.trend.chart"].firstMatch.waitForExistence(timeout: 5))
+        assertDashboardValue("dashboard.today-requests", contains: ["128"], towardBottom: false)
     }
 
     @MainActor func testAddAndSwitchStations() {
@@ -465,12 +518,14 @@ final class Sub2MobileUITests: XCTestCase {
         XCTFail("Summary card was not fully visible after bounded scrolling: \(card.identifier) \(card.frame)\n\(app.debugDescription)", file: file, line: line)
     }
 
-    @MainActor private func selectFirstTrendHour(contains values: [String] = [], diagnosticName: String? = nil, file: StaticString = #filePath, line: UInt = #line) {
+    @MainActor private func selectNewestTrendHour(contains values: [String] = [], diagnosticName: String? = nil, file: StaticString = #filePath, line: UInt = #line) {
         let details = app.buttons["dashboard.trend.details"]
         reveal(details, file: file, line: line)
         details.tap()
-        let first = app.buttons["dashboard.trend.hour.2026-10-14 00:00"]
+        let first = app.buttons["dashboard.trend.hour.2026-10-15 11:00"]
         XCTAssertTrue(first.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "dashboard.trend.hour.")).firstMatch.identifier,
+                       first.identifier, "Hourly details must put the newest row first.", file: file, line: line)
         let text = first.label + " " + (first.value as? String ?? "")
         for value in values {
             XCTAssertTrue(text.contains(value), "Expected hourly detail to contain \(value); observed \(text)", file: file, line: line)
