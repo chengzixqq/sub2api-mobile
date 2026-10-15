@@ -151,7 +151,7 @@ def main():
         shutil.copy2(source, folder / "SOURCE.zip")
     run(["git", "diff", "--no-index", "--binary", f"--output={diff}", "baseline/SOURCE.zip", "modified/SOURCE.zip"], cwd=destination, allowed=(1,))
     # The sibling baseline makes the rollback self-contained and usable on macOS/Linux/Git Bash.
-    rollback.write_text('#!/bin/sh\nset -eu\nif [ "$#" -ne 1 ]; then echo "Usage: ROLLBACK.sh TARGET_COPY.zip" >&2; exit 64; fi\nrole_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\ncase "$1" in /*|[A-Za-z]:/*) target=$1 ;; *) target=./$1 ;; esac\ncp "$role_dir/BASELINE.zip" "$target"\nprintf "%s\\n" "ROLLBACK_RESTORED"\n', encoding="utf-8")
+    rollback.write_text('#!/bin/sh\nset -eu\nif [ "$#" -ne 1 ]; then echo "Usage: ROLLBACK.sh TARGET_COPY.zip" >&2; exit 64; fi\nrole_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\ncase "$1" in /*|[A-Za-z]:/*) target=$1 ;; *) target=./$1 ;; esac\ncp "$role_dir/BASELINE.zip" "$target"\nprintf "%s\\n" "ROLLBACK_RESTORED"\n', encoding="utf-8", newline="\n")
     rollback.chmod(0o755)
     check = [sys.executable, ROOT / "scripts/inspect_archive.py"]
     records.append("BASELINE behavior:")
