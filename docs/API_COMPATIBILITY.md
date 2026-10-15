@@ -9,6 +9,7 @@
 | 会话 / 刷新 / 退出 | GET `/auth/me`；POST `/auth/refresh`、`/auth/logout` |
 | 二次验证 | POST `/user/totp/step-up` |
 | 概览 / 按需趋势 | GET `/admin/dashboard/stats`、`/admin/dashboard/trend` |
+| 费用兼容快照 | GET `/admin/dashboard/snapshot-v2`，只开启 `include_stats`，禁用所有趋势和模型/分组统计 |
 | Admin Key 权限探针 | GET `/admin/dashboard/realtime`（仅验证权限，不使用占位指标） |
 | 可选监控 | GET `/admin/ops/dashboard/overview` |
 | 账号列表 / 详情 / 今日统计 | GET `/admin/accounts`、`/admin/accounts/:id`、`/admin/accounts/:id/today-stats` |
@@ -23,6 +24,10 @@
 概览首屏只请求基础统计，单次请求等待预算为 90 秒；前台等本次请求结束后间隔 30 秒刷新。趋势和详细运行监控通过各自按钮按需加载，分别使用 45 秒、15 秒预算，不参加自动轮询；下拉刷新只刷新基础统计。趋势使用“昨日以来”的小时数据，而非首屏默认查询 7 天历史。每个分区独立处理失败、重试和最后更新时间，刷新失败保留该分区已成功的数据，切站或离开页面取消旧请求。
 
 Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 `/admin/dashboard/realtime` 验证权限；当前后端该接口的指标为占位值，绝不用于显示。当前源码没有 stats lite 模式；添加 `mode=lite` 或 `lite=true` 不会减少计算。`snapshot-v2` 的 `include_stats=true` 会刷新统计，不能当成轻量替代。
+
+概览金额明确区分 `today_actual_cost`（用户实际扣费）、`today_account_cost`（上游账号成本）和 `today_cost`（标准费用）；界面显示前两项，不用标准费用替代缺失值。当前 `/stats` handler 遗漏账号成本，因此仅在该字段缺失时，独立补取只含 stats 的 snapshot-v2（45 秒客户端预算，服务器共享计算预算仍为 30 秒）。费用请求不会阻塞基础统计，每次主统计完成后按 90 秒间隔检查是否需要更新，也可手动刷新；失败局部显示并保留基础数据。费用快照中的实际与成本成对显示，并标注单独更新时间；超过缓存有效期的值在下次页面刷新时显示不可用。服务端今日的边界由服务器决定，snapshot 请求日期/手机时区不能改变该统计日。
+
+累计 Tokens 使用 `total_tokens`，包含缓存 Tokens。今日和累计 Tokens 按 Web 的固定两位 K/M/B 格式缩写；性能展示最近五分钟平均 RPM/TPM 和 `average_duration_ms`（毫秒，达到 1000 时转秒）。新字段可缺，缺失或 null 显示不可用，畸形金额仍按协议错误处理。趋势桶 `yyyy-MM-dd HH:00` 按请求时区解析成日期轴，手机最多显示三处月/日与小时刻度，并保留完整起止时间。
 
 监控接口不可用时显示局部错误，不伪造零值；不会让可选监控失败抹去成功的概览。站点未提供必需字段时返回协议错误，避免默默填充不真实的统计值。服务端趋势查询本身还有 30 秒预算；客户端隔离慢查询不能替代服务器侧数据库优化。
 

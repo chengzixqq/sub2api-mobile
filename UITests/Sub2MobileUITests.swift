@@ -67,6 +67,7 @@ final class Sub2MobileUITests: XCTestCase {
         reveal(app.buttons["dashboard.trend.load"])
         app.buttons["dashboard.trend.load"].tap()
         XCTAssertTrue(app.staticTexts["dashboard.trend.error"].waitForExistence(timeout: 5))
+        reveal(counter, towardBottom: false)
         XCTAssertTrue(counter.exists)
         reveal(app.buttons["dashboard.monitoring.load"])
         app.buttons["dashboard.monitoring.load"].tap()
@@ -75,6 +76,89 @@ final class Sub2MobileUITests: XCTestCase {
         app.tabBars.buttons["概览"].tap()
         reveal(counter, towardBottom: false)
         XCTAssertTrue(counter.exists)
+    }
+
+    @MainActor func testDashboardShowsActualAndAccountCostsTokensPerformanceAndDates() {
+        launch()
+        defer { dashboardDiagnostics(named: "dashboard-final-state") }
+        login(name: "概览显示验收", url: "https://dashboard.example.com")
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard.today-requests"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+
+        assertDashboardValue("dashboard.today-requests", contains: ["128"])
+        assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"])
+        let actual = assertDashboardValue("dashboard.today-actual-cost", contains: ["$12.34"])
+        let account = assertDashboardValue("dashboard.today-account-cost", contains: ["$4.56"])
+        // Distinct fixture prices catch accidentally displaying standard cost.
+        XCTAssertFalse(actual.contains("99.99"))
+        XCTAssertFalse(account.contains("99.99"))
+        assertDashboardValue("dashboard.total-tokens", contains: ["9.88B"])
+        dashboardDiagnostics(named: "dashboard-compact-tokens-and-real-costs")
+
+        assertDashboardValue("dashboard.performance.rpm", contains: ["1.23K", "RPM"])
+        assertDashboardValue("dashboard.performance.tpm", contains: ["987.65K", "TPM"])
+        assertDashboardValue("dashboard.performance.duration", contains: ["1.25s"])
+        dashboardDiagnostics(named: "dashboard-performance-units")
+
+        let load = app.buttons["dashboard.trend.load"]
+        reveal(load)
+        load.tap()
+        let chart = app.descendants(matching: .any)["dashboard.trend.chart"].firstMatch
+        XCTAssertTrue(chart.waitForExistence(timeout: 10), app.debugDescription)
+        reveal(chart)
+        XCTAssertGreaterThan(chart.frame.height, 100)
+        assertDashboardValue("dashboard.trend.range", contains: ["10/14", "22:00", "10/15", "02:00"])
+        // Keep the rendered chart and AX tree: the cross-day tick spacing is
+        // reviewed from the screenshot rather than inferred from an AX label.
+        dashboardDiagnostics(named: "dashboard-cross-day-trend-axis")
+    }
+
+    @MainActor func testDashboardMissingAccountCostLoadsIndependentSnapshot() {
+        launch(arguments: ["-ui-missing-account-cost"])
+        defer { dashboardDiagnostics(named: "dashboard-cost-snapshot-success") }
+        login(name: "旧版费用接口", url: "https://legacy-cost.example.com")
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard.today-requests"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"])
+        assertDashboardValue("dashboard.today-actual-cost", contains: ["$12.34"])
+        let account = app.descendants(matching: .any)["dashboard.today-account-cost"].firstMatch
+        reveal(account)
+        let snapshotReady = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "$4.56", "$4.56"), object: account)
+        XCTAssertEqual(XCTWaiter.wait(for: [snapshotReady], timeout: 10), .completed, app.debugDescription)
+        let accountText = assertDashboardValue("dashboard.today-account-cost", contains: ["$4.56"])
+        XCTAssertFalse(accountText.contains("99.99"))
+        XCTAssertFalse(app.descendants(matching: .any)["dashboard.costs.error"].firstMatch.exists)
+        dashboardDiagnostics(named: "dashboard-cost-snapshot-amounts")
+        assertDashboardValue("dashboard.performance.duration", contains: ["1.25s"])
+    }
+
+    @MainActor func testDashboardCostSnapshotFailureKeepsPrimaryStatsAndRetryLocal() {
+        launch(arguments: ["-ui-missing-account-cost", "-ui-cost-snapshot-error"])
+        defer { dashboardDiagnostics(named: "dashboard-cost-snapshot-local-error") }
+        login(name: "费用快照超时", url: "https://cost-timeout.example.com")
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard.today-requests"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"])
+        let actual = assertDashboardValue("dashboard.today-actual-cost", contains: ["$12.34"])
+        let unavailable = assertDashboardValue("dashboard.today-account-cost", contains: ["不可用"])
+        XCTAssertFalse(actual.contains("99.99"))
+        XCTAssertFalse(unavailable.contains("99.99"))
+        let error = app.descendants(matching: .any)["dashboard.costs.error"].firstMatch
+        XCTAssertTrue(error.waitForExistence(timeout: 10), app.debugDescription)
+        assertDashboardValue("dashboard.costs.error", contains: ["费用快照超时"])
+        dashboardDiagnostics(named: "dashboard-cost-snapshot-before-retry")
+
+        let retry = app.buttons["dashboard.costs.load"]
+        reveal(retry)
+        XCTAssertTrue(retry.isEnabled)
+        retry.tap()
+        XCTAssertTrue(error.waitForExistence(timeout: 10), app.debugDescription)
+        assertDashboardValue("dashboard.costs.error", contains: ["费用快照超时"])
+        assertDashboardValue("dashboard.performance.rpm", contains: ["1.23K", "RPM"])
+        assertDashboardValue("dashboard.performance.tpm", contains: ["987.65K", "TPM"])
+        assertDashboardValue("dashboard.performance.duration", contains: ["1.25s"])
+        assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"], towardBottom: false)
+        assertDashboardValue("dashboard.today-actual-cost", contains: ["$12.34"])
+        assertDashboardValue("dashboard.today-account-cost", contains: ["不可用"])
+        XCTAssertFalse(app.alerts["操作未完成"].exists)
     }
 
     @MainActor func testAddAndSwitchStations() {
@@ -123,6 +207,28 @@ final class Sub2MobileUITests: XCTestCase {
         enter("fixture-password", in: app.secureTextFields["login.password"])
         submitLogin()
         XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor @discardableResult
+    private func assertDashboardValue(_ identifier: String, contains values: [String], towardBottom: Bool = true, file: StaticString = #filePath, line: UInt = #line) -> String {
+        let element = app.descendants(matching: .any)[identifier].firstMatch
+        reveal(element, towardBottom: towardBottom, file: file, line: line)
+        let text = element.label + " " + (element.value as? String ?? "")
+        for value in values {
+            XCTAssertTrue(text.contains(value), "Expected \(identifier) to contain \(value); observed \(text)\n\(app.debugDescription)", file: file, line: line)
+        }
+        return text
+    }
+
+    @MainActor private func dashboardDiagnostics(named name: String) {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = name + "-accessibility"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
     }
 
     @MainActor private func submitLogin() {

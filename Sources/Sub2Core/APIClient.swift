@@ -3,6 +3,12 @@ import Foundation
 import FoundationNetworking
 #endif
 
+public struct DashboardCostSnapshot: Sendable {
+    public let actual: Decimal
+    public let account: Decimal
+    public init(actual: Decimal, account: Decimal) { self.actual = actual; self.account = account }
+}
+
 public actor APIClient {
     public nonisolated let server: ServerProfile
     private var credential: Credential?
@@ -81,6 +87,23 @@ public actor APIClient {
         let reply: TrendReply = try await request("admin/dashboard/trend", query: dateRange(days: 1) + [URLQueryItem(name: "granularity", value: "hour")], timeout: 45)
         try check(snapshot)
         return reply.trend
+    }
+    public func dashboardCostSnapshot() async throws -> DashboardCostSnapshot {
+        let snapshot = generation
+        // Some servers omit account cost from /stats. Request only snapshot stats,
+        // independently from the cached overview and without chart queries.
+        let reply: DashboardStatsSnapshotReply = try await request("admin/dashboard/snapshot-v2", query: dateRange(days: 0) + [
+            URLQueryItem(name: "include_stats", value: "true"),
+            URLQueryItem(name: "include_trend", value: "false"),
+            URLQueryItem(name: "include_model_stats", value: "false"),
+            URLQueryItem(name: "include_group_stats", value: "false"),
+            URLQueryItem(name: "include_users_trend", value: "false")
+        ], timeout: 45)
+        try check(snapshot)
+        guard let actual = reply.stats?.todayActualCost, let account = reply.stats?.todayAccountCost else {
+            throw APIError(kind: .response, message: "站点未提供实际费用或账号成本，请在网页核对。")
+        }
+        return DashboardCostSnapshot(actual: actual, account: account)
     }
     public func dashboardMonitoring() async throws -> OpsSnapshot {
         let snapshot = generation
@@ -350,6 +373,7 @@ private func responseError(status: Int, data: Data) -> APIError {
     APIError.server(status: status, reason: (try? JSONDecoder().decode(ErrorReply.self, from: data))?.reason)
 }
 private struct TrendReply: Decodable, Sendable { let trend: [TrendPoint] }
+private struct DashboardStatsSnapshotReply: Decodable, Sendable { let stats: DashboardStats? }
 private struct StepUpReply: Decodable, Sendable { let verified: Bool }
 private struct OpsReply: Decodable, Sendable {
     let errorRate: Double?

@@ -4,8 +4,16 @@ import Sub2Core
 // Fixtures are reachable only through the explicit -ui-testing launch argument.
 enum DemoData {
     static let dashboard = DashboardSummary(
-        stats: DashboardStats(todayRequests: 128, todayTokens: 54_000, todayCost: Decimal(string: "1.25")!, totalUsers: 22, totalAccounts: 8, errorAccounts: 1, rpm: 4, tpm: 1800),
-        trend: [TrendPoint(date: "2026-10-01", requests: 90, totalTokens: 32_000, cost: Decimal(string: "0.80")!), TrendPoint(date: "2026-10-02", requests: 128, totalTokens: 54_000, cost: Decimal(string: "1.25")!)],
+        stats: DashboardStats(
+            todayRequests: 128, todayTokens: 1_234_567, todayCost: Decimal(string: "99.99")!,
+            totalUsers: 22, totalAccounts: 8, errorAccounts: 1, rpm: 1234, tpm: 987_654,
+            todayActualCost: Decimal(string: "12.34")!, todayAccountCost: Decimal(string: "4.56")!,
+            totalActualCost: Decimal(string: "1234.56")!, totalAccountCost: Decimal(string: "456.78")!,
+            totalTokens: 9_876_543_210, averageDurationMs: 1250),
+        trend: [
+            TrendPoint(date: "2026-10-14 22:00", requests: 90, totalTokens: 32_000, cost: Decimal(string: "0.80")!),
+            TrendPoint(date: "2026-10-15 00:00", requests: 128, totalTokens: 54_000, cost: Decimal(string: "1.25")!),
+            TrendPoint(date: "2026-10-15 02:00", requests: 64, totalTokens: 27_000, cost: Decimal(string: "0.63")!)],
         monitoring: OpsSnapshot(errorRate: 0.01, qps: 0.2, activeRequests: 2))
     static let allAccounts = [UpstreamAccount(id: 1, name: "测试上游 A", platform: "openai", type: "apikey", concurrency: 4), UpstreamAccount(id: 2, name: "测试上游 B", platform: "anthropic", type: "oauth", concurrency: 2)]
     static let allUsers = [AdminUser(id: 1, email: "alice@example.com", username: "Alice", balance: Decimal(string: "12.50")!, role: "user", concurrency: 2), AdminUser(id: 2, email: "bob@example.com", username: "Bob", balance: 20, role: "user", concurrency: 2)]

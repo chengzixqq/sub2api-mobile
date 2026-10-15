@@ -206,8 +206,26 @@ final class AppModel {
     }
 
     func dashboard() async throws -> DashboardSummary {
-        if isUITesting { return DemoData.dashboard }
+        if isUITesting {
+            if ProcessInfo.processInfo.arguments.contains("-ui-missing-account-cost") {
+                let original = try JSONEncoder().encode(DemoData.dashboard.stats)
+                var fields = try JSONSerialization.jsonObject(with: original) as! [String: Any]
+                fields.removeValue(forKey: "today_account_cost")
+                let stats = try JSONDecoder().decode(DashboardStats.self, from: JSONSerialization.data(withJSONObject: fields))
+                return DashboardSummary(stats: stats, trend: [])
+            }
+            return DemoData.dashboard
+        }
         return try await requireClient().dashboard()
+    }
+    func dashboardCostSnapshot() async throws -> DashboardCostSnapshot {
+        if isUITesting {
+            if ProcessInfo.processInfo.arguments.contains("-ui-cost-snapshot-error") {
+                throw APIError(kind: .transport, message: "费用快照超时，请重试。")
+            }
+            return DashboardCostSnapshot(actual: Decimal(string: "12.34")!, account: Decimal(string: "4.56")!)
+        }
+        return try await requireClient().dashboardCostSnapshot()
     }
     func dashboardTrend() async throws -> [TrendPoint] {
         if isUITesting {

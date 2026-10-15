@@ -132,13 +132,25 @@ public struct DashboardStats: Codable, Sendable {
     public let errorAccounts: Int
     public let rpm: Double
     public let tpm: Double
-    public init(todayRequests: Int, todayTokens: Int, todayCost: Decimal, totalUsers: Int, totalAccounts: Int, errorAccounts: Int, rpm: Double, tpm: Double) {
+    public let todayActualCost: Decimal?
+    public let todayAccountCost: Decimal?
+    public let totalActualCost: Decimal?
+    public let totalAccountCost: Decimal?
+    public let totalTokens: Int?
+    public let averageDurationMs: Double?
+    public init(todayRequests: Int, todayTokens: Int, todayCost: Decimal, totalUsers: Int, totalAccounts: Int, errorAccounts: Int, rpm: Double, tpm: Double, todayActualCost: Decimal? = nil, todayAccountCost: Decimal? = nil, totalActualCost: Decimal? = nil, totalAccountCost: Decimal? = nil, totalTokens: Int? = nil, averageDurationMs: Double? = nil) {
         self.todayRequests = todayRequests; self.todayTokens = todayTokens; self.todayCost = todayCost; self.totalUsers = totalUsers
         self.totalAccounts = totalAccounts; self.errorAccounts = errorAccounts; self.rpm = rpm; self.tpm = tpm
+        self.todayActualCost = todayActualCost; self.todayAccountCost = todayAccountCost
+        self.totalActualCost = totalActualCost; self.totalAccountCost = totalAccountCost
+        self.totalTokens = totalTokens; self.averageDurationMs = averageDurationMs
     }
     enum CodingKeys: String, CodingKey {
         case todayRequests = "today_requests", todayTokens = "today_tokens", todayCost = "today_cost", totalUsers = "total_users"
         case totalAccounts = "total_accounts", errorAccounts = "error_accounts", rpm, tpm
+        case todayActualCost = "today_actual_cost", todayAccountCost = "today_account_cost"
+        case totalActualCost = "total_actual_cost", totalAccountCost = "total_account_cost"
+        case totalTokens = "total_tokens", averageDurationMs = "average_duration_ms"
     }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -146,6 +158,10 @@ public struct DashboardStats: Codable, Sendable {
         todayCost = try c.decimal(.todayCost); totalUsers = try c.decode(Int.self, forKey: .totalUsers)
         totalAccounts = try c.decode(Int.self, forKey: .totalAccounts); errorAccounts = try c.decode(Int.self, forKey: .errorAccounts)
         rpm = try c.decode(Double.self, forKey: .rpm); tpm = try c.decode(Double.self, forKey: .tpm)
+        todayActualCost = try c.optionalDecimal(.todayActualCost); todayAccountCost = try c.optionalDecimal(.todayAccountCost)
+        totalActualCost = try c.optionalDecimal(.totalActualCost); totalAccountCost = try c.optionalDecimal(.totalAccountCost)
+        totalTokens = try c.decodeIfPresent(Int.self, forKey: .totalTokens)
+        averageDurationMs = try c.decodeIfPresent(Double.self, forKey: .averageDurationMs)
     }
 }
 public struct TrendPoint: Identifiable, Codable, Sendable {
@@ -260,6 +276,10 @@ public struct PendingBalanceOperation: Identifiable, Codable, Sendable, Equatabl
 }
 
 extension KeyedDecodingContainer {
+    func optionalDecimal(_ key: Key) throws -> Decimal? {
+        guard contains(key), try !decodeNil(forKey: key) else { return nil }
+        return try decimal(key)
+    }
     func decimal(_ key: Key) throws -> Decimal {
         if let raw = try? decode(String.self, forKey: key) {
             guard let result = Decimal(string: raw, locale: Locale(identifier: "en_US_POSIX")), !result.isNaN else { throw APIError.invalidResponse }
