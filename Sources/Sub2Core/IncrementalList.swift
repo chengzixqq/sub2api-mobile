@@ -67,7 +67,8 @@ public struct IncrementalList<Record: IncrementalRecord>: Sendable {
     public let items: [Record]
     /// The next `since_id`; nil sends the next read to page 1.
     public let cursor: Int?
-    /// Merges keep only the newest N rows (the page decides N); "load more" may go past it until `trimmed(to:)`.
+    /// Every merge and reset keeps only the newest N rows, so "load more" rows past N last only until the next merge.
+    /// Pages that trim only while the list sits near the top (40 §6.6) leave this nil and call `trimmed(to:)` themselves.
     public let limit: Int?
 
     public init(items: [Record] = [], cursor: Int? = nil, limit: Int? = nil) {

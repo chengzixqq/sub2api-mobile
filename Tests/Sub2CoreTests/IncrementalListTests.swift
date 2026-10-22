@@ -137,6 +137,18 @@ func unparseableCreatedAtFallsBackTwoHundredIDs(latestID: Int?, expected: Int) {
     #expect(more.cursor == list.cursor)
 }
 
+@Test func mergeAfterLoadMoreAppliesLimitAndKeepsOlderPagesWithoutOne() {
+    let older = [row(18, age: 50), row(17, age: 60)]
+    let limited = IncrementalList<Row>(limit: 2).reset(firstPage: [row(20, age: 0), row(19, age: 40)]).appendingOlder(older)
+    #expect(ids(limited.merging([row(21, age: -5)], latestID: 21)) == [21, 20])
+    let open = IncrementalList<Row>().reset(firstPage: [row(20, age: 0), row(19, age: 40)]).appendingOlder(older)
+    let polled = open.merging([row(21, age: -5)], latestID: 21)
+    #expect(ids(polled) == [21, 20, 19, 18, 17])
+    #expect(ids(polled.merging([row(21, age: -5), row(20, age: 0)], latestID: 21)) == [21, 20, 19, 18, 17])
+    let trimmed = polled.trimmed(to: 2)
+    #expect(ids(trimmed) == [21, 20]); #expect(trimmed.cursor == polled.cursor)
+}
+
 @Test func resetReplacesItemsAndRecomputesCursor() {
     let loaded = IncrementalList<Row>().reset(firstPage: [row(20, age: 0), row(19, age: 40)]).appendingOlder([row(10, age: 900)])
     #expect(loaded.cursor == 19)
