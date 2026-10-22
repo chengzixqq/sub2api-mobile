@@ -172,14 +172,15 @@ struct OutgoingRequest: Sendable {
     let headers: [String: String]
     let requestClass: RequestClass
     let timeout: TimeInterval?
-    /// Keyed writes reuse the key; other non-GET requests get a fresh lowercased UUID; GET leaves it to the server.
+    /// Keyed writes reuse the key; a frozen unkeyed write passes its operation number; other non-GET requests get a fresh
+    /// lowercased UUID; GET leaves it to the server.
     let requestID: String?
     let authenticated: Bool
     init(path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:],
-         requestClass: RequestClass? = nil, timeout: TimeInterval? = nil, authenticated: Bool = true) {
+         requestClass: RequestClass? = nil, timeout: TimeInterval? = nil, authenticated: Bool = true, requestID: String? = nil) {
         let resolved = requestClass ?? .inferred(method: method)
         self.path = path; self.method = method; self.query = query; self.body = body; self.headers = headers
         self.requestClass = resolved; self.timeout = timeout; self.authenticated = authenticated
-        requestID = resolved.idempotencyKey ?? (method.uppercased() == "GET" ? nil : UUID().uuidString.lowercased())
+        self.requestID = resolved.idempotencyKey ?? requestID ?? (method.uppercased() == "GET" ? nil : UUID().uuidString.lowercased())
     }
 }

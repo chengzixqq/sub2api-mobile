@@ -20,12 +20,16 @@ public struct APIError: LocalizedError, Sendable, Equatable {
     public let metadata: [String: String]
     /// Response header `X-Request-ID`.
     public let requestID: String?
+    /// Response header `X-Admin-Adjustment-Action-ID` of a failed keyed write (30 §3.4 step 4).
+    public let actionID: UUID?
     private let message: String
     public var errorDescription: String? { message }
     public init(kind: Kind, reason: String? = nil, statusCode: Int? = nil, message: String, category: ReasonCatalog.Category? = nil,
-                action: ReasonCatalog.Action? = nil, retryAfter: Int? = nil, metadata: [String: String] = [:], requestID: String? = nil) {
+                action: ReasonCatalog.Action? = nil, retryAfter: Int? = nil, metadata: [String: String] = [:], requestID: String? = nil,
+                actionID: UUID? = nil) {
         self.kind = kind; self.reason = reason; self.statusCode = statusCode; self.message = message
         self.category = category; self.action = action; self.retryAfter = retryAfter; self.metadata = metadata; self.requestID = requestID
+        self.actionID = actionID
     }
     public static let invalidServer = APIError(kind: .validation, message: "请输入不含路径、账号或查询参数的 HTTPS 站点地址。")
     public static let invalidAmount = APIError(kind: .validation, message: "金额最多 8 位小数且不得超过 999999999999.99999999；增加或减少金额必须大于零。")
@@ -46,12 +50,12 @@ public struct APIError: LocalizedError, Sendable, Equatable {
     /// `envelope == nil` means the body was not JSON. Server messages can contain upstream URLs, credentials
     /// or HTML, so the text always comes from the catalog and never from the response.
     public static func server(status: Int, envelope: ErrorEnvelope?, context: ReasonCatalog.Context = .business,
-                              requestID: String? = nil, retryAfter: Int? = nil) -> APIError {
+                              requestID: String? = nil, retryAfter: Int? = nil, actionID: UUID? = nil) -> APIError {
         let reason = envelope?.marker
         let seconds = retryAfter ?? RetryAfter.resolve(headers: [:], envelope: envelope)
         let entry = ReasonCatalog.entry(status: status, reason: reason, context: context, bodyIsJSON: envelope != nil, retryAfter: seconds)
         return APIError(kind: entry.kind, reason: reason, statusCode: status, message: entry.message, category: entry.category,
-                        action: entry.action, retryAfter: seconds, metadata: envelope?.metadata ?? [:], requestID: requestID)
+                        action: entry.action, retryAfter: seconds, metadata: envelope?.metadata ?? [:], requestID: requestID, actionID: actionID)
     }
     /// 00 §3.1: 304 is never decoded; 2xx with a non-zero code is handled as 500; 2xx without a code breaks the contract.
     public static func from(_ response: HTTPResponse, context: ReasonCatalog.Context = .business) -> APIError {
@@ -64,13 +68,14 @@ public struct APIError: LocalizedError, Sendable, Equatable {
             status = 500
         }
         return server(status: status, envelope: envelope, context: context, requestID: requestID,
-                      retryAfter: RetryAfter.resolve(headers: response.headers, envelope: envelope))
+                      retryAfter: RetryAfter.resolve(headers: response.headers, envelope: envelope),
+                      actionID: response.header("X-Admin-Adjustment-Action-ID").flatMap(UUID.init(uuidString:)))
     }
     /// The same server answer read through another catalog entry, or with a defaulted wait (APIClient.failure).
     func replacing(entry: ReasonCatalog.Entry? = nil, retryAfter seconds: Int? = nil) -> APIError {
         APIError(kind: entry?.kind ?? kind, reason: reason, statusCode: statusCode, message: entry?.message ?? message,
                  category: entry?.category ?? category, action: entry?.action ?? action, retryAfter: seconds ?? retryAfter,
-                 metadata: metadata, requestID: requestID)
+                 metadata: metadata, requestID: requestID, actionID: actionID)
     }
     public var diagnostics: [Diagnostic] {
         [Diagnostic(label: "HTTP 状态", value: statusCode.map(String.init) ?? "—"),

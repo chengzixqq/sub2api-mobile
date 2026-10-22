@@ -185,10 +185,18 @@ final class AppModel {
         } catch { report(error) }
     }
 
+    /// The only way to obtain a sendable money write: its record is saved first, and a failed save sends nothing (00 §0 rule 4).
+    /// S0-12 adds the redeem-batch and compensation overloads.
+    func persisted(_ operation: PendingBalanceOperation) throws -> PersistedMoneyWrite<PendingBalanceOperation> {
+        try PersistedMoneyWrite(operation) { try remember($0) }
+    }
+
+    /// Adds a record, or replaces the one with the same id (for example to save the action id before the result is known).
     func remember(_ operation: PendingBalanceOperation) throws {
         guard pendingPersistenceAvailable else { throw AppFailure("未决余额记录无法读取，已阻止新请求。请保留应用数据并检查设备存储。") }
         let old = pendingBalances
-        if !pendingBalances.contains(where: { $0.id == operation.id }) { pendingBalances.append(operation) }
+        if let index = pendingBalances.firstIndex(where: { $0.id == operation.id }) { pendingBalances[index] = operation }
+        else { pendingBalances.append(operation) }
         do { try persistPending() }
         catch { pendingBalances = old; throw error }
     }
@@ -321,15 +329,15 @@ final class AppModel {
         }
         return try await requireClient().user(id: id)
     }
-    func createUser(_ input: UserCreateRequest, identity: UUID) async throws -> AdminUser {
+    func createUser(_ operation: PendingUserCreateOperation) async throws -> WriteOutcome<AdminUser> {
         let client = try requireClient()
-        if !isUITesting { return try await client.createUser(input, identity: identity) }
+        if !isUITesting { return try await client.createUser(operation) }
         let generation = sessionGeneration
-        guard identity == (await client.userWriteIdentity()), generation == sessionGeneration else { throw CancellationError() }
-        var payload = try JSONSerialization.jsonObject(with: input.requestBody()) as! [String: Any]
+        guard operation.identity == (await client.userWriteIdentity()), generation == sessionGeneration else { throw CancellationError() }
+        var payload = try JSONSerialization.jsonObject(with: operation.body) as! [String: Any]
         payload.removeValue(forKey: "password")
         var users = demoUsersBySession[generation] ?? DemoData.allUsers
-        guard !users.contains(where: { $0.email == input.email }) else {
+        guard !users.contains(where: { $0.email == operation.email }) else {
             throw APIError(kind: .validation, message: "此邮箱已经存在。")
         }
         payload["id"] = (users.map(\.id).max() ?? 0) + 1
@@ -338,16 +346,16 @@ final class AppModel {
         payload["created_at"] = ISO8601DateFormatter().string(from: Date())
         let user = try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
         users.insert(user, at: 0); demoUsersBySession[generation] = users
-        return user
+        return WriteOutcome(value: user)
     }
-    func updateUser(_ operation: PendingUserUpdateOperation) async throws -> AdminUser {
+    func updateUser(_ operation: PendingUserUpdateOperation) async throws -> WriteOutcome<AdminUser> {
         let client = try requireClient()
         if !isUITesting { return try await client.updateUser(operation) }
         let generation = sessionGeneration
         guard operation.serverID == activeProfile?.id, operation.identity == (await client.userWriteIdentity()), generation == sessionGeneration else {
             throw APIError.stationMismatch
         }
-        if let result = demoUserUpdates[operation.id] { return result }
+        if let result = demoUserUpdates[operation.id] { return WriteOutcome(value: result, replayed: true) }
         var users = demoUsersBySession[generation] ?? DemoData.allUsers
         guard let index = users.firstIndex(where: { $0.id == operation.userID }) else { throw APIError.invalidResponse }
         var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(users[index])) as! [String: Any]
@@ -355,7 +363,7 @@ final class AppModel {
         for (key, value) in changes where key != "password" && key != "adjustment_notes" { payload[key] = value }
         let user = try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
         users[index] = user; demoUsersBySession[generation] = users; demoUserUpdates[operation.id] = user
-        return user
+        return WriteOutcome(value: user)
     }
     func userUsage(id: Int) async throws -> UserUsageSummary {
         if isUITesting { return UserUsageSummary(totalRequests: 12, totalTokens: 4200, totalCost: Decimal(string: "0.12")!) }

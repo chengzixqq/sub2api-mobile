@@ -28,9 +28,7 @@ public struct UserCreateRequest: Encodable, Sendable, CustomDebugStringConvertib
         try UserWriteValidation.email(email)
         try UserWriteValidation.password(password)
         try UserWriteValidation.limit(concurrency); try UserWriteValidation.limit(rpmLimit)
-        if let balance {
-            try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: balance, operation: .set).validate()
-        }
+        if let balance { try PendingBalanceOperation.validateAmount(balance) }
     }
     public func requestBody() throws -> Data { try validate(); return try UserWriteValidation.encode(self) }
 }
@@ -67,6 +65,25 @@ public struct UserUpdateRequest: Encodable, Sendable, CustomDebugStringConvertib
     public func requestBody() throws -> Data { try validate(); return try UserWriteValidation.encode(self) }
 }
 
+/// A frozen POST admin/users (00 §2.5.2): identity, bytes and number stay fixed until the result is known. Never persist it:
+/// the body holds the password. `sendsIdempotencyKey` follows admin.idempotent_writes (wired by S0-10, D24).
+public struct PendingUserCreateOperation: Identifiable, Sendable, CustomDebugStringConvertible {
+    public let id: UUID
+    public let serverID: UUID
+    public let identity: UUID
+    public let email: String
+    public let sendsIdempotencyKey: Bool
+    public let body: Data
+    /// X-Request-ID, and the Idempotency-Key when one is sent.
+    public var key: String { id.uuidString.lowercased() }
+    public var debugDescription: String { "PendingUserCreateOperation(<redacted>)" }
+    public init(id: UUID = UUID(), serverID: UUID, identity: UUID, request: UserCreateRequest, sendsIdempotencyKey: Bool) throws {
+        self.id = id; self.serverID = serverID; self.identity = identity; email = request.email
+        self.sendsIdempotencyKey = sendsIdempotencyKey
+        body = try request.requestBody()
+    }
+}
+
 /// Immutable identity, bytes and UUID are retained across explicit retries, including step-up.
 /// Never persist this type: a prepared update can contain a password.
 public struct PendingUserUpdateOperation: Identifiable, Sendable, CustomDebugStringConvertible {
@@ -74,13 +91,15 @@ public struct PendingUserUpdateOperation: Identifiable, Sendable, CustomDebugStr
     public let serverID: UUID
     public let identity: UUID
     public let userID: Int
+    /// Sent with an Idempotency-Key: the site has admin.idempotent_writes (S0-10 passes it, D24), or concurrency changes.
     public let supportsSafeRetry: Bool
     public let body: Data
+    public var key: String { id.uuidString.lowercased() }
     public var debugDescription: String { "PendingUserUpdateOperation(<redacted>)" }
-    public init(id: UUID = UUID(), serverID: UUID, identity: UUID, userID: Int, request: UserUpdateRequest) throws {
+    public init(id: UUID = UUID(), serverID: UUID, identity: UUID, userID: Int, request: UserUpdateRequest, serverSupportsIdempotentWrites: Bool = false) throws {
         guard userID > 0 else { throw APIError(kind: .validation, message: "无效的用户编号。") }
         self.id = id; self.serverID = serverID; self.identity = identity; self.userID = userID
-        supportsSafeRetry = request.concurrency != nil
+        supportsSafeRetry = serverSupportsIdempotentWrites || request.concurrency != nil
         body = try request.requestBody()
     }
 }

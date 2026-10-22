@@ -63,7 +63,7 @@ func authenticationHeadersAreMutuallyExclusive(credential: Credential) async thr
     _ = try await client.setUserStatus(id: 7, status: "disabled")
     _ = try await client.setUserStatus(id: 7, status: "active")
     let operation = PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)
-    _ = try await client.updateBalance(operation)
+    _ = try await client.updateBalance(stubPersisted(operation))
     let requests = await transport.requests
     let first = try #require(sentHeader(requests[0], "X-Request-ID"))
     #expect(first == first.lowercased()); #expect(UUID(uuidString: first) != nil); #expect(first.utf8.count <= 64)
@@ -84,7 +84,7 @@ func expiredTokenResendsEveryMethodOnceWithIdenticalBytes(kind: String) async th
     switch kind {
     case "read": _ = try await client.user(id: 7)
     case "unkeyedWrite": _ = try await client.setUserStatus(id: 7, status: "active")
-    case "keyedWrite": _ = try await client.updateBalance(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add))
+    case "keyedWrite": _ = try await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)))
     default: _ = try await client.accountTodayStats(ids: [9])
     }
     let requests = await transport.requests
@@ -139,12 +139,12 @@ func nonRetryableOutcomesSendOnce(step: ScriptStep) async throws {
     #expect(await transport.requests.count == 1); #expect(await recorder.durations.isEmpty)
 }
 
+/// Keyed writes do retry on their own (00 §2.5.4); KeyedWriteExecutorTests covers them.
 @Test(arguments: [ScriptStep.reply(errorReply(503)), .fail(URLError(.timedOut))])
-func writesAndLoginNeverAutomaticallyRetry(step: ScriptStep) async throws {
+func unkeyedWritesAndLoginNeverAutomaticallyRetry(step: ScriptStep) async throws {
     let recorder = SleepRecorder()
     let operations: [@Sendable (APIClient) async throws -> Void] = [
         { _ = try await $0.setUserStatus(id: 7, status: "active") },
-        { client in _ = try await client.updateBalance(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)) },
         { _ = try await $0.login(email: "admin@example.invalid", password: "only-test") },
         { _ = try await $0.completeTOTP(tempToken: "temporary", code: "123456") }
     ]
@@ -203,7 +203,7 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     _ = try? await client.users(page: 1, search: "", status: nil)
     _ = try? await client.accountTodayStats(ids: [9])
     _ = try? await client.setUserStatus(id: 7, status: "active")
-    _ = try? await client.updateBalance(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add))
+    _ = try? await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)))
     _ = try? await client.setAccountsSchedulable(ids: [9], enabled: true, identity: identity)
     _ = try? await client.refreshAccount(id: 9)
     _ = try? await client.dashboard()

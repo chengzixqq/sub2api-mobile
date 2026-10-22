@@ -58,7 +58,18 @@ final class ManualClock: Sendable {
     func now() -> Date { current.withLock { $0 } }
     func advance(by seconds: TimeInterval) { current.withLock { $0 = $0.addingTimeInterval(seconds) } }
     var requestClock: RequestClock { RequestClock(now: { [self] in now() }, sleep: { _ in }, jitter: { .zero }) }
+    /// Each wait is recorded and moves this clock forward by its length, so the 00 §2.5.3 30-second budget can be measured.
+    func advancingClock(_ recorder: SleepRecorder) -> RequestClock {
+        RequestClock(now: { [self] in now() }, sleep: { [self] duration in
+            await recorder.record(duration)
+            let parts = duration.components
+            advance(by: TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18)
+        }, jitter: { .zero })
+    }
 }
+
+/// A money write whose record counts as saved; production code gets one only through AppModel.persisted.
+func stubPersisted<Record: PendingMoneyWrite>(_ record: Record) -> PersistedMoneyWrite<Record> { PersistedMoneyWrite(record) { _ in } }
 
 actor StubCredentialStore: CredentialStore {
     private(set) var values = [UUID: Credential]()

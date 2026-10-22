@@ -63,7 +63,7 @@ private actor UserWriteTransport: HTTPTransport {
         UserCreateRequest(email: "a@example.invalid", password: "abcdef", balance: Decimal(string: "0.000000001"))
     ]
     for input in badCreates {
-        await #expect(throws: APIError.self) { try await client.createUser(input, identity: identity) }
+        #expect(throws: APIError.self) { try PendingUserCreateOperation(serverID: client.server.id, identity: identity, request: input, sendsIdempotencyKey: false) }
     }
     #expect(throws: APIError.self) { try UserUpdateRequest().validate() }
     #expect(throws: APIError.self) { try UserUpdateRequest(password: "short").validate() }
@@ -74,17 +74,19 @@ private actor UserWriteTransport: HTTPTransport {
 @Test func concurrencyRetryKeepsIdenticalBodyAndIdempotencyKey() async throws {
     let transport = UserWriteTransport { _ in throw URLError(.timedOut) }
     let server = userServer()
-    let client = APIClient(server: server, credential: .adminKey("fixture-key"), transport: transport)
+    let client = APIClient(server: server, credential: .adminKey("fixture-key"), transport: transport, requestClock: .immediate)
     let operation = try PendingUserUpdateOperation(serverID: server.id, identity: await client.userWriteIdentity(), userID: 24,
         request: UserUpdateRequest(email: "person@example.invalid", password: "new-secret", concurrency: 0, adjustmentNotes: "测试"))
+    // Each explicit retry runs the 00 §2.5.4 confirmation: the same key and bytes three times, then “unconfirmed”.
     for _ in 0..<2 {
-        await #expect(throws: APIError.self) { try await client.updateUser(operation) }
+        await #expect(throws: KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: operation.key,
+                                                actionID: nil, lastError: APIError.transport(URLError(.timedOut)))) { try await client.updateUser(operation) }
     }
     let sent = await transport.requests()
-    #expect(sent.count == 2)
+    #expect(sent.count == 6)
     #expect(sent.allSatisfy { $0.httpMethod == "PUT" && $0.url?.path == "/api/v1/admin/users/24" })
     #expect(sent.allSatisfy { $0.httpBody == operation.body })
-    #expect(sent.allSatisfy { $0.value(forHTTPHeaderField: "Idempotency-Key") == operation.id.uuidString.lowercased() })
+    #expect(sent.allSatisfy { $0.value(forHTTPHeaderField: "Idempotency-Key") == operation.key && $0.value(forHTTPHeaderField: "X-Request-ID") == operation.key })
     #expect(!String(reflecting: operation).contains("new-secret"))
 }
 
@@ -107,7 +109,8 @@ private func userTokens() -> Credential {
     let identity = await client.userWriteIdentity()
     let operation = try PendingUserUpdateOperation(serverID: server.id, identity: identity, userID: 24, request: UserUpdateRequest(role: .admin, concurrency: 2))
     _ = try await client.updateUser(operation)
-    _ = try await client.createUser(UserCreateRequest(email: "a@example.invalid", password: "abcdef", role: .admin), identity: identity)
+    _ = try await client.createUser(PendingUserCreateOperation(serverID: server.id, identity: identity,
+                                                               request: UserCreateRequest(email: "a@example.invalid", password: "abcdef", role: .admin), sendsIdempotencyKey: false))
     let sent = await transport.requests()
     #expect(sent.filter { $0.url?.path == "/api/v1/auth/refresh" }.count == 1)
     let updates = sent.filter { $0.httpMethod == "PUT" }, creates = sent.filter { $0.httpMethod == "POST" && $0.url?.path == "/api/v1/admin/users" }
@@ -130,7 +133,9 @@ private func userTokens() -> Credential {
     let identity = await client.userWriteIdentity()
     let operation = try PendingUserUpdateOperation(serverID: server.id, identity: identity, userID: 24, request: UserUpdateRequest(role: .admin, concurrency: 2))
     await #expect(throws: APIError.self) { try await client.updateUser(operation) }
-    await #expect(throws: APIError.self) { try await client.createUser(UserCreateRequest(email: "a@example.invalid", password: "abcdef", role: .admin), identity: identity) }
+    let create = try PendingUserCreateOperation(serverID: server.id, identity: identity,
+                                                request: UserCreateRequest(email: "a@example.invalid", password: "abcdef", role: .admin), sendsIdempotencyKey: true)
+    await #expect(throws: APIError.self) { try await client.createUser(create) }
     #expect(await transport.requests().count == 2)
 }
 
@@ -143,9 +148,13 @@ private func userTokens() -> Credential {
     let wrongStation = try PendingUserUpdateOperation(serverID: UUID(), identity: identity, userID: 24, request: changes)
     await #expect(throws: APIError.stationMismatch) { try await client.updateUser(wrongStation) }
     let stale = try PendingUserUpdateOperation(serverID: server.id, identity: identity, userID: 24, request: changes)
+    let input = UserCreateRequest(email: "a@example.invalid", password: "abcdef")
+    let otherStation = try PendingUserCreateOperation(serverID: UUID(), identity: identity, request: input, sendsIdempotencyKey: false)
+    await #expect(throws: APIError.stationMismatch) { try await client.createUser(otherStation) }
     await client.cancelAll()
     await #expect(throws: CancellationError.self) { try await client.updateUser(stale) }
-    await #expect(throws: CancellationError.self) { try await client.createUser(UserCreateRequest(email: "a@example.invalid", password: "abcdef"), identity: identity) }
+    let staleCreate = try PendingUserCreateOperation(serverID: server.id, identity: identity, request: input, sendsIdempotencyKey: false)
+    await #expect(throws: CancellationError.self) { try await client.createUser(staleCreate) }
     #expect(await transport.requests().isEmpty)
 }
 
@@ -154,8 +163,11 @@ private func userTokens() -> Credential {
     let server = userServer()
     let client = APIClient(server: server, credential: .adminKey("fixture-key"), transport: transport)
     let identity = await client.userWriteIdentity()
-    let created = try await client.createUser(UserCreateRequest(email: "person@example.invalid", password: "abcdef", role: .vendor), identity: identity)
-    #expect(created.id == 24)
+    let create = try PendingUserCreateOperation(serverID: server.id, identity: identity,
+                                                request: UserCreateRequest(email: "person@example.invalid", password: "abcdef", role: .vendor), sendsIdempotencyKey: false)
+    #expect(create.email == "person@example.invalid" && !String(reflecting: create).contains("abcdef"))
+    let created = try await client.createUser(create)
+    #expect(created.value.id == 24 && !created.replayed)
     let edit = try PendingUserUpdateOperation(serverID: server.id, identity: identity, userID: 24, request: UserUpdateRequest(username: "新名称", notes: ""))
     #expect(!edit.supportsSafeRetry)
     _ = try await client.updateUser(edit)
@@ -163,4 +175,6 @@ private func userTokens() -> Credential {
     #expect(sent.count == 2 && sent[0].httpMethod == "POST" && sent[1].httpMethod == "PUT")
     #expect(sent[0].url?.path == "/api/v1/admin/users")
     #expect(sent.allSatisfy { $0.value(forHTTPHeaderField: "Idempotency-Key") == nil })
+    // Without a key the frozen operation number is still the X-Request-ID, so the server ledger can be matched.
+    #expect(sent[0].value(forHTTPHeaderField: "X-Request-ID") == create.key && sent[1].value(forHTTPHeaderField: "X-Request-ID") == edit.key)
 }

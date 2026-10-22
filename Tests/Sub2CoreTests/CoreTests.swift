@@ -43,10 +43,6 @@ private actor MockTransport: HTTPTransport {
     }
     func requests() -> [URLRequest] { seen }
 }
-private actor AttemptCounter {
-    private var count = 0
-    func next() -> Int { count += 1; return count }
-}
 
 @Test func explicitWireKeysAndExactMoney() throws {
     let data = Data(userJSON.utf8)
@@ -93,6 +89,7 @@ private actor AttemptCounter {
     #expect(object["operation"] == "add")
     let copy = try JSONDecoder().decode(PendingBalanceOperation.self, from: JSONEncoder().encode(operation))
     #expect(copy == operation); #expect(try copy.requestBody() == body)
+    #expect(copy.createdAt == operation.createdAt && copy.requestID == operation.id.uuidString.lowercased())
     #expect(throws: APIError.self) { try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: -1, operation: .set).validate() }
     #expect(throws: APIError.self) { try PendingBalanceOperation(serverID: UUID(), userID: 1, amount: Decimal.nan, operation: .set).validate() }
     for raw in ["0.000000001", "1000000000000", "999999999999.999999999"] {
@@ -222,24 +219,22 @@ private actor AttemptCounter {
 }
 
 @Test func stationIsolationAndBalanceRetriesUseSameIdentityAndBytes() async throws {
-    let attempts = AttemptCounter(); let profile = server()
-    let transport = MockTransport { _ in
-        if await attempts.next() == 1 { return HTTPResponse(statusCode: 503, data: Data("{}".utf8)) }
-        return ok(userJSON)
-    }
-    let client = APIClient(server: profile, credential: .adminKey("local-fixture-key"), transport: transport)
+    let profile = server()
+    let transport = ScriptedTransport(script: [.reply(HTTPResponse(statusCode: 503, data: Data("{}".utf8))), .reply(ok(userJSON))])
+    let recorder = SleepRecorder()
+    let client = APIClient(server: profile, credential: .adminKey("local-fixture-key"), transport: transport, requestClock: .recording(recorder))
     let operation = PendingBalanceOperation(serverID: profile.id, userID: 7, amount: Decimal(string: "0.00000001")!, operation: .add)
-    await #expect(throws: APIError.self) { try await client.updateBalance(operation) }
-    #expect(await transport.requests().count == 1) // A mutation is never automatically retried.
-    #expect(try await client.updateBalance(operation).id == 7)
-    let requests = await transport.requests()
+    // A proxy 503 is a transport failure for a keyed write: the same key and bytes go out again after 2 seconds.
+    #expect(try await client.updateBalance(stubPersisted(operation)).value.id == 7)
+    let requests = await transport.requests
+    #expect(requests.count == 2); #expect(await recorder.durations == [.seconds(2)])
     #expect(requests[0].httpBody == requests[1].httpBody)
     #expect(requests[0].value(forHTTPHeaderField: "Idempotency-Key") == requests[1].value(forHTTPHeaderField: "Idempotency-Key"))
     #expect(requests[0].value(forHTTPHeaderField: "Idempotency-Key") == operation.id.uuidString.lowercased())
     #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "X-Request-ID") == operation.id.uuidString.lowercased() })
     let wrong = PendingBalanceOperation(serverID: UUID(), userID: 7, amount: 1, operation: .set)
-    await #expect(throws: APIError.stationMismatch) { try await client.updateBalance(wrong) }
-    #expect(await transport.requests().count == 2)
+    await #expect(throws: APIError.stationMismatch) { try await client.updateBalance(stubPersisted(wrong)) }
+    #expect(await transport.requests.count == 2)
     #expect(requests.allSatisfy { $0.url?.host == profile.baseURL.host })
 }
 

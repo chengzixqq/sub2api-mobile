@@ -236,11 +236,20 @@ private struct UserEditorTarget: Identifiable {
 }
 
 private enum PreparedUserMutation {
-    case create(UserCreateRequest, identity: UUID)
+    case create(PendingUserCreateOperation)
     case update(PendingUserUpdateOperation)
+    var id: UUID {
+        switch self {
+        case .create(let operation): operation.id
+        case .update(let operation): operation.id
+        }
+    }
+    /// Sent with an Idempotency-Key, so the same number can be retried.
     var supportsSafeRetry: Bool {
-        if case .update(let operation) = self { return operation.supportsSafeRetry }
-        return false
+        switch self {
+        case .create(let operation): operation.sendsIdempotencyKey
+        case .update(let operation): operation.supportsSafeRetry
+        }
     }
 }
 
@@ -317,8 +326,8 @@ private struct UserEditorView: View {
                 }.disabled(busy || prepared != nil)
                 Section {
                     if let prepared {
-                        if case .update(let operation) = prepared, operation.supportsSafeRetry {
-                            Text("操作编号：\(operation.id.uuidString.lowercased())").font(.caption).textSelection(.enabled)
+                        if prepared.supportsSafeRetry {
+                            Text("操作编号：\(prepared.id.uuidString.lowercased())").font(.caption).textSelection(.enabled)
                         }
                         if !uncertain || prepared.supportsSafeRetry {
                             Button(uncertain ? "核对并重试原请求" : "核对并确认发送") { confirming = true }
@@ -399,7 +408,9 @@ private struct UserEditorView: View {
                 }
                 let input = UserCreateRequest(email: email, password: password, username: username, notes: notes, role: selectedRole,
                     concurrency: try integer(concurrency), rpmLimit: try integer(rpmLimit), balance: balance)
-                try input.validate(); prepared = .create(input, identity: identity)
+                // S0-10 passes admin.idempotent_writes here (D24); until then creation is sent without a key.
+                prepared = .create(try PendingUserCreateOperation(serverID: target.context.serverID, identity: identity, request: input,
+                                                                  sendsIdempotencyKey: false))
             }
             password = ""; uncertain = false; message = nil; confirming = true
         } catch { message = error.localizedDescription }
@@ -409,29 +420,43 @@ private struct UserEditorView: View {
         busy = true; defer { busy = false }
         do {
             switch prepared {
-            case .create(let input, let identity): _ = try await model.createUser(input, identity: identity)
+            case .create(let operation): _ = try await model.createUser(operation)
             case .update(let operation): _ = try await model.updateUser(operation)
             }
             guard isCurrent else { return }
             self.prepared = nil; password = ""; uncertain = false; dismiss()
         } catch {
             guard isCurrent else { return }
-            if let failure = error as? APIError, ["STEP_UP_ADMIN_API_KEY_FORBIDDEN", "STEP_UP_TOTP_NOT_ENABLED"].contains(failure.reason?.uppercased() ?? "") {
-                self.prepared = nil; password = ""
-                message = "此敏感操作需要使用已启用双因素验证的管理员账号登录，请在 Web 完成配置后重试。"
-            } else if needsStepUp(error) {
-                uncertain = false; stepUp = true
-                message = "站点要求二次验证。验证后仍需手动重新确认原请求，不会自动重发。"
-            } else if let failure = error as? APIError, [400, 401, 403, 404, 422].contains(failure.statusCode ?? 0) || failure.kind == .validation {
-                self.prepared = nil; password = ""; uncertain = false
-                message = "请求被拒绝，未确认任何修改。\n\(error.localizedDescription)"
-            } else {
-                uncertain = true
-                message = prepared.supportsSafeRetry
-                    ? "\(error.localizedDescription)\n结果尚未确认。表单已锁定，请使用相同操作编号和原始请求手动重试，不要另建请求。原始请求仅保留在本页内存中。"
-                    : "\(error.localizedDescription)\n结果尚未确认。站点未为此请求提供幂等重试，不会自动或直接重发。请先在用户列表或 Web 核对实际状态，再决定下一步。"
-            }
+            handleFailure(error, of: prepared)
         }
+    }
+    private func handleFailure(_ error: Error, of prepared: PreparedUserMutation) {
+        if let failure = error as? KeyedWriteFailure, case .needsNewKey = failure.disposition {
+            self.prepared = nil; password = ""; uncertain = false
+            message = "请求未执行，请重新核对并确认。\n\(failure.localizedDescription)"
+        } else if let failure = error as? KeyedWriteFailure {
+            uncertain = true
+            message = "\(failure.localizedDescription)\n表单已锁定，请使用相同操作编号和原始请求重试，不要另建请求。原始请求仅保留在本页内存中。"
+        } else if let failure = error as? APIError, ["STEP_UP_ADMIN_API_KEY_FORBIDDEN", "STEP_UP_TOTP_NOT_ENABLED"].contains(failure.reason?.uppercased() ?? "") {
+            self.prepared = nil; password = ""
+            message = "此敏感操作需要使用已启用双因素验证的管理员账号登录，请在 Web 完成配置后重试。"
+        } else if needsStepUp(error) {
+            uncertain = false; stepUp = true
+            message = "站点要求二次验证。验证后仍需手动重新确认原请求，不会自动重发。"
+        } else if let failure = error as? APIError, definitelyRejected(failure) {
+            self.prepared = nil; password = ""; uncertain = false
+            message = "请求被拒绝，未确认任何修改。\n\(error.localizedDescription)"
+        } else {
+            uncertain = true
+            message = prepared.supportsSafeRetry
+                ? "\(error.localizedDescription)\n结果尚未确认。表单已锁定，请使用相同操作编号和原始请求手动重试，不要另建请求。原始请求仅保留在本页内存中。"
+                : "\(error.localizedDescription)\n结果尚未确认。站点未为此请求提供幂等重试，不会自动或直接重发。请先在用户列表或 Web 核对实际状态，再决定下一步。"
+        }
+    }
+    /// A repeated creation can only get 409 EMAIL_EXISTS, never a second account (00 §2.5.2), so that answer is final too (D31).
+    private func definitelyRejected(_ failure: APIError) -> Bool {
+        [400, 401, 403, 404, 422].contains(failure.statusCode ?? 0) || failure.kind == .validation
+            || (failure.statusCode == 409 && failure.reason == "EMAIL_EXISTS")
     }
 }
 
@@ -447,6 +472,7 @@ struct BalanceView: View {
     @State private var confirm = false
     @State private var prepared: PendingBalanceOperation?
     @State private var busy = false
+    @State private var sending: Task<Void, Never>?
     @State private var stepUp = false
     private var pending: [PendingBalanceOperation] { model.pendingBalances.filter { $0.userID == user.id && $0.serverID == model.activeProfile?.id } }
     var body: some View {
@@ -480,14 +506,18 @@ struct BalanceView: View {
                         Button("核对并确认") { prepare() }.frame(minHeight: 44).accessibilityIdentifier("balance.prepare")
                     }.disabled(busy)
                 }
-                if busy { ProgressView("正在发送原请求，请勿重复操作…") }
+                if busy {
+                    // Keyed writes now confirm on their own (00 §2.5.4); stopping keeps the record for checking later (D31).
+                    ProgressView("正在确认结果…")
+                    Button("稍后核对") { sending?.cancel() }.frame(minHeight: 44).accessibilityIdentifier("balance.later")
+                }
                 if let message { Section("处理结果") { Text(message).textSelection(.enabled) } }
             }
             .navigationTitle("调整余额")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) } }
             .interactiveDismissDisabled(busy)
             .confirmationDialog("确认调整余额？", isPresented: $confirm, titleVisibility: .visible) {
-                Button("确认发送", role: .destructive) { if let prepared { Task { await send(prepared) } } }
+                Button("确认发送", role: .destructive) { if let prepared { sending = Task { await send(prepared) } } }
             } message: {
                 if let prepared { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)\n\(operationName(prepared.operation))：\(money(prepared.amount))") }
             }
@@ -504,7 +534,8 @@ struct BalanceView: View {
               NSDecimalNumber(decimal: decimal).stringValue != "NaN", let serverID = model.activeProfile?.id else {
             message = "请输入有效的非负十进制金额。"; return
         }
-        let candidate = PendingBalanceOperation(serverID: serverID, userID: user.id, amount: decimal, operation: operation, notes: notes)
+        let candidate = PendingBalanceOperation(serverID: serverID, userID: user.id, amount: decimal, operation: operation, notes: notes,
+                                                userDisplayName: user.displayName, userEmail: user.email)
         do { try candidate.validate() }
         catch { message = error.localizedDescription; return }
         prepared = candidate
@@ -512,28 +543,51 @@ struct BalanceView: View {
     }
     private func send(_ item: PendingBalanceOperation) async {
         guard !busy, item.serverID == model.activeProfile?.id else { return }
-        busy = true; defer { busy = false }
+        busy = true; defer { busy = false; sending = nil }
         let generation = session?.generation ?? UUID()
         guard generation == model.sessionGeneration else { return }
         var submitted = false
         do {
             guard !model.isUITesting else { throw AppFailure("界面测试模式不执行余额写入。") }
             guard let client = session?.client else { return }
-            try model.remember(item)
+            let write = try model.persisted(item)
             submitted = true
-            let result = try await client.updateBalance(item)
+            let outcome = try await client.updateBalance(write, onEvent: actionIDSaver(for: item))
             // Resolve the exact server-bound operation even if the user has switched sites.
             try model.resolve(item)
             guard generation == model.sessionGeneration else { return }
-            message = "操作成功，余额为 \(money(result.balance))。"; prepared = nil; amount = ""; notes = ""
+            let balance = money(outcome.value.balance)
+            message = outcome.replayed ? "这笔此前已入账，没有重复执行。余额为 \(balance)。" : "操作成功，余额为 \(balance)。"
+            prepared = nil; amount = ""; notes = ""
         } catch {
             guard generation == model.sessionGeneration else { return }
             if !submitted { message = "请求未发送。\n\(error.localizedDescription)" }
+            else if error is CancellationError { message = KeyedWriteFailure.unconfirmedMessage }
+            else if let failure = error as? KeyedWriteFailure { handle(failure, of: item) }
             else if needsStepUp(error) { stepUp = true }
             else if definitelyRejected(error) {
                 do { try model.resolve(item); prepared = nil; message = "请求已被拒绝，余额未调整。\n\(error.localizedDescription)" }
                 catch { message = "拒绝结果已收到，但无法更新本机记录。请检查设备存储，保留原操作编号。" }
             } else { message = "\(error.localizedDescription)\n如请求已经发送，结果仍待确认。请保留并重试原操作。" }
+        }
+    }
+    /// 30 §3.4: a key conflict keeps the record for checking; an invalid key or body was never executed.
+    private func handle(_ failure: KeyedWriteFailure, of item: PendingBalanceOperation) {
+        switch failure.disposition {
+        case .needsNewKey(.keyConflict): message = "这个操作编号已被另一笔请求占用，请先核对"
+        case .needsNewKey:
+            do { try model.resolve(item); prepared = nil; message = "请求格式错误，未入账" }
+            catch { message = "拒绝结果已收到，但无法更新本机记录。请检查设备存储，保留原操作编号。" }
+        case .unconfirmed: message = failure.localizedDescription
+        }
+    }
+    /// Saves the action id with the record as soon as any reply carries it (30 §3.4 step 4). If that save fails the record
+    /// can still be matched by its request id, so the write goes on.
+    private func actionIDSaver(for item: PendingBalanceOperation) -> KeyedWriteEventHandler {
+        let model = model
+        return { @MainActor event in
+            guard case .actionID(let id) = event else { return }
+            try? model.remember(item.with(actionID: id))
         }
     }
     private func definitelyRejected(_ error: Error) -> Bool {

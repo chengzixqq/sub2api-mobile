@@ -500,24 +500,62 @@ public struct PublicSettings: Decodable, Sendable {
 }
 
 public enum BalanceOperation: String, Codable, CaseIterable, Sendable { case set, add, subtract }
-public struct PendingBalanceOperation: Identifiable, Codable, Sendable, Equatable {
+/// A balance write kept on disk until its result is known (00 §2.5.5, 30 §3.7). Records saved before S0-06 decode without the
+/// fields after `notes`; the file is not migrated.
+public struct PendingBalanceOperation: PendingMoneyWrite, Equatable {
     public let id: UUID
     public let serverID: UUID
     public let userID: Int
     public let amount: Decimal
     public let operation: BalanceOperation
     public let notes: String
-    public init(id: UUID = UUID(), serverID: UUID, userID: Int, amount: Decimal, operation: BalanceOperation, notes: String = "") {
+    /// `id` lowercased, sent as X-Request-ID; nil marks a legacy record (sent without it, no createdAt or email).
+    public let requestID: String?
+    public let actorUserID: Int?
+    public let createdAt: Date?
+    public let userDisplayName: String?
+    public let userEmail: String?
+    /// X-Admin-Adjustment-Action-ID from any reply, saved before the result is known (30 §3.4 step 4).
+    public private(set) var actionID: UUID?
+    public let idempotencyExpiresAt: Date?
+    public init(id: UUID = UUID(), serverID: UUID, userID: Int, amount: Decimal, operation: BalanceOperation, notes: String = "",
+                actorUserID: Int? = nil, createdAt: Date = Date(), userDisplayName: String? = nil, userEmail: String? = nil) {
         self.id = id; self.serverID = serverID; self.userID = userID; self.amount = amount; self.operation = operation; self.notes = notes
+        requestID = id.uuidString.lowercased(); self.actorUserID = actorUserID; self.createdAt = createdAt
+        self.userDisplayName = userDisplayName; self.userEmail = userEmail; actionID = nil; idempotencyExpiresAt = nil
+    }
+    enum CodingKeys: String, CodingKey {
+        case id, serverID, userID, amount, operation, notes, requestID, actorUserID, createdAt, userDisplayName, userEmail, actionID, idempotencyExpiresAt
+    }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id); serverID = try c.decode(UUID.self, forKey: .serverID)
+        userID = try c.decode(Int.self, forKey: .userID); amount = try c.decimal(.amount)
+        operation = try c.decode(BalanceOperation.self, forKey: .operation); notes = try c.decode(String.self, forKey: .notes)
+        requestID = try c.decodeIfPresent(String.self, forKey: .requestID); actorUserID = try c.decodeIfPresent(Int.self, forKey: .actorUserID)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
+        userDisplayName = try c.decodeIfPresent(String.self, forKey: .userDisplayName); userEmail = try c.decodeIfPresent(String.self, forKey: .userEmail)
+        actionID = try c.decodeIfPresent(UUID.self, forKey: .actionID)
+        idempotencyExpiresAt = try c.decodeIfPresent(Date.self, forKey: .idempotencyExpiresAt)
+    }
+    public var isLegacy: Bool { requestID == nil }
+    public func with(actionID: UUID?) -> PendingBalanceOperation {
+        var copy = self
+        copy.actionID = actionID
+        return copy
+    }
+    public var summary: PendingMoneyWriteSummary {
+        PendingMoneyWriteSummary(subject: .balance(operation, amount: amount), createdAt: createdAt, userID: userID,
+                                 userDisplayName: userDisplayName, userEmail: userEmail)
+    }
+    /// 0 ≤ amount ≤ 999999999999.99999999 with at most 8 decimals (00 §6.1).
+    public static func validateAmount(_ amount: Decimal) throws {
+        let maximum = Decimal(string: "999999999999.99999999", locale: Locale(identifier: "en_US_POSIX"))!
+        guard !amount.isNaN, amount >= 0, amount <= maximum, amount.hasAtMostFractionDigits(8) else { throw APIError.invalidAmount }
     }
     public func validate() throws {
-        let maximum = Decimal(string: "999999999999.99999999", locale: Locale(identifier: "en_US_POSIX"))!
-        guard !amount.isNaN, amount >= 0, amount <= maximum, userID > 0,
-              operation == .set || amount > 0 else { throw APIError.invalidAmount }
-        var original = amount
-        var rounded = Decimal()
-        NSDecimalRound(&rounded, &original, 8, .plain)
-        guard rounded == amount else { throw APIError.invalidAmount }
+        try Self.validateAmount(amount)
+        guard userID > 0, operation == .set || amount > 0 else { throw APIError.invalidAmount }
     }
     /// Exact bytes are deterministic across retries; never use Double for a balance operation.
     public func requestBody() throws -> Data {
@@ -526,6 +564,23 @@ public struct PendingBalanceOperation: Identifiable, Codable, Sendable, Equatabl
         return try encoder.encode(BalanceBody(balance: NSDecimalNumber(decimal: amount).stringValue, operation: operation, notes: notes))
     }
     private struct BalanceBody: Encodable { let balance: String; let operation: BalanceOperation; let notes: String }
+}
+
+extension AdminUser {
+    /// 30 §0.3: the trimmed username, otherwise the part of the email before “@”.
+    public var displayName: String {
+        if let name = username?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
+        return String(email.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false).first ?? Substring(email))
+    }
+}
+
+extension Decimal {
+    /// True when rounding to `digits` decimals would not change the value.
+    func hasAtMostFractionDigits(_ digits: Int) -> Bool {
+        var original = self, rounded = Decimal()
+        NSDecimalRound(&rounded, &original, digits, .plain)
+        return rounded == self
+    }
 }
 
 extension KeyedDecodingContainer {

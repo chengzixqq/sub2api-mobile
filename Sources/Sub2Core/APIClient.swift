@@ -177,15 +177,19 @@ public actor APIClient {
     }
     public func user(id: Int) async throws -> AdminUser { try await request("admin/users/\(validID(id))") }
     public func userWriteIdentity() -> UUID { generation }
-    public func createUser(_ input: UserCreateRequest, identity: UUID) async throws -> AdminUser {
-        try check(identity)
-        return try await request("admin/users", method: "POST", body: input.requestBody())
-    }
-    public func updateUser(_ operation: PendingUserUpdateOperation) async throws -> AdminUser {
+    /// With admin.idempotent_writes the frozen number is also the Idempotency-Key (00 §2.5.1); without it, X-Request-ID only.
+    public func createUser(_ operation: PendingUserCreateOperation, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
         guard operation.serverID == server.id else { throw APIError.stationMismatch }
         try check(operation.identity)
-        let keyed: RequestClass? = operation.supportsSafeRetry ? .keyedWrite(key: operation.id) : nil
-        return try await request("admin/users/\(validID(operation.userID))", method: "PUT", body: operation.body, requestClass: keyed)
+        guard operation.sendsIdempotencyKey else { return try await performUnkeyedWrite("admin/users", method: "POST", body: operation.body, requestID: operation.key) }
+        return try await performKeyedWrite(KeyedWriteRequest(path: "admin/users", method: "POST", body: operation.body, key: operation.id), onEvent: onEvent)
+    }
+    public func updateUser(_ operation: PendingUserUpdateOperation, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
+        guard operation.serverID == server.id else { throw APIError.stationMismatch }
+        try check(operation.identity)
+        let path = "admin/users/\(try validID(operation.userID))"
+        guard operation.supportsSafeRetry else { return try await performUnkeyedWrite(path, method: "PUT", body: operation.body, requestID: operation.key) }
+        return try await performKeyedWrite(KeyedWriteRequest(path: path, method: "PUT", body: operation.body, key: operation.id), onEvent: onEvent)
     }
     public func userUsage(id: Int) async throws -> UserUsageSummary {
         // The legacy /admin/users/:id/usage endpoint currently returns mock zeros in this backend.
@@ -200,10 +204,12 @@ public actor APIClient {
         guard ["active", "disabled"].contains(status) else { throw APIError(kind: .validation, message: "无效的用户状态。") }
         return try await request("admin/users/\(validID(id))", method: "PUT", body: encode(["status": status]))
     }
-    public func updateBalance(_ operation: PendingBalanceOperation) async throws -> AdminUser {
+    /// Takes only a record already on disk; the body comes from the record and the key and X-Request-ID are its id (00 §9.1).
+    public func updateBalance(_ write: PersistedMoneyWrite<PendingBalanceOperation>, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
+        let operation = write.record
         guard operation.serverID == server.id else { throw APIError.stationMismatch }
-        return try await request("admin/users/\(validID(operation.userID))/balance", method: "POST", body: operation.requestBody(),
-                                 requestClass: .keyedWrite(key: operation.id))
+        return try await performKeyedWrite(KeyedWriteRequest(path: "admin/users/\(validID(operation.userID))/balance", method: "POST",
+                                                             body: operation.requestBody(), key: operation.id), onEvent: onEvent)
     }
     public func stepUp(code: String) async throws {
         guard validTOTP(code) else { throw APIError(kind: .twoFactor, message: "请输入六位双因素验证码。") }
@@ -336,14 +342,15 @@ public actor APIClient {
     /// headers but carries the cached value. S0-13 intercepts between `failure` and `surfaced`.
     func requestWithHeaders<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
                                                      headers: [String: String] = [:], requestClass: RequestClass? = nil, authenticated: Bool = true,
-                                                     timeout: TimeInterval? = nil, context: ReasonCatalog.Context = .business) async throws -> APIResponse<T> {
+                                                     timeout: TimeInterval? = nil, context: ReasonCatalog.Context = .business,
+                                                     requestID: String? = nil) async throws -> APIResponse<T> {
         let snapshot = generation
         let plan: ConditionalPlan?, received: HTTPResponse, response: HTTPResponse
         do {
             plan = try await conditionalPlan(path: path, method: method, query: query, body: body, authenticated: authenticated)
             let spec = OutgoingRequest(path: path, method: method, query: query, body: body,
                                        headers: headers.merging(plan?.validatorHeaders ?? [:]) { _, validator in validator },
-                                       requestClass: requestClass, timeout: timeout, authenticated: authenticated)
+                                       requestClass: requestClass, timeout: timeout, authenticated: authenticated, requestID: requestID)
             received = try await send(spec, context: context, generation: snapshot)
             response = try await resolveConditional(received, plan: plan)
         }
