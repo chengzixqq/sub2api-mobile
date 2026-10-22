@@ -168,5 +168,6 @@
 | 简化模式（C 表格工作台风格） | 双风格应用的第二种模式，主模式定稿并实现后再设计；共享数据、筛选、选中对象与动作 |
 | 利润亏损的固定演示状态 | 设计稿演示数据里没有亏损时段，负值柱只临时渲染验证过 |
 | 设计稿冒烟工具读取 expect 字段自动断言文案 | 现在文案只靠截图人工核对 |
+| 验证码桥页导航回调签名不匹配 | Xcode 27.1 编译 `NativeApp/Features/CaptchaView.swift:91` 报 “`webView(_:decidePolicyFor:decisionHandler:)` nearly matches optional requirement”（S0-03 之前就有，不是新增）。签名不匹配时 WebKit 不会调用它，顶层跨域导航拦截可能已失效；建议 S0-16 重写 CaptchaView 时按新 SDK 修正签名并补测试，或由 S0-19 收口 |
 | 超过 800 行的设计稿文件拆分 | v-account-new、v-account-edit、v-user-edit、v-analytics、v-groups 等 |
 | 监控告警详情里“阈值 5% · 近 5 分钟”的窗口说明 | 这是告警规则自己的窗口，目前保留；如需全应用都不写窗口再去掉 |
