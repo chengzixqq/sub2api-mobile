@@ -174,3 +174,4 @@
 | 长超时读请求超时后的自动重试 | S0-04 按 00 §2.4 对所有读请求的超时自动重试 2 次，统计聚合（45 秒）与 dashboard/stats（90 秒）最坏约 4.5 分钟才报错、同一重查询最多跑 3 遍；阶段 1 / U54 在生产量级实测后决定是否对这两类不再重试超时，或改用 count_mode=deferred 缩短 |
 | 分页 page_size 超限的 Debug 断言没有退出测试 | `APIClient.pagination` 在 Debug 下对超出 1–1000 的 pageSize 断言、Release 夹到 1000；S0-04 只测了夹值与默认 20，没有加 Swift Testing 的退出测试（`#expect(processExitsWith:)`），需要时在 S0-19 收口补上 |
 | 真机确认 ETag 304 | S0-05 的条件请求只经桩传输层测试：URLSessionTransport（ephemeral、urlCache=nil、reloadIgnoringLocalCacheData）对手动设置的 If-None-Match 收到 304 时应原样返回空体 304。在测试环境连真实站点确认一次账号列表或用户列表的第二次请求得到 304、页面数据不变，并记入进度表 |
+| 余额页“稍后核对”的 UI 测试 | S0-06 给现有 BalanceView 加了“稍后核对”（balance.later），但 -ui-testing 模式在落盘前就拒绝余额写入，按钮不会出现；阶段 3 重写 BalanceKeypadSheet 时用夹具模拟慢写入（等待中点“稍后核对”→ 记录保留待核对、显示 00 §2.5.4 文案），补 UI 测试 |
