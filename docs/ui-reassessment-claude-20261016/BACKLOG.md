@@ -175,3 +175,4 @@
 | 分页 page_size 超限的 Debug 断言没有退出测试 | `APIClient.pagination` 在 Debug 下对超出 1–1000 的 pageSize 断言、Release 夹到 1000；S0-04 只测了夹值与默认 20，没有加 Swift Testing 的退出测试（`#expect(processExitsWith:)`），需要时在 S0-19 收口补上 |
 | 真机确认 ETag 304 | S0-05 的条件请求只经桩传输层测试：URLSessionTransport（ephemeral、urlCache=nil、reloadIgnoringLocalCacheData）对手动设置的 If-None-Match 收到 304 时应原样返回空体 304。在测试环境连真实站点确认一次账号列表或用户列表的第二次请求得到 304、页面数据不变，并记入进度表 |
 | 余额页“稍后核对”的 UI 测试 | S0-06 给现有 BalanceView 加了“稍后核对”（balance.later），但 -ui-testing 模式在落盘前就拒绝余额写入，按钮不会出现；阶段 3 重写 BalanceKeypadSheet 时用夹具模拟慢写入（等待中点“稍后核对”→ 记录保留待核对、显示 00 §2.5.4 文案），补 UI 测试 |
+| UI 测试 6 并发下的快照停顿 | S0-07 的 gate 里，Mac 负载 90–170 时模拟器无障碍快照会停顿 15–20 秒（基线 709c047 同样出现）。Sub2MobileUITests.testDashboardSlowTrendDoesNotDelayCountersOrMonitoring 只有夹具 8 秒的趋势延迟作窗口，停顿落在登录后就误报；趋势缩放用例的 5 秒等待同理。S0-19 诊断时考虑：降低默认并发、把慢趋势夹具延迟加长或改为由测试显式放行、等待改为基于状态而不是时间窗 |
