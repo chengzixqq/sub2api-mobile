@@ -181,3 +181,5 @@
 | 倍率的显示位数 | 账号倍率、分组计费倍率与上游探测倍率规格没有格式规则，S0-08 仍显示服务端原值的全部位数（如 1.234567890123456789×），不走 DisplayFormat。阶段 2 / 5 重写账号、分组页时定位数，届时用 DisplayFormat.decimal。 |
 | 区块刷新失败退避的第三档 | 00 §4.6 与 D23 写“连续失败时间隔加倍（60 → 120 → 300 秒封顶）”，S0-09 按加倍实现为 60 → 120 → 240 → 300；如要严格三档（第 3 次直接 300 秒），只改 `BlockRefresh.nextRefreshInterval` 一处并更新 BlockStateTests |
 | 区块 429 倒计时文案与重试按钮 | S0-09 的 LoadState 已在 429 后按 retry_after 暂停该区块请求并提供“请求过于频繁，N 秒后自动重试”（`BlockRefresh.throttleMessage`），现有页面还没显示它：仍显示目录文案“请求过于频繁，请 N 秒后再试”，等待期内点“重试”没有反应。阶段 1 的区块小视图接入时显示倒计时文案，并在等待期内禁用重试 |
+| 登录设备名 | 00 §1.2 的 `client.device_name` 首版照规格发 `UIDevice.current.name`；iOS 16 起没有 `com.apple.developer.device-information.user-assigned-device-name` 权限时只返回“iPhone”这类机型名，“登录设备”列表里所有手机同名。待定：申请该权限，或改为“机型 + 用户自定义名称”（S0-10） |
+| 重装后的 Keychain 孤儿条目 | Keychain 条目在删除 App 后通常保留，重装后站点列表（UserDefaults）清空、站点 UUID 变化，旧的 `<UUID>` 与 `<UUID>.device` 条目不再被引用（凭据本来也有此问题）。不含可用会话，S0-10 未清理；如需清理，可在首次启动且站点列表为空时按 service 清空 |
