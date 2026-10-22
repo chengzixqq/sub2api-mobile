@@ -90,7 +90,7 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["dashboard.monitoring.qps"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         assertDashboardValue("dashboard.monitoring.qps", contains: ["0.2"])
         assertDashboardValue("dashboard.monitoring.active-requests", contains: ["2"])
-        assertDashboardValue("dashboard.monitoring.error-rate", contains: ["1%"])
+        assertDashboardValue("dashboard.monitoring.error-rate", contains: ["1.0%"])
     }
 
     @MainActor func testDashboardSlowTrendDoesNotDelayCountersOrMonitoring() {
@@ -118,20 +118,20 @@ final class Sub2MobileUITests: XCTestCase {
         assertDashboardValue("dashboard.today-requests", contains: ["128"])
         let totalRequests = assertDashboardValue("dashboard.total-requests", contains: ["总计"])
         XCTAssertTrue(totalRequests.replacingOccurrences(of: ",", with: "").contains("213009545"), totalRequests)
-        assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"])
+        assertDashboardValue("dashboard.today-tokens", contains: ["1.2M"])
         let actual = assertDashboardValue("dashboard.today-actual-cost", contains: ["今日实际费用", "$12.34"])
         let account = assertDashboardValue("dashboard.today-account-cost", contains: ["今日上游成本", "$4.56"])
         // Distinct fixture prices catch accidentally displaying standard cost.
         XCTAssertFalse(actual.contains("99.99"))
         XCTAssertFalse(account.contains("99.99"))
-        assertDashboardValue("dashboard.total-tokens", contains: ["9.88B"])
+        assertDashboardValue("dashboard.total-tokens", contains: ["9.9B"])
         assertDashboardValue("dashboard.total-actual-cost", contains: ["累计实际费用", "$1.23K"])
         assertDashboardValue("dashboard.total-account-cost", contains: ["累计上游成本", "$456.78"])
         dashboardDiagnostics(named: "dashboard-compact-tokens-and-real-costs")
 
-        assertDashboardValue("dashboard.performance.rpm", contains: ["1.23K", "RPM"])
-        assertDashboardValue("dashboard.performance.tpm", contains: ["987.65K", "TPM"])
-        assertDashboardValue("dashboard.performance.duration", contains: ["1.25s"])
+        assertDashboardValue("dashboard.performance.rpm", contains: ["1,234", "RPM"])
+        assertDashboardValue("dashboard.performance.tpm", contains: ["987.7K", "TPM"])
+        assertDashboardValue("dashboard.performance.duration", contains: ["1.3s"])
         dashboardDiagnostics(named: "dashboard-performance-units")
 
         let chart = app.descendants(matching: .any)["dashboard.trend.chart"].firstMatch
@@ -159,8 +159,8 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(performance.descendants(matching: .any)["dashboard.performance.tpm"].firstMatch.exists)
         assertSummaryCardsHaveEqualHeights(maximumHeight: 116)
         assertEmbeddedSummaryFootersFit(diagnosticSuffix: "standard")
-        assertDashboardValue("dashboard.performance.rpm", contains: ["1.23K", "RPM"])
-        assertDashboardValue("dashboard.performance.tpm", contains: ["987.65K", "TPM"])
+        assertDashboardValue("dashboard.performance.rpm", contains: ["1,234", "RPM"])
+        assertDashboardValue("dashboard.performance.tpm", contains: ["987.7K", "TPM"])
         dashboardDiagnostics(named: "dashboard-top-performance-card")
 
         let health = app.descendants(matching: .any)["dashboard.health"].firstMatch
@@ -172,7 +172,7 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(health.descendants(matching: .any)["dashboard.health.errors"].firstMatch.exists)
         XCTAssertTrue(health.descendants(matching: .any)["dashboard.performance.duration"].firstMatch.exists)
         assertDashboardValue("dashboard.health.errors", contains: ["1"])
-        assertDashboardValue("dashboard.performance.duration", contains: ["1.25s"])
+        assertDashboardValue("dashboard.performance.duration", contains: ["1.3s"])
         dashboardDiagnostics(named: "dashboard-running-health")
     }
 
@@ -248,8 +248,8 @@ final class Sub2MobileUITests: XCTestCase {
         reveal(metric, towardBottom: false)
         metric.buttons["Tokens"].tap()
         XCTAssertTrue(metric.buttons["Tokens"].isSelected)
-        selectNewestTrendHour(contains: ["1.43M", "Tokens"], diagnosticName: "dashboard-trend-token-details-compact")
-        let tokens = assertDashboardValue("dashboard.trend.selection", contains: ["Tokens", "1.43M"])
+        selectNewestTrendHour(contains: ["1.4M", "Tokens"], diagnosticName: "dashboard-trend-token-details-compact")
+        let tokens = assertDashboardValue("dashboard.trend.selection", contains: ["Tokens", "1.4M"])
         XCTAssertFalse(tokens.replacingOccurrences(of: ",", with: "").contains("1000000"), "Selected Tokens should use K/M/B units.")
         dashboardDiagnostics(named: "dashboard-trend-exact-token-selection")
 
@@ -283,7 +283,7 @@ final class Sub2MobileUITests: XCTestCase {
         defer { dashboardDiagnostics(named: "dashboard-cost-snapshot-success") }
         login(name: "旧版费用接口", url: "https://legacy-cost.example.com")
         XCTAssertTrue(app.descendants(matching: .any)["dashboard.today-requests"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
-        assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"])
+        assertDashboardValue("dashboard.today-tokens", contains: ["1.2M"])
         assertDashboardValue("dashboard.today-actual-cost", contains: ["$12.34"])
         let account = app.descendants(matching: .any)["dashboard.today-account-cost"].firstMatch
         reveal(account)
@@ -296,7 +296,7 @@ final class Sub2MobileUITests: XCTestCase {
         assertDashboardValue("dashboard.total-account-cost", contains: ["$456.78"])
         XCTAssertFalse(app.descendants(matching: .any)["dashboard.costs.error"].firstMatch.exists)
         dashboardDiagnostics(named: "dashboard-cost-snapshot-amounts")
-        assertDashboardValue("dashboard.performance.duration", contains: ["1.25s"])
+        assertDashboardValue("dashboard.performance.duration", contains: ["1.3s"])
     }
 
     @MainActor func testDashboardCostSnapshotFailureKeepsPrimaryStatsAndRetryLocal() {
@@ -304,9 +304,9 @@ final class Sub2MobileUITests: XCTestCase {
         defer { dashboardDiagnostics(named: "dashboard-cost-snapshot-local-error") }
         login(name: "费用快照超时", url: "https://cost-timeout.example.com")
         XCTAssertTrue(app.descendants(matching: .any)["dashboard.today-requests"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
-        assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"])
+        assertDashboardValue("dashboard.today-tokens", contains: ["1.2M"])
         let actual = assertDashboardValue("dashboard.today-actual-cost", contains: ["$12.34"])
-        let unavailable = assertDashboardValue("dashboard.today-account-cost", contains: ["不可用"])
+        let unavailable = assertDashboardValue("dashboard.today-account-cost", contains: ["—"])
         XCTAssertFalse(actual.contains("99.99"))
         XCTAssertFalse(unavailable.contains("99.99"))
         let error = app.descendants(matching: .any)["dashboard.costs.error"].firstMatch
@@ -320,14 +320,14 @@ final class Sub2MobileUITests: XCTestCase {
         retry.tap()
         XCTAssertTrue(error.waitForExistence(timeout: 10), app.debugDescription)
         assertDashboardValue("dashboard.costs.error", contains: ["费用快照超时"])
-        assertDashboardValue("dashboard.performance.rpm", contains: ["1.23K", "RPM"])
-        assertDashboardValue("dashboard.performance.tpm", contains: ["987.65K", "TPM"])
-        assertDashboardValue("dashboard.performance.duration", contains: ["1.25s"])
-        assertDashboardValue("dashboard.today-tokens", contains: ["1.23M"], towardBottom: false)
+        assertDashboardValue("dashboard.performance.rpm", contains: ["1,234", "RPM"])
+        assertDashboardValue("dashboard.performance.tpm", contains: ["987.7K", "TPM"])
+        assertDashboardValue("dashboard.performance.duration", contains: ["1.3s"])
+        assertDashboardValue("dashboard.today-tokens", contains: ["1.2M"], towardBottom: false)
         assertDashboardValue("dashboard.today-actual-cost", contains: ["$12.34"])
-        assertDashboardValue("dashboard.today-account-cost", contains: ["不可用"])
+        assertDashboardValue("dashboard.today-account-cost", contains: ["—"])
         assertDashboardValue("dashboard.total-actual-cost", contains: ["$1.23K"])
-        assertDashboardValue("dashboard.total-account-cost", contains: ["不可用"])
+        assertDashboardValue("dashboard.total-account-cost", contains: ["—"])
         XCTAssertFalse(app.alerts["操作未完成"].exists)
     }
 
@@ -356,10 +356,10 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "dashboard.performance.row.")).firstMatch.identifier,
                        latest.identifier)
         XCTAssertTrue(latest.label.contains("RPM 69"), latest.label)
-        XCTAssertTrue(latest.label.contains("TPM 690.00K"), latest.label)
+        XCTAssertTrue(latest.label.contains("TPM 690K"), latest.label)
         dashboardDiagnostics(named: "performance-trend-newest-details")
         latest.tap()
-        assertDashboardValue("dashboard.performance.selection", contains: ["TPM", "690.00K"])
+        assertDashboardValue("dashboard.performance.selection", contains: ["TPM", "690K"])
         let ranges = app.segmentedControls["dashboard.performance.range"]
         reveal(ranges, towardBottom: false)
         ranges.buttons["近 6 小时"].tap()

@@ -60,4 +60,6 @@ public enum PerformanceMetric: String, CaseIterable, Identifiable, Sendable {
     case rpm = "RPM", tpm = "TPM"
     public var id: String { rawValue }
     public var label: String { self == .rpm ? "每分钟请求" : "每分钟 Tokens" }
+    /// Rates, details and axis ticks share one format: RPM keeps a decimal below 10, TPM is compact (00 §6.2).
+    public func format(_ value: Double) -> String { self == .rpm ? DisplayFormat.rpm(value) : DisplayFormat.compact(value) }
 }

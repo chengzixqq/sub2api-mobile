@@ -77,7 +77,7 @@ struct PerformanceTrendView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(dateLabel(point.date)).font(.caption).foregroundStyle(.secondary)
                             if let value = history.value {
-                                Text("RPM \(DashboardPresentation.compactNumber(value.rate(point, metric: .rpm))) · TPM \(DashboardPresentation.compactNumber(value.rate(point, metric: .tpm)))")
+                                Text("RPM \(PerformanceMetric.rpm.format(value.rate(point, metric: .rpm))) · TPM \(PerformanceMetric.tpm.format(value.rate(point, metric: .tpm)))")
                                     .font(.body.monospacedDigit()).foregroundStyle(.primary)
                             }
                         }
@@ -110,7 +110,7 @@ struct PerformanceTrendView: View {
         } }
         .chartYAxis { AxisMarks(position: .leading) { value in
             AxisGridLine(); AxisValueLabel {
-                if let number = value.as(Double.self) { Text(DashboardPresentation.compactNumber(number)).font(.caption2) }
+                if let number = value.as(Double.self) { Text(metric.format(number)).font(.caption2) }
             }
         } }
         .frame(height: 230).accessibilityLabel("\(metric.rawValue) 性能趋势")
@@ -122,7 +122,7 @@ struct PerformanceTrendView: View {
     }
     private func dateLabel(_ date: Date) -> String { DashboardPresentation.trendAxisLabel(date, hourly: true) }
     private func rateLabel(_ value: PerformanceTrend, _ point: PerformanceTrend.Point) -> String {
-        DashboardPresentation.compactNumber(value.rate(point, metric: metric))
+        metric.format(value.rate(point, metric: metric))
     }
     private func load() async {
         guard !history.isLoading, let generation = session?.generation else { return }

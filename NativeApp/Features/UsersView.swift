@@ -83,19 +83,19 @@ struct UsersView: View {
         case .username: return user.username.flatMap { $0.isEmpty ? nil : $0 } ?? "未设置"
         case .role: return AdminUserRole(rawValue: user.role ?? "")?.title ?? user.role ?? "未知"
         case .status: return user.status == "active" ? "正常" : user.status == "disabled" ? "已禁用" : user.status
-        case .balance: return DashboardPresentation.money(user.balance)
+        case .balance: return DisplayFormat.money(user.balance)
         case .concurrency:
             if let maximum = user.concurrency {
-                let limit = maximum == 0 ? "不限制" : String(maximum)
-                if let current = user.currentConcurrency { return "\(current) / \(limit)" }
+                let limit = maximum == 0 ? "不限制" : DisplayFormat.grouped(maximum)
+                if let current = user.currentConcurrency { return "\(DisplayFormat.grouped(current)) / \(limit)" }
                 return limit
             }
-            return "不可用"
+            return DisplayFormat.missing
         case .createdAt: return ListFieldPresentation.timestamp(user.createdAt)
         case .lastUsedAt: return ListFieldPresentation.timestamp(user.lastUsedAt)
         case .lastActiveAt: return ListFieldPresentation.timestamp(user.lastActiveAt)
         case .notes: return user.notes.flatMap { $0.isEmpty ? nil : $0 } ?? "无"
-        case .rpm: return user.rpmLimit.map { $0 == 0 ? "不限制" : String($0) } ?? "不可用"
+        case .rpm: return user.rpmLimit.map { $0 == 0 ? "不限制" : DisplayFormat.grouped($0) } ?? DisplayFormat.missing
         }
     }
     private func load(nextPage: Int, replace: Bool = false) async {
@@ -137,7 +137,7 @@ struct UserDetailView: View {
                 if let username = user.username { LabeledValue(label: "用户名", value: username) }
                 LabeledValue(label: "角色", value: user.role ?? "未知")
                 LabeledValue(label: "状态", value: user.status)
-                LabeledValue(label: "余额", value: money(user.balance))
+                LabeledValue(label: "余额", value: DisplayFormat.money(user.balance))
                 if let concurrency = user.concurrency { LabeledValue(label: "并发", value: String(concurrency)) }
                 if let rpm = user.rpmLimit { LabeledValue(label: "RPM 限额", value: rpm == 0 ? "不限制" : String(rpm)) }
                 if let notes = user.notes, !notes.isEmpty { LabeledValue(label: "备注", value: notes) }
@@ -147,9 +147,9 @@ struct UserDetailView: View {
             }
             Section("本月用量") {
                 if let usage {
-                    LabeledValue(label: "请求", value: usage.totalRequests.formatted())
-                    LabeledValue(label: "Tokens", value: usage.totalTokens.formatted())
-                    LabeledValue(label: "费用", value: money(usage.totalCost))
+                    LabeledValue(label: "请求", value: DisplayFormat.grouped(usage.totalRequests))
+                    LabeledValue(label: "Tokens", value: DisplayFormat.compact(usage.totalTokens))
+                    LabeledValue(label: "费用", value: DisplayFormat.money(usage.totalCost))
                 } else { Text("暂未加载").foregroundStyle(.secondary) }
             }
             Section("API Key") {
@@ -158,7 +158,7 @@ struct UserDetailView: View {
                         Text(key.name).font(.headline)
                         Text(key.key.map { "••••••••" + String($0.suffix(4)) } ?? "••••••••")
                             .font(.system(.caption, design: .monospaced)).privacySensitive()
-                        Text("\(key.status) · 已用 \(money(key.quotaUsed)) / 配额 \(money(key.quota))").font(.caption).foregroundStyle(.secondary)
+                        Text("\(key.status) · 已用 \(DisplayFormat.money(key.quotaUsed)) / 配额 \(DisplayFormat.money(key.quota))").font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                 }
                 if keys.isEmpty && !loadingKeys { Text("暂无 API Key").foregroundStyle(.secondary) }
@@ -481,7 +481,7 @@ struct BalanceView: View {
                 Section("目标") {
                     LabeledValue(label: "站点", value: model.activeProfile?.name ?? "")
                     LabeledValue(label: "用户", value: user.email)
-                    LabeledValue(label: "当前余额", value: money(user.balance))
+                    LabeledValue(label: "当前余额", value: DisplayFormat.money(user.balance))
                 }
                 if !pending.isEmpty {
                     Section("结果待确认的请求") {
@@ -489,7 +489,7 @@ struct BalanceView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                         ForEach(pending) { item in
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("\(operationName(item.operation)) \(money(item.amount))").font(.headline)
+                                Text("\(operationName(item.operation)) \(DisplayFormat.moneyExact(item.amount))").font(.headline)
                                 Text("操作编号：\(item.id.uuidString)").font(.caption).textSelection(.enabled)
                                 if !item.notes.isEmpty { Text(item.notes).font(.caption) }
                                 Button("确认并重试原请求") { prepared = item; confirm = true }.frame(minHeight: 44)
@@ -519,7 +519,7 @@ struct BalanceView: View {
             .confirmationDialog("确认调整余额？", isPresented: $confirm, titleVisibility: .visible) {
                 Button("确认发送", role: .destructive) { if let prepared { sending = Task { await send(prepared) } } }
             } message: {
-                if let prepared { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)\n\(operationName(prepared.operation))：\(money(prepared.amount))") }
+                if let prepared { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)\n\(operationName(prepared.operation))：\(DisplayFormat.moneyExact(prepared.amount))") }
             }
             .sheet(isPresented: $stepUp) { if let client = session?.client { StepUpView(client: client) { message = "验证通过，请点击“重试原请求”并重新确认。" } } }
         }
@@ -556,7 +556,7 @@ struct BalanceView: View {
             // Resolve the exact server-bound operation even if the user has switched sites.
             try model.resolve(item)
             guard generation == model.sessionGeneration else { return }
-            let balance = money(outcome.value.balance)
+            let balance = DisplayFormat.money(outcome.value.balance)
             message = outcome.replayed ? "这笔此前已入账，没有重复执行。余额为 \(balance)。" : "操作成功，余额为 \(balance)。"
             prepared = nil; amount = ""; notes = ""
         } catch {

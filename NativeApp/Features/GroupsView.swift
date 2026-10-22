@@ -83,7 +83,7 @@ struct GroupsView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(group.name).font(.headline)
                             Text("\(GroupPlatform.title(group.platform)) · \(group.status == "active" ? "启用" : "停用") · \(group.subscriptionType == "subscription" ? "订阅" : "按量")").font(.caption).foregroundStyle(.secondary)
-                            Text("倍率 \(group.rateMultiplier.map { NSDecimalNumber(decimal: $0).stringValue } ?? "不可用") · 账号 \(group.accountCount.map(String.init) ?? "不可用") · RPM 限额 \(group.rpmLimit.map { $0 == 0 ? "不限制" : String($0) } ?? "不可用")").font(.caption).foregroundStyle(.secondary)
+                            Text("倍率 \(group.rateMultiplier.map { NSDecimalNumber(decimal: $0).stringValue } ?? DisplayFormat.missing) · 账号 \(DisplayFormat.grouped(group.accountCount ?? 0)) · RPM 限额 \(group.rpmLimit.map { $0 == 0 ? "不限制" : DisplayFormat.grouped($0) } ?? DisplayFormat.missing)").font(.caption).foregroundStyle(.secondary)
                             if let description = group.description, !description.isEmpty { Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
                         }.padding(.vertical, 4)
                     }.accessibilityIdentifier("group.\(group.id)")
@@ -164,24 +164,25 @@ private struct GroupDetailView: View {
                 LabeledValue(label: "平台", value: GroupPlatform.title(group.platform))
                 LabeledValue(label: "状态", value: group.status == "active" ? "启用" : "停用")
                 LabeledValue(label: "计费", value: group.subscriptionType == "subscription" ? "订阅" : "按量")
-                LabeledValue(label: "计费倍率", value: group.rateMultiplier.map { NSDecimalNumber(decimal: $0).stringValue } ?? "不可用")
-                LabeledValue(label: "专属分组", value: group.isExclusive.map { $0 ? "是" : "否" } ?? "不可用")
-                LabeledValue(label: "RPM 限额", value: group.rpmLimit.map { $0 == 0 ? "不限制" : String($0) } ?? "不可用")
+                LabeledValue(label: "计费倍率", value: group.rateMultiplier.map { NSDecimalNumber(decimal: $0).stringValue } ?? DisplayFormat.missing)
+                LabeledValue(label: "专属分组", value: group.isExclusive.map { $0 ? "是" : "否" } ?? DisplayFormat.missing)
+                LabeledValue(label: "RPM 限额", value: group.rpmLimit.map { $0 == 0 ? "不限制" : DisplayFormat.grouped($0) } ?? DisplayFormat.missing)
                 if let description = group.description, !description.isEmpty { LabeledValue(label: "描述", value: description) }
                 LabeledValue(label: "创建时间", value: ListFieldPresentation.timestamp(group.createdAt))
                 LabeledValue(label: "更新时间", value: ListFieldPresentation.timestamp(group.updatedAt))
             }
             if group.subscriptionType == "subscription" {
                 Section("订阅限额") {
-                    LabeledValue(label: "每日", value: group.dailyLimitUSD.map { DashboardPresentation.money($0) } ?? "不限制")
-                    LabeledValue(label: "每周", value: group.weeklyLimitUSD.map { DashboardPresentation.money($0) } ?? "不限制")
-                    LabeledValue(label: "每月", value: group.monthlyLimitUSD.map { DashboardPresentation.money($0) } ?? "不限制")
+                    LabeledValue(label: "每日", value: group.dailyLimitUSD.map { DisplayFormat.money($0) } ?? "不限制")
+                    LabeledValue(label: "每周", value: group.weeklyLimitUSD.map { DisplayFormat.money($0) } ?? "不限制")
+                    LabeledValue(label: "每月", value: group.monthlyLimitUSD.map { DisplayFormat.money($0) } ?? "不限制")
                 }
             }
             Section("账号与容量") {
-                LabeledValue(label: "绑定账号", value: group.accountCount.map(String.init) ?? "不可用")
-                LabeledValue(label: "活跃账号", value: group.activeAccountCount.map(String.init) ?? "不可用")
-                LabeledValue(label: "限流账号", value: group.rateLimitedAccountCount.map(String.init) ?? "不可用")
+                // omitempty counts: a missing value is zero (00 §6.5).
+                LabeledValue(label: "绑定账号", value: DisplayFormat.grouped(group.accountCount ?? 0))
+                LabeledValue(label: "活跃账号", value: DisplayFormat.grouped(group.activeAccountCount ?? 0))
+                LabeledValue(label: "限流账号", value: DisplayFormat.grouped(group.rateLimitedAccountCount ?? 0))
                 if let capacity {
                     LabeledValue(label: "可调度账号并发", value: ratio(capacity.concurrencyUsed, capacity.concurrencyMax))
                     LabeledValue(label: "可调度账号会话", value: ratio(capacity.sessionsUsed, capacity.sessionsMax))
@@ -226,8 +227,8 @@ private struct GroupDetailView: View {
         }
     }
     private func ratio(_ used: Int?, _ max: Int?) -> String {
-        guard let used, let max else { return "不可用" }
-        return "\(used) / \(max)"
+        guard let used, let max else { return DisplayFormat.missing }
+        return "\(DisplayFormat.grouped(used)) / \(DisplayFormat.grouped(max))"
     }
     private func refresh() async {
         guard !busy, let context = session, context.generation == model.sessionGeneration else { return }

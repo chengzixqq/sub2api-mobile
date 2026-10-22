@@ -54,3 +54,11 @@ private actor PerformanceTransport: HTTPTransport {
     #expect(query["end_time"] == "2026-10-15T01:00:00Z")
     #expect(query["mode"] == "auto")
 }
+
+@Test func performanceMetricFormatFollowsDisplayFormat() {
+    #expect(PerformanceMetric.rpm.format(0.4) == "0.4")
+    #expect(PerformanceMetric.rpm.format(69) == "69")
+    #expect(PerformanceMetric.rpm.format(1_234) == "1,234")
+    #expect(PerformanceMetric.tpm.format(690_000) == "690K")
+    #expect(PerformanceMetric.tpm.format(987_654) == "987.7K")
+}

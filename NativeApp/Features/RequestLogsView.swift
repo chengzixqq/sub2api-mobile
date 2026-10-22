@@ -119,10 +119,10 @@ struct RequestLogsView: View {
             Text(RequestLogPresentation.date(record.createdAt)).font(.caption).foregroundStyle(.secondary)
             Text("用户 #\(record.userID) · \(record.accountName ?? "账号 #\(record.accountID)")").font(.caption)
             HStack {
-                Text("扣费 \(DashboardPresentation.money(record.actualCost))").foregroundStyle(.green)
-                Text("成本 \(DashboardPresentation.money(record.accountCost))").foregroundStyle(.orange)
+                Text("扣费 \(DisplayFormat.moneyLineItem(record.actualCost))").foregroundStyle(.green)
+                Text("成本 \(DisplayFormat.moneyLineItem(record.accountCost))").foregroundStyle(.orange)
             }.font(.caption)
-            Text("\(DashboardPresentation.compactNumber(record.totalTokens)) Token · \(DashboardPresentation.duration(record.durationMs.map(Double.init)))")
+            Text("\(DisplayFormat.compact(record.totalTokens)) Token · \(DisplayFormat.duration(record.durationMs, style: .list))")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(.vertical, 4)
     }
@@ -270,26 +270,26 @@ private struct UsageRequestDetailView: View {
                 LabeledValue(label: "时间", value: RequestLogPresentation.date(record.createdAt))
                 LabeledValue(label: "模型", value: record.model)
                 if let upstream = record.upstreamModel { LabeledValue(label: "上游模型", value: upstream) }
-                LabeledValue(label: "类型", value: record.requestType ?? (record.stream == true ? "stream" : "不可用"))
+                LabeledValue(label: "类型", value: record.requestType ?? (record.stream == true ? "stream" : DisplayFormat.missing))
                 LabeledValue(label: "请求 ID", value: record.requestID).textSelection(.enabled)
                 if let id = record.upstreamRequestID { LabeledValue(label: "上游请求 ID", value: id).textSelection(.enabled) }
                 if let endpoint = record.inboundEndpoint { LabeledValue(label: "请求入口", value: endpoint) }
             }
             Section("扣费与成本") {
-                LabeledValue(label: "实际扣费", value: DashboardPresentation.money(record.actualCost)).accessibilityIdentifier("logs.detail.charge")
-                LabeledValue(label: "上游成本", value: DashboardPresentation.money(record.accountCost)).accessibilityIdentifier("logs.detail.cost")
-                LabeledValue(label: "标准费用", value: DashboardPresentation.money(record.standardCost))
-                if let actual = record.actualCost, let cost = record.accountCost { LabeledValue(label: "差额", value: DashboardPresentation.money(actual - cost)) }
-                Text("成本使用该记录保存的定价与账号倍率快照。金额按两位小数显示，不改变原始精度。")
+                LabeledValue(label: "实际扣费", value: DisplayFormat.money(record.actualCost, digits: 4)).accessibilityIdentifier("logs.detail.charge")
+                LabeledValue(label: "上游成本", value: DisplayFormat.money(record.accountCost, digits: 4)).accessibilityIdentifier("logs.detail.cost")
+                LabeledValue(label: "标准费用", value: DisplayFormat.money(record.standardCost, digits: 4))
+                if let actual = record.actualCost, let cost = record.accountCost { LabeledValue(label: "差额", value: DisplayFormat.money(actual - cost, digits: 4)) }
+                Text("成本使用该记录保存的定价与账号倍率快照。金额按四位小数显示，不改变原始精度。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Token 与延迟") {
-                LabeledValue(label: "输入", value: DashboardPresentation.compactNumber(record.inputTokens))
-                LabeledValue(label: "输出", value: DashboardPresentation.compactNumber(record.outputTokens))
-                LabeledValue(label: "缓存创建", value: DashboardPresentation.compactNumber(record.cacheCreationTokens))
-                LabeledValue(label: "缓存读取", value: DashboardPresentation.compactNumber(record.cacheReadTokens))
-                LabeledValue(label: "总耗时", value: DashboardPresentation.duration(record.durationMs.map(Double.init)))
-                LabeledValue(label: "首 Token", value: DashboardPresentation.duration(record.firstTokenMs.map(Double.init)))
+                LabeledValue(label: "输入", value: DisplayFormat.compact(record.inputTokens))
+                LabeledValue(label: "输出", value: DisplayFormat.compact(record.outputTokens))
+                LabeledValue(label: "缓存创建", value: DisplayFormat.compact(record.cacheCreationTokens))
+                LabeledValue(label: "缓存读取", value: DisplayFormat.compact(record.cacheReadTokens))
+                LabeledValue(label: "总耗时", value: DisplayFormat.duration(record.durationMs, style: .list))
+                LabeledValue(label: "首 Token", value: DisplayFormat.duration(record.firstTokenMs, style: .list))
             }
             Section("关联对象") {
                 LabeledValue(label: "用户", value: record.userEmail ?? "#\(record.userID)")
@@ -334,9 +334,9 @@ private struct RequestErrorDetailView: View {
                 if let id = record.groupID { LabeledValue(label: "分组", value: record.groupName ?? "#\(id)") }
             }
             Section("延迟") {
-                LabeledValue(label: "上游耗时", value: DashboardPresentation.duration(record.upstreamLatencyMs.map(Double.init)))
-                LabeledValue(label: "响应耗时", value: DashboardPresentation.duration(record.responseLatencyMs.map(Double.init)))
-                LabeledValue(label: "首 Token", value: DashboardPresentation.duration(record.firstTokenMs.map(Double.init)))
+                LabeledValue(label: "上游耗时", value: DisplayFormat.duration(record.upstreamLatencyMs, style: .millis))
+                LabeledValue(label: "响应耗时", value: DisplayFormat.duration(record.responseLatencyMs, style: .millis))
+                LabeledValue(label: "首 Token", value: DisplayFormat.duration(record.firstTokenMs, style: .list))
             }
             Section {
                 if loading { ProgressView("正在读取详情…") }

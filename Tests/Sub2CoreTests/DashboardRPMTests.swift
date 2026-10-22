@@ -15,7 +15,8 @@ import Testing
     let wire = "{\"today_requests\":10,\"today_tokens\":20,\"today_cost\":1,\"total_users\":2,\"total_accounts\":3,\"error_accounts\":0,\"rpm\":0,\"rpm_available\":\(available),\"tpm\":100}"
     let stats = try JSONDecoder().decode(DashboardStats.self, from: Data(wire.utf8))
     #expect(stats.rpmAvailable == available)
-    #expect(DashboardPresentation.rpmValue(stats) == (available ? "0" : "不可用"))
+    #expect(stats.availableRPM == (available ? 0 : nil))
+    #expect(DisplayFormat.rpm(stats.availableRPM) == (available ? "0" : "—"))
     #expect(DashboardPresentation.performanceWindow(stats).contains("RPM 近60秒"))
     #expect(DashboardPresentation.performanceWindow(stats).contains("TPM 近5分钟"))
 }
@@ -24,7 +25,7 @@ import Testing
     let wire = #"{"today_requests":10,"today_tokens":20,"today_cost":1,"total_users":2,"total_accounts":3,"error_accounts":0,"rpm":1234,"tpm":100}"#
     let stats = try JSONDecoder().decode(DashboardStats.self, from: Data(wire.utf8))
     #expect(stats.rpmAvailable == nil)
-    #expect(DashboardPresentation.rpmValue(stats) == "1.23K")
+    #expect(DisplayFormat.rpm(stats.availableRPM) == "1,234")
     #expect(!DashboardPresentation.performanceWindow(stats).contains("近60秒"))
 }
 
@@ -34,6 +35,6 @@ import Testing
     #expect(AccountFieldPresentation.value(.rpm, account: account) == "107")
     #expect(AccountFieldPresentation.capacity(account).contains("调度 RPM 4 / 60（自然分钟）"))
     account.schedulingRPM = nil
-    #expect(AccountFieldPresentation.capacity(account).contains("调度 RPM 不可用 / 60"))
+    #expect(AccountFieldPresentation.capacity(account).contains("调度 RPM — / 60"))
     #expect(!AccountFieldPresentation.capacity(account).contains("107 / 60"))
 }

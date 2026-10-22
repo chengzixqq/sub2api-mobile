@@ -1,8 +1,6 @@
 import SwiftUI
 import Sub2Core
 
-func money(_ value: Decimal) -> String { "$" + NSDecimalNumber(decimal: value).stringValue }
-
 struct FailureView: View {
     let message: String
     var retry: (() -> Void)?

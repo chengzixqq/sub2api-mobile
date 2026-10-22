@@ -75,7 +75,7 @@ public enum AccountFieldPresentation {
         case .rpm: number(account.currentRPM)
         case .baseRPM: number(account.baseRPM)
         case .priority: number(account.priority)
-        case .rateMultiplier: account.rateMultiplier.map { decimal($0) + "×" } ?? "不可用"
+        case .rateMultiplier: account.rateMultiplier.map { decimal($0) + "×" } ?? DisplayFormat.missing
         case .status:
             switch account.status { case "active": "正常"; case "inactive": "已禁用"; case "error": "异常"; default: account.status }
         case .schedulable: account.schedulable ? "参与调度" : "暂停调度"
@@ -83,48 +83,51 @@ public enum AccountFieldPresentation {
         case .lastUsedAt: ListFieldPresentation.timestamp(account.lastUsedAt)
         case .createdAt: ListFieldPresentation.timestamp(account.createdAt)
         case .notes: account.notes.flatMap { $0.isEmpty ? nil : $0 } ?? "无"
-        case .usage: account.quotaUsed.map(decimal) ?? "不可用"
+        case .usage: DisplayFormat.money(account.quotaUsed)
         case .accountID: String(account.id)
         case .todayStats:
-            if let today { "请求 \(today.requests.formatted()) · Tokens \(DashboardPresentation.compactNumber(today.tokens)) · 扣费 \(DashboardPresentation.money(today.userCost)) · 成本 \(DashboardPresentation.money(today.cost))" }
-            else { "不可用" }
+            if let today {
+                "请求 \(DisplayFormat.grouped(today.requests)) · Tokens \(DisplayFormat.compact(today.tokens)) · 扣费 \(DisplayFormat.money(today.userCost)) · 成本 \(DisplayFormat.money(today.cost))"
+            } else { DisplayFormat.missing }
         case .window:
             if account.sessionWindowStart != nil || account.sessionWindowEnd != nil {
                 "会话窗口 \(ListFieldPresentation.timestamp(account.sessionWindowStart)) – \(ListFieldPresentation.timestamp(account.sessionWindowEnd))"
-            } else { "不可用" }
-        case .proxy: account.proxy.map { "\($0.name)（#\($0.id)）" } ?? "不可用"
+            } else { DisplayFormat.missing }
+        case .proxy: account.proxy.map { "\($0.name)（#\($0.id)）" } ?? DisplayFormat.missing
         case .loadFactor: number(account.loadFactor)
         case .schedulerScore:
             if let scores = account.schedulerScores, !scores.isEmpty { scores.map { schedulerScore($0, grouped: true) }.joined(separator: " · ") }
             else if let score = account.schedulerScore { schedulerScore(score, grouped: false) }
-            else { "不可用" }
+            else { DisplayFormat.missing }
         case .upstreamBilling:
             if let probe = account.extra?.upstreamBillingProbe, let multiplier = probe.historicalMultiplier() {
                 "上次探测 \(decimal(multiplier))×（\(ListFieldPresentation.timestamp(probe.data?.observedAt))）"
-            } else { "不可用" }
+            } else { DisplayFormat.missing }
         }
     }
 
     public static func capacity(_ account: UpstreamAccount) -> String {
         // A zero configured limit is shown as received; its meaning is not assumed to be unlimited.
         var values = ["并发 \(number(account.currentConcurrency)) / \(number(account.concurrency))"]
-        if let probe = account.probeConcurrency { values.append("探测并发 \(probe)") }
+        if let probe = account.probeConcurrency { values.append("探测并发 \(number(probe))") }
         if let limit = account.windowCostLimit, limit > 0 {
-            values.append("窗口标准费用 \(DashboardPresentation.money(account.currentWindowCost)) / \(DashboardPresentation.money(limit))")
+            values.append("窗口标准费用 \(DisplayFormat.money(account.currentWindowCost)) / \(DisplayFormat.money(limit))")
         }
-        if let limit = account.maxSessions, limit > 0 { values.append("会话 \(number(account.activeSessions)) / \(limit)") }
-        if let limit = account.baseRPM, limit > 0 { values.append("调度 RPM \(number(account.schedulingRPM)) / \(limit)（自然分钟）") }
+        if let limit = account.maxSessions, limit > 0 { values.append("会话 \(number(account.activeSessions)) / \(number(limit))") }
+        if let limit = account.baseRPM, limit > 0 { values.append("调度 RPM \(number(account.schedulingRPM)) / \(number(limit))（自然分钟）") }
         for (title, used, limit) in [("日配额", account.quotaDailyUsed, account.quotaDailyLimit), ("周配额", account.quotaWeeklyUsed, account.quotaWeeklyLimit), ("总配额", account.quotaUsed, account.quotaLimit)] {
-            if let limit, limit > 0 { values.append("\(title) \(DashboardPresentation.money(used)) / \(DashboardPresentation.money(limit))") }
+            if let limit, limit > 0 { values.append("\(title) \(DisplayFormat.money(used)) / \(DisplayFormat.money(limit))") }
         }
         return values.joined(separator: " · ")
     }
 
-    private static func number(_ value: Int?) -> String { value.map(String.init) ?? "不可用" }
+    private static func number(_ value: Int?) -> String { DisplayFormat.grouped(value) }
+    /// Multipliers keep every digit the server sent.
     private static func decimal(_ value: Decimal) -> String { NSDecimalNumber(decimal: value).stringValue }
     private static func schedulerScore(_ score: AccountSchedulerScore, grouped: Bool) -> String {
         let group = grouped ? (score.groupName ?? score.groupID.map { "#\($0)" } ?? "未分组") + "：" : ""
-        let sticky = score.stickyScoreInfinity ? "∞" : score.stickyWeightedEnabled ? DashboardPresentation.compactNumber(score.stickyScore) : "未启用"
-        return "\(group)基础分 \(DashboardPresentation.compactNumber(score.baseScore)) / 粘性分 \(sticky)"
+        // Weighted scores are small fractions; compact numbers would round them to whole numbers.
+        let sticky = score.stickyScoreInfinity ? "∞" : score.stickyWeightedEnabled ? DisplayFormat.decimal(score.stickyScore, maxFractionDigits: 2) : "未启用"
+        return "\(group)基础分 \(DisplayFormat.decimal(score.baseScore, maxFractionDigits: 2)) / 粘性分 \(sticky)"
     }
 }

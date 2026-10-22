@@ -28,9 +28,10 @@ private func overview(adding fields: String = "") throws -> DashboardStats {
         #expect(stats.todayActualCost == nil); #expect(stats.todayAccountCost == nil)
         #expect(stats.totalActualCost == nil); #expect(stats.totalAccountCost == nil)
         #expect(stats.totalTokens == nil); #expect(stats.averageDurationMs == nil)
-        #expect(DashboardPresentation.cost(stats.todayActualCost) == "不可用")
-        #expect(DashboardPresentation.cost(stats.todayAccountCost) == "不可用")
-        #expect(DashboardPresentation.duration(stats.averageDurationMs) == "不可用")
+        #expect(DisplayFormat.money(stats.todayActualCost) == "—")
+        #expect(DisplayFormat.moneyCompact(stats.todayAccountCost) == "—")
+        #expect(DisplayFormat.compact(stats.totalTokens) == "—")
+        #expect(DisplayFormat.duration(stats.averageDurationMs, style: .list) == "—")
     }
     #expect(throws: (any Error).self) { try overview(adding: #""today_actual_cost":"invalid""#) }
 }
@@ -43,82 +44,6 @@ private func overview(adding fields: String = "") throws -> DashboardStats {
     #expect(try overview().totalRequests == nil)
     #expect(try overview(adding: #""total_requests":null"#).totalRequests == nil)
     #expect(throws: (any Error).self) { try overview(adding: #""total_requests":"invalid""#) }
-}
-
-@Test(arguments: [
-    (0, "0"), (999, "999"), (1_000, "1.00K"), (1_234, "1.23K"),
-    (999_999, "1000.00K"), (1_000_000, "1.00M"), (1_234_567, "1.23M"),
-    (1_000_000_000, "1.00B"), (9_876_543_210, "9.88B")
-])
-func overviewCompactCountsMatchWebThresholds(value: Int, expected: String) {
-    #expect(DashboardPresentation.compactNumber(value, locale: Locale(identifier: "en_US")) == expected)
-}
-
-@Test func overviewRateFormattingPreservesFractionsAndAvoidsIntegerOverflow() {
-    let locale = Locale(identifier: "en_US")
-    #expect(DashboardPresentation.compactNumber(2.5, locale: locale) == "2.5")
-    #expect(DashboardPresentation.compactNumber(22.567, locale: locale) == "22.57")
-    #expect(DashboardPresentation.compactNumber(1234.5, locale: locale) == "1.23K")
-    #expect(DashboardPresentation.compactNumber(9_876_543_210.0, locale: locale) == "9.88B")
-    #expect(DashboardPresentation.compactNumber(1.0e20, locale: locale) == "100000000000.00B")
-    #expect(DashboardPresentation.compactNumber(Double.infinity, locale: locale) == "不可用")
-    #expect(DashboardPresentation.compactNumber(Double.nan, locale: locale) == "不可用")
-}
-
-@Test(arguments: [
-    ("0", "$0.0000"), ("0.00012345", "$0.0001"), ("0.01234567", "$0.012"),
-    ("1.23456789", "$1.23"), ("12.34567891", "$12.35"), ("1000", "$1.00K")
-])
-func overviewCostDisplayMatchesWebWithoutDoubleConversion(raw: String, expected: String) {
-    #expect(DashboardPresentation.cost(Decimal(string: raw)) == expected)
-}
-
-@Test(arguments: [
-    ("0", "$0.00"), ("0.004", "$0.00"), ("0.005", "$0.01"),
-    ("1.005", "$1.01"), ("999.995", "$1000.00"), ("1000", "$1.00K"),
-    ("45080", "$45.08K"), ("45085", "$45.09K"), ("999999.995", "$1000.00K"),
-    ("1000000", "$1000.00K"), ("1005000", "$1005.00K"),
-    ("3872500", "$3872.50K"), ("1772920", "$1772.92K"),
-    ("1000000000", "$1000000.00K"), ("-45085", "$-45.09K"),
-    ("-0.004", "$0.00"), ("999.994999999999999999999999", "$999.99"),
-    ("999999.99999999999999999999", "$1000.00K"),
-    ("1004999999.999999999999999", "$1005000.00K"), ("1005000000", "$1005000.00K"),
-    ("12345678901234567890.125", "$12345678901234567.89K")
-])
-func compactCostDisplayKeepsDecimalPrecisionAndCompactUnits(raw: String, expected: String) {
-    let amount = Decimal(string: raw)
-    #expect(DashboardPresentation.compactCost(amount) == expected)
-    #expect(amount == Decimal(string: raw))
-}
-
-@Test func compactCostDisplayKeepsUnavailableValues() {
-    #expect(DashboardPresentation.compactCost(nil) == "不可用")
-    #expect(DashboardPresentation.compactCost(.nan) == "不可用")
-}
-
-@Test(arguments: [
-    ("0", "$0.00"), ("1", "$1.00"), ("0.004", "$0.00"), ("0.005", "$0.01"),
-    ("1.005", "$1.01"), ("-1.005", "$-1.01"), ("-0.004", "$0.00"),
-    ("999.995", "$1000.00"), ("12345678901234567890.125", "$12345678901234567890.13")
-])
-func moneyDisplayUsesDecimalCentsWithoutCompactCurrency(raw: String, expected: String) {
-    let amount = Decimal(string: raw)
-    #expect(DashboardPresentation.money(amount) == expected)
-    #expect(amount == Decimal(string: raw))
-}
-
-@Test func moneyDisplayPreservesUnavailableValues() {
-    #expect(DashboardPresentation.money(nil) == "不可用")
-    #expect(DashboardPresentation.money(.nan) == "不可用")
-}
-
-@Test func overviewDurationUsesMillisecondsAndSeconds() {
-    #expect(DashboardPresentation.duration(42.4) == "42ms")
-    #expect(DashboardPresentation.duration(42.5) == "43ms")
-    #expect(DashboardPresentation.duration(999.5) == "1000ms")
-    #expect(DashboardPresentation.duration(1_250) == "1.25s")
-    #expect(DashboardPresentation.duration(nil) == "不可用")
-    #expect(DashboardPresentation.duration(.infinity) == "不可用")
 }
 
 @Test func overviewTrendDatesKeepDayHourAndRequestedTimezone() throws {

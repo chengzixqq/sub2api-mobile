@@ -7,16 +7,16 @@ final class RequestLogsUITests: XCTestCase {
         defer { diagnostics("request-log-pagination-and-billing") }
         let first = app.buttons["logs.request.101"]
         XCTAssertTrue(first.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(first.label.contains("扣费 $0.35"), first.label)
-        XCTAssertTrue(first.label.contains("成本 $0.12"), first.label)
-        XCTAssertTrue(first.label.contains("1.20M"), first.label)
+        XCTAssertTrue(first.label.contains("扣费 $0.3500"), first.label)
+        XCTAssertTrue(first.label.contains("成本 $0.1200"), first.label)
+        XCTAssertTrue(first.label.contains("1.2M"), first.label)
         let more = app.buttons["logs.more"]; reveal(more); more.tap()
         XCTAssertTrue(app.buttons["logs.request.102"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertFalse(more.exists, "Deferred totals must stop on has_more=false.")
         reveal(first, down: false); first.tap()
         let charge = element("logs.detail.charge"); reveal(charge)
-        XCTAssertTrue(charge.label.contains("$0.35"), charge.label)
-        XCTAssertTrue(element("logs.detail.cost").label.contains("$0.12"), app.debugDescription)
+        XCTAssertTrue(charge.label.contains("$0.3500"), charge.label)
+        XCTAssertTrue(element("logs.detail.cost").label.contains("$0.1200"), app.debugDescription)
     }
     @MainActor func testErrorDetailAndUserFilterCanBeCleared() {
         launchLogs()

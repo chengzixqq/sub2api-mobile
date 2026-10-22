@@ -25,10 +25,19 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
     /// Formatting never changes the original amount stored in the point.
     public func displayValue(_ point: TrendPoint) -> String {
         switch self {
-        case .actualCost: DashboardPresentation.money(point.actualCost)
-        case .requests: String(point.requests)
-        case .tokens: DashboardPresentation.compactNumber(point.totalTokens)
-        case .performance: "不可用"
+        case .actualCost: DisplayFormat.money(point.actualCost)
+        case .requests: DisplayFormat.grouped(point.requests)
+        case .tokens: DisplayFormat.compact(point.totalTokens)
+        case .performance: DisplayFormat.missing
+        }
+    }
+
+    /// Y-axis ticks: low-traffic ticks such as 0.5 / 1 / 1.5 keep a decimal instead of rounding into duplicate labels.
+    public func axisLabel(_ value: Double) -> String {
+        switch self {
+        case .actualCost: DisplayFormat.money(DisplayFormat.decimalValue(value))
+        case .requests, .tokens, .performance:
+            abs(value) >= 1_000 ? DisplayFormat.compact(value) : DisplayFormat.decimal(value, maxFractionDigits: 1)
         }
     }
 
@@ -37,11 +46,11 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
     public func exactValue(_ point: TrendPoint) -> String {
         switch self {
         case .actualCost:
-            guard let amount = point.actualCost, !amount.isNaN else { return "不可用" }
+            guard let amount = point.actualCost, !amount.isNaN else { return DisplayFormat.missing }
             return "$" + NSDecimalNumber(decimal: amount).stringValue
         case .requests: return String(point.requests)
         case .tokens: return String(point.totalTokens)
-        case .performance: return "不可用"
+        case .performance: return DisplayFormat.missing
         }
     }
 

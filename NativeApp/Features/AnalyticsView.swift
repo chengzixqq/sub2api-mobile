@@ -39,16 +39,16 @@ struct AnalyticsView: View {
             }
             Section("统计汇总") {
                 if let value = summary.value {
-                    LabeledValue(label: "请求数", value: value.requests.formatted())
-                    LabeledValue(label: "总 Tokens", value: DashboardPresentation.compactNumber(value.tokens))
-                    LabeledValue(label: "输入 Tokens", value: value.inputTokens.map { DashboardPresentation.compactNumber($0) } ?? "不可用")
-                    LabeledValue(label: "输出 Tokens", value: value.outputTokens.map { DashboardPresentation.compactNumber($0) } ?? "不可用")
-                    LabeledValue(label: "缓存 Tokens", value: value.cacheTokens.map { DashboardPresentation.compactNumber($0) } ?? "不可用")
-                    LabeledValue(label: "实际扣费", value: DashboardPresentation.money(value.actualCost)).foregroundStyle(.green)
-                    LabeledValue(label: "上游成本", value: DashboardPresentation.money(value.accountCost)).foregroundStyle(.orange)
-                    LabeledValue(label: "扣费与成本差额", value: DashboardPresentation.money(value.difference))
+                    LabeledValue(label: "请求数", value: DisplayFormat.grouped(value.requests))
+                    LabeledValue(label: "总 Tokens", value: DisplayFormat.compact(value.tokens))
+                    LabeledValue(label: "输入 Tokens", value: DisplayFormat.compact(value.inputTokens))
+                    LabeledValue(label: "输出 Tokens", value: DisplayFormat.compact(value.outputTokens))
+                    LabeledValue(label: "缓存 Tokens", value: DisplayFormat.compact(value.cacheTokens))
+                    LabeledValue(label: "实际扣费", value: DisplayFormat.money(value.actualCost)).foregroundStyle(.green)
+                    LabeledValue(label: "上游成本", value: DisplayFormat.money(value.accountCost)).foregroundStyle(.orange)
+                    LabeledValue(label: "扣费与成本差额", value: DisplayFormat.money(value.difference))
                         .accessibilityIdentifier("analytics.difference")
-                    LabeledValue(label: "平均响应", value: DashboardPresentation.duration(value.averageDurationMs))
+                    LabeledValue(label: "平均响应", value: DisplayFormat.duration(value.averageDurationMs, style: .list))
                     Text("差额仅为实际扣费减上游成本，未包含服务器等其他费用。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -88,7 +88,7 @@ struct AnalyticsView: View {
                             List(points.reversed()) { point in
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(point.date).font(.headline)
-                                    Text("实际 \(DashboardPresentation.money(point.actualCost)) · \(point.requests) 请求 · \(DashboardPresentation.compactNumber(point.totalTokens)) Tokens")
+                                    Text("实际 \(DisplayFormat.money(point.actualCost)) · \(DisplayFormat.grouped(point.requests)) 请求 · \(DisplayFormat.compact(point.totalTokens)) Tokens")
                                         .font(.subheadline).textSelection(.enabled)
                                 }
                             }.navigationTitle("消费明细")
@@ -162,9 +162,9 @@ struct AnalyticsView: View {
                 ForEach(values.sorted { ($0.actualCost ?? -1) > ($1.actualCost ?? -1) }) { item in
                     VStack(alignment: .leading, spacing: 5) {
                         Text(item.name).font(.headline)
-                        Text("\(item.requests) 请求 · \(DashboardPresentation.compactNumber(item.tokens)) Tokens").font(.subheadline)
-                        Text("扣费 \(DashboardPresentation.money(item.actualCost))").foregroundStyle(.green)
-                        Text("成本 \(DashboardPresentation.money(item.accountCost)) · 差额 \(DashboardPresentation.money(item.difference))")
+                        Text("\(DisplayFormat.grouped(item.requests)) 请求 · \(DisplayFormat.compact(item.tokens)) Tokens").font(.subheadline)
+                        Text("扣费 \(DisplayFormat.money(item.actualCost))").foregroundStyle(.green)
+                        Text("成本 \(DisplayFormat.money(item.accountCost)) · 差额 \(DisplayFormat.money(item.difference))")
                             .foregroundStyle(.secondary)
                     }.font(.footnote).padding(.vertical, 3).textSelection(.enabled)
                 }

@@ -123,7 +123,7 @@ struct AccountsView: View {
             }
             if let loadedAt {
                 Section {
-                    Text("占用快照更新于 \(loadedAt.formatted(date: .omitted, time: .standard))。\(autoRefresh ? "前台每 30 秒刷新已加载页面；选择账号时暂停。" : "下拉刷新获取最新值。")未提供的在用指标显示不可用。")
+                    Text("占用快照更新于 \(loadedAt.formatted(date: .omitted, time: .standard))。\(autoRefresh ? "前台每 30 秒刷新已加载页面；选择账号时暂停。" : "下拉刷新获取最新值。")未提供的在用指标显示 —。")
                         .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("accounts.updated")
                 }
             }
@@ -459,11 +459,11 @@ struct AccountDetailView: View {
             }
             Section("今日用量") {
                 if let stats {
-                    LabeledValue(label: "请求", value: stats.requests.formatted())
-                    LabeledValue(label: "Tokens", value: DashboardPresentation.compactNumber(stats.tokens))
-                    LabeledValue(label: "扣费", value: DashboardPresentation.money(stats.userCost))
+                    LabeledValue(label: "请求", value: DisplayFormat.grouped(stats.requests))
+                    LabeledValue(label: "Tokens", value: DisplayFormat.compact(stats.tokens))
+                    LabeledValue(label: "扣费", value: DisplayFormat.money(stats.userCost))
                         .accessibilityIdentifier("account.detail.user-cost")
-                    LabeledValue(label: "成本", value: DashboardPresentation.money(stats.cost))
+                    LabeledValue(label: "成本", value: DisplayFormat.money(stats.cost))
                         .accessibilityIdentifier("account.detail.cost")
                     Text("扣费为此账号今日实际向用户收取的费用，成本为账号上游成本。")
                         .font(.caption).foregroundStyle(.secondary)

@@ -134,7 +134,7 @@ private struct DashboardTrendChart: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("dashboard.trend.range")
                 if metric == .actualCost && series.samples.contains(where: { $0.point.actualCost == nil }) {
-                    Text("部分时段未返回实际消费，显示为不可用；未以标准费用代替。")
+                    Text("部分时段未返回实际消费，显示为 —；未以标准费用代替。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if let sample = selectedSample {
@@ -230,7 +230,7 @@ private struct DashboardTrendChart: View {
                 AxisGridLine()
                 AxisValueLabel {
                     if let value = value.as(Double.self) {
-                        Text(metric == .actualCost ? DashboardPresentation.money(Decimal(value)) : DashboardPresentation.compactNumber(value))
+                        Text(metric.axisLabel(value))
                             .font(.caption2)
                     }
                 }
@@ -312,20 +312,20 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 20) {
                 if let summary = stats.value {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 300 : 150), alignment: .leading)], spacing: 12) {
-                        MetricView(title: "今日请求", value: summary.stats.todayRequests.formatted(), symbol: "arrow.left.arrow.right", contentHeight: summaryCardHeight) {
-                            Text("总计：\(summary.stats.totalRequests?.formatted() ?? "不可用")")
+                        MetricView(title: "今日请求", value: DisplayFormat.grouped(summary.stats.todayRequests), symbol: "arrow.left.arrow.right", contentHeight: summaryCardHeight) {
+                            Text("总计：\(DisplayFormat.grouped(summary.stats.totalRequests))")
                                 .font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityIdentifier("dashboard.total-requests")
                         }
                             .accessibilityIdentifier("dashboard.today-requests")
-                        MetricView(title: "今日 Tokens", value: DashboardPresentation.compactNumber(summary.stats.todayTokens), symbol: "text.alignleft", contentHeight: summaryCardHeight) {
+                        MetricView(title: "今日 Tokens", value: DisplayFormat.compact(summary.stats.todayTokens), symbol: "text.alignleft", contentHeight: summaryCardHeight) {
                             costBreakdown(actual: summary.stats.todayActualCost, account: summary.stats.todayAccountCost,
                                           snapshotActual: currentCostSnapshot?.actual, snapshotAccount: currentCostSnapshot?.account,
                                           period: "今日", identifier: "dashboard.today")
                         }
                             .accessibilityIdentifier("dashboard.today-tokens")
-                        MetricView(title: "总 Tokens", value: summary.stats.totalTokens.map { DashboardPresentation.compactNumber($0) } ?? "不可用", symbol: "sum", contentHeight: summaryCardHeight) {
+                        MetricView(title: "总 Tokens", value: DisplayFormat.compact(summary.stats.totalTokens), symbol: "sum", contentHeight: summaryCardHeight) {
                             costBreakdown(actual: summary.stats.totalActualCost, account: summary.stats.totalAccountCost,
                                           snapshotActual: currentCostSnapshot?.totalActual, snapshotAccount: currentCostSnapshot?.totalAccount,
                                           period: "累计", identifier: "dashboard.total")
@@ -377,9 +377,9 @@ struct DashboardView: View {
                 if let summary = stats.value {
                     GroupBox("运行健康") {
                         VStack(spacing: 10) {
-                            LabeledValue(label: "异常账号", value: summary.stats.errorAccounts.formatted())
+                            LabeledValue(label: "异常账号", value: DisplayFormat.grouped(summary.stats.errorAccounts))
                                 .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.health.errors")
-                            LabeledValue(label: "平均响应时间", value: DashboardPresentation.duration(summary.stats.averageDurationMs))
+                            LabeledValue(label: "平均响应时间", value: DisplayFormat.duration(summary.stats.averageDurationMs, style: .list))
                                 .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.performance.duration")
                             Text("平均响应时间为累计请求平均值。")
                                 .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
@@ -389,16 +389,16 @@ struct DashboardView: View {
                 GroupBox("运行监控") {
                     VStack(alignment: .leading, spacing: 8) {
                         if let summary = stats.value {
-                            LabeledValue(label: "用户总数", value: summary.stats.totalUsers.formatted())
-                            LabeledValue(label: "账号总数", value: summary.stats.totalAccounts.formatted())
+                            LabeledValue(label: "用户总数", value: DisplayFormat.grouped(summary.stats.totalUsers))
+                            LabeledValue(label: "账号总数", value: DisplayFormat.grouped(summary.stats.totalAccounts))
                             Divider()
                         }
                         if let snapshot = monitoring.value {
-                            LabeledValue(label: "错误率", value: snapshot.errorRate.map { ($0 * 100).formatted(.number.precision(.fractionLength(0...2))) + "%" } ?? "不可用")
+                            LabeledValue(label: "错误率", value: DisplayFormat.ratioPercent(snapshot.errorRate))
                                 .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.monitoring.error-rate")
-                            LabeledValue(label: "QPS", value: snapshot.qps.map { $0.formatted(.number.precision(.fractionLength(0...2))) } ?? "不可用")
+                            LabeledValue(label: "QPS", value: DisplayFormat.decimal(snapshot.qps, maxFractionDigits: 2))
                                 .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.monitoring.qps")
-                            LabeledValue(label: "活跃请求", value: snapshot.activeRequests.map(String.init) ?? "不可用")
+                            LabeledValue(label: "活跃请求", value: DisplayFormat.grouped(snapshot.activeRequests))
                                 .accessibilityElement(children: .combine).accessibilityIdentifier("dashboard.monitoring.active-requests")
                         } else {
                             Text("运行监控独立自动刷新。")
@@ -491,19 +491,19 @@ struct DashboardView: View {
         let tint: Color = actual
             ? (colorScheme == .dark ? .green : Color(red: 0.08, green: 0.47, blue: 0.23))
             : (colorScheme == .dark ? .yellow : Color(red: 0.55, green: 0.37, blue: 0))
-        return Text(DashboardPresentation.compactCost(value))
+        return Text(DisplayFormat.moneyCompact(value))
             .foregroundStyle(value == nil ? Color.secondary : tint)
             .fixedSize()
             .accessibilityLabel("\(period)\(actual ? "实际费用" : "上游成本")")
-            .accessibilityValue(DashboardPresentation.compactCost(value))
+            .accessibilityValue(DisplayFormat.moneyCompact(value))
             .accessibilityIdentifier(identifier)
     }
     private func performanceCard(_ stats: DashboardStats) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Label("性能指标", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(.secondary)
-            performanceLine(DashboardPresentation.rpmValue(stats), unit: "RPM", prominent: true)
+            performanceLine(DisplayFormat.rpm(stats.availableRPM), unit: "RPM", prominent: true)
                 .accessibilityIdentifier("dashboard.performance.rpm")
-            performanceLine(DashboardPresentation.compactNumber(stats.tpm), unit: "TPM", prominent: false)
+            performanceLine(DisplayFormat.compact(stats.tpm), unit: "TPM", prominent: false)
                 .accessibilityIdentifier("dashboard.performance.tpm")
             Text(DashboardPresentation.performanceWindow(stats)).font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

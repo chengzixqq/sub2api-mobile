@@ -43,7 +43,7 @@ struct SettingsView: View {
                     ForEach(model.pendingBalances) { item in
                         VStack(alignment: .leading, spacing: 5) {
                             Text("\(model.profileForRecord(serverID: item.serverID)?.name ?? "原站点") · 用户 #\(item.userID)")
-                            Text("\(item.operation.rawValue) \(money(item.amount))").font(.caption)
+                            Text("\(item.operation.rawValue) \(DisplayFormat.moneyExact(item.amount))").font(.caption)
                             Text(item.id.uuidString).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
                             if let profile = model.profileForRecord(serverID: item.serverID) { Link("打开原站点核对", destination: profile.baseURL).frame(minHeight: 44) }
                         }
