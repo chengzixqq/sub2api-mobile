@@ -8,6 +8,13 @@ public struct HTTPResponse: Sendable {
     public let headers: [String: String]
     public let data: Data
     public init(statusCode: Int, headers: [String: String] = [:], data: Data) { self.statusCode = statusCode; self.headers = headers; self.data = data }
+    /// Header names are case-insensitive (URLSessionTransport already lowercases them).
+    public func header(_ name: String) -> String? { headers.headerValue(name) }
+}
+extension Dictionary where Key == String, Value == String {
+    func headerValue(_ name: String) -> String? {
+        self[name.lowercased()] ?? first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+    }
 }
 public struct HTTPStreamResponse: Sendable {
     public let statusCode: Int

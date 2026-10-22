@@ -256,7 +256,7 @@ final class AppModel {
     func dashboardPerformanceTrend(hours: Int) async throws -> PerformanceTrend {
         if isUITesting {
             if ProcessInfo.processInfo.arguments.contains("-ui-performance-error") {
-                throw APIError(kind: .response, reason: "OPS_DISABLED", statusCode: 404, message: "站点未启用运行监控。")
+                throw APIError.server(status: 404, reason: "OPS_DISABLED")
             }
             let bucket: PerformanceTrend.Bucket = hours == 1 ? .minute : .fiveMinutes
             let end = Date(timeIntervalSince1970: 1_792_026_000)

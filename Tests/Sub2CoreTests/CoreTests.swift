@@ -411,10 +411,11 @@ func dashboardReadsRejectLateResultsAfterStationCancellation(section: String) as
 }
 
 @Test func errorsDistinguishCaptchaSessionComplianceAndStepUp() {
-    #expect(APIError.server(status: 400, reason: "CAPTCHA_REQUIRED").kind == .captcha)
+    #expect(APIError.server(status: 400, reason: "TURNSTILE_VERIFICATION_FAILED").kind == .captcha)
     #expect(APIError.server(status: 401, reason: "SESSION_BINDING_MISMATCH").kind == .sessionBinding)
-    #expect(APIError.server(status: 403, reason: "LOGIN_AGREEMENT_REQUIRED").kind == .compliance)
-    #expect(APIError.server(status: 423, reason: "TOTP_STEP_UP_REQUIRED").kind == .twoFactor)
+    #expect(APIError.server(status: 423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED").kind == .compliance)
+    #expect(APIError.server(status: 423, reason: "TOTP_STEP_UP_REQUIRED").kind == .compliance)
+    #expect(APIError.server(status: 403, reason: "STEP_UP_REQUIRED").kind == .stepUp)
     #expect(APIError.server(status: 403, reason: "FORBIDDEN").kind == .permission)
 }
 

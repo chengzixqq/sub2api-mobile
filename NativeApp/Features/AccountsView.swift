@@ -281,7 +281,9 @@ struct AccountsView: View {
                     } catch {
                         guard operation.generation == model.sessionGeneration else { return }
                         batchOutcomes.append(.init(id: account.id, name: account.name, message: accountWriteFailure(error)))
-                        if needsStepUp(error) || (error as? APIError)?.kind == .authentication {
+                        // Stop the batch when every later account would hit the same session, verification or compliance gate.
+                        let kind = (error as? APIError)?.kind
+                        if needsStepUp(error) || kind == .authentication || kind == .compliance {
                             if needsStepUp(error) { stepUp = true }
                             for skipped in operation.accounts.dropFirst(index + 1) { batchOutcomes.append(.init(id: skipped.id, name: skipped.name, message: "尚未执行，请完成验证后手动选择。")) }
                             break

@@ -41,7 +41,7 @@ public actor APIClient {
     public func login(email: String, password: String, proof: CaptchaProof? = nil) async throws -> LoginResult {
         let snapshot = generation
         let body = LoginBody(email: email, password: password, turnstileToken: proof?.turnstileToken, tencentTicket: proof?.tencentTicket, tencentRandstr: proof?.tencentRandstr)
-        let reply: LoginReply = try await request("auth/login", method: "POST", body: encode(body), authenticated: false)
+        let reply: LoginReply = try await request("auth/login", method: "POST", body: encode(body), authenticated: false, context: .login)
         try check(snapshot)
         if reply.requires2FA == true {
             guard let token = reply.tempToken, !token.isEmpty else { throw APIError.invalidResponse }
@@ -54,7 +54,8 @@ public actor APIClient {
             throw APIError(kind: .twoFactor, message: "请输入六位双因素验证码。")
         }
         let snapshot = generation
-        let reply: LoginReply = try await request("auth/login/2fa", method: "POST", body: encode(["temp_token": tempToken, "totp_code": code]), authenticated: false)
+        let reply: LoginReply = try await request("auth/login/2fa", method: "POST", body: encode(["temp_token": tempToken, "totp_code": code]),
+                                                  authenticated: false, context: .twoFactor)
         return try await acceptLogin(reply, generation: snapshot)
     }
     public func verifyAdministrator() async throws {
@@ -210,7 +211,7 @@ public actor APIClient {
                 body.append(chunk); if body.count > 64 * 1_024 { break }
             }
             try check(snapshot)
-            throw responseError(status: response.statusCode, data: body)
+            throw APIError.from(HTTPResponse(statusCode: response.statusCode, headers: response.headers, data: body))
         }
         guard response.headers.first(where: { $0.key.lowercased() == "content-type" })?.value.lowercased().hasPrefix("text/event-stream") == true else {
             response.cancel(); throw APIError.malformedStream
@@ -277,7 +278,7 @@ public actor APIClient {
             flight = Task { [self] in
                 do {
                     let response = try await transport.data(for: request)
-                    let reply: RefreshReply = try Self.decode(response)
+                    let reply: RefreshReply = try Self.decode(response, context: .refresh)
                     guard !reply.accessToken.isEmpty, !reply.refreshToken.isEmpty, reply.expiresIn > 0 else { throw APIError.invalidResponse }
                     let pair = TokenPair(accessToken: reply.accessToken, refreshToken: reply.refreshToken, expiresAt: Date().addingTimeInterval(TimeInterval(reply.expiresIn)))
                     try await commitRefresh(pair, flightID: newFlightID, generation: snapshot)
@@ -308,7 +309,8 @@ public actor APIClient {
         credential = value; refreshTask = nil; refreshID = nil
     }
     private func refreshFailed(_ id: UUID) { if refreshID == id { refreshTask = nil; refreshID = nil } }
-    func request<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:], authenticated: Bool = true, timeout: TimeInterval? = nil) async throws -> T {
+    func request<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:],
+                                          authenticated: Bool = true, timeout: TimeInterval? = nil, context: ReasonCatalog.Context = .business) async throws -> T {
         let snapshot = generation
         let auth: Credential?
         if authenticated { auth = try await validCredential() } else { auth = nil }
@@ -316,14 +318,15 @@ public actor APIClient {
         let outgoing = try makeRequest(path, method: method, query: query, body: body, credential: auth, headers: headers, timeout: timeout)
         var response = try await execute(outgoing, generation: snapshot)
         // Only safe reads can be retried, and only an explicit expired-token response permits refresh.
+        // Middleware sends a string code, so the marker (reason, else string code) is what identifies it.
         if authenticated, method == "GET", response.statusCode == 401,
-           (try? JSONDecoder().decode(ErrorReply.self, from: response.data).reason) == "TOKEN_EXPIRED",
+           ErrorEnvelope.decode(response.data)?.marker == "TOKEN_EXPIRED",
            let auth, case .tokens(let old) = auth {
             let fresh = try await validCredential(forceRefresh: true, rejectedAccess: old.accessToken)
             try check(snapshot)
             response = try await execute(makeRequest(path, method: method, query: query, body: body, credential: fresh, headers: headers, timeout: timeout), generation: snapshot)
         }
-        return try Self.decode(response)
+        return try Self.decode(response, context: context)
     }
     private func execute(_ request: URLRequest, generation snapshot: UUID) async throws -> HTTPResponse {
         try check(snapshot)
@@ -369,20 +372,18 @@ public actor APIClient {
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
         return request
     }
-    private static func decode<T: Decodable & Sendable>(_ response: HTTPResponse) throws -> T {
-        guard (200..<300).contains(response.statusCode) else { throw responseError(status: response.statusCode, data: response.data) }
-        do {
-            if T.self == EmptyReply.self {
-                let envelope = try JSONDecoder().decode(ErrorReply.self, from: response.data)
-                guard envelope.code == 0 else { throw APIError.server(status: response.statusCode, reason: envelope.reason) }
-                return EmptyReply() as! T
-            }
-            let envelope = try JSONDecoder().decode(Envelope<T>.self, from: response.data)
-            guard envelope.code == 0 else { throw APIError.server(status: response.statusCode, reason: envelope.reason) }
-            guard let result = envelope.data else { throw APIError.invalidResponse }
-            return result
-        } catch let error as APIError { throw error }
+    /// Non-2xx and 2xx with a non-zero code become catalog errors; a success body is parsed exactly once.
+    static func decode<T: Decodable & Sendable>(_ response: HTTPResponse, context: ReasonCatalog.Context = .business) throws -> T {
+        guard (200..<300).contains(response.statusCode) else { throw APIError.from(response, context: context) }
+        let envelope: Envelope<T>
+        do { envelope = try JSONDecoder().decode(Envelope<T>.self, from: response.data) }
+        catch let error as APIError { throw error } // Models may reject a payload with their own error (captcha conflict).
         catch { throw APIError.invalidResponse }
+        guard envelope.status.code != nil else { throw APIError.invalidResponse }
+        guard envelope.status.isSuccess else { throw APIError.from(response, context: context) }
+        if T.self == EmptyReply.self { return EmptyReply() as! T }
+        guard let result = envelope.data else { throw APIError.invalidResponse }
+        return result
     }
     private func check(_ snapshot: UUID) throws { try Task.checkCancellation(); guard snapshot == generation else { throw CancellationError() } }
     private func removeCancellation(_ id: UUID) { cancellations[id] = nil }
@@ -413,12 +414,18 @@ public actor APIClient {
     func encode<T: Encodable>(_ value: T) throws -> Data { let e = JSONEncoder(); e.outputFormatting = [.sortedKeys]; return try e.encode(value) }
 }
 
-private struct Envelope<T: Decodable & Sendable>: Decodable, Sendable { let code: Int; let reason: String?; let data: T? }
-private struct ErrorReply: Decodable, Sendable { let code: Int?; let reason: String? }
-private struct EmptyReply: Decodable, Sendable {}
-private func responseError(status: Int, data: Data) -> APIError {
-    APIError.server(status: status, reason: (try? JSONDecoder().decode(ErrorReply.self, from: data))?.reason)
+/// Reads `code` / `reason` through `ErrorEnvelope`; `data` is decoded only for a successful, non-empty reply.
+private struct Envelope<T: Decodable & Sendable>: Decodable, Sendable {
+    let status: ErrorEnvelope
+    let data: T?
+    init(from decoder: any Decoder) throws {
+        status = try ErrorEnvelope(from: decoder)
+        guard status.isSuccess, T.self != EmptyReply.self else { data = nil; return }
+        data = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(T.self, forKey: .data)
+    }
+    private enum CodingKeys: String, CodingKey { case data }
 }
+private struct EmptyReply: Decodable, Sendable {}
 private struct TrendReply: Decodable, Sendable { let trend: [TrendPoint] }
 private struct DashboardStatsSnapshotReply: Decodable, Sendable { let stats: DashboardStats? }
 private struct StepUpReply: Decodable, Sendable { let verified: Bool }

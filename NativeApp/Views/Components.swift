@@ -78,9 +78,5 @@ struct StepUpView: View {
     }
 }
 
-func needsStepUp(_ error: Error) -> Bool {
-    guard let error = error as? APIError else { return false }
-    if error.kind == .twoFactor { return true }
-    let reason = error.reason?.lowercased() ?? ""
-    return reason.contains("step_up") || reason.contains("stepup") || reason.contains("totp_required")
-}
+/// Only 403 STEP_UP_REQUIRED opens verification; 423 compliance and the step-up setup errors never do.
+func needsStepUp(_ error: Error) -> Bool { (error as? APIError)?.action == .stepUp }
