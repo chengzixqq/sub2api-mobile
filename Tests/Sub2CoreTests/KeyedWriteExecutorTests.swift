@@ -129,7 +129,7 @@ func recoveredReplayedAndDegradedResponsesCountAsSuccess(headers: [String: Strin
 
 @Test(arguments: [errorReply(409, reason: "EMAIL_EXISTS"), errorReply(404, reason: "USER_NOT_FOUND"), errorReply(403, reason: "STEP_UP_REQUIRED"),
                   errorReply(423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED"), errorReply(429, reason: "RATE_LIMITED", headers: ["Retry-After": "9"]),
-                  errorReply(500, extra: #","message":"upstream secret""#)])
+                  errorReply(401, reason: "TOKEN_REVOKED"), errorReply(500, extra: #","message":"upstream secret""#)])
 func businessErrorsAreThrownAsAPIErrorWithoutRetry(response: HTTPResponse) async throws {
     let transport = ScriptedTransport(script: [.reply(response), .reply(okReply(stubUserJSON))])
     let recorder = SleepRecorder()
@@ -140,6 +140,52 @@ func businessErrorsAreThrownAsAPIErrorWithoutRetry(response: HTTPResponse) async
     #expect(!error.localizedDescription.contains("secret"))
     if response.statusCode == 429 { #expect(error.retryAfter == 9) }
     #expect(await transport.requests.count == 1); #expect(await recorder.durations.isEmpty)
+}
+
+/// 00 §2.5.4 step 2: after an attempt that may have run, a later one turned away before the handler does not settle the write.
+@Test(arguments: [ScriptStep.fail(URLError(.timedOut)), .reply(HTTPResponse(statusCode: 504, data: Data())), .reply(inProgress(["Retry-After": "1"])),
+                  .reply(errorReply(409, reason: "IDEMPOTENCY_RETRY_BACKOFF", headers: ["Retry-After": "1"]))],
+      [errorReply(401, reason: "TOKEN_REVOKED"), errorReply(403, reason: "FORBIDDEN"), errorReply(403, reason: "STEP_UP_REQUIRED"),
+       errorReply(423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED"), errorReply(429, reason: "RATE_LIMITED")])
+func rejectionBeforeExecutionAfterUncertainAttemptStaysUnconfirmed(first: ScriptStep, then rejection: HTTPResponse) async throws {
+    let action = UUID()
+    let transport = ScriptedTransport(script: [first, .reply(HTTPResponse(statusCode: rejection.statusCode,
+                                                                         headers: ["X-Admin-Adjustment-Action-ID": action.uuidString], data: rejection.data))])
+    let client = keyedClient(transport)
+    let write = balanceWrite(client)
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(write) })
+    #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil))
+    #expect(failure.key == write.record.key && failure.actionID == action)
+    #expect(failure.lastError?.statusCode == rejection.statusCode)
+    #expect(failure.lastError?.reason == ErrorEnvelope.decode(rejection.data)?.marker)
+    #expect(await transport.requests.count == 2)
+}
+
+/// The session ends while the write waits to retry (refresh rejected, or no refresh token): the first attempt may have run.
+@Test(arguments: [true, false])
+func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async throws {
+    let clock = ManualClock(), recorder = SleepRecorder()
+    let transport = ScriptedTransport { request in
+        if isRefresh(request) { return errorReply(401, reason: "REFRESH_TOKEN_EXPIRED") }
+        throw URLError(.timedOut)
+    }
+    // 61 seconds of access: enough for the first attempt, under the 60-second refresh lead after the 2-second wait.
+    let tokens = TokenPair(accessToken: "old-access", refreshToken: refreshable ? "old-refresh" : "", expiresAt: clock.start.addingTimeInterval(61))
+    let client = keyedClient(transport, clock: clock.advancingClock(recorder), credential: .tokens(tokens))
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client)) })
+    #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil))
+    #expect(failure.lastError?.statusCode == 401)
+    #expect(await transport.requests.filter { !isRefresh($0) }.count == 1)
+    #expect(await recorder.durations == [.seconds(2)])
+}
+
+/// A business answer still passes through the idempotency layer, so it settles the write even after a lost attempt.
+@Test func businessAnswerAfterLostAttemptStillSettles() async throws {
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(errorReply(400, reason: "INVALID_BALANCE"))])
+    let client = keyedClient(transport)
+    let error = try #require(await thrownAPIError { _ = try await client.updateBalance(balanceWrite(client)) })
+    #expect(error.statusCode == 400 && error.reason == "INVALID_BALANCE")
+    #expect(await transport.requests.count == 2)
 }
 
 @Test func actionIDIsCapturedFromAnyResponse() async throws {

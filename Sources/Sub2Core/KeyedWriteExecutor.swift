@@ -25,7 +25,12 @@ struct KeyedWriteFlow: Sendable {
         case unresolved(KeyedWriteFailure.Disposition)
         case retry(after: Duration, KeyedWriteEvent)
     }
+    /// Turned away by the middleware before the handler and its idempotency record (00 §0 rule 5, §2.4).
+    static let refusedBeforeHandler: Set<Int> = [401, 403, 423, 429]
     private(set) var actionID: UUID?
+    /// An earlier attempt may have run: lost, 502/504/proxy 503, IN_PROGRESS or RETRY_BACKOFF. From then on only a 2xx or a
+    /// business answer settles the write (00 §2.5.4 step 2); a later attempt refused before the handler says nothing about it.
+    private(set) var mayHaveRun = false
     private var transportRetries = 0
     private var waitingSince: Date?
 
@@ -40,6 +45,8 @@ struct KeyedWriteFlow: Sendable {
         guard case .reply(let response) = attempt else { return transportRetry() }
         switch IdempotencyOutcome.classify(response) {
         case .succeeded: return .succeeded(response)
+        case .rejected where mayHaveRun && Self.refusedBeforeHandler.contains(response.statusCode):
+            return .unresolved(.unconfirmed(.transport, retryNotBefore: nil))
         case .rejected: return .rejected(response)
         case .transportFailure: return transportRetry()
         case .inProgress(let seconds), .retryBackoff(let seconds): return serverWait(seconds, now: now)
@@ -52,6 +59,7 @@ struct KeyedWriteFlow: Sendable {
         }
     }
     private mutating func transportRetry() -> Step {
+        mayHaveRun = true
         guard IdempotencyPolicy.transportRetryDelays.indices.contains(transportRetries) else {
             return .unresolved(.unconfirmed(.transport, retryNotBefore: nil))
         }
@@ -60,6 +68,7 @@ struct KeyedWriteFlow: Sendable {
         return .retry(after: delay, .confirming(retry: transportRetries))
     }
     private mutating func serverWait(_ seconds: Int, now: Date) -> Step {
+        mayHaveRun = true
         let since = waitingSince ?? now
         waitingSince = since
         let elapsed = now.timeIntervalSince(since), remaining = IdempotencyPolicy.waitBudget - elapsed
@@ -78,13 +87,18 @@ extension APIClient {
         let key = write.key.uuidString.lowercased()
         var flow = KeyedWriteFlow()
         while true {
-            let attempt = try await keyedAttempt(spec, generation: snapshot)
+            let attempt: KeyedAttempt
+            do { attempt = try await keyedAttempt(spec, generation: snapshot) }
+            // No valid credential for a retry (refresh rejected, session ended) leaves an attempt that may have run unconfirmed.
+            catch let error as APIError where flow.mayHaveRun {
+                throw KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: key, actionID: flow.actionID, lastError: error)
+            }
             if let id = flow.newActionID(in: attempt) { await onEvent?(.actionID(id)) }
             switch flow.next(after: attempt, now: requestClock.now()) {
             case .succeeded(let response): return try keyedOutcome(response, key: key, actionID: flow.actionID)
             case .rejected(let response): throw surfaced(failure(response), context: .business, generation: snapshot)
             case .unresolved(let disposition):
-                throw KeyedWriteFailure(disposition: disposition, key: key, actionID: flow.actionID, lastError: lastError(of: attempt))
+                throw KeyedWriteFailure(disposition: disposition, key: key, actionID: flow.actionID, lastError: lastError(of: attempt, generation: snapshot))
             case .retry(let delay, let event): try await waitToRetry(delay, event: event, onEvent: onEvent, generation: snapshot)
             }
         }
@@ -116,9 +130,10 @@ extension APIClient {
                                     lastError: error as? APIError ?? .invalidResponse)
         }
     }
-    private func lastError(of attempt: KeyedAttempt) -> APIError {
+    /// A reply's error leaves through `surfaced` even inside a KeyedWriteFailure, so S0-11 also sees a 401 that ends a retry.
+    private func lastError(of attempt: KeyedAttempt, generation snapshot: UUID) -> APIError {
         switch attempt {
-        case .reply(let response): failure(response)
+        case .reply(let response): surfaced(failure(response), context: .business, generation: snapshot)
         case .lost(let error): error
         }
     }
