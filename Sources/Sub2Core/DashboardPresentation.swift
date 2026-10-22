@@ -63,9 +63,9 @@ public enum DashboardPresentation {
         return fixed(Decimal(milliseconds), digits: 0) + "ms"
     }
 
-    /// Backend buckets have no offset: interpret them in the same timezone sent
-    /// with the trend request, rather than parsing them as UTC.
-    public static func trendDate(_ raw: String, timeZone: TimeZone = .current) -> Date? {
+    /// Backend buckets have no offset: interpret them in the server zone (the reply's `query.timezone`, else the one
+    /// sent with the request), never in the phone's (00 §6.4).
+    public static func trendDate(_ raw: String, timeZone: TimeZone) -> Date? {
         let hourly = raw.count == 16
         let pattern = hourly ? #"^\d{4}-\d{2}-\d{2} \d{2}:00$"# : #"^\d{4}-\d{2}-\d{2}$"#
         guard raw.range(of: pattern, options: .regularExpression) != nil else { return nil }

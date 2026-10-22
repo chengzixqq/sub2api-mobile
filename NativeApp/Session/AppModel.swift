@@ -112,8 +112,10 @@ final class AppModel {
         }
         guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
         let verifiedCredential = await candidate.currentCredential() ?? credential
-        // me() set the ETag cache identity on the candidate; S0-10's ClientWiring must keep handing it over.
+        // me() set the ETag cache identity and the server zone on the candidate, whose clock already holds the Date offset;
+        // S0-10's ClientWiring must keep handing all three over.
         let cacheIdentity = await candidate.conditionalCacheIdentity()
+        let serverTimeZone = await candidate.serverTimeZone()
         guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
         let lease = UUID()
         let scopedStore = try await credentials.commit(verifiedCredential, serverID: profile.id, lease: lease)
@@ -125,7 +127,8 @@ final class AppModel {
         let previousProfileID = activeProfile?.id
         let previousLease = activeLease
         sessionGeneration = UUID()
-        client = APIClient(server: profile, credential: verifiedCredential, credentialStore: scopedStore, cacheIdentity: cacheIdentity)
+        client = APIClient(server: profile, credential: verifiedCredential, credentialStore: scopedStore, cacheIdentity: cacheIdentity,
+                           serverTimeZone: serverTimeZone, serverClock: candidate.serverClock)
         activeLease = lease
         activeProfile = profile
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
@@ -243,7 +246,7 @@ final class AppModel {
         }
         return try await requireClient().dashboardCostSnapshot()
     }
-    func dashboardTrend() async throws -> [TrendPoint] {
+    func dashboardTrend() async throws -> DashboardTrendReply {
         if isUITesting {
             if ProcessInfo.processInfo.arguments.contains("-ui-dashboard-slow-trend") {
                 try await Task.sleep(for: .seconds(8))
@@ -251,8 +254,8 @@ final class AppModel {
             if ProcessInfo.processInfo.arguments.contains("-ui-dashboard-detail-errors") {
                 throw APIError(kind: .transport, message: "趋势请求超时，请重试。")
             }
-            if ProcessInfo.processInfo.arguments.contains("-ui-trend-long-series") { return DemoData.longHourlyTrend }
-            return DemoData.dashboard.trend
+            let points = ProcessInfo.processInfo.arguments.contains("-ui-trend-long-series") ? DemoData.longHourlyTrend : DemoData.dashboard.trend
+            return DashboardTrendReply(points: points, timeZone: DemoData.serverTimeZone.timeZone)
         }
         return try await requireClient().dashboardTrend()
     }

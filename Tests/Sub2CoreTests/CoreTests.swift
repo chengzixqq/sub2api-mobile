@@ -296,9 +296,11 @@ private actor MockTransport: HTTPTransport {
         }
         return ok(#"{"error_rate":0.125,"qps":{"current":2.5}}"#)
     }
-    let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
+    let site = try #require(ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00"))
+    let clock = ServerClock(localNow: { Date(timeIntervalSince1970: 1_792_026_000) })
+    let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport, serverTimeZone: site, serverClock: clock)
     let trend = try await client.dashboardTrend()
-    #expect(trend.count == 1); #expect(trend.first?.requests == 12)
+    #expect(trend.points.count == 1); #expect(trend.points.first?.requests == 12)
     let monitoring = try await client.dashboardMonitoring()
     #expect(monitoring.errorRate == 0.125); #expect(monitoring.qps == 2.5); #expect(monitoring.activeRequests == nil)
     let requests = await transport.requests()
@@ -308,14 +310,15 @@ private actor MockTransport: HTTPTransport {
     let trendURL = try #require(trendRequest.url)
     let query = try #require(URLComponents(url: trendURL, resolvingAgainstBaseURL: false)?.queryItems)
     #expect(query.first { $0.name == "granularity" }?.value == "hour")
-    #expect(query.first { $0.name == "timezone" }?.value == TimeZone.current.identifier)
+    #expect(query.first { $0.name == "timezone" }?.value == "Asia/Shanghai")
     let start = try #require(query.first { $0.name == "start_date" }?.value)
     let end = try #require(query.first { $0.name == "end_date" }?.value)
     let formatter = DateFormatter()
-    formatter.calendar = Calendar(identifier: .gregorian); formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone.current; formatter.dateFormat = "yyyy-MM-dd"
+    formatter.calendar = site.calendar; formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = site.timeZone; formatter.dateFormat = "yyyy-MM-dd"
     let startDate = try #require(formatter.date(from: start)); let endDate = try #require(formatter.date(from: end))
-    #expect(formatter.calendar.dateComponents([.day], from: startDate, to: endDate).day == 1)
+    #expect(site.calendar.dateComponents([.day], from: startDate, to: endDate).day == 1)
+    #expect(end == site.dayString(clock.now()))
     let opsRequest = try #require(requests.last)
     #expect(opsRequest.timeoutInterval == 45)
     #expect(opsRequest.url?.path == "/api/v1/admin/ops/dashboard/overview")

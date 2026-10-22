@@ -71,12 +71,21 @@ public struct DashboardTrendSeries: Sendable {
     public let invalidDateCount: Int
     public let duplicateCount: Int
     public let isHourly: Bool
+    /// The zone the buckets were read in; axis labels and the chart calendar use it too.
+    public let timeZone: TimeZone
     /// Tables read newest first; the chart keeps chronological X coordinates.
     public var newestFirst: [DashboardTrendSample] { Array(samples.reversed()) }
 }
 
+/// `admin/dashboard/trend` points with the zone their offset-less buckets belong to (00 §6.4).
+public struct DashboardTrendReply: Sendable {
+    public let points: [TrendPoint]
+    public let timeZone: TimeZone
+    public init(points: [TrendPoint], timeZone: TimeZone) { self.points = points; self.timeZone = timeZone }
+}
+
 public enum DashboardTrend {
-    public static func series(_ points: [TrendPoint], timeZone: TimeZone = .current) -> DashboardTrendSeries {
+    public static func series(_ points: [TrendPoint], timeZone: TimeZone) -> DashboardTrendSeries {
         var buckets = [Date: DashboardTrendSample]()
         var invalidDateCount = 0
         var duplicateCount = 0
@@ -92,8 +101,8 @@ public enum DashboardTrend {
             }
         }
         let samples = buckets.values.sorted { $0.date < $1.date }
-        return DashboardTrendSeries(samples: samples, invalidDateCount: invalidDateCount,
-                                    duplicateCount: duplicateCount, isHourly: samples.contains { $0.point.date.count == 16 })
+        return DashboardTrendSeries(samples: samples, invalidDateCount: invalidDateCount, duplicateCount: duplicateCount,
+                                    isHourly: samples.contains { $0.point.date.count == 16 }, timeZone: timeZone)
     }
 
     public static func clampedZoom(_ value: Double, maximum: Double = 8) -> Double {

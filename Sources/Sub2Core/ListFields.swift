@@ -113,13 +113,7 @@ public enum UserListField: String, ListField, Codable {
 public enum ListFieldPresentation {
     public static func timestamp(_ value: String?) -> String {
         guard let value, !value.isEmpty else { return "暂无记录" }
-        let parser = ISO8601DateFormatter()
-        var date = parser.date(from: value)
-        if date == nil {
-            parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            date = parser.date(from: value)
-        }
-        guard let date else { return "时间格式不受支持" }
+        guard let date = ServerTime.parseTimestamp(value) else { return "时间格式不受支持" }
         return date.formatted(date: .abbreviated, time: .shortened)
     }
     public static func timestamp(seconds: Int64?) -> String {

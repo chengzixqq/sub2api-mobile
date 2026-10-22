@@ -50,11 +50,10 @@ public struct RequestLogFilter: Equatable, Sendable {
         guard page > 0, start < end, end.timeIntervalSince(start) <= 366 * 86_400 else {
             throw APIError(kind: .validation, message: "请选择有效的时间范围（最长一年）和页码。")
         }
-        let formatter = ISO8601DateFormatter()
         if errors, errorKind == .upstream, userID != nil || apiKeyID != nil || !model.isEmpty || !requestID.isEmpty || !category.isEmpty {
             throw APIError(kind: .validation, message: "上游错误支持时间、账号、分组与状态筛选；不支持用户、密钥、模型和请求 ID 筛选。")
         }
-        var values = ["page": String(page), "page_size": "30", "start_time": formatter.string(from: start), "end_time": formatter.string(from: end), "sort_by": "created_at", "sort_order": "desc"]
+        var values = ["page": String(page), "page_size": "30", "start_time": ServerTime.utcTimestamp(start), "end_time": ServerTime.utcTimestamp(end), "sort_by": "created_at", "sort_order": "desc"]
         for (key, value) in [("user_id", userID), ("account_id", accountID), ("group_id", groupID), ("api_key_id", apiKeyID)] {
             if let value {
                 guard value > 0 else { throw APIError(kind: .validation, message: "筛选 ID 必须为正整数。") }
@@ -202,9 +201,7 @@ public enum RequestLogPresentation {
         return value
     }
     public static func date(_ raw: String) -> String {
-        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = formatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
-        return date?.formatted(date: .abbreviated, time: .standard) ?? raw
+        ServerTime.parseTimestamp(raw)?.formatted(date: .abbreviated, time: .standard) ?? raw
     }
 }
 

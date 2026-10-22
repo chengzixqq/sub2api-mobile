@@ -58,6 +58,8 @@ nonisolated private struct AnimatedTrendViewport: AnimatableModifier {
 /// from a tap; magnification and the buttons change the same visible time window.
 private struct DashboardTrendChart: View {
     let series: DashboardTrendSeries
+    /// Gregorian in the series zone, so Charts bins hours and days on the server's calendar.
+    private let calendar: Calendar
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var metric = DashboardTrendMetric.actualCost
     @State private var zoom = 1.0
@@ -66,9 +68,13 @@ private struct DashboardTrendChart: View {
     @State private var selectedDate: Date?
     @State private var showingDetails = false
 
-    init(points: [TrendPoint]) {
-        let parsed = DashboardTrend.series(points)
+    /// Buckets are read, binned and labelled in the reply's server zone (00 §6.4), not the phone's.
+    init(reply: DashboardTrendReply?) {
+        // Without a reply there are no points, so the zone only has to be valid.
+        let parsed = DashboardTrend.series(reply?.points ?? [], timeZone: reply?.timeZone ?? .gmt)
         series = parsed
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = parsed.timeZone
+        self.calendar = calendar
         _scrollDate = State(initialValue: parsed.samples.first?.date ?? .now)
     }
 
@@ -231,6 +237,8 @@ private struct DashboardTrendChart: View {
             }
         }
         .frame(height: 250).accessibilityLabel("\(series.isHourly ? "每小时" : "每日")\(metric.label)趋势")
+        .environment(\.timeZone, series.timeZone)
+        .environment(\.calendar, calendar)
         .accessibilityIdentifier("dashboard.trend.chart")
         .simultaneousGesture(MagnifyGesture().onChanged { value in
             if gestureStartZoom == nil { gestureStartZoom = zoom }
@@ -262,7 +270,9 @@ private struct DashboardTrendChart: View {
     private func displayLabel(_ sample: DashboardTrendSample) -> String {
         metric.displayValue(sample.point) + (metric == .actualCost ? "" : " " + metric.unit)
     }
-    private func dateLabel(_ date: Date) -> String { DashboardPresentation.trendAxisLabel(date, hourly: series.isHourly) }
+    private func dateLabel(_ date: Date) -> String {
+        DashboardPresentation.trendAxisLabel(date, hourly: series.isHourly, timeZone: series.timeZone)
+    }
     private func clampedStart(_ date: Date, duration: TimeInterval) -> Date {
         min(max(firstDate, date), max(firstDate, endDate.addingTimeInterval(-duration)))
     }
@@ -289,7 +299,7 @@ struct DashboardView: View {
     @State private var costs = DashboardLoadState<DashboardCostSnapshot>()
     @State private var costAttemptAt: Date?
     @State private var costLaunchID: UUID?
-    @State private var trend = DashboardLoadState<[TrendPoint]>()
+    @State private var trend = DashboardLoadState<DashboardTrendReply>()
     @State private var monitoring = DashboardLoadState<OpsSnapshot>()
     @State private var visible = false
     private var polling: Bool { visible && scenePhase == .active }
@@ -356,7 +366,7 @@ struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         // Performance has an independent endpoint and must remain
                         // reachable even while the usage query is slow or fails.
-                        DashboardTrendChart(points: trend.value ?? [])
+                        DashboardTrendChart(reply: trend.value)
                         sectionError(trend.error, identifier: "dashboard.trend.error") { Task { await loadTrend() } }
                         if trend.isLoading { ProgressView("正在加载趋势…").accessibilityIdentifier("dashboard.trend.loading") }
                         Button(trend.value == nil ? "重试趋势" : "刷新趋势") { Task { await loadTrend() } }

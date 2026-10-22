@@ -113,18 +113,19 @@ func trendTokenDisplayUsesCompactUnitsAndRetainsRawCount(tokens: Int, expected: 
 }
 
 @Test func trendHandlesEmptyDailyAndUnparseableData() throws {
-    let empty = DashboardTrend.series([])
+    let utc = try #require(TimeZone(secondsFromGMT: 0))
+    let empty = DashboardTrend.series([], timeZone: utc)
     #expect(empty.samples.isEmpty)
     #expect(empty.invalidDateCount == 0)
     #expect(empty.duplicateCount == 0)
     #expect(!empty.isHourly)
-    let invalid = DashboardTrend.series([trendPoint("invalid")])
+    let invalid = DashboardTrend.series([trendPoint("invalid")], timeZone: utc)
     #expect(invalid.samples.isEmpty)
     #expect(invalid.invalidDateCount == 1)
-    let utc = try #require(TimeZone(secondsFromGMT: 0))
     let daily = DashboardTrend.series([trendPoint("2026-10-15"), trendPoint("2026-10-14")], timeZone: utc)
     #expect(!daily.isHourly)
     #expect(daily.samples.map(\.point.date) == ["2026-10-14", "2026-10-15"])
+    #expect(daily.timeZone == utc)
 }
 
 @Test(arguments: [(-4.0, 1.0), (1.0, 1.0), (2.5, 2.5), (8.0, 8.0), (40.0, 8.0)])
@@ -157,9 +158,12 @@ private actor TrendWireTransport: HTTPTransport {
 @Test func trendEndpointDeliversActualSpendForTheDefaultMetric() async throws {
     let profile = ServerProfile(name: "Fixture", baseURL: URL(string: "https://trend.example.invalid")!, authentication: .adminKey)
     let client = APIClient(server: profile, credential: .adminKey("fixture"), transport: TrendWireTransport())
-    let points = try await client.dashboardTrend()
+    let reply = try await client.dashboardTrend()
+    let points = reply.points
     let point = try #require(points.first)
     #expect(points.count == 1)
+    // No `query` in the reply: buckets are read in the zone the request carried.
+    #expect(reply.timeZone.identifier == TimeZone.current.identifier)
     #expect(point.actualCost == Decimal(string: "12.34567891"))
     #expect(DashboardTrendMetric.actualCost.exactValue(point) == "$12.34567891")
 }

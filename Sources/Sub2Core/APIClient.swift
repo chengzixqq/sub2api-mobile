@@ -28,6 +28,10 @@ public actor APIClient {
     let conditionalCache: ConditionalCache
     /// Set by `me()`; while unknown, no request is conditional and nothing is cached.
     private(set) var cacheIdentity: ConditionalCache.Identity?
+    /// `timezone=` and day boundaries for date parameters (00 §2.8); the phone's zone until the site reports one.
+    private var serverZone: ServerTimeZone
+    /// Date-header offset of this site (00 §6.3), recorded by `transmit` and `openStream`.
+    public nonisolated let serverClock: ServerClock
     private var generation = UUID()
     private var cancellations: [UUID: @Sendable () -> Void] = [:]
     private var refreshTask: Task<TokenPair, any Error>?
@@ -39,13 +43,18 @@ public actor APIClient {
     private var sessionEnded: APIError?
     public init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil, deviceID: UUID? = nil,
                 transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live,
-                cacheIdentity: ConditionalCache.Identity? = nil, conditionalCache: ConditionalCache = ConditionalCache()) {
+                cacheIdentity: ConditionalCache.Identity? = nil, conditionalCache: ConditionalCache = ConditionalCache(),
+                serverTimeZone: ServerTimeZone = .device, serverClock: ServerClock = ServerClock()) {
         self.server = server; self.credential = credential; store = credentialStore; self.deviceID = deviceID
         self.transport = transport; self.requestClock = requestClock
         self.cacheIdentity = cacheIdentity; self.conditionalCache = conditionalCache
+        serverZone = serverTimeZone; self.serverClock = serverClock
     }
     public func currentCredential() -> Credential? { credential }
     public func conditionalCacheIdentity() -> ConditionalCache.Identity? { cacheIdentity }
+    /// `me()` applies the zone it reports; S0-10 also calls this when a site reload changes it.
+    public func setServerTimeZone(_ zone: ServerTimeZone) { serverZone = zone }
+    public func serverTimeZone() -> ServerTimeZone { serverZone }
     /// A different identity empties this site's entries (meta/catalog differs per caller, 00 §4.2).
     public func setConditionalCacheIdentity(_ identity: ConditionalCache.Identity?) async {
         guard identity != cacheIdentity else { return }
@@ -103,11 +112,13 @@ public actor APIClient {
         try check(snapshot)
         return DashboardSummary(stats: stats, trend: [])
     }
-    public func dashboardTrend() async throws -> [TrendPoint] {
-        let snapshot = generation
-        let reply: TrendReply = try await request("admin/dashboard/trend", query: dateRange(days: 1) + [URLQueryItem(name: "granularity", value: "hour")], timeout: RequestTimeout.aggregate)
+    public func dashboardTrend() async throws -> DashboardTrendReply {
+        // The zone is captured before the await so parsing matches the request even if the site zone changes meanwhile.
+        let snapshot = generation, zone = serverZone
+        let reply: TrendReply = try await request("admin/dashboard/trend", query: zone.lastDaysQueryItems(1, now: serverClock.now())
+            + [URLQueryItem(name: "granularity", value: "hour")], timeout: RequestTimeout.aggregate)
         try check(snapshot)
-        return reply.trend
+        return DashboardTrendReply(points: reply.trend, timeZone: ServerTime.bucketTimeZone(reported: reply.query?.timezone, requested: zone))
     }
     public func dashboardCostSnapshot() async throws -> DashboardCostSnapshot {
         let snapshot = generation
@@ -137,11 +148,8 @@ public actor APIClient {
         guard start < end, end.timeIntervalSince(start) <= 30 * 86_400 else {
             throw APIError(kind: .validation, message: "请选择 30 天以内的性能趋势范围。")
         }
-        let formatter = ISO8601DateFormatter()
         let snapshot = generation
-        let result: PerformanceTrend = try await request("admin/ops/dashboard/throughput-trend", query: [
-            URLQueryItem(name: "start_time", value: formatter.string(from: start)),
-            URLQueryItem(name: "end_time", value: formatter.string(from: end)),
+        let result: PerformanceTrend = try await request("admin/ops/dashboard/throughput-trend", query: ServerTime.timeRangeItems(start: start, end: end) + [
             URLQueryItem(name: "mode", value: "auto")
         ], timeout: RequestTimeout.aggregate)
         try check(snapshot)
@@ -415,6 +423,8 @@ public actor APIClient {
         defer { removeCancellation(id) }
         do {
             let response = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+            // Error replies and 304 carry a Date too; a reply after cancelAll still came from this site.
+            serverClock.recordDateHeader(response.header("Date"), receivedAt: serverClock.localNow())
             try check(snapshot)
             return response
         } catch {
@@ -447,6 +457,8 @@ public actor APIClient {
         guard var components = URLComponents(url: try server.validatedURL(), resolvingAgainstBaseURL: false) else { throw APIError.invalidServer }
         let items = RequestPolicy.sanitizedQuery(query)
         components.path = "/api/v1/" + path; components.queryItems = items.isEmpty ? nil : items
+        // URLQueryItem leaves "+" as is and Go reads it as a space (00 §2.8), in a search term as much as in an offset.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         guard let url = components.url else { throw APIError.invalidServer }
         return url
     }
@@ -536,6 +548,7 @@ public actor APIClient {
         defer { removeCancellation(id) }
         do {
             let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+            serverClock.recordDateHeader(result.headers.headerValue("Date"), receivedAt: serverClock.localNow())
             do { try check(snapshot) } catch { result.cancel(); throw error }
             return result
         } catch is CancellationError { throw CancellationError() }
@@ -572,18 +585,9 @@ public actor APIClient {
     func optionalQuery(_ name: String, _ value: String?) -> [URLQueryItem] {
         guard let value, !value.isEmpty else { return [] }; return [URLQueryItem(name: name, value: value)]
     }
-    private func dateRange(days: Int) -> [URLQueryItem] {
-        let today = Date(); let start = Calendar.current.date(byAdding: .day, value: -days, to: today) ?? today
-        return dates(start: start, end: today)
-    }
-    private func monthRange() -> [URLQueryItem] {
-        let now = Date(); let start = Calendar.current.dateInterval(of: .month, for: now)?.start ?? now
-        return dates(start: start, end: now)
-    }
-    private func dates(start: Date, end: Date) -> [URLQueryItem] {
-        let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
-        return [URLQueryItem(name: "start_date", value: f.string(from: start)), URLQueryItem(name: "end_date", value: f.string(from: end)), URLQueryItem(name: "timezone", value: TimeZone.current.identifier)]
-    }
+    /// Day parameters follow the server's calendar and clock (00 §2.8, §6.3), never the phone's.
+    private func dateRange(days: Int) -> [URLQueryItem] { serverZone.lastDaysQueryItems(days, now: serverClock.now()) }
+    private func monthRange() -> [URLQueryItem] { serverZone.monthToDateQueryItems(now: serverClock.now()) }
     func encode<T: Encodable>(_ value: T) throws -> Data { let e = JSONEncoder(); e.outputFormatting = [.sortedKeys]; return try e.encode(value) }
 }
 
@@ -599,7 +603,17 @@ private struct Envelope<T: Decodable & Sendable>: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey { case data }
 }
 struct EmptyReply: Decodable, Sendable {}
-private struct TrendReply: Decodable, Sendable { let trend: [TrendPoint] }
+/// `query.timezone` decides how the offset-less buckets are read (00 §6.4); a malformed block is ignored.
+private struct TrendReply: Decodable, Sendable {
+    let trend: [TrendPoint]
+    let query: QueryMetadata?
+    enum CodingKeys: String, CodingKey { case trend, query }
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        trend = try c.decode([TrendPoint].self, forKey: .trend)
+        query = try? c.decodeIfPresent(QueryMetadata.self, forKey: .query)
+    }
+}
 private struct DashboardStatsSnapshotReply: Decodable, Sendable { let stats: DashboardStats? }
 private struct StepUpReply: Decodable, Sendable { let verified: Bool }
 private struct OpsReply: Decodable, Sendable {

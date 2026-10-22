@@ -3,6 +3,8 @@ import Sub2Core
 
 // Fixtures are reachable only through the explicit -ui-testing launch argument.
 enum DemoData {
+    /// The only server zone in UI fixtures (D30); trend buckets and the AdminMe fixture use it.
+    static let serverTimeZone = ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00")!
     static let dashboard = DashboardSummary(
         stats: DashboardStats(
             todayRequests: 128, todayTokens: 1_234_567, todayCost: Decimal(string: "99.99")!,

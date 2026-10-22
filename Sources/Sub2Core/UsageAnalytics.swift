@@ -20,10 +20,7 @@ public struct AnalyticsQuery: Hashable, Sendable {
               [accountID, groupID, userID].allSatisfy({ $0 == nil || $0! > 0 }) else {
             throw APIError(kind: .validation, message: "请选择一年以内的有效时间范围，并填写正整数对象 ID。")
         }
-        let format = ISO8601DateFormatter()
-        var items = [URLQueryItem(name: "start_time", value: format.string(from: start)),
-                     URLQueryItem(name: "end_time", value: format.string(from: end)),
-                     URLQueryItem(name: "timezone", value: timeZone)]
+        var items = ServerTime.timeRangeItems(start: start, end: end) + [URLQueryItem(name: "timezone", value: timeZone)]
         for (key, id) in [("account_id", accountID), ("group_id", groupID), ("user_id", userID)] {
             if let id { items.append(URLQueryItem(name: key, value: String(id))) }
         }

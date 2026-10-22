@@ -40,17 +40,9 @@ public struct WriteOutcome<Value: Sendable>: Sendable {
         }
         self.init(value: value, replayed: field("X-Idempotency-Replayed")?.lowercased() == "true",
                   recovered: field("X-Idempotency-Recovered")?.lowercased() == "true", degraded: field("X-Idempotency-Degraded") != nil,
-                  expiresAt: field("X-Idempotency-Expires-At").flatMap(rfc3339), actionID: field("X-Admin-Adjustment-Action-ID").flatMap(UUID.init(uuidString:)),
+                  expiresAt: ServerTime.parseTimestamp(field("X-Idempotency-Expires-At")), actionID: field("X-Admin-Adjustment-Action-ID").flatMap(UUID.init(uuidString:)),
                   batchID: field("X-Redeem-Batch-ID").flatMap(UUID.init(uuidString:)), requestID: field("X-Request-ID"))
     }
-}
-
-/// The backend writes RFC 3339 UTC without fractions; S0-07's ServerTime can replace this once it exists.
-private func rfc3339(_ raw: String) -> Date? {
-    let formatter = ISO8601DateFormatter()
-    if let date = formatter.date(from: raw) { return date }
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter.date(from: raw)
 }
 
 /// 00 §2.5.3, decided by the exact (status, reason) pair.

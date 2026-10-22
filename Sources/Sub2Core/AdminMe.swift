@@ -267,6 +267,8 @@ extension APIClient {
         try check(snapshot)
         await setConditionalCacheIdentity(ConditionalCache.Identity(me: result, credential: credential))
         try check(snapshot)
+        // The old-server path already copied the public-settings zone into `server`.
+        if let zone = ServerTimeZone.resolve(me: result, publicSettings: nil) { setServerTimeZone(zone) }
         return result
     }
 

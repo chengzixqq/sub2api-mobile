@@ -24,11 +24,7 @@ public struct PerformanceTrend: Decodable, Sendable {
         public init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let raw = try c.decode(String.self, forKey: .date)
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let fractional = formatter.date(from: raw)
-            formatter.formatOptions = [.withInternetDateTime]
-            guard let date = fractional ?? formatter.date(from: raw) else {
+            guard let date = ServerTime.parseTimestamp(raw) else {
                 throw DecodingError.dataCorruptedError(forKey: .date, in: c, debugDescription: "Invalid throughput bucket_start")
             }
             self.date = date

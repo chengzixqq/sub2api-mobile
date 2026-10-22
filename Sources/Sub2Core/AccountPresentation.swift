@@ -55,15 +55,9 @@ public struct AccountBillingProbe: Codable, Sendable {
     enum CodingKeys: String, CodingKey { case status, data; case freshUntil = "fresh_until" }
     /// A cached declaration is historical evidence, not a locally recomputed live peak-rate claim.
     public func historicalMultiplier(at now: Date = Date()) -> Decimal? {
-        guard status == "ok", let freshUntil, let expiry = Self.date(freshUntil), expiry > now,
-              let data, let observedAt = data.observedAt, let observed = Self.date(observedAt), observed <= now else { return nil }
+        guard status == "ok", let freshUntil, let expiry = ServerTime.parseTimestamp(freshUntil), expiry > now,
+              let data, let observedAt = data.observedAt, let observed = ServerTime.parseTimestamp(observedAt), observed <= now else { return nil }
         return data.effectiveRateMultiplier
-    }
-    private static func date(_ raw: String) -> Date? {
-        let parser = ISO8601DateFormatter()
-        if let date = parser.date(from: raw) { return date }
-        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return parser.date(from: raw)
     }
 }
 
