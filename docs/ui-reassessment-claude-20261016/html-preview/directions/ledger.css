@@ -1,0 +1,122 @@
+/* 核簿 Folio · tokens from design/22-visual-ledger.md */
+.page-ledger { --page-title-font: 600 36px/1.15 "New York", "Iowan Old Style", Georgia, "Songti SC", "SimSun", serif; }
+.page-ledger.page-light { --page-bg: #EAE4D7; --page-ink: #1C2230; --page-dim: #4C5260; --page-line: #CFC5B1; }
+.page-ledger.page-dark { --page-bg: #0B0D11; --page-ink: #ECE7DC; --page-dim: #B9B3A8; --page-line: #2B303A; }
+
+.dir-ledger {
+  --num-font: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --readout-font: var(--num-font);
+  --money-font: "New York", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --mono-font: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  --large-title-font: 700 32px/1.15 -apple-system, "SF Pro Display", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  --money-xl-font: 600 40px/1.08 "New York", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --amount-font: 600 50px/1.1 "New York", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --amount-sign-font: 500 30px/1 "New York", "Iowan Old Style", Georgia, serif;
+  --panel-radius: 12px;
+  --badge-radius: 4px;
+  --chip-radius: 17px;
+  --btn-radius: 23px;
+  --cap-radius: 3px;
+  --cap-h: 6px;
+  --money-weight: 600;
+  --money-s-weight: 500;
+  --double-rule-opacity: 1;
+}
+.dir-ledger.light {
+  --canvas: #F4F0E7; --surface: #FBF9F4; --sunken: #EDE8DC; --track: #E8E2D6;
+  --hairline: #DCD3C2; --hairline-soft: #E6DFD1; --rule-strong: #B3A891;
+  --ink1: #1C2230; --ink2: #4C5260; --ink3: #60646D;
+  --accent: #1A4580; --accent-fill: #1A4580; --on-accent: #FFFFFF; --accent-wash: #E2E8F1;
+  --ok: #3B8550; --ok-ink: #2E6A3E; --ok-wash: #E2EDDE;
+  --caution: #AD7006; --caution-ink: #8A5400; --caution-wash: #F6E8CA;
+  --critical: #C2342A; --critical-ink: #9C1F16; --critical-wash: #F6E0DB;
+  --neutral: #7A7F87; --neutral-ink: #5B6068; --neutral-wash: #E7E4DD;
+  --model: #8760C0; --model-ink: #7448A8; --model-wash: #ECE4F3;
+  --money-actual: #1E6B57; --money-cost: #A3431A; --money-standard: #635E54;
+  --cap-normal: #1A4580;
+  --chart-main: #2A836A; --chart-area: rgba(42,131,106,.10); --chart-compare: #60646D;
+  --chip-bg: #EDE8DC; --chip-on-bg: #1A4580; --chip-on-ink: #FFFFFF; --chip-edge: #DCD3C2;
+  --seg-on-bg: #FBF9F4; --btn-bg: transparent; --btn-ink: #1A4580; --btn-edge: #B3A891;
+  --nav-bg: #F4F0E7; --list-bg: #F4F0E7; --list-head-bg: #F4F0E7; --sheet-bg: #F4F0E7;
+  --glass-bg: rgba(251,249,244,.70); --glass-edge: rgba(255,255,255,.65); --glass-shadow: 0 6px 24px rgba(60,45,20,.13), inset 0 1px 0 rgba(255,255,255,.8);
+  --tab-ink: #1C2230; --tab-on: #1A4580; --tab-on-bg: rgba(26,69,128,.10); --tab-fade: rgba(244,240,231,0);
+  --hover: rgba(28,34,48,.06); --hover-row: rgba(28,34,48,.03);
+}
+.dir-ledger.dark {
+  --canvas: #13161C; --surface: #1B1F27; --sunken: #0E1015; --track: #2A2F38;
+  --hairline: #2B303A; --hairline-soft: #262A33; --rule-strong: #454B57;
+  --ink1: #ECE7DC; --ink2: #B9B3A8; --ink3: #948F86;
+  --accent: #86AEE8; --accent-fill: #86AEE8; --on-accent: #0E1A2E; --accent-wash: #1E2A3D;
+  --ok: #5FAE73; --ok-ink: #82C493; --ok-wash: #1A2A1F;
+  --caution: #D99A1E; --caution-ink: #E9B44C; --caution-wash: #2E2614;
+  --critical: #E0574A; --critical-ink: #F2867A; --critical-wash: #33201E;
+  --neutral: #7B8088; --neutral-ink: #A9ACB2; --neutral-wash: #24272D;
+  --model: #A47FDD; --model-ink: #C8A6F0; --model-wash: #272035;
+  --money-actual: #74C9AC; --money-cost: #F29A62; --money-standard: #ABA597;
+  --cap-normal: #86AEE8;
+  --chart-main: #3FA585; --chart-area: rgba(63,165,133,.14); --chart-compare: #948F86;
+  --chip-bg: #1B1F27; --chip-on-bg: #86AEE8; --chip-on-ink: #0E1A2E; --chip-edge: #2B303A;
+  --seg-on-bg: #2A2F38; --btn-bg: transparent; --btn-ink: #86AEE8; --btn-edge: #454B57;
+  --nav-bg: #13161C; --list-bg: #13161C; --list-head-bg: #13161C; --sheet-bg: #1B1F27;
+  --glass-bg: rgba(36,40,50,.66); --glass-edge: rgba(255,255,255,.09); --glass-shadow: 0 8px 28px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
+  --tab-ink: #ECE7DC; --tab-on: #86AEE8; --tab-on-bg: rgba(134,174,232,.13); --tab-fade: rgba(19,22,28,0);
+  --hover: rgba(255,255,255,.07); --hover-row: rgba(255,255,255,.03);
+}
+
+/* paper: rows are rows, not cards. Sections sit directly on the page with a ruled header */
+.dir-ledger .sec { background: transparent; border-radius: 0; margin: 0 0 18px; }
+.dir-ledger .sec-head { padding: 10px 16px 6px; align-items: center; gap: 10px; }
+.dir-ledger .sec-index { display: inline; font-size: 13px; font-weight: 600; color: var(--ink3); font-family: "Songti SC", "STSong", "SimSun", serif; }
+.dir-ledger .sec-title { font-size: 13.5px; font-weight: 600; color: var(--ink2); }
+.dir-ledger .sec-line { height: 1px; background: var(--hairline); }
+.dir-ledger .sec-meta { color: var(--ink3); }
+.dir-ledger .row + .row::before, .dir-ledger .list-group .row + .row::before { background: var(--hairline); left: 48px; right: 16px; }
+.dir-ledger .list-group { background: transparent; }
+.dir-ledger .list-head { padding: 16px 16px 6px; border-bottom: 1px solid var(--hairline); margin: 0 0 0; background: var(--canvas); }
+
+/* margin annotation lane (8pt) with a 3pt stroke: solid = needs a human, dashed = will recover, dotted = model limit */
+.dir-ledger .annot::after { content: ''; position: absolute; left: 5px; top: 9px; bottom: 9px; width: 0; border-left: 3px solid var(--tone); }
+.dir-ledger .annot-dashed::after { border-left-style: dashed; }
+.dir-ledger .annot-dotted::after { border-left-style: dotted; }
+.dir-ledger .hero.annot::after { left: 0; top: 0; bottom: 0; border-left-width: 4px; }
+
+/* stamps: square, seal-like */
+.dir-ledger .badge { border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent); background: var(--tone-wash); }
+.dir-ledger .badge.lv1 { background: transparent; }
+.dir-ledger .glyph { color: var(--tone); }
+
+/* money set in serif; quantities stay sans */
+.dir-ledger .money { font-feature-settings: "lnum" 1, "tnum" 1; }
+.dir-ledger .money-l { font-size: 22px; }
+.dir-ledger .strip { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--hairline); margin-left: 16px; margin-right: 16px; }
+.dir-ledger .strip-main small { color: var(--ink3); }
+.dir-ledger .strip-side b { font-family: var(--num-font); }
+.dir-ledger .grid3 small { color: var(--ink3); }
+.dir-ledger .double-rule { margin: 4px 16px 0; }
+.dir-ledger .hero { background: var(--surface); border: 1px solid var(--hairline); box-shadow: 0 1px 0 rgba(60,45,20,.06); }
+.dark.dir-ledger .hero { box-shadow: none; }
+.dir-ledger .hero .readout-xl { font-family: var(--num-font); }
+.dir-ledger .hero-quiet { background: transparent; border: 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); border-radius: 0; padding-left: 4px; }
+.dir-ledger .hero-models { background: var(--canvas); border: 1px dotted color-mix(in srgb, var(--model) 60%, transparent); }
+.dir-ledger .act { border-width: 1px; }
+.dir-ledger .act-primary { border: 0; }
+.dir-ledger .chan-stat { background: transparent; border: 1px solid var(--hairline); border-radius: 10px; }
+.dir-ledger .chan-stat .readout { font-family: var(--money-font); font-weight: 600; }
+.dir-ledger .detail-head { padding-top: 6px; }
+.dir-ledger .kv-grid { padding-top: 0; }
+.dir-ledger .kv-label { color: var(--ink3); }
+.dir-ledger .cap-line + .cap-line { border-top: 1px solid var(--hairline-soft); }
+.dir-ledger .ledger-line + .ledger-line { border-top: 1px solid var(--hairline-soft); }
+.dir-ledger .search-field { background: var(--surface); border: 1px solid var(--hairline); }
+.dir-ledger .chip { border: 1px solid var(--chip-edge); }
+.dir-ledger .chip.on { border-color: transparent; }
+.dir-ledger .seg { background: var(--sunken); }
+.dir-ledger .code { background: transparent; border: 1px solid currentColor; border-radius: 4px; }
+.dir-ledger .code-ok { border-color: transparent; }
+.dir-ledger .health-fill { background: var(--accent); opacity: .85; }
+.dir-ledger .chart-line { stroke-width: 2; }
+.dir-ledger .chart-axis { font-family: var(--num-font); }
+.dir-ledger .avatar { background: transparent; border: 1px solid var(--hairline); font-family: "Songti SC", "STSong", "SimSun", serif; font-weight: 600; }
+.dir-ledger .balance-hero .money-xl { font-size: 46px; }
+.dir-ledger .sheet { border-top: 1px solid var(--hairline); }
+.dir-ledger .amount { border-bottom: 3px double var(--rule-strong); }

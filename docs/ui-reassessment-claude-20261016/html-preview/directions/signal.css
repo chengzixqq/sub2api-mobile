@@ -1,0 +1,125 @@
+/* 暗舱 Dark Cockpit · tokens from design/23-visual-signal.md */
+.page-signal { --page-title-font: 600 34px/1.15 ui-rounded, "SF Pro Rounded", -apple-system, "Segoe UI", "PingFang SC", sans-serif; }
+.page-signal.page-dark { --page-bg: #03050A; --page-ink: #E6ECF3; --page-dim: #9DA9B9; --page-line: #232C39; }
+.page-signal.page-light { --page-bg: #E1E6ED; --page-ink: #0B1220; --page-dim: #4B5565; --page-line: #B9C2CE; }
+
+.dir-signal {
+  --num-font: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --readout-font: ui-rounded, "SF Pro Rounded", -apple-system, "Segoe UI", sans-serif;
+  --money-font: var(--num-font);
+  --mono-font: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  --large-title-font: 700 32px/1.15 -apple-system, "SF Pro Display", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  --money-xl-font: 600 44px/1.05 ui-rounded, "SF Pro Rounded", -apple-system, "Segoe UI", sans-serif;
+  --amount-font: 600 52px/1.1 ui-rounded, "SF Pro Rounded", -apple-system, "Segoe UI", sans-serif;
+  --amount-sign-font: 500 30px/1 ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;
+  --panel-radius: 22px;
+  --badge-radius: 11px;
+  --chip-radius: 18px;
+  --btn-radius: 23px;
+  --cap-radius: 3px;
+  --cap-h: 5px;
+  --row-title-weight: 500;
+  --readout-weight: 600;
+  --money-weight: 600;
+}
+.dir-signal.dark {
+  --canvas: #080B11; --surface: #0F141C; --sunken: #161D27; --track: #1D2532;
+  --hairline: #232C39; --rule-strong: #344155;
+  --ink1: #E6ECF3; --ink2: #9DA9B9; --ink3: #7A8699;
+  --accent: #47C8F5; --accent-fill: #47C8F5; --on-accent: #06121A; --accent-wash: rgba(71,200,245,.10);
+  --ok: #2E9E63; --ok-ink: #3FD47F; --ok-wash: rgba(63,212,127,.14);
+  --caution: #FFB224; --caution-ink: #FFB224; --caution-wash: #352D1D;
+  --critical: #FF6259; --critical-ink: #FF6259; --critical-wash: #352026;
+  --neutral: #8B97A8; --neutral-ink: #8B97A8; --neutral-wash: #232932;
+  --model: #C08AFF; --model-ink: #C08AFF; --model-wash: #2B2740;
+  --money-actual: #E6ECF3; --money-cost: #E6ECF3; --money-standard: #E6ECF3;
+  --dot-actual: #3CCBA6; --dot-cost: #F08B4F; --dot-standard: #8B97A8;
+  --cap-normal: #6E7A8C;
+  --chart-main: #3CCBA6; --chart-area: rgba(60,203,166,.20); --chart-compare: #7A8699;
+  --chip-bg: #161D27; --chip-on-bg: rgba(71,200,245,.16); --chip-on-ink: #47C8F5; --chip-on-edge: rgba(71,200,245,.45);
+  --seg-on-bg: #232C39; --btn-bg: #161D27; --btn-ink: #47C8F5; --btn-edge: #232C39;
+  --nav-bg: #080B11; --list-bg: #080B11; --list-head-bg: #080B11; --sheet-bg: #0F141C;
+  --glass-bg: rgba(30,37,49,.62); --glass-edge: rgba(255,255,255,.09); --glass-shadow: 0 8px 30px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.07);
+  --tab-ink: #C4CEDA; --tab-on: #47C8F5; --tab-on-bg: rgba(71,200,245,.12); --tab-fade: rgba(8,11,17,0);
+  --hover: rgba(255,255,255,.07); --hover-row: rgba(255,255,255,.025);
+  --glow-l2: 0 0 10px; --glow-l3: 0 0 16px;
+}
+.dir-signal.light {
+  --canvas: #EEF1F5; --surface: #FFFFFF; --sunken: #F6F8FA; --track: #E9EDF2;
+  --hairline: #DDE2E9; --rule-strong: #B9C2CE;
+  --ink1: #0B1220; --ink2: #4B5565; --ink3: #5E697B;
+  --accent: #0A6FA3; --accent-fill: #0A6FA3; --on-accent: #FFFFFF; --accent-wash: rgba(10,111,163,.09);
+  --ok: #1A9150; --ok-ink: #0B6638; --ok-wash: #E2EFE9;
+  --caution: #B87900; --caution-ink: #7A4800; --caution-wash: #F2EBE0;
+  --critical: #DC3A30; --critical-ink: #A6211A; --critical-wash: #FBE7E6;
+  --neutral: #76818F; --neutral-ink: #4B5565; --neutral-wash: #EEF1F4;
+  --model: #9156E0; --model-ink: #6630AE; --model-wash: #F0E8FB;
+  --money-actual: #0B1220; --money-cost: #0B1220; --money-standard: #0B1220;
+  --dot-actual: #0A7660; --dot-cost: #B04C14; --dot-standard: #5E6979;
+  --cap-normal: #76818F;
+  --chart-main: #0A7660; --chart-area: rgba(10,118,96,.12); --chart-compare: #5E697B;
+  --chip-bg: #FFFFFF; --chip-on-bg: rgba(10,111,163,.10); --chip-on-ink: #075C88; --chip-on-edge: rgba(10,111,163,.45);
+  --seg-on-bg: #FFFFFF; --btn-bg: #FFFFFF; --btn-ink: #0A6FA3; --btn-edge: #DDE2E9;
+  --nav-bg: #EEF1F5; --list-bg: #EEF1F5; --list-head-bg: #EEF1F5; --sheet-bg: #EEF1F5;
+  --glass-bg: rgba(250,251,253,.72); --glass-edge: rgba(255,255,255,.75); --glass-shadow: 0 6px 24px rgba(20,35,60,.13), inset 0 1px 0 rgba(255,255,255,.85);
+  --tab-ink: #0B1220; --tab-on: #0A6FA3; --tab-on-bg: rgba(10,111,163,.10); --tab-fade: rgba(238,241,245,0);
+  --hover: rgba(11,18,32,.06); --hover-row: rgba(11,18,32,.03);
+  --glow-l2: 0 0 0; --glow-l3: 0 0 0;
+}
+
+/* panels: concentric rounded rectangles; dark draws a 0.5pt hairline instead of shadow */
+.dir-signal .sec { border-radius: var(--panel-radius); }
+.dark.dir-signal .sec, .dark.dir-signal .hero, .dark.dir-signal .chan-stat { box-shadow: inset 0 0 0 .5px var(--hairline); }
+.dir-signal .sec-head { padding: 0 6px 8px; }
+.dir-signal .sec-title { font-size: 13.5px; }
+.dir-signal .list-group { background: var(--surface); }
+.dir-signal .list-head { padding-top: 16px; }
+
+/* signal rail: 3pt left edge, glowing in the dark */
+.dir-signal .rail { box-shadow: inset 3px 0 0 var(--tone); }
+.dark.dir-signal .rail { background: linear-gradient(to right, color-mix(in srgb, var(--tone) 9%, transparent), transparent 40%); }
+.dir-signal .hero.rail { box-shadow: inset 3px 0 0 var(--tone), inset 0 0 0 .5px var(--hairline); }
+
+/* emphasis ladder: L1 outline, L2 tint + glow, L3 solid + stronger glow */
+.dir-signal .badge { height: 22px; border-radius: 11px; padding: 0 9px; }
+.dir-signal .badge.lv1 { background: transparent; box-shadow: inset 0 0 0 1px var(--tone); color: var(--tone-ink); }
+.dir-signal .badge.lv2 { background: var(--tone-wash); color: var(--tone-ink); box-shadow: var(--glow-l2) color-mix(in srgb, var(--tone) 35%, transparent); }
+.dir-signal .badge.lv3 { background: var(--tone); color: var(--on-solid, #1A0605); box-shadow: var(--glow-l3) color-mix(in srgb, var(--tone) 55%, transparent); }
+.light.dir-signal .badge.lv3 { color: #FFFFFF; }
+.dir-signal .badge-big { height: 28px; border-radius: 14px; }
+.dir-signal .dim-dot { width: 6px; height: 6px; border-radius: 3px; background: var(--ok); opacity: .9; display: block; }
+.dir-signal .glyph-normal { opacity: .9; }
+
+/* money: digits stay text1; the cost basis is a 6pt dot / dash before the label */
+.dir-signal small[data-kind]::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 3px; margin-right: 5px; vertical-align: 1px; background: var(--dot-actual); }
+.dir-signal small[data-kind="cost"]::before { background: var(--dot-cost); }
+.dir-signal small[data-kind="standard"]::before { width: 8px; height: 0; border-radius: 0; background: none; border-top: 2px dashed var(--dot-standard); vertical-align: 3px; }
+.dir-signal .money-xl, .dir-signal .readout, .dir-signal .strip-side b, .dir-signal .money-l { font-family: ui-rounded, "SF Pro Rounded", -apple-system, "Segoe UI", sans-serif; }
+.dark.dir-signal .money-xl, .dark.dir-signal .readout-xl { font-weight: 500; }
+.dir-signal .strip { background: var(--surface); border-radius: var(--panel-radius); padding: 16px; }
+.dark.dir-signal .strip { box-shadow: inset 0 0 0 .5px var(--hairline); }
+
+/* readouts and tiles */
+.dir-signal .hero { border-radius: var(--panel-radius); }
+.dir-signal .hero-models { border-radius: 14px; }
+.dir-signal .chan-stat { border-radius: 16px; }
+.dir-signal .chan-stat.tone-ok .readout { color: var(--ink1); }
+.dir-signal .hero-quiet { background: transparent; box-shadow: none !important; padding-left: 4px; color: var(--ink2); }
+.dir-signal .code-ok { color: var(--ink3); }
+.dir-signal .code-caution { box-shadow: var(--glow-l2) color-mix(in srgb, var(--caution) 30%, transparent); }
+.dir-signal .code-critical { background: var(--critical); color: #1A0605; box-shadow: var(--glow-l3) color-mix(in srgb, var(--critical) 45%, transparent); }
+.light.dir-signal .code-critical { color: #FFFFFF; }
+.dir-signal .chart-end { filter: drop-shadow(0 0 4px var(--chart-main)); }
+.light.dir-signal .chart-end { filter: none; }
+.dir-signal .strip18 i { height: 10px; border-radius: 5px; opacity: .35; }
+.dir-signal .strip18 .s-c, .dir-signal .strip18 .s-r { opacity: 1; }
+.dir-signal .strip18 .s-n { opacity: 1; }
+.dark.dir-signal .strip18 .s-r { box-shadow: 0 0 6px color-mix(in srgb, var(--critical) 60%, transparent); }
+.dir-signal .health-fill { background: var(--cap-normal); }
+.dir-signal .act { box-shadow: inset 0 0 0 1px var(--btn-edge); border: 0; }
+.dir-signal .act-primary { box-shadow: none; }
+.dir-signal .search-field { background: var(--surface); }
+.dark.dir-signal .search-field { box-shadow: inset 0 0 0 .5px var(--hairline); }
+.dir-signal .row-note { color: var(--ink1); }
+.dir-signal .tone-critical .row-note { color: var(--ink1); }
+.dir-signal .is-idle .row-title { color: var(--ink1); }

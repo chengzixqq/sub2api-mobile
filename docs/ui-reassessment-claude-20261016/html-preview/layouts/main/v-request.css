@@ -1,0 +1,172 @@
+/* v-request：请求详情的收据式（.rqr-*）与时间线式（.rqt-*）。所有选择器挂在 .lay-main 下，只用 Vernier 变量。 */
+
+/* ---------- 收据式 ---------- */
+
+/* Paper = a stub and a body that meet at a perforation with round notches; the body ends in a scalloped tear.
+   The outline follows the masked shape via drop-shadow on the wrapper (SwiftUI: a custom Shape + stroke). */
+.lay-main .rqr-wrap {
+  margin: 6px 16px 26px;
+  filter: drop-shadow(0 0 .6px var(--rule-strong)) drop-shadow(0 6px 14px rgba(20, 24, 27, .07));
+}
+.lay-main.dark .rqr-wrap { filter: drop-shadow(0 0 .7px var(--rule-strong)) drop-shadow(0 8px 18px rgba(0, 0, 0, .45)); }
+
+.lay-main .rqr-stub {
+  position: relative; background: var(--surface); border-radius: 18px 18px 0 0; padding: 22px 18px 22px; text-align: center;
+  -webkit-mask:
+    radial-gradient(circle 11px at 0 100%, #0000 10.5px, #000 11px) left top / 51% 100% no-repeat,
+    radial-gradient(circle 11px at 100% 100%, #0000 10.5px, #000 11px) right top / 51% 100% no-repeat;
+          mask:
+    radial-gradient(circle 11px at 0 100%, #0000 10.5px, #000 11px) left top / 51% 100% no-repeat,
+    radial-gradient(circle 11px at 100% 100%, #0000 10.5px, #000 11px) right top / 51% 100% no-repeat;
+}
+.lay-main .rqr-body {
+  position: relative; background: var(--surface); padding: 8px 18px 24px;
+  -webkit-mask:
+    radial-gradient(circle 11px at 0 0, #0000 10.5px, #000 11px) left top / 51% calc(100% - 5px) no-repeat,
+    radial-gradient(circle 11px at 100% 0, #0000 10.5px, #000 11px) right top / 51% calc(100% - 5px) no-repeat,
+    radial-gradient(circle 5px at 50% 100%, #0000 4.6px, #000 5px) left bottom / 14px 8px round no-repeat;
+          mask:
+    radial-gradient(circle 11px at 0 0, #0000 10.5px, #000 11px) left top / 51% calc(100% - 5px) no-repeat,
+    radial-gradient(circle 11px at 100% 0, #0000 10.5px, #000 11px) right top / 51% calc(100% - 5px) no-repeat,
+    radial-gradient(circle 5px at 50% 100%, #0000 4.6px, #000 5px) left bottom / 14px 8px round no-repeat;
+}
+.lay-main .rqr-body::before {
+  content: ''; position: absolute; top: 0; left: 20px; right: 20px; height: 2px;
+  background: linear-gradient(to right, var(--rule-strong) 0 6px, transparent 6px) 0 0 / 11px 1.5px repeat-x; opacity: .55;
+}
+
+/* stub */
+.lay-main .rqr-merchant { font-size: 14px; color: var(--ink2); word-break: break-all; line-height: 1.35; }
+.lay-main .rqr-big {
+  font-family: "SF Pro Display", "Bahnschrift", -apple-system, sans-serif; font-stretch: 75%;
+  font-size: 62px; font-weight: 500; line-height: 1.04; letter-spacing: -.015em; margin-top: 6px; color: var(--ink1);
+}
+.lay-main .rqr-big.tone-text { color: var(--tone-ink); }
+.lay-main .rqr-big-label { font-size: 13px; color: var(--ink2); margin-top: 12px; letter-spacing: .04em; }
+.lay-main .rqr-big-label + .rqr-big { margin-top: 0; }
+.lay-main .rqr-status { display: inline-flex; align-items: center; gap: 5px; font-size: 14.5px; font-weight: 600; margin-top: 6px; }
+.lay-main .rqr-saved {
+  display: flex; align-items: center; justify-content: center; gap: 6px; margin: 10px auto 0; width: fit-content; max-width: 100%;
+  padding: 6px 11px; border-radius: 8px; background: var(--tone-wash); color: var(--tone-ink); font-size: 14px; font-weight: 600;
+}
+.lay-main .rqr-error {
+  margin-top: 14px; text-align: left; background: var(--sunken); border-radius: 10px; padding: 10px 12px;
+  font-size: 13px; line-height: 1.5; color: var(--ink1); word-break: break-word;
+}
+.lay-main .rqr-stub .actions { margin-top: 14px; }
+
+/* "已处理" stamp: a rotated ink frame beside the big status code */
+.lay-main .rqr-stamp {
+  position: absolute; top: 52px; right: 20px; transform: rotate(-12deg); pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 9px 3px;
+  border: 2px solid var(--ok-ink); border-radius: 7px; color: var(--ok-ink); line-height: 1.1;
+  box-shadow: inset 0 0 0 1.5px var(--surface), inset 0 0 0 2.5px var(--ok-ink);
+  animation: rqr-stamp .26s cubic-bezier(.2, .9, .3, 1.3);
+}
+.lay-main .rqr-stamp b { font-size: 15px; font-weight: 700; letter-spacing: .14em; margin-right: -.14em; }
+.lay-main .rqr-stamp span { font-size: 12px; font-weight: 600; }
+.lay-main .rqr-stamp small { font-size: 12px; font-weight: 600; font-family: var(--mono-font); opacity: .85; }
+@keyframes rqr-stamp { from { opacity: 0; transform: rotate(-12deg) scale(1.5); } }
+@media (prefers-reduced-motion: reduce) { .lay-main .rqr-stamp { animation: none; } }
+
+/* body lines */
+.lay-main .rqr-group { padding: 4px 0; }
+.lay-main .rqr-group + .rqr-group { background: linear-gradient(to right, var(--hairline) 0 4px, transparent 4px) 0 0 / 7px 1px repeat-x; }
+.lay-main .rqr-line { position: relative; display: flex; align-items: flex-start; gap: 12px; min-height: 40px; padding: 10px 0; }
+.lay-main .rqr-line.tappable { cursor: pointer; min-height: 44px; margin: 0 -18px; padding-left: 18px; padding-right: 14px; }
+.lay-main .rqr-line.tappable:hover { background: var(--hover-row); }
+.lay-main .rqr-label { flex: none; font-size: 14px; color: var(--ink2); padding-top: 1px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lay-main .rqr-label small { font-size: inherit; color: inherit; }
+.lay-main .rqr-value {
+  flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 8px;
+  text-align: right; font-size: 15px; color: var(--ink1);
+}
+.lay-main .rqr-value .mono { font-size: 14px; word-break: break-all; }
+.lay-main .rqr-chev { flex: none; color: var(--ink3); opacity: .7; padding-top: 3px; }
+.lay-main .rqr-tag { font-style: normal; font-size: 12px; font-weight: 600; color: var(--ink2); padding: 0 5px; border: 1px solid var(--hairline); border-radius: 4px; line-height: 18px; }
+.lay-main .rqr-acct { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lay-main .rqr-code { font-family: var(--mono-font); font-size: 12.5px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: var(--tone-wash); color: var(--tone-ink); }
+.lay-main .rqr-dur { color: var(--ink2); font-size: 14px; min-width: 38px; }
+.lay-main .rqr-soft { color: var(--ink2); font-size: 14px; }
+.lay-main .rqr-rid { font-size: 13px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lay-main .rqr-copy { font-size: 14px; font-weight: 600; color: var(--accent); padding-left: 4px; }
+
+
+/* ---------- 时间线式 ---------- */
+
+.lay-main .rqt-head { padding: 2px 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.lay-main .rqt-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--ink3); }
+.lay-main .rqt-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-radius: 4px;
+  background: var(--tone-wash); color: var(--tone-ink); font-size: 13.5px; font-weight: 600; white-space: nowrap;
+}
+.lay-main .rqt-cause { font-size: 14px; color: var(--ink2); margin-left: 2px; }
+.lay-main .rqt-model { font-size: 20px; font-weight: 600; line-height: 1.25; word-break: break-all; margin-top: -2px; }
+.lay-main .rqt-stats { display: grid; grid-template-columns: 1fr 1fr 1.25fr; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); padding: 10px 0 9px; }
+.lay-main .rqt-stats > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lay-main .rqt-stats > div + div { border-left: 1px solid var(--hairline); padding-left: 12px; }
+.lay-main .rqt-stats small { font-size: 12.5px; color: var(--ink2); }
+.lay-main .rqt-stats b {
+  font-family: "SF Pro Display", "Bahnschrift", -apple-system, sans-serif; font-stretch: 75%;
+  font-size: 27px; font-weight: 500; line-height: 1.1; color: var(--ink1); white-space: nowrap;
+}
+.lay-main .rqt-stats b.tone-text { color: var(--tone-ink); }
+.lay-main .rqt-stats b.is-word { font-family: inherit; font-stretch: normal; font-size: 19px; font-weight: 600; line-height: 30px; }
+.lay-main .rqt-stats b small { font-family: -apple-system, "PingFang SC", "Microsoft YaHei UI", sans-serif; font-stretch: normal; font-size: 14px; color: var(--ink2); }
+.lay-main .rqt-error { background: var(--sunken); border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.5; color: var(--ink1); word-break: break-word; }
+
+/* rail */
+.lay-main .rqt-rail { list-style: none; margin: 0; padding: 6px 0; }
+.lay-main .rqt-node { position: relative; display: flex; gap: 0; padding: 10px 14px 10px 0; min-height: 44px; }
+.lay-main .rqt-node.tappable { cursor: pointer; }
+.lay-main .rqt-node.tappable:hover { background: var(--hover-row); }
+.lay-main .rqt-pin { flex: none; width: 40px; position: relative; }
+.lay-main .rqt-pin i {
+  position: absolute; left: 15px; top: 6px; width: 10px; height: 10px; border-radius: 5px; z-index: 1;
+  background: var(--tone); box-shadow: 0 0 0 3px var(--tone-wash);
+}
+.lay-main .rqt-node.is-hollow .rqt-pin i { background: var(--surface); border: 2px solid var(--ink3); box-shadow: none; }
+.lay-main .rqt-node.is-strong .rqt-pin i { left: 14px; top: 5px; width: 12px; height: 12px; border-radius: 6px; }
+/* connectors: ::before = from the previous node down to this dot, ::after = from this dot to the next node */
+.lay-main .rqt-node::before, .lay-main .rqt-node::after { content: ''; position: absolute; left: 19px; width: 2px; background: var(--hairline); }
+.lay-main .rqt-node::before { top: 0; height: 21px; }
+.lay-main .rqt-node::after { top: 21px; bottom: 0; }
+.lay-main .rqt-node:first-child::before, .lay-main .rqt-node:last-child::after { display: none; }
+.lay-main .rqt-node.is-dashed::after { background: repeating-linear-gradient(to bottom, var(--tone) 0 4px, transparent 4px 8px); }
+.lay-main .rqt-node.is-dashed + .rqt-node::before { background: repeating-linear-gradient(to bottom, var(--hairline) 0 4px, transparent 4px 8px); }
+
+.lay-main .rqt-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lay-main .rqt-top { display: flex; align-items: center; gap: 6px; min-height: 22px; }
+.lay-main .rqt-title { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .rqt-node.is-strong .rqt-title { font-weight: 600; }
+.lay-main .rqt-tag { flex: none; font-style: normal; font-size: 12px; font-weight: 600; color: var(--ink2); padding: 0 5px; border: 1px solid var(--hairline); border-radius: 4px; line-height: 18px; }
+.lay-main .rqt-right { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink2); white-space: nowrap; }
+.lay-main .rqt-node.is-strong .rqt-right { font-size: 15px; font-weight: 600; color: var(--ink1); }
+.lay-main .rqt-code { font-family: var(--mono-font); font-size: 12.5px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: var(--tone-wash); color: var(--tone-ink); }
+.lay-main .rqt-chev { flex: none; color: var(--ink3); opacity: .7; margin-right: -4px; display: flex; }
+.lay-main .rqt-meta { font-size: 14px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .rqt-meta .mono { font-size: 12.5px; }
+
+/* waterfall: where this attempt sits inside the whole request; the tick marks the first token */
+.lay-main .rqt-bar { position: relative; height: 4px; margin: 7px 4px 2px 0; border-radius: 2px; background: var(--track); }
+.lay-main .rqt-bar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: var(--tone); }
+.lay-main .rqt-bar b { position: absolute; top: -3px; width: 2px; height: 10px; margin-left: -1px; border-radius: 1px; background: var(--ink1); }
+
+/* completion receipt inside the last node */
+.lay-main .rqt-receipt { margin-top: 8px; border-radius: 10px; background: var(--sunken); padding: 2px 12px; }
+.lay-main .rqt-cells { display: grid; gap: 6px; padding: 9px 0; }
+.lay-main .rqt-cells + .rqt-cells { border-top: 1px solid var(--hairline); }
+.lay-main .rqt-cells-4 { grid-template-columns: repeat(4, 1fr); }
+.lay-main .rqt-cells-2 { grid-template-columns: repeat(2, 1fr); }
+.lay-main .rqt-cells span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lay-main .rqt-cells small { font-size: 12px; color: var(--ink2); white-space: nowrap; }
+.lay-main .rqt-cells b { font-size: 14.5px; font-weight: 600; color: var(--ink1); white-space: nowrap; }
+
+/* numbered pins for upstream attempts */
+.lay-main .rqt-node.is-step .rqt-pin i {
+  left: 10px; top: 1px; width: 20px; height: 20px; border-radius: 10px; box-shadow: none;
+  background: var(--tone-wash); color: var(--tone-ink); border: 1.5px solid var(--tone);
+  display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; font-style: normal;
+}
+.lay-main.dark .rqt-bar { background: var(--hairline); }
+.lay-main .rqt-copy { flex: none; font-size: 14px; font-weight: 600; color: var(--accent); margin-left: 8px; }

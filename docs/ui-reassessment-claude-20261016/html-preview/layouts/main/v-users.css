@@ -1,0 +1,138 @@
+/* 第 2 轮 · 用户变体（v-users）：钱包卡、紧凑头部 + 流水在前、右侧固定列（状态用三种形状）、快捷充值头像。所有选择器挂在 .lay-main 下。 */
+
+/* balance readout: condensed numerals, currency and cents set smaller */
+.lay-main .vu-bal { font-family: "SF Pro Display", "Bahnschrift", -apple-system, sans-serif; font-stretch: 75%; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: -.01em; line-height: 1; }
+.lay-main .vu-bal.is-missing { color: var(--ink3); }
+.lay-main .vu-bal-cur { font-size: .5em; vertical-align: .78em; margin-right: .06em; }
+.lay-main .vu-bal-cents { font-size: .56em; margin-left: .02em; }
+.lay-main .vu-bal-sep { font-size: .6em; margin: 0 .03em 0 .01em; }
+.lay-main .vu-bal-xl { font-size: 64px; }
+.lay-main .vu-bal-m { font-size: 34px; }
+
+.lay-main .vu-hero-flag { display: inline-flex; align-self: center; margin-left: 6px; }
+
+/* ---------- 用户详情 · 共用分区 ---------- */
+/* banner buttons stay 30px tall but hit 44px (SwiftUI: .contentShape + .frame(minHeight: 44)): ::after sits in the 28px padding box
+   (1px border), so 8px above and below = 44; height:auto drops base.css's fixed 44px so top/bottom decide it */
+.lay-main .vu-banner .act-small { position: relative; }
+.lay-main .vu-banner .act-small::after { content: ''; position: absolute; left: -6px; right: -6px; top: -8px; bottom: -8px; height: auto; }
+.lay-main .vu-banner.tone-neutral { color: var(--neutral-ink); }
+/* API Key summary: one row into 编辑用户 · Key 与限额, with a caption under the card */
+.lay-main .sec-wrap.vu-has-foot { margin-bottom: 8px; }
+.lay-main .vu-sec-foot { margin: 0 18px 22px; font-size: 13px; line-height: 1.45; color: var(--ink2); }
+.lay-main .vu-keysum { min-height: 44px; }
+/* Groups + last use can outgrow one line (4 groups): wrap so 最近使用 stays visible (a flex .row-meta cannot ellipsize). */
+.lay-main .vu-keysum .row-meta { display: block; white-space: normal; line-height: 1.45; }
+/* …but each piece (a group, “预发 额度耗尽”, “最近使用 刚刚”) stays on one line; breaks fall between pieces */
+.lay-main .vu-keysum .vu-keep { white-space: nowrap; }
+.lay-main .vu-dim { color: var(--ink2); font-weight: 500; }
+/* ledger: note wraps instead of being cut, the full list is one tap away */
+.lay-main .vu-ledger-meta { white-space: normal; flex-wrap: wrap; row-gap: 0; line-height: 1.4; }
+.lay-main .vu-more { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-top: 1px solid var(--hairline); font-size: 15px; font-weight: 600; color: var(--accent); }
+.lay-main .vu-more svg { color: var(--ink3); }
+.lay-main .vu-more:hover { background: var(--hover-row); }
+
+/* ---------- 钱包卡（B 式）：浅色用石墨底白字，深色用抬升一级的面板 ---------- */
+.lay-main .vu-wallet {
+  --vw-bg: var(--ink1); --vw-ink: var(--surface); --vw-dim: rgba(255, 255, 255, .72); --vw-rule: rgba(255, 255, 255, .16);
+  --vw-btn: rgba(255, 255, 255, .14); --vw-btn-ink: var(--surface); --vw-pri: var(--surface); --vw-pri-ink: var(--ink1);
+  position: relative; overflow: hidden; margin: 2px 16px 16px; padding: 22px 18px 16px; border-radius: 24px; color: var(--vw-ink);
+  background: radial-gradient(130% 100% at 100% 0%, rgba(255, 255, 255, .10), transparent 58%), var(--vw-bg);
+  box-shadow: 0 14px 30px rgba(20, 24, 27, .20), 0 2px 6px rgba(20, 24, 27, .10);
+}
+.lay-main.dark .vu-wallet {
+  --vw-bg: var(--sunken); --vw-ink: var(--ink1); --vw-dim: var(--ink2); --vw-rule: rgba(255, 255, 255, .10);
+  --vw-btn: rgba(255, 255, 255, .08); --vw-btn-ink: var(--ink1); --vw-pri: var(--ink1); --vw-pri-ink: var(--canvas);
+  background: radial-gradient(130% 100% at 100% 0%, rgba(255, 255, 255, .06), transparent 58%), var(--vw-bg);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07), 0 14px 30px rgba(0, 0, 0, .40);
+}
+/* vernier scale hanging from the top edge: the palette's namesake, kept faint */
+.lay-main .vu-wallet::before {
+  content: ''; position: absolute; left: 18px; right: 18px; top: 0; height: 7px; pointer-events: none;
+  background: repeating-linear-gradient(to right, var(--vw-rule) 0 1px, transparent 1px 7px);
+  -webkit-mask: linear-gradient(to right, transparent, #000 20%, #000 80%, transparent); mask: linear-gradient(to right, transparent, #000 20%, #000 80%, transparent);
+}
+.lay-main .vu-wallet.is-disabled .vu-bal { opacity: .6; }
+.lay-main .vu-wallet-top { display: flex; align-items: center; gap: 11px; }
+.lay-main .vu-wallet-avatar { width: 40px; height: 40px; border-radius: 20px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--vw-btn); font-size: 17px; font-weight: 600; }
+.lay-main .vu-wallet-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.lay-main .vu-wallet-id b { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vu-wallet-id small { font-size: 13px; color: var(--vw-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vu-wallet-tag { flex: none; height: 24px; padding: 0 9px; border-radius: 12px; display: inline-flex; align-items: center; font-size: 12.5px; font-weight: 600; background: var(--vw-btn); color: var(--vw-dim); }
+.lay-main .vu-wallet-tag.is-low { background: var(--caution-wash); color: var(--caution-ink); }
+.lay-main .vu-wallet-label { display: block; margin-top: 24px; margin-bottom: 4px; font-size: 13px; color: var(--vw-dim); }
+.lay-main .vu-wallet-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--vw-rule); }
+.lay-main .vu-wallet-stats span { display: flex; flex-direction: column; gap: 2px; }
+.lay-main .vu-wallet-stats small { font-size: 12.5px; color: var(--vw-dim); }
+.lay-main .vu-wallet-stats b { font-size: 19px; font-weight: 500; font-family: "SF Pro Display", "Bahnschrift", -apple-system, sans-serif; font-stretch: 75%; }
+.lay-main .vu-wallet-actions { display: flex; gap: 10px; margin-top: 16px; }
+.lay-main .vu-pill { flex: 1; height: 46px; border-radius: 23px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 15.5px; font-weight: 600; background: var(--vw-btn); color: var(--vw-btn-ink); }
+.lay-main .vu-pill.primary { background: var(--vw-pri); color: var(--vw-pri-ink); }
+.lay-main .vu-pill:active { opacity: .82; }
+.lay-main .vu-banner + .vu-head { margin-top: 0; }
+/* nav title fades in once the card's name row has scrolled under the bar */
+.lay-main .vu-navtitle { opacity: 0; transform: translateY(5px); transition: opacity .2s ease, transform .2s ease; }
+.lay-main .vu-navtitle.is-shown { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .lay-main .vu-navtitle { transition: none; transform: none; } }
+
+/* ---------- 紧凑头部：余额与按钮一行、今日/本月是面板第二行，流水在前 ---------- */
+.lay-main .vu-head { margin: 4px 16px 20px; padding: 12px 12px 0 16px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 14px; }
+.lay-main .vu-head-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.lay-main .vu-head-bal { flex: 1 0 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.lay-main .vu-head-bal small { font-size: 12.5px; color: var(--ink2); }
+.lay-main .vu-head-acts { flex: none; display: flex; gap: 8px; margin-left: auto; }
+.lay-main .vu-btn { height: 44px; padding: 0 13px; border-radius: 10px; display: inline-flex; align-items: center; gap: 5px; font-size: 15px; font-weight: 600; background: var(--btn-bg); color: var(--btn-ink); border: 1px solid var(--hairline); white-space: nowrap; }
+.lay-main .vu-btn.primary { background: var(--accent-fill); color: var(--on-accent); border-color: transparent; }
+.lay-main .vu-btn:active { opacity: .82; }
+.lay-main .vu-head-sub { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; margin-top: 12px; padding: 9px 0 10px; border-top: 1px solid var(--hairline); font-size: 13.5px; color: var(--ink2); }
+.lay-main .vu-head-sub b { color: var(--ink1); font-weight: 600; margin-left: 2px; }
+.lay-main .vu-head-sub .badge { margin-left: auto; }
+.lay-main .vu-lg-row { align-items: center; padding-top: 10px; padding-bottom: 10px; }
+.lay-main .vu-lg-row .row-lead { width: 26px; padding-top: 0; }
+.lay-main .vu-lg-icon { width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; background: var(--sunken); color: var(--ink2); }
+.lay-main .vu-lg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lay-main .vu-lg-kind { font-size: 15.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vu-lg-note { font-size: 13px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vu-lg-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.lay-main .vu-lg-side b { font-size: 16px; font-weight: 600; color: var(--ink1); }
+.lay-main .vu-lg-side > span { font-size: 13px; color: var(--ink2); white-space: nowrap; }
+
+/* ---------- 列表 · 右侧固定列 ---------- */
+.lay-main .vu-urow { align-items: center; padding-top: 10px; padding-bottom: 10px; }
+.lay-main .vu-urow .row-lead { padding-top: 0; }
+.lay-main .vu-urow .row-chev { padding-top: 0; }
+.lay-main .vu-urow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lay-main .vu-urow-mail { font-size: 13.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vu-urow-side { flex: none; min-width: 92px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.lay-main .vu-urow-bal { display: inline-flex; align-items: center; gap: 7px; }
+.lay-main .vu-urow-bal b { font-size: 16px; font-weight: 600; color: var(--ink1); }
+.lay-main .vu-urow.is-idle .vu-urow-bal b { color: var(--ink2); }
+.lay-main .vu-urow-today { font-size: 13px; color: var(--ink2); white-space: nowrap; }
+.lay-main .vu-dot { flex: none; display: inline-block; width: 8px; height: 8px; border-radius: 4px; background: var(--tone); }
+.lay-main .vu-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--tone); }
+.lay-main .vu-cols-head { align-items: center; }
+.lay-main .vu-legend { display: inline-flex; align-items: center; gap: 12px; font-weight: 500; }
+.lay-main .vu-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+
+/* ---------- 列表 · 快捷充值头像 ---------- */
+.lay-main .vu-quick { padding: 2px 0 14px; }
+.lay-main .vu-quick-head { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 18px 6px; }
+.lay-main .vu-quick-head span { font-size: 13px; font-weight: 600; color: var(--ink2); }
+.lay-main .vu-quick-head small { font-size: 12.5px; color: var(--ink3); }
+.lay-main .vu-quick-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 0 10px; }
+.lay-main .vu-q { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 2px 6px; border-radius: 14px; }
+.lay-main .vu-q:hover { background: var(--hover-row); }
+.lay-main .vu-q:active { background: var(--hover); }
+.lay-main .vu-q-avatar { position: relative; width: 52px; height: 52px; border-radius: 26px; display: inline-flex; align-items: center; justify-content: center; background: var(--sunken); font-size: 20px; font-weight: 600; color: var(--ink1); margin-bottom: 2px; }
+.lay-main .vu-q.is-flag .vu-q-avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--tone); }
+.lay-main .vu-q-badge { position: absolute; right: -3px; bottom: -3px; width: 21px; height: 21px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; background: var(--accent-fill); color: var(--on-accent); box-shadow: 0 0 0 2.5px var(--surface); }
+.lay-main .vu-q.is-pending .vu-q-badge { background: var(--caution); color: var(--surface); }
+.lay-main .vu-q-name { max-width: 100%; font-size: 13px; font-weight: 600; color: var(--ink1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vu-q-sub { font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+.lay-main .vu-q.is-flag .vu-q-sub { color: var(--tone-ink); }
+.lay-main .vu-ledger-val { font-size: 16px; font-weight: 600; color: var(--ink1); white-space: nowrap; }
+
+/* round-6: line 2 of a record = time · note flowing as text (it wraps between characters, never leaving a lone “·” to start a line),
+   with the redeem code pinned right on the first line (core .ledger-sub / .ledger-code) */
+.lay-main .ledger-sub > .vu-ledger-meta { display: block; }
+.lay-main .ledger-sub > .vu-ledger-meta > .ledger-note { margin-left: 4px; }

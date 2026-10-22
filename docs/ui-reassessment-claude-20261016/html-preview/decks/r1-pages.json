@@ -1,0 +1,66 @@
+{
+  "title": "第 1 轮 · 每个页面选一种",
+  "intro": "大框架按你说的用 A（底部 4 个 Tab + 搜索，日志不占 Tab）。这一轮逐页挑：同一个页面，A / B / C 的实际做法并排放，都能点。可以每题选一个，也可以在对话里说“2 的卡片 + 1 的列表”这种混搭。颜色全部是游标黑白；右上角切深色。",
+  "questions": [
+    {
+      "short": "首页",
+      "title": "首页（今日）长什么样？",
+      "look": "看三点：一打开能不能马上知道哪个账号坏了；营收和用量放在哪、多大；整体好不好看。",
+      "options": [
+        { "title": "待处理队列", "from": "A", "page": "a-inbox", "initial": { "tab": "today" }, "points": ["待处理逐条列出：账号、原因、倒计时，可直接测试", "营收压成顶部一行", "最快救火，样子偏工具"] },
+        { "title": "卡片墙", "from": "B", "page": "b-dashboard", "initial": { "tab": "summary" }, "points": ["需处理叠卡 + 营收卡 + 账号环 + 渠道格 + 快捷充值", "点“编辑”能移除 / 添加卡片", "最好看，救火要多点一下"] },
+        { "title": "视图列表", "from": "C", "page": "c-workbench", "initial": { "stack": [] }, "points": ["6 格指标 + 一串带计数的视图", "最密，没有图", "适合当简化模式首页"] }
+      ]
+    },
+    {
+      "short": "账号列表",
+      "title": "账号列表怎么排？",
+      "look": "看一屏能看几个账号、异常是否一眼可见、找某个账号快不快。",
+      "options": [
+        { "title": "三行列表", "from": "A", "page": "a-inbox", "initial": { "tab": "accounts", "acctFilter": "all" }, "points": ["按“需处理 / 暂停 / 正常”分组", "每行：名称 + 状态牌 / 平台分组 / 容量条 + 今日", "顶部筛选胶囊"] },
+        { "title": "磁贴 + 轮播", "from": "B", "page": "b-dashboard", "initial": { "tab": "summary", "stack": [{ "kind": "accounts" }] }, "points": ["四个状态块当筛选", "需处理横向滑动大卡（带恢复按钮）", "按平台分组的两列小卡"] },
+        { "title": "表格", "from": "C", "page": "c-workbench", "initial": { "stack": [{ "kind": "accounts", "view": "all" }] }, "points": ["名称列固定，左右滑看更多列", "点表头排序，底部合计", "一屏 11 行"] }
+      ]
+    },
+    {
+      "short": "账号详情",
+      "title": "账号详情怎么排？（以限流账号为例）",
+      "look": "看能不能马上回答：现在怎么了、几点恢复、我能做什么；操作按钮好不好按。",
+      "options": [
+        { "title": "状态卡 + 按钮行", "from": "A", "page": "a-inbox", "initial": { "tab": "accounts", "stack": [{ "kind": "account", "id": 3 }] }, "points": ["大倒计时 + 模型限流列表", "恢复 / 测试 / 停止调度一排按钮", "下面容量、今日、记录、档案"] },
+        { "title": "通行证卡 + 控制磁贴", "from": "B", "page": "b-dashboard", "initial": { "tab": "summary", "stack": [{ "kind": "accounts" }, { "kind": "account", "id": 3 }] }, "points": ["像钱包里的一张卡", "控制中心式四个方块：调度 / 恢复 / 测试 / 令牌", "容量用圆环"] },
+        { "title": "检查器", "from": "C", "page": "c-workbench", "initial": { "stack": [{ "kind": "accounts", "view": "all" }, { "kind": "account", "id": 3 }] }, "points": ["属性表，信息最全", "右上角上一条 / 下一条，逐个处理", "操作在底部工具栏"] }
+      ]
+    },
+    {
+      "short": "充值",
+      "title": "充值 / 退款怎么输？",
+      "look": "看输金额顺不顺手、会不会输错、确认前能不能看清结果。三种都会再弹一次确认框，写明对象、站点、金额。",
+      "options": [
+        { "title": "输入框 + 快捷金额", "from": "A", "page": "a-inbox", "initial": { "tab": "users", "stack": [{ "kind": "user", "id": 1 }], "sheet": { "kind": "topup", "userId": 1, "mode": "topup", "amount": "50" } }, "points": ["系统键盘输入", "$10 / $20 / $50 / $100 快捷", "下方显示充值后余额"] },
+        { "title": "大数字键盘", "from": "B", "page": "b-dashboard", "initial": { "tab": "summary", "stack": [{ "kind": "user", "id": 1 }], "sheet": { "kind": "keypad", "userId": 1, "mode": "topup", "amount": "50" } }, "points": ["像 Apple Cash：大金额 + 自带键盘", "首页“快捷充值”头像可直接打开", "最直观"] },
+        { "title": "表单 + 算式", "from": "C", "page": "c-workbench", "initial": { "stack": [{ "kind": "users", "view": "all" }, { "kind": "user", "id": 1 }], "sheet": { "kind": "adjust", "userId": 1, "mode": "topup", "amount": "50" } }, "points": ["金额 + 备注两行表单", "当前余额 + 金额 = 调整后，像记账", "备注写进流水"] }
+      ]
+    },
+    {
+      "short": "日志",
+      "title": "使用记录（日志）页怎么排？",
+      "look": "看按账号 / 时间 / 类型筛选方不方便，一屏能看几条。",
+      "options": [
+        { "title": "分段 + 筛选胶囊", "from": "A", "page": "a-inbox", "initial": { "tab": "search", "stack": [{ "kind": "logs", "scope": "usage", "account": "Claude-官方-01" }] }, "points": ["顶部切用量明细 / 错误请求 / 上游错误", "筛选是可删除的胶囊，点“+ 筛选”按名字选账号", "两行一条"] },
+        { "title": "先图后表", "from": "B", "page": "b-dashboard", "initial": { "tab": "browse", "stack": [{ "kind": "logs" }] }, "points": ["上面是请求柱状图，点柱子筛这个时段", "下面是卡片里的列表", "最直观，条数少"] },
+        { "title": "查询条件 + 表格", "from": "C", "page": "c-workbench", "initial": { "stack": [{ "kind": "logs", "source": "usage", "account": "Claude-官方-01" }] }, "points": ["“账号 = …”这种条件条", "表格：时间 / 码 / 模型 / 费用 / 耗时…", "带合计，一屏最多"] }
+      ]
+    },
+    {
+      "short": "渠道监控",
+      "title": "渠道监控怎么看？",
+      "look": "看哪个渠道出问题是否一眼可见，过去 90 分钟的走势看不看得清。",
+      "options": [
+        { "title": "列表 + 时间条", "from": "A", "page": "a-inbox", "initial": { "tab": "monitor" }, "points": ["顶部四格计数", "每个渠道一行 + 一条 18 格时间条", "异常排最前"] },
+        { "title": "两列磁贴", "from": "B", "page": "b-dashboard", "initial": { "tab": "summary", "stack": [{ "kind": "channels" }] }, "points": ["每个渠道一块，大字可用率", "异常块顶部带颜色", "最好看"] },
+        { "title": "热力矩阵", "from": "C", "page": "c-workbench", "initial": { "stack": [{ "kind": "channels" }] }, "points": ["渠道 × 时间的格子表", "走势一眼对比", "最密"] }
+      ]
+    }
+  ]
+}
