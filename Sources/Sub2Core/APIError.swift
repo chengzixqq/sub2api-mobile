@@ -35,6 +35,8 @@ public struct APIError: LocalizedError, Sendable, Equatable {
     public static let administratorRequired = APIError(kind: .permission, statusCode: 403, message: "当前版本仅支持管理员账号，普通用户功能尚未开放。")
     public static let stationMismatch = APIError(kind: .validation, message: "该操作属于其他站点，已阻止发送。")
     public static let incompleteStream = APIError(kind: .stream, message: "连接已结束，但未收到测试完成结果；请检查后手动重试。")
+    /// 00 §1.7.2: refresh failed for a transient reason and the access has expired; the session is kept.
+    public static let refreshDeferred = APIError(kind: .transport, message: "暂时无法续期登录，正在重试")
     public static let malformedStream = APIError(kind: .stream, message: "账号测试返回了无法解析的数据。")
 
     /// Classifies a server error that had a JSON body with this reason.
@@ -63,6 +65,12 @@ public struct APIError: LocalizedError, Sendable, Equatable {
         }
         return server(status: status, envelope: envelope, context: context, requestID: requestID,
                       retryAfter: RetryAfter.resolve(headers: response.headers, envelope: envelope))
+    }
+    /// The same server answer read through another catalog entry, or with a defaulted wait (APIClient.failure).
+    func replacing(entry: ReasonCatalog.Entry? = nil, retryAfter seconds: Int? = nil) -> APIError {
+        APIError(kind: entry?.kind ?? kind, reason: reason, statusCode: statusCode, message: entry?.message ?? message,
+                 category: entry?.category ?? category, action: entry?.action ?? action, retryAfter: seconds ?? retryAfter,
+                 metadata: metadata, requestID: requestID)
     }
     public var diagnostics: [Diagnostic] {
         [Diagnostic(label: "HTTP 状态", value: statusCode.map(String.init) ?? "—"),

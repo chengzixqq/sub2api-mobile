@@ -107,7 +107,7 @@ private actor RequestLogTransport: HTTPTransport {
     let requests = await transport.requests()
     #expect(requests.map { $0.url!.path } == ["/api/v1/admin/usage", "/api/v1/admin/ops/request-errors", "/api/v1/admin/ops/upstream-errors", "/api/v1/admin/ops/upstream-errors/51"])
     #expect(requests.allSatisfy { $0.httpMethod == "GET" && $0.httpBody == nil })
-    #expect(requests[0].timeoutInterval == 45)
+    #expect(requests.allSatisfy { $0.timeoutInterval == 20 })
     #expect(throws: APIError.self) { try RequestLogFilter(accountID: 0).queryItems(page: 1) }
 }
 

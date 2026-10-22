@@ -210,12 +210,12 @@ public enum RequestLogPresentation {
 
 extension APIClient {
     public func requestRecords(page: Int, filter: RequestLogFilter) async throws -> RequestLogPage<UsageRequestRecord> {
-        try await request("admin/usage", query: filter.queryItems(page: page), timeout: 45)
+        try await request("admin/usage", query: filter.queryItems(page: page), timeout: RequestTimeout.read)
     }
     public func errorRecords(page: Int, filter: RequestLogFilter, kind: ErrorLogKind = .request) async throws -> RequestLogPage<RequestErrorRecord> {
-        try await request("admin/ops/\(kind == .request ? "request-errors" : "upstream-errors")", query: filter.queryItems(page: page, errors: true, errorKind: kind), timeout: 45)
+        try await request("admin/ops/\(kind == .request ? "request-errors" : "upstream-errors")", query: filter.queryItems(page: page, errors: true, errorKind: kind), timeout: RequestTimeout.read)
     }
     public func errorRecord(id: Int, kind: ErrorLogKind = .request) async throws -> RequestErrorRecord {
-        try await request("admin/ops/\(kind == .request ? "request-errors" : "upstream-errors")/\(validID(id))", timeout: 30)
+        try await request("admin/ops/\(kind == .request ? "request-errors" : "upstream-errors")/\(validID(id))", timeout: RequestTimeout.read)
     }
 }

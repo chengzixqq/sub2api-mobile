@@ -114,7 +114,8 @@ extension APIClient {
             throw APIError(kind: .validation, message: "请选择 1 至 50 个不同账号。")
         }
         struct Body: Encodable { let account_ids: [Int]; let schedulable: Bool }
-        return try await request("admin/accounts/bulk-update", method: "POST", body: encode(Body(account_ids: ids, schedulable: enabled)))
+        return try await request("admin/accounts/bulk-update", method: "POST", body: encode(Body(account_ids: ids, schedulable: enabled)),
+                                 timeout: RequestTimeout.keyedBulk)
     }
     public func refreshManagedAccount(id: Int, identity: UUID) async throws {
         guard identity == userWriteIdentity() else { throw APIError.stationMismatch }

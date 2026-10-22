@@ -85,21 +85,21 @@ public struct AnalyticsBreakdown: Identifiable, Decodable, Sendable {
 
 extension APIClient {
     public func usageAnalysis(_ query: AnalyticsQuery) async throws -> AnalyticsSummary {
-        try await request("admin/usage/stats", query: query.queryItems(), timeout: 90)
+        try await request("admin/usage/stats", query: query.queryItems(), timeout: RequestTimeout.aggregate)
     }
     public func usageAnalysisTrend(_ query: AnalyticsQuery) async throws -> [TrendPoint] {
         struct Reply: Decodable, Sendable { let trend: [TrendPoint]? }
-        let reply: Reply = try await request("admin/dashboard/trend", query: query.queryItems() + [URLQueryItem(name: "granularity", value: query.hourly ? "hour" : "day")], timeout: 60)
+        let reply: Reply = try await request("admin/dashboard/trend", query: query.queryItems() + [URLQueryItem(name: "granularity", value: query.hourly ? "hour" : "day")], timeout: RequestTimeout.aggregate)
         return reply.trend ?? []
     }
     public func usageAnalysisModels(_ query: AnalyticsQuery) async throws -> [AnalyticsBreakdown] {
         struct Reply: Decodable, Sendable { let models: [AnalyticsBreakdown]? }
-        let reply: Reply = try await request("admin/dashboard/models", query: query.queryItems() + [URLQueryItem(name: "model_source", value: "requested")], timeout: 60)
+        let reply: Reply = try await request("admin/dashboard/models", query: query.queryItems() + [URLQueryItem(name: "model_source", value: "requested")], timeout: RequestTimeout.aggregate)
         return reply.models ?? []
     }
     public func usageAnalysisGroups(_ query: AnalyticsQuery) async throws -> [AnalyticsBreakdown] {
         struct Reply: Decodable, Sendable { let groups: [AnalyticsBreakdown]? }
-        let reply: Reply = try await request("admin/dashboard/groups", query: query.queryItems(), timeout: 60)
+        let reply: Reply = try await request("admin/dashboard/groups", query: query.queryItems(), timeout: RequestTimeout.aggregate)
         return reply.groups ?? []
     }
 }

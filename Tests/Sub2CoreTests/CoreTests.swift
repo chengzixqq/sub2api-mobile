@@ -236,18 +236,24 @@ private actor AttemptCounter {
     #expect(requests[0].httpBody == requests[1].httpBody)
     #expect(requests[0].value(forHTTPHeaderField: "Idempotency-Key") == requests[1].value(forHTTPHeaderField: "Idempotency-Key"))
     #expect(requests[0].value(forHTTPHeaderField: "Idempotency-Key") == operation.id.uuidString.lowercased())
+    #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "X-Request-ID") == operation.id.uuidString.lowercased() })
     let wrong = PendingBalanceOperation(serverID: UUID(), userID: 7, amount: 1, operation: .set)
     await #expect(throws: APIError.stationMismatch) { try await client.updateBalance(wrong) }
     #expect(await transport.requests().count == 2)
     #expect(requests.allSatisfy { $0.url?.host == profile.baseURL.host })
 }
 
-@Test func expiredMutationIsNotReplayedAndErrorsAreRedacted() async throws {
+@Test func expiredMutationRefreshesOnceAndErrorsAreRedacted() async throws {
     let transport = MockTransport { _ in HTTPResponse(statusCode: 401, data: Data(#"{"code":401,"reason":"TOKEN_EXPIRED","message":"secret-token-should-not-appear"}"#.utf8)) }
     let client = APIClient(server: server(), credential: token(), transport: transport)
     do { _ = try await client.setSchedulable(id: 9, enabled: false); Issue.record("Expected failure") }
-    catch let error as APIError { #expect(error.statusCode == 401); #expect(error.reason == "TOKEN_EXPIRED"); #expect(!error.localizedDescription.contains("secret-token")) }
-    #expect(await transport.requests().count == 1)
+    catch let error as APIError {
+        #expect(error.statusCode == 401); #expect(error.reason == "TOKEN_EXPIRED"); #expect(!error.localizedDescription.contains("secret-token"))
+        #expect(error.action == .clearSession)
+    }
+    // The write is rejected before the handler runs, so it may be resent after one refresh; the refresh itself is rejected here.
+    let requests = await transport.requests()
+    #expect(requests.count == 2); #expect(requests.last?.url?.path == "/api/v1/auth/refresh")
 }
 
 @Test func safeReadRefreshesOnlyOnExpiredTokenAndPaginationEncodesSearch() async throws {
@@ -316,7 +322,7 @@ private actor AttemptCounter {
     let startDate = try #require(formatter.date(from: start)); let endDate = try #require(formatter.date(from: end))
     #expect(formatter.calendar.dateComponents([.day], from: startDate, to: endDate).day == 1)
     let opsRequest = try #require(requests.last)
-    #expect(opsRequest.timeoutInterval == 15)
+    #expect(opsRequest.timeoutInterval == 45)
     #expect(opsRequest.url?.path == "/api/v1/admin/ops/dashboard/overview")
     let opsURL = try #require(opsRequest.url)
     #expect(URLComponents(url: opsURL, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "time_range" }?.value == "5m")

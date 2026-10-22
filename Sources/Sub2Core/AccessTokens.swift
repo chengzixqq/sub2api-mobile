@@ -35,7 +35,7 @@ public struct AdminAccessToken: Identifiable, Decodable, Sendable, Equatable {
 extension APIClient {
     /// The caller's own tokens; the list is `{items}`, not a paged envelope.
     public func accessTokens() async throws -> [AdminAccessToken] {
-        let reply: AccessTokenList = try await request("admin/access-tokens", timeout: Self.probeTimeout)
+        let reply: AccessTokenList = try await request("admin/access-tokens", timeout: RequestTimeout.probe)
         return reply.items ?? []
     }
 }

@@ -154,9 +154,10 @@ private func thrownError(_ operation: () async throws -> Void) async -> APIError
         }
         return mappingReply(429, #"{"code":"RATE_LIMITED","reason":"RATE_LIMITED","message":"slow"}"#, headers: ["retry-after": "9"])
     }
-    let client = APIClient(server: mappingServer(), credential: .adminKey("fixture"), transport: transport)
+    let client = APIClient(server: mappingServer(), credential: .adminKey("fixture"), transport: transport, requestClock: .immediate)
     let unavailable = try #require(await thrownError { _ = try await client.user(id: 7) })
     #expect(unavailable.requestID == "req-fixture-3"); #expect(unavailable.kind == .temporary)
+    #expect(await transport.requests().count == 3) // a transient read is retried twice (00 §2.4)
     let limited = try #require(await thrownError { _ = try await client.user(id: 8) })
     #expect(limited.retryAfter == 9); #expect(limited.localizedDescription == "请求过于频繁，请 9 秒后再试")
 }

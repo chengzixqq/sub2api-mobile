@@ -27,6 +27,6 @@ public struct AdminComplianceStatus: Decodable, Sendable, Equatable {
 extension APIClient {
     /// Exempt from the compliance guard, which also makes it the Admin Key permission probe on old servers (00 §1.9).
     public func complianceStatus() async throws -> AdminComplianceStatus {
-        try await request("admin/compliance", timeout: Self.probeTimeout)
+        try await request("admin/compliance", timeout: RequestTimeout.probe)
     }
 }

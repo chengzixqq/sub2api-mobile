@@ -18,15 +18,25 @@ public struct DashboardCostSnapshot: Sendable {
 
 public actor APIClient {
     public nonisolated let server: ServerProfile
+    /// Sent as X-Device-ID on every request (00 §1.2); nil only until S0-10 passes the per-site Keychain value everywhere.
+    public nonisolated let deviceID: UUID?
     private var credential: Credential?
     private let store: (any CredentialStore)?
     private let transport: any HTTPTransport
+    private let requestClock: RequestClock
     private var generation = UUID()
     private var cancellations: [UUID: @Sendable () -> Void] = [:]
     private var refreshTask: Task<TokenPair, any Error>?
     private var refreshID: UUID?
-    public init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil, transport: any HTTPTransport = URLSessionTransport()) {
-        self.server = server; self.credential = credential; store = credentialStore; self.transport = transport
+    /// Consecutive transient refresh failures and the earliest next attempt (00 §1.7.2).
+    private var refreshFailures = 0
+    private var refreshRetryAt: Date?
+    /// A refresh rejection ends the session: later requests fail with it and never reach the network.
+    private var sessionEnded: APIError?
+    public init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil, deviceID: UUID? = nil,
+                transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live) {
+        self.server = server; self.credential = credential; store = credentialStore; self.deviceID = deviceID
+        self.transport = transport; self.requestClock = requestClock
     }
     public func currentCredential() -> Credential? { credential }
     public func cancelAll() async {
@@ -36,12 +46,12 @@ public actor APIClient {
         for action in cancel { action() }
     }
     public func publicSettings() async throws -> PublicSettings {
-        try await request("settings/public", authenticated: false)
+        try await request("settings/public", authenticated: false, timeout: RequestTimeout.probe)
     }
     public func login(email: String, password: String, proof: CaptchaProof? = nil) async throws -> LoginResult {
         let snapshot = generation
         let body = LoginBody(email: email, password: password, turnstileToken: proof?.turnstileToken, tencentTicket: proof?.tencentTicket, tencentRandstr: proof?.tencentRandstr)
-        let reply: LoginReply = try await request("auth/login", method: "POST", body: encode(body), authenticated: false, context: .login)
+        let reply: LoginReply = try await request("auth/login", method: "POST", body: encode(body), requestClass: .auth, authenticated: false, context: .login)
         try check(snapshot)
         if reply.requires2FA == true {
             guard let token = reply.tempToken, !token.isEmpty else { throw APIError.invalidResponse }
@@ -55,30 +65,31 @@ public actor APIClient {
         }
         let snapshot = generation
         let reply: LoginReply = try await request("auth/login/2fa", method: "POST", body: encode(["temp_token": tempToken, "totp_code": code]),
-                                                  authenticated: false, context: .twoFactor)
+                                                  requestClass: .auth, authenticated: false, context: .twoFactor)
         return try await acceptLogin(reply, generation: snapshot)
     }
     public func logout() async throws {
         let oldCredential = credential
         await cancelAll()
-        credential = nil
+        credential = nil; resetRefreshState()
         // Local erasure happens even when the station is unreachable.
         try await store?.remove(serverID: server.id)
         if case .tokens(let tokens) = oldCredential, !tokens.refreshToken.isEmpty {
-            let _: EmptyReply = try await request("auth/logout", method: "POST", body: encode(["refresh_token": tokens.refreshToken]), authenticated: false)
+            let _: EmptyReply = try await request("auth/logout", method: "POST", body: encode(["refresh_token": tokens.refreshToken]),
+                                                  requestClass: .auth, authenticated: false)
         }
     }
     public func dashboard() async throws -> DashboardSummary {
         let snapshot = generation
         // Large stations can need longer to calculate an uncached aggregate. Optional
         // historical and operational queries must not delay these primary metrics.
-        let stats: DashboardStats = try await request("admin/dashboard/stats", timeout: 90)
+        let stats: DashboardStats = try await request("admin/dashboard/stats", timeout: RequestTimeout.dashboardStats)
         try check(snapshot)
         return DashboardSummary(stats: stats, trend: [])
     }
     public func dashboardTrend() async throws -> [TrendPoint] {
         let snapshot = generation
-        let reply: TrendReply = try await request("admin/dashboard/trend", query: dateRange(days: 1) + [URLQueryItem(name: "granularity", value: "hour")], timeout: 45)
+        let reply: TrendReply = try await request("admin/dashboard/trend", query: dateRange(days: 1) + [URLQueryItem(name: "granularity", value: "hour")], timeout: RequestTimeout.aggregate)
         try check(snapshot)
         return reply.trend
     }
@@ -92,7 +103,7 @@ public actor APIClient {
             URLQueryItem(name: "include_model_stats", value: "false"),
             URLQueryItem(name: "include_group_stats", value: "false"),
             URLQueryItem(name: "include_users_trend", value: "false")
-        ], timeout: 45)
+        ], timeout: RequestTimeout.aggregate)
         try check(snapshot)
         guard let actual = reply.stats?.todayActualCost, let account = reply.stats?.todayAccountCost else {
             throw APIError(kind: .response, message: "站点未提供实际费用或账号成本，请在网页核对。")
@@ -101,7 +112,7 @@ public actor APIClient {
     }
     public func dashboardMonitoring() async throws -> OpsSnapshot {
         let snapshot = generation
-        let reply: OpsReply = try await request("admin/ops/dashboard/overview", query: [URLQueryItem(name: "time_range", value: "5m")], timeout: 15)
+        let reply: OpsReply = try await request("admin/ops/dashboard/overview", query: [URLQueryItem(name: "time_range", value: "5m")], timeout: RequestTimeout.aggregate)
         try check(snapshot)
         return OpsSnapshot(errorRate: reply.errorRate, qps: reply.qps?.current, activeRequests: nil)
     }
@@ -116,7 +127,7 @@ public actor APIClient {
             URLQueryItem(name: "start_time", value: formatter.string(from: start)),
             URLQueryItem(name: "end_time", value: formatter.string(from: end)),
             URLQueryItem(name: "mode", value: "auto")
-        ], timeout: 45)
+        ], timeout: RequestTimeout.aggregate)
         try check(snapshot)
         return result
     }
@@ -130,7 +141,7 @@ public actor APIClient {
         let requested = Array(Set(ids.filter { $0 > 0 })).sorted()
         guard !requested.isEmpty else { return [:] }
         struct Batch: Decodable, Sendable { let stats: [String: AccountTodayStats] }
-        let result: Batch = try await request("admin/accounts/today-stats/batch", method: "POST", body: encode(["account_ids": requested]))
+        let result: Batch = try await request("admin/accounts/today-stats/batch", method: "POST", body: encode(["account_ids": requested]), requestClass: .readBatch)
         let allowed = Set(requested)
         var stats = [Int: AccountTodayStats]()
         for (rawID, value) in result.stats {
@@ -143,7 +154,7 @@ public actor APIClient {
         try await request("admin/accounts/\(validID(id))/schedulable", method: "POST", body: encode(["schedulable": enabled]))
     }
     public func refreshAccount(id: Int) async throws {
-        let _: EmptyReply = try await request("admin/accounts/\(validID(id))/refresh", method: "POST", body: Data("{}".utf8))
+        let _: EmptyReply = try await request("admin/accounts/\(validID(id))/refresh", method: "POST", body: Data("{}".utf8), timeout: RequestTimeout.keyedBulk)
     }
     public func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser> {
         try await request("admin/users", query: pagination(page, search: search, status: status))
@@ -157,8 +168,8 @@ public actor APIClient {
     public func updateUser(_ operation: PendingUserUpdateOperation) async throws -> AdminUser {
         guard operation.serverID == server.id else { throw APIError.stationMismatch }
         try check(operation.identity)
-        let headers = operation.supportsSafeRetry ? ["Idempotency-Key": operation.id.uuidString.lowercased()] : [:]
-        return try await request("admin/users/\(validID(operation.userID))", method: "PUT", body: operation.body, headers: headers)
+        let keyed: RequestClass? = operation.supportsSafeRetry ? .keyedWrite(key: operation.id) : nil
+        return try await request("admin/users/\(validID(operation.userID))", method: "PUT", body: operation.body, requestClass: keyed)
     }
     public func userUsage(id: Int) async throws -> UserUsageSummary {
         // The legacy /admin/users/:id/usage endpoint currently returns mock zeros in this backend.
@@ -174,7 +185,8 @@ public actor APIClient {
     }
     public func updateBalance(_ operation: PendingBalanceOperation) async throws -> AdminUser {
         guard operation.serverID == server.id else { throw APIError.stationMismatch }
-        return try await request("admin/users/\(validID(operation.userID))/balance", method: "POST", body: operation.requestBody(), headers: ["Idempotency-Key": operation.id.uuidString.lowercased()])
+        return try await request("admin/users/\(validID(operation.userID))/balance", method: "POST", body: operation.requestBody(),
+                                 requestClass: .keyedWrite(key: operation.id))
     }
     public func stepUp(code: String) async throws {
         guard validTOTP(code) else { throw APIError(kind: .twoFactor, message: "请输入六位双因素验证码。") }
@@ -183,25 +195,281 @@ public actor APIClient {
     }
     public func testAccount(id: Int, model: String?) async throws -> AsyncThrowingStream<AccountTestEvent, any Error> {
         let snapshot = generation
-        let auth = try await validCredential()
-        let body = try encode(["model_id": model ?? ""])
-        let request = try makeRequest("admin/accounts/\(validID(id))/test", method: "POST", body: body, credential: auth, headers: ["Accept": "text/event-stream"])
-        let response = try await openStream(request, generation: snapshot)
-        guard (200..<300).contains(response.statusCode) else {
-            let errorReadID = UUID()
-            cancellations[errorReadID] = { response.cancel() }
-            defer { cancellations[errorReadID] = nil; response.cancel() }
-            var body = Data()
-            for try await chunk in response.bytes {
-                try check(snapshot)
-                body.append(chunk); if body.count > 64 * 1_024 { break }
-            }
-            try check(snapshot)
-            throw APIError.from(HTTPResponse(statusCode: response.statusCode, headers: response.headers, data: body))
-        }
+        let spec = try OutgoingRequest(path: "admin/accounts/\(validID(id))/test", method: "POST", body: encode(["model_id": model ?? ""]),
+                                       headers: ["Accept": "text/event-stream"])
+        let response: HTTPStreamResponse
+        do { response = try await openTestStream(spec, generation: snapshot) }
+        catch let error as APIError { throw surfaced(error, context: .business, generation: snapshot) }
         guard response.headers.first(where: { $0.key.lowercased() == "content-type" })?.value.lowercased().hasPrefix("text/event-stream") == true else {
             response.cancel(); throw APIError.malformedStream
         }
+        return events(from: response, generation: snapshot)
+    }
+
+    private func acceptLogin(_ reply: LoginReply, generation snapshot: UUID) async throws -> AuthSession {
+        try check(snapshot)
+        guard let user = reply.user, let token = reply.accessToken, !token.isEmpty else { throw APIError.invalidResponse }
+        guard user.role == "admin" else { throw APIError.administratorRequired }
+        let pair = TokenPair(accessToken: token, refreshToken: reply.refreshToken ?? "", expiresAt: requestClock.now().addingTimeInterval(TimeInterval(reply.expiresIn ?? 300)))
+        let current = Credential.tokens(pair)
+        try await persist(current, generation: snapshot)
+        credential = current; resetRefreshState()
+        return AuthSession(user: user, tokens: pair)
+    }
+    private func persist(_ value: Credential, generation snapshot: UUID) async throws {
+        try check(snapshot)
+        try await store?.save(value, serverID: server.id)
+        if snapshot != generation {
+            try await store?.remove(serverID: server.id)
+            throw CancellationError()
+        }
+    }
+
+    // MARK: Token refresh (00 §1.7.2)
+
+    /// Refreshes when under 60 seconds of access remain, or when a request's access was rejected; one flight per client.
+    private func validCredential(forceRefresh: Bool = false, rejectedAccess: String? = nil) async throws -> Credential {
+        try Task.checkCancellation()
+        if let sessionEnded { throw sessionEnded }
+        guard let current = credential else { throw APIError.authenticationRequired }
+        guard case .tokens(let tokens) = current else { return current }
+        if let rejectedAccess, rejectedAccess != tokens.accessToken { return current }
+        let now = requestClock.now()
+        if !forceRefresh && tokens.expiresAt.timeIntervalSince(now) >= RequestPolicy.refreshLeadTime { return current }
+        guard !tokens.refreshToken.isEmpty else { throw APIError.authenticationRequired }
+        let snapshot = generation
+        let flight: Task<TokenPair, any Error>
+        if let existing = refreshTask, refreshID != nil { flight = existing }
+        else if let retryAt = refreshRetryAt, now < retryAt { return try deferredCredential(current, tokens, forceRefresh: forceRefresh) }
+        else { flight = try startRefresh(tokens.refreshToken, generation: snapshot) }
+        do {
+            let pair = try await flight.value
+            try check(snapshot)
+            return .tokens(pair)
+        } catch {
+            if snapshot != generation || Task.isCancelled || error is CancellationError { throw CancellationError() }
+            if let sessionEnded { throw sessionEnded }
+            return try deferredCredential(current, tokens, forceRefresh: forceRefresh)
+        }
+    }
+    /// A transient refresh failure keeps the session: an unexpired access still works, otherwise this request fails as transport.
+    private func deferredCredential(_ current: Credential, _ tokens: TokenPair, forceRefresh: Bool) throws -> Credential {
+        guard !forceRefresh, tokens.expiresAt > requestClock.now() else { throw APIError.refreshDeferred }
+        return current
+    }
+    /// The refresh request carries UA and X-Device-ID but never Authorization; it goes through `transmit` like any request.
+    private func startRefresh(_ refreshToken: String, generation snapshot: UUID) throws -> Task<TokenPair, any Error> {
+        let spec = try OutgoingRequest(path: "auth/refresh", method: "POST", body: encode(["refresh_token": refreshToken]), requestClass: .auth, authenticated: false)
+        let request = try makeRequest(spec, credential: nil)
+        let flightID = UUID()
+        let flight = Task { [self] in
+            do {
+                let response = try await transmit(request, generation: snapshot, requestClass: .auth)
+                let pair = try refreshedPair(response)
+                try await commitRefresh(pair, flightID: flightID, generation: snapshot)
+                return pair
+            } catch {
+                refreshFailed(flightID, error: error)
+                throw error
+            }
+        }
+        refreshTask = flight; refreshID = flightID
+        return flight
+    }
+    /// A missing or non-positive expires_in counts as 300 seconds (00 §1.7.1).
+    private func refreshedPair(_ response: HTTPResponse) throws -> TokenPair {
+        guard (200..<300).contains(response.statusCode) else { throw failure(response, context: .refresh) }
+        let reply: RefreshReply = try Self.decode(response, context: .refresh)
+        guard !reply.accessToken.isEmpty, !reply.refreshToken.isEmpty else { throw APIError.invalidResponse }
+        let lifetime = reply.expiresIn.flatMap { $0 > 0 ? $0 : nil } ?? 300
+        return TokenPair(accessToken: reply.accessToken, refreshToken: reply.refreshToken, expiresAt: requestClock.now().addingTimeInterval(TimeInterval(lifetime)))
+    }
+    private func commitRefresh(_ pair: TokenPair, flightID: UUID, generation snapshot: UUID) async throws {
+        try check(snapshot)
+        guard refreshID == flightID else { throw CancellationError() }
+        let value = Credential.tokens(pair)
+        try await persist(value, generation: snapshot)
+        try check(snapshot)
+        credential = value; refreshTask = nil; refreshID = nil; resetRefreshState()
+    }
+    /// One verdict per flight: a rejection ends the session, anything else backs off 2, 5, 15, then 30 seconds.
+    private func refreshFailed(_ id: UUID, error: any Error) {
+        guard refreshID == id else { return }
+        refreshTask = nil; refreshID = nil
+        guard !(error is CancellationError) else { return }
+        if let rejected = error as? APIError, let status = rejected.statusCode,
+           RequestPolicy.refreshVerdict(status: status, reason: rejected.reason) == .endSession {
+            sessionEnded = rejected
+            return
+        }
+        refreshFailures += 1
+        refreshRetryAt = requestClock.now().addingTimeInterval(RequestPolicy.refreshBackoff(afterFailures: refreshFailures))
+    }
+    private func resetRefreshState() { sessionEnded = nil; refreshFailures = 0; refreshRetryAt = nil }
+
+    // MARK: Request pipeline (D01). Later items add code at these hooks instead of splitting `request` again.
+
+    func request<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:],
+                                          requestClass: RequestClass? = nil, authenticated: Bool = true, timeout: TimeInterval? = nil,
+                                          context: ReasonCatalog.Context = .business) async throws -> T {
+        try await requestWithHeaders(path, method: method, query: query, body: body, headers: headers, requestClass: requestClass,
+                                     authenticated: authenticated, timeout: timeout, context: context).value
+    }
+    /// Value, status and lowercased headers (00 §9.1). Hooks: S0-05 wraps `send` with the conditional cache;
+    /// S0-13 intercepts between `failure` and `surfaced`.
+    func requestWithHeaders<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
+                                                     headers: [String: String] = [:], requestClass: RequestClass? = nil, authenticated: Bool = true,
+                                                     timeout: TimeInterval? = nil, context: ReasonCatalog.Context = .business) async throws -> APIResponse<T> {
+        let snapshot = generation
+        let spec = OutgoingRequest(path: path, method: method, query: query, body: body, headers: headers, requestClass: requestClass,
+                                   timeout: timeout, authenticated: authenticated)
+        let response: HTTPResponse
+        do { response = try await send(spec, context: context, generation: snapshot) }
+        catch let error as APIError { throw surfaced(error, context: context, generation: snapshot) }
+        catch is CancellationError { throw CancellationError() }
+        catch { throw surfaced(APIError.transport(error), context: context, generation: snapshot) }
+        guard (200..<300).contains(response.statusCode) else { throw surfaced(failure(response, context: context), context: context, generation: snapshot) }
+        do { return APIResponse(value: try Self.decode(response, context: context), status: response.statusCode, headers: response.headers) }
+        catch let error as APIError { throw surfaced(error, context: context, generation: snapshot) }
+    }
+    /// 00 §2.4: only reads retry on their own — at most twice, after 1 s and 3 s plus jitter — and each wait is bound to the generation.
+    private func send(_ spec: OutgoingRequest, context: ReasonCatalog.Context, generation snapshot: UUID) async throws -> HTTPResponse {
+        guard spec.requestClass.retriesAutomatically else { return try await sendAttempt(spec, context: context, generation: snapshot) }
+        for attempt in RequestPolicy.readRetryDelays.indices {
+            let delay: Duration
+            do {
+                let response = try await sendAttempt(spec, context: context, generation: snapshot)
+                guard let wait = retryDelay(after: RequestFailure(response: response), of: spec, attempt: attempt) else { return response }
+                delay = wait
+            } catch {
+                guard let wait = retryDelay(after: RequestFailure(error: error), of: spec, attempt: attempt) else { throw error }
+                delay = wait
+            }
+            try await pause(delay, generation: snapshot)
+        }
+        return try await sendAttempt(spec, context: context, generation: snapshot)
+    }
+    private func retryDelay(after failure: RequestFailure?, of spec: OutgoingRequest, attempt: Int) -> Duration? {
+        guard let failure else { return nil }
+        return spec.requestClass.automaticRetryDelay(after: failure, attempt: attempt, jitter: requestClock.jitter())
+    }
+    /// One send with the credential current at that moment. A JWT rejected before the handler ran (TOKEN_EXPIRED or an
+    /// unknown 401, 00 §1.7.2 / §3.3) is refreshed once and the same bytes, X-Request-ID and Idempotency-Key go out again.
+    /// Non-2xx replies are returned and network errors thrown unchanged; S0-06's keyed executor and S0-13's resend call it directly.
+    func sendAttempt(_ spec: OutgoingRequest, context: ReasonCatalog.Context, generation snapshot: UUID) async throws -> HTTPResponse {
+        let auth: Credential?
+        if spec.authenticated { auth = try await validCredential() } else { auth = nil }
+        try check(snapshot)
+        let response = try await transmit(makeRequest(spec, credential: auth), generation: snapshot, requestClass: spec.requestClass)
+        guard let rejected = expiredAccess(response, credential: auth, requestClass: spec.requestClass, context: context) else { return response }
+        let fresh = try await validCredential(forceRefresh: true, rejectedAccess: rejected)
+        try check(snapshot)
+        return try await transmit(makeRequest(spec, credential: fresh), generation: snapshot, requestClass: spec.requestClass)
+    }
+    /// The rejected JWT access when this reply calls for one refresh-and-resend; nil otherwise.
+    private func expiredAccess(_ response: HTTPResponse, credential: Credential?, requestClass: RequestClass, context: ReasonCatalog.Context) -> String? {
+        guard response.statusCode == 401, requestClass.resendsAfterTokenRefresh, case .tokens(let tokens)? = credential,
+              RequestPolicy.requiresTokenRefresh(status: 401, marker: ErrorEnvelope.decode(response.data)?.marker, context: context) else { return nil }
+        return tokens.accessToken
+    }
+    /// The only call into `transport.data(for:)`: registered for cancelAll, late replies fenced by the generation, transport
+    /// errors thrown unchanged for classification. Hooks: S0-07 Date header, S0-11 suspend, S0-19 request log.
+    func transmit(_ request: URLRequest, generation snapshot: UUID, requestClass: RequestClass) async throws -> HTTPResponse {
+        try check(snapshot)
+        let transport = transport
+        let task = Task { try await transport.data(for: request) }
+        let id = register { task.cancel() }
+        defer { removeCancellation(id) }
+        do {
+            let response = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+            try check(snapshot)
+            return response
+        } catch {
+            if snapshot != generation || Task.isCancelled || error is CancellationError { throw CancellationError() }
+            throw error
+        }
+    }
+    /// Waits on the request clock; cancelAll interrupts the wait and a changed generation fails it (00 §2.4).
+    func pause(_ duration: Duration, generation snapshot: UUID) async throws {
+        try check(snapshot)
+        let sleep = requestClock.sleep
+        let task = Task { try await sleep(duration) }
+        let id = register { task.cancel() }
+        defer { removeCancellation(id) }
+        try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        try check(snapshot)
+    }
+    /// The only HTTPResponse → APIError construction. A final TOKEN_EXPIRED means the one refresh-and-resend did not help, so it
+    /// is the 00 §3.3 session-expired fallback; a 429 without seconds waits RetryAfter.rateLimitDefault (00 §2.7.2).
+    func failure(_ response: HTTPResponse, context: ReasonCatalog.Context = .business) -> APIError {
+        let error = APIError.from(response, context: context)
+        if error.action == .refreshAndResend { return error.replacing(entry: ReasonCatalog.entry(status: 401, reason: nil)) }
+        if error.statusCode == 429, error.retryAfter == nil { return error.replacing(retryAfter: RetryAfter.rateLimitDefault) }
+        return error
+    }
+    /// Every APIError caused by a server reply or a refresh leaves through here; S0-11 reports session invalidation at this point.
+    func surfaced(_ error: APIError, context: ReasonCatalog.Context, generation snapshot: UUID) -> APIError { error }
+    /// URL encoding lives only here, so S0-05 cache keys and real requests always agree.
+    func endpointURL(_ path: String, query: [URLQueryItem]) throws -> URL {
+        guard var components = URLComponents(url: try server.validatedURL(), resolvingAgainstBaseURL: false) else { throw APIError.invalidServer }
+        let items = RequestPolicy.sanitizedQuery(query)
+        components.path = "/api/v1/" + path; components.queryItems = items.isEmpty ? nil : items
+        guard let url = components.url else { throw APIError.invalidServer }
+        return url
+    }
+    /// 00 §2.2: caller headers first, then the identity, idempotency and credential headers that only the client may set.
+    private func makeRequest(_ spec: OutgoingRequest, credential: Credential?) throws -> URLRequest {
+        var request = URLRequest(url: try endpointURL(spec.path, query: spec.query))
+        request.httpMethod = spec.method; request.httpBody = spec.body
+        request.timeoutInterval = spec.timeout ?? spec.requestClass.defaultTimeout
+        for (name, value) in spec.headers where !RequestPolicy.isReserved(name) { request.setValue(value, forHTTPHeaderField: name) }
+        if request.value(forHTTPHeaderField: "Accept") == nil { request.setValue("application/json", forHTTPHeaderField: "Accept") }
+        request.setValue(RequestPolicy.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("zh-CN", forHTTPHeaderField: "Accept-Language")
+        if let deviceID { request.setValue(deviceID.uuidString.lowercased(), forHTTPHeaderField: "X-Device-ID") }
+        if let requestID = spec.requestID { request.setValue(requestID, forHTTPHeaderField: "X-Request-ID") }
+        if let key = spec.requestClass.idempotencyKey { request.setValue(key, forHTTPHeaderField: "Idempotency-Key") }
+        if spec.body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        switch credential {
+        case .adminKey(let key), .accessToken(let key): request.setValue(key, forHTTPHeaderField: "x-api-key")
+        case .tokens(let tokens): request.setValue("Bearer " + tokens.accessToken, forHTTPHeaderField: "Authorization")
+        case nil: break
+        }
+        return request
+    }
+    private func register(_ cancel: @escaping @Sendable () -> Void) -> UUID {
+        let id = UUID(); cancellations[id] = cancel; return id
+    }
+
+    // MARK: Account test stream
+
+    /// SSE goes through makeRequest too; a JWT expired before the handler ran is refreshed and the same bytes reopened once.
+    private func openTestStream(_ spec: OutgoingRequest, generation snapshot: UUID) async throws -> HTTPStreamResponse {
+        let auth = try await validCredential()
+        try check(snapshot)
+        let first = try await openStream(makeRequest(spec, credential: auth), generation: snapshot)
+        guard let rejected = try await rejection(first, generation: snapshot) else { return first }
+        guard let access = expiredAccess(rejected, credential: auth, requestClass: spec.requestClass, context: .business) else { throw failure(rejected) }
+        let fresh = try await validCredential(forceRefresh: true, rejectedAccess: access)
+        try check(snapshot)
+        let second = try await openStream(makeRequest(spec, credential: fresh), generation: snapshot)
+        if let rejectedAgain = try await rejection(second, generation: snapshot) { throw failure(rejectedAgain) }
+        return second
+    }
+    /// nil for 2xx; otherwise the first 64 KB of the error body, read under the session generation.
+    private func rejection(_ response: HTTPStreamResponse, generation snapshot: UUID) async throws -> HTTPResponse? {
+        guard !(200..<300).contains(response.statusCode) else { return nil }
+        let id = register { response.cancel() }
+        defer { removeCancellation(id); response.cancel() }
+        var body = Data()
+        for try await chunk in response.bytes {
+            try check(snapshot)
+            body.append(chunk); if body.count > 64 * 1_024 { break }
+        }
+        try check(snapshot)
+        return HTTPResponse(statusCode: response.statusCode, headers: response.headers, data: body)
+    }
+    private func events(from response: HTTPStreamResponse, generation snapshot: UUID) -> AsyncThrowingStream<AccountTestEvent, any Error> {
         let streamID = UUID()
         let pair = AsyncThrowingStream<AccountTestEvent, any Error>.makeStream()
         let task = Task { [weak self] in
@@ -228,110 +496,11 @@ public actor APIClient {
         pair.continuation.onTermination = { _ in task.cancel(); response.cancel() }
         return pair.stream
     }
-
-    private func acceptLogin(_ reply: LoginReply, generation snapshot: UUID) async throws -> AuthSession {
-        try check(snapshot)
-        guard let user = reply.user, let token = reply.accessToken, !token.isEmpty else { throw APIError.invalidResponse }
-        guard user.role == "admin" else { throw APIError.administratorRequired }
-        let pair = TokenPair(accessToken: token, refreshToken: reply.refreshToken ?? "", expiresAt: Date().addingTimeInterval(TimeInterval(reply.expiresIn ?? 300)))
-        let current = Credential.tokens(pair)
-        try await persist(current, generation: snapshot)
-        credential = current
-        return AuthSession(user: user, tokens: pair)
-    }
-    private func persist(_ value: Credential, generation snapshot: UUID) async throws {
-        try check(snapshot)
-        try await store?.save(value, serverID: server.id)
-        if snapshot != generation {
-            try await store?.remove(serverID: server.id)
-            throw CancellationError()
-        }
-    }
-    private func validCredential(forceRefresh: Bool = false, rejectedAccess: String? = nil) async throws -> Credential {
-        try Task.checkCancellation()
-        guard let current = credential else { throw APIError.authenticationRequired }
-        guard case .tokens(let tokens) = current else { return current }
-        if let rejectedAccess, rejectedAccess != tokens.accessToken { return current }
-        if !forceRefresh && tokens.expiresAt > Date().addingTimeInterval(30) { return current }
-        guard !tokens.refreshToken.isEmpty else { throw APIError.authenticationRequired }
-        let snapshot = generation
-        let flight: Task<TokenPair, any Error>
-        if let existing = refreshTask, refreshID != nil { flight = existing }
-        else {
-            let request = try makeRequest("auth/refresh", method: "POST", body: encode(["refresh_token": tokens.refreshToken]), credential: nil)
-            let transport = transport
-            let newFlightID = UUID()
-            flight = Task { [self] in
-                do {
-                    let response = try await transport.data(for: request)
-                    let reply: RefreshReply = try Self.decode(response, context: .refresh)
-                    guard !reply.accessToken.isEmpty, !reply.refreshToken.isEmpty, reply.expiresIn > 0 else { throw APIError.invalidResponse }
-                    let pair = TokenPair(accessToken: reply.accessToken, refreshToken: reply.refreshToken, expiresAt: Date().addingTimeInterval(TimeInterval(reply.expiresIn)))
-                    try await commitRefresh(pair, flightID: newFlightID, generation: snapshot)
-                    return pair
-                } catch {
-                    refreshFailed(newFlightID)
-                    throw error
-                }
-            }
-            refreshTask = flight; refreshID = newFlightID
-        }
-        do {
-            let pair = try await flight.value
-            try check(snapshot)
-            return .tokens(pair)
-        } catch {
-            if snapshot != generation || Task.isCancelled { throw CancellationError() }
-            if error is CancellationError { throw CancellationError() }
-            throw APIError.transport(error)
-        }
-    }
-    private func commitRefresh(_ pair: TokenPair, flightID: UUID, generation snapshot: UUID) async throws {
-        try check(snapshot)
-        guard refreshID == flightID else { throw CancellationError() }
-        let value = Credential.tokens(pair)
-        try await persist(value, generation: snapshot)
-        try check(snapshot)
-        credential = value; refreshTask = nil; refreshID = nil
-    }
-    private func refreshFailed(_ id: UUID) { if refreshID == id { refreshTask = nil; refreshID = nil } }
-    func request<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, headers: [String: String] = [:],
-                                          authenticated: Bool = true, timeout: TimeInterval? = nil, context: ReasonCatalog.Context = .business) async throws -> T {
-        let snapshot = generation
-        let auth: Credential?
-        if authenticated { auth = try await validCredential() } else { auth = nil }
-        try check(snapshot)
-        let outgoing = try makeRequest(path, method: method, query: query, body: body, credential: auth, headers: headers, timeout: timeout)
-        var response = try await execute(outgoing, generation: snapshot)
-        // Only safe reads can be retried, and only an explicit expired-token response permits refresh.
-        // Middleware sends a string code, so the marker (reason, else string code) is what identifies it.
-        if authenticated, method == "GET", response.statusCode == 401,
-           ErrorEnvelope.decode(response.data)?.marker == "TOKEN_EXPIRED",
-           let auth, case .tokens(let old) = auth {
-            let fresh = try await validCredential(forceRefresh: true, rejectedAccess: old.accessToken)
-            try check(snapshot)
-            response = try await execute(makeRequest(path, method: method, query: query, body: body, credential: fresh, headers: headers, timeout: timeout), generation: snapshot)
-        }
-        return try Self.decode(response, context: context)
-    }
-    private func execute(_ request: URLRequest, generation snapshot: UUID) async throws -> HTTPResponse {
-        try check(snapshot)
-        let id = UUID(); let transport = transport
-        let task = Task { try await transport.data(for: request) }
-        cancellations[id] = { task.cancel() }
-        defer { cancellations[id] = nil }
-        do {
-            let response = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
-            try check(snapshot)
-            return response
-        } catch is CancellationError { throw CancellationError() }
-        catch { if snapshot != generation || Task.isCancelled { throw CancellationError() }; throw APIError.transport(error) }
-    }
     private func openStream(_ request: URLRequest, generation snapshot: UUID) async throws -> HTTPStreamResponse {
-        let id = UUID(); let transport = transport
+        let transport = transport
         let task = Task { try await transport.stream(for: request) }
-        cancellations[id] = { task.cancel() }
-        defer { cancellations[id] = nil }
+        let id = register { task.cancel() }
+        defer { removeCancellation(id) }
         do {
             let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             do { try check(snapshot) } catch { result.cancel(); throw error }
@@ -339,25 +508,7 @@ public actor APIClient {
         } catch is CancellationError { throw CancellationError() }
         catch { if snapshot != generation || Task.isCancelled { throw CancellationError() }; throw APIError.transport(error) }
     }
-    private func makeRequest(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, credential: Credential?, headers: [String: String] = [:], timeout: TimeInterval? = nil) throws -> URLRequest {
-        let base = try server.validatedURL()
-        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
-        components.path = "/api/v1/" + path; components.queryItems = query.isEmpty ? nil : query
-        guard let url = components.url else { throw APIError.invalidServer }
-        var request = URLRequest(url: url); request.httpMethod = method; request.httpBody = body
-        if let timeout { request.timeoutInterval = timeout }
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Sub2Mobile/1.0 (iOS)", forHTTPHeaderField: "User-Agent")
-        request.setValue("zh-CN", forHTTPHeaderField: "Accept-Language")
-        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        switch credential {
-        case .adminKey(let key), .accessToken(let key): request.setValue(key, forHTTPHeaderField: "x-api-key")
-        case .tokens(let tokens): request.setValue("Bearer " + tokens.accessToken, forHTTPHeaderField: "Authorization")
-        case nil: break
-        }
-        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
-        return request
-    }
+
     /// Non-2xx and 2xx with a non-zero code become catalog errors; a success body is parsed exactly once.
     static func decode<T: Decodable & Sendable>(_ response: HTTPResponse, context: ReasonCatalog.Context = .business) throws -> T {
         guard (200..<300).contains(response.statusCode) else { throw APIError.from(response, context: context) }
@@ -378,9 +529,11 @@ public actor APIClient {
     func validID(_ value: Int) throws -> Int {
         guard value > 0 else { throw APIError(kind: .validation, message: "无效的对象编号。") }; return value
     }
-    func pagination(_ page: Int, search: String, status: String?) throws -> [URLQueryItem] {
+    /// 00 §4.1: 1–1000; Debug asserts, Release clamps (the server would silently fall back to 20).
+    func pagination(_ page: Int, pageSize: Int = PageSize.standard, search: String, status: String?) throws -> [URLQueryItem] {
         guard page >= 1 else { throw APIError(kind: .validation, message: "页码必须从 1 开始。") }
-        return [URLQueryItem(name: "page", value: String(page)), URLQueryItem(name: "page_size", value: "20")]
+        assert((1...PageSize.maximum).contains(pageSize), "page_size must stay within 1...1000")
+        return [URLQueryItem(name: "page", value: String(page)), URLQueryItem(name: "page_size", value: String(PageSize.clamped(pageSize)))]
             + optionalQuery("search", search.trimmingCharacters(in: .whitespacesAndNewlines)) + optionalQuery("status", status)
     }
     func optionalQuery(_ name: String, _ value: String?) -> [URLQueryItem] {
@@ -435,6 +588,6 @@ private struct LoginReply: Decodable, Sendable {
     }
 }
 private struct RefreshReply: Decodable, Sendable {
-    let accessToken: String; let refreshToken: String; let expiresIn: Int
+    let accessToken: String; let refreshToken: String; let expiresIn: Int?
     enum CodingKeys: String, CodingKey { case accessToken = "access_token", refreshToken = "refresh_token", expiresIn = "expires_in" }
 }

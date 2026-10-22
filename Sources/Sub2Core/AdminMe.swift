@@ -246,16 +246,13 @@ extension AdminMe {
 }
 
 extension APIClient {
-    /// 00 §2.3 session class; S0-04 moves it into the shared timeout constants.
-    static let probeTimeout: TimeInterval = 15
-
     /// Replaces the old realtime probe. Only a non-JSON 404 (`.unsupported`) means the server predates `/admin/me`;
     /// a JSON 404, 401 and 403 are thrown unchanged.
     public func me() async throws -> AdminMe {
         let credential = try probeCredential()
         let snapshot = currentGeneration()
         let result: AdminMe
-        do { result = try await request("admin/me", timeout: Self.probeTimeout) }
+        do { result = try await request("admin/me", timeout: RequestTimeout.probe) }
         catch let error as APIError where error.kind == .unsupported { result = try await legacyMe(credential) }
         try check(snapshot)
         return result
@@ -278,11 +275,11 @@ extension APIClient {
             // admin/compliance skips the compliance guard, so it is the permission probe. Sites older than it
             // (before 2026-06) have no guard either, and the realtime read is still a valid probe there.
             let compliance = try await optionalCompliance()
-            if compliance == nil { let _: EmptyReply = try await request("admin/dashboard/realtime", timeout: Self.probeTimeout) }
+            if compliance == nil { let _: EmptyReply = try await request("admin/dashboard/realtime", timeout: RequestTimeout.probe) }
             let publicSettings = try await settings
             return AdminMe.legacy(authMethod: method, authMe: nil, settings: publicSettings, compliance: compliance)
         }
-        async let authMe: LegacyAuthMe = request("auth/me", timeout: Self.probeTimeout)
+        async let authMe: LegacyAuthMe = request("auth/me", timeout: RequestTimeout.probe)
         async let compliance = optionalCompliance()
         // auth/me carries identity and role, so its failure is the failure of me().
         let user = try await authMe
@@ -294,7 +291,7 @@ extension APIClient {
     /// Unauthenticated and only fills version, time zone and module switches: any failure leaves them unknown.
     private func optionalPublicSettings() async throws -> PublicSettings? {
         do {
-            let settings: PublicSettings = try await request("settings/public", authenticated: false, timeout: Self.probeTimeout)
+            let settings: PublicSettings = try await request("settings/public", authenticated: false, timeout: RequestTimeout.probe)
             return settings
         } catch is CancellationError { throw CancellationError() }
         catch { return nil }

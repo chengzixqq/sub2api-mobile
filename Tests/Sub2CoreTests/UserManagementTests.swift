@@ -88,20 +88,50 @@ private actor UserWriteTransport: HTTPTransport {
     #expect(!String(reflecting: operation).contains("new-secret"))
 }
 
-@Test func userWritesNeverAutomaticallyReplayExpiredTokenOrStepUp() async throws {
-    for (status, reason) in [(401, "TOKEN_EXPIRED"), (403, "STEP_UP_REQUIRED")] {
-        let transport = UserWriteTransport { _ in
-            HTTPResponse(statusCode: status, data: Data("{\"code\":\(status),\"reason\":\"\(reason)\",\"message\":\"blocked\"}".utf8))
+private func userTokens() -> Credential {
+    .tokens(TokenPair(accessToken: "fixture-access", refreshToken: "fixture-refresh", expiresAt: Date().addingTimeInterval(3600)))
+}
+
+@Test func expiredTokenWritesResendOnceWithSameBytes() async throws {
+    let transport = UserWriteTransport { request in
+        if request.url?.path == "/api/v1/auth/refresh" {
+            return HTTPResponse(statusCode: 200, data: Data(#"{"code":0,"data":{"access_token":"fresh-access","refresh_token":"fresh-refresh","expires_in":3600}}"#.utf8))
         }
-        let server = userServer()
-        let credential = Credential.tokens(TokenPair(accessToken: "fixture-access", refreshToken: "fixture-refresh", expiresAt: Date().addingTimeInterval(3600)))
-        let client = APIClient(server: server, credential: credential, transport: transport)
-        let identity = await client.userWriteIdentity()
-        let operation = try PendingUserUpdateOperation(serverID: server.id, identity: identity, userID: 24, request: UserUpdateRequest(role: .admin, concurrency: 2))
-        await #expect(throws: APIError.self) { try await client.updateUser(operation) }
-        await #expect(throws: APIError.self) { try await client.createUser(UserCreateRequest(email: "a@example.invalid", password: "abcdef", role: .admin), identity: identity) }
-        #expect(await transport.requests().count == 2)
+        if request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-access" {
+            return HTTPResponse(statusCode: 401, data: Data(#"{"code":"TOKEN_EXPIRED","reason":"TOKEN_EXPIRED","message":"blocked"}"#.utf8))
+        }
+        return userReply()
     }
+    let server = userServer()
+    let client = APIClient(server: server, credential: userTokens(), transport: transport)
+    let identity = await client.userWriteIdentity()
+    let operation = try PendingUserUpdateOperation(serverID: server.id, identity: identity, userID: 24, request: UserUpdateRequest(role: .admin, concurrency: 2))
+    _ = try await client.updateUser(operation)
+    _ = try await client.createUser(UserCreateRequest(email: "a@example.invalid", password: "abcdef", role: .admin), identity: identity)
+    let sent = await transport.requests()
+    #expect(sent.filter { $0.url?.path == "/api/v1/auth/refresh" }.count == 1)
+    let updates = sent.filter { $0.httpMethod == "PUT" }, creates = sent.filter { $0.httpMethod == "POST" && $0.url?.path == "/api/v1/admin/users" }
+    #expect(updates.count == 2); #expect(creates.count == 1)
+    #expect(updates[0].httpBody == updates[1].httpBody)
+    for name in ["X-Request-ID", "Idempotency-Key"] {
+        #expect(updates[0].value(forHTTPHeaderField: name) == updates[1].value(forHTTPHeaderField: name))
+    }
+    #expect(updates[0].value(forHTTPHeaderField: "Idempotency-Key") == operation.id.uuidString.lowercased())
+    #expect(updates[1].value(forHTTPHeaderField: "Authorization") == "Bearer fresh-access")
+    #expect(creates[0].value(forHTTPHeaderField: "Authorization") == "Bearer fresh-access")
+}
+
+@Test func stepUpWritesAreNeverResent() async throws {
+    let transport = UserWriteTransport { _ in
+        HTTPResponse(statusCode: 403, data: Data(#"{"code":403,"reason":"STEP_UP_REQUIRED","message":"blocked"}"#.utf8))
+    }
+    let server = userServer()
+    let client = APIClient(server: server, credential: userTokens(), transport: transport)
+    let identity = await client.userWriteIdentity()
+    let operation = try PendingUserUpdateOperation(serverID: server.id, identity: identity, userID: 24, request: UserUpdateRequest(role: .admin, concurrency: 2))
+    await #expect(throws: APIError.self) { try await client.updateUser(operation) }
+    await #expect(throws: APIError.self) { try await client.createUser(UserCreateRequest(email: "a@example.invalid", password: "abcdef", role: .admin), identity: identity) }
+    #expect(await transport.requests().count == 2)
 }
 
 @Test func preparedUserWriteRejectsOtherStationAndOldIdentity() async throws {
