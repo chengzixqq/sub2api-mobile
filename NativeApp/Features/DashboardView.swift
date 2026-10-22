@@ -1,44 +1,6 @@
 import SwiftUI
-import Observation
 import Charts
 import Sub2Core
-
-// A cancelled or late request cannot replace a newer foreground load.
-@MainActor @Observable
-final class DashboardLoadState<Value: Sendable> {
-    var value: Value?
-    var error: String?
-    var updatedAt: Date?
-    var isLoading = false
-    @ObservationIgnored private var requestID: UUID?
-    @ObservationIgnored private var task: Task<Value, any Error>?
-
-    func cancel() {
-        requestID = nil
-        task?.cancel(); task = nil; isLoading = false
-    }
-    func load(isCurrent: @MainActor () -> Bool, operation: @escaping @MainActor @Sendable () async throws -> Value) async {
-        guard isCurrent(), !Task.isCancelled else { return }
-        cancel()
-        let id = UUID()
-        let current = Task { try await operation() }
-        requestID = id; task = current; isLoading = true; error = nil
-        defer {
-            if requestID == id { task = nil; requestID = nil; isLoading = false }
-        }
-        do {
-            let result = try await withTaskCancellationHandler {
-                try await current.value
-            } onCancel: { current.cancel() }
-            guard requestID == id, isCurrent(), !Task.isCancelled else { return }
-            value = result; updatedAt = Date()
-        } catch {
-            guard requestID == id, isCurrent(), !current.isCancelled, !Task.isCancelled,
-                  !(error is CancellationError) else { return }
-            self.error = error.localizedDescription
-        }
-    }
-}
 
 /// Interpolate the scale so bar widths grow smoothly from the anchored edge;
 /// gestures continue to update the same scale without a separate animation.
@@ -295,12 +257,12 @@ struct DashboardView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var summaryCardHeight = 92.0
-    @State private var stats = DashboardLoadState<DashboardSummary>()
-    @State private var costs = DashboardLoadState<DashboardCostSnapshot>()
+    @State private var stats = LoadState<DashboardSummary>()
+    @State private var costs = LoadState<DashboardCostSnapshot>()
     @State private var costAttemptAt: Date?
     @State private var costLaunchID: UUID?
-    @State private var trend = DashboardLoadState<DashboardTrendReply>()
-    @State private var monitoring = DashboardLoadState<OpsSnapshot>()
+    @State private var trend = LoadState<DashboardTrendReply>()
+    @State private var monitoring = LoadState<OpsSnapshot>()
     @State private var visible = false
     private var polling: Bool { visible && scenePhase == .active }
 
@@ -435,21 +397,21 @@ struct DashboardView: View {
             while !Task.isCancelled {
                 // A scheduled tick must not restart a slow pull-to-refresh.
                 if !stats.isLoading { await loadStats() }
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                do { try await Task.sleep(for: .seconds(stats.nextDelay(base: 30))) } catch { return }
             }
         }
         .task(id: shouldPoll) {
             guard shouldPoll else { return }
             while !Task.isCancelled {
                 if !trend.isLoading { await loadTrend() }
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                do { try await Task.sleep(for: .seconds(trend.nextDelay(base: 30))) } catch { return }
             }
         }
         .task(id: shouldPoll) {
             guard shouldPoll else { return }
             while !Task.isCancelled {
                 if !monitoring.isLoading { await loadMonitoring() }
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                do { try await Task.sleep(for: .seconds(monitoring.nextDelay(base: 30))) } catch { return }
             }
         }
     }

@@ -8,10 +8,10 @@ struct AnalyticsView: View {
     @State private var query: AnalyticsQuery
     @State private var lastQuery: AnalyticsQuery?
     @State private var filters = false
-    @State private var summary = DashboardLoadState<AnalyticsSummary>()
-    @State private var trend = DashboardLoadState<[TrendPoint]>()
-    @State private var models = DashboardLoadState<[AnalyticsBreakdown]>()
-    @State private var groups = DashboardLoadState<[AnalyticsBreakdown]>()
+    @State private var summary = LoadState<AnalyticsSummary>()
+    @State private var trend = LoadState<[TrendPoint]>()
+    @State private var models = LoadState<[AnalyticsBreakdown]>()
+    @State private var groups = LoadState<[AnalyticsBreakdown]>()
 
     init(accountID: Int? = nil, groupID: Int? = nil) {
         let now = Date()
@@ -106,8 +106,8 @@ struct AnalyticsView: View {
         .task(id: query) {
             cancel()
             if lastQuery != query {
-                summary = DashboardLoadState(); trend = DashboardLoadState()
-                models = DashboardLoadState(); groups = DashboardLoadState()
+                summary = LoadState(); trend = LoadState()
+                models = LoadState(); groups = LoadState()
                 lastQuery = query
             }
             await refresh()
@@ -129,7 +129,7 @@ struct AnalyticsView: View {
         async let d: Void = loadGroups()
         _ = await (a, b, c, d)
     }
-    private func load<T: Sendable>(_ state: DashboardLoadState<T>, fixture: @escaping @MainActor @Sendable () throws -> T,
+    private func load<T: Sendable>(_ state: LoadState<T>, fixture: @escaping @MainActor @Sendable () throws -> T,
                                    operation: @escaping @MainActor @Sendable (APIClient, AnalyticsQuery) async throws -> T) async {
         guard !state.isLoading, let session else { return }
         let selected = query
@@ -150,12 +150,12 @@ struct AnalyticsView: View {
     private func loadGroups() async {
         await load(groups, fixture: { try JSONDecoder().decode([AnalyticsBreakdown].self, from: Data(#"[{"group_id":1,"group_name":"默认分组","requests":125,"total_tokens":1250000,"actual_cost":"12.34","account_cost":"5.67"}]"#.utf8)) }) { try await $0.usageAnalysisGroups($1) }
     }
-    @ViewBuilder private func loadStatus<T>(_ state: DashboardLoadState<T>, retry: @escaping () -> Void) -> some View {
+    @ViewBuilder private func loadStatus<T>(_ state: LoadState<T>, retry: @escaping () -> Void) -> some View {
         if state.isLoading { ProgressView("正在独立加载…") }
         if let error = state.error { Text(error).foregroundStyle(.red); Button("重试本项", action: retry) }
         if let date = state.updatedAt { Text("更新于 \(date.formatted(date: .omitted, time: .standard))").font(.caption).foregroundStyle(.secondary) }
     }
-    private func breakdownSection(_ title: String, state: DashboardLoadState<[AnalyticsBreakdown]>, retry: @escaping () -> Void) -> some View {
+    private func breakdownSection(_ title: String, state: LoadState<[AnalyticsBreakdown]>, retry: @escaping () -> Void) -> some View {
         Section(title) {
             if let values = state.value {
                 if values.isEmpty { Text("暂无数据") }

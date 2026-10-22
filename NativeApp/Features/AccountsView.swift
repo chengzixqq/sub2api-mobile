@@ -37,7 +37,7 @@ struct AccountsView: View {
     @State private var editingFields = false
     @State private var editingFilters = false
     @State private var fieldProfileID: UUID?
-    @State private var todayStats = DashboardLoadState<[Int: AccountTodayStats]>()
+    @State private var todayStats = LoadState<[Int: AccountTodayStats]>()
     @State private var loadedAt: Date?
     @State private var pageRevision = UUID()
     @State private var groups: [AdminGroup] = []
@@ -189,7 +189,7 @@ struct AccountsView: View {
         .task(id: query) {
             cancelReads()
             page = 0; hasMore = false; accounts = []; total = nil; error = nil; failedPage = nil; selected = []
-            todayStats.cancel(); todayStats.value = nil; loadedAt = nil
+            todayStats.reset(); loadedAt = nil
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             await load(nextPage: 1, replace: true)
         }
@@ -327,7 +327,7 @@ struct AccountsView: View {
         return account
     }
     private func loadTodayStats() async {
-        guard fieldSelection.isEnabled(.todayStats), !accounts.isEmpty, let generation = session?.generation else { todayStats.cancel(); todayStats.value = nil; return }
+        guard fieldSelection.isEnabled(.todayStats), !accounts.isEmpty, let generation = session?.generation else { todayStats.reset(); return }
         let ids = accounts.map(\.id); let currentQuery = statsQuery
         await todayStats.load(isCurrent: { generation == model.sessionGeneration && currentQuery == statsQuery && fieldSelection.isEnabled(.todayStats) }) { try await model.accountTodayStats(ids: ids) }
     }

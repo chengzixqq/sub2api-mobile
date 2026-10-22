@@ -8,7 +8,7 @@ struct PerformanceTrendView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
-    @State private var history = DashboardLoadState<PerformanceTrend>()
+    @State private var history = LoadState<PerformanceTrend>()
     @State private var hours = 1
     @State private var metric = PerformanceMetric.rpm
     @State private var selectedDate: Date?
@@ -59,7 +59,7 @@ struct PerformanceTrendView: View {
         }
         .onAppear { visible = true }
         .onDisappear { visible = false; history.cancel() }
-        .onChange(of: hours) { _, _ in history.cancel(); history.value = nil; history.updatedAt = nil; selectedDate = nil }
+        .onChange(of: hours) { _, _ in history.reset(); selectedDate = nil }
         .onChange(of: scenePhase) { _, phase in if phase != .active { history.cancel() } }
         .task(id: taskID) {
             guard shouldPoll, hours == requestedHours else { return }
