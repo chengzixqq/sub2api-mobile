@@ -43,6 +43,11 @@ public enum BlockState<Value: Sendable>: Sendable {
         guard let previous, let at else { return .idle }
         return .loaded(previous, at: at)
     }
+    /// Clears the shown value. During a 429 wait no request may go out, so the failure stays instead of a blank block.
+    public func withReset(during refresh: BlockRefresh, at now: Date) -> BlockState {
+        guard !refresh.allowsRequest(at: now), let reason = failureReason else { return .idle }
+        return .failed(reason: reason, previous: nil, at: nil)
+    }
 
     /// 10 §0.5 display rule: show the value whenever there is one; a failed refresh keeps it.
     public var display: BlockDisplay<Value> {
@@ -93,10 +98,10 @@ public struct BlockRefresh: Sendable, Equatable {
 
     public func allowsRequest(at now: Date) -> Bool { notBefore.map { now >= $0 } ?? true }
     public func recordingSuccess() -> BlockRefresh { BlockRefresh() }
-    /// A 429 waits `retry_after` (default 30 seconds); any other failure only counts toward the backoff.
+    /// A 429 waits `retry_after` (default 30 seconds, at most `maximumInterval`); any other failure only counts toward the backoff.
     public func recordingFailure(_ error: any Error, at now: Date) -> BlockRefresh {
         let limited = (error as? APIError).flatMap { $0.statusCode == 429 ? $0 : nil }
-        let wait = limited.map { TimeInterval($0.retryAfter ?? RetryAfter.rateLimitDefault) }
+        let wait = limited.map { min(TimeInterval($0.retryAfter ?? RetryAfter.rateLimitDefault), Self.maximumInterval) }
         return BlockRefresh(notBefore: wait.map(now.addingTimeInterval), consecutiveFailures: consecutiveFailures + 1)
     }
     /// “请求过于频繁，N 秒后自动重试” while a 429 wait lasts, N rounded up.

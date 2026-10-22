@@ -102,3 +102,33 @@ private let lastSuccess = Date(timeIntervalSince1970: 1_800_000_000)
     let later = refresh.recordingFailure(URLError(.notConnectedToInternet), at: now.addingTimeInterval(31))
     #expect(later.notBefore == nil && later.consecutiveFailures == 2)
 }
+
+@Test func resetKeepsTheFailureOnlyWhileARateLimitWaitLasts() {
+    let now = lastSuccess
+    let waiting = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: 12), at: now)
+    let failed = BlockState.failed(reason: "x", previous: 5, at: now)
+    #expect(failed.withReset(during: waiting, at: now.addingTimeInterval(1)) == .failed(reason: "x", previous: nil, at: nil))
+    #expect(failed.withReset(during: waiting, at: now.addingTimeInterval(1)).withReset(during: waiting, at: now.addingTimeInterval(2))
+        == .failed(reason: "x", previous: nil, at: nil))
+    #expect(failed.withReset(during: waiting, at: now.addingTimeInterval(12)) == .idle)
+    #expect(failed.withReset(during: BlockRefresh(), at: now) == .idle)
+    #expect(failed.withReset(during: BlockRefresh().recordingFailure(URLError(.timedOut), at: now), at: now) == .idle)
+    #expect(BlockState.loaded(5, at: now).withReset(during: waiting, at: now) == .idle)
+    #expect(BlockState<Int>.idle.withReset(during: waiting, at: now) == .idle)
+}
+
+@Test func rateLimitWaitIsCappedAtTheMaximumInterval() {
+    let now = lastSuccess
+    for seconds in [301, 86_400] {
+        let refresh = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: seconds), at: now)
+        #expect(refresh.notBefore == now.addingTimeInterval(BlockRefresh.maximumInterval))
+        #expect(refresh.nextDelay(base: 30, at: now) == 300)
+        #expect(refresh.throttleMessage(at: now) == "请求过于频繁，300 秒后自动重试")
+        #expect(refresh.allowsRequest(at: now.addingTimeInterval(300)))
+    }
+    let huge = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: Int.max), at: now)
+    #expect(huge.notBefore == now.addingTimeInterval(BlockRefresh.maximumInterval))
+    #expect(huge.nextDelay(base: 30, at: now) == 300)
+    let exact = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: 300), at: now)
+    #expect(exact.notBefore == now.addingTimeInterval(300))
+}

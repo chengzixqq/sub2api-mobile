@@ -20,7 +20,7 @@ final class LoadState<Value: Sendable> {
         requestID = nil
         task?.cancel(); task = nil; state = state.withCancelledLoad()
     }
-    func reset() { cancel(); state = .idle }
+    func reset() { cancel(); state = state.withReset(during: refresh, at: Date()) }
     /// The polling delay after this load; pages show `refresh.throttleMessage(at:)` while a 429 wait lasts.
     func nextDelay(base: TimeInterval) -> TimeInterval { refresh.nextDelay(base: base, at: Date()) }
     func load(isCurrent: @MainActor () -> Bool, operation: @escaping @MainActor @Sendable () async throws -> Value) async {
