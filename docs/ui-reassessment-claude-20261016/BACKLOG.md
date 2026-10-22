@@ -171,3 +171,5 @@
 | 验证码桥页导航回调签名不匹配 | Xcode 27.1 编译 `NativeApp/Features/CaptchaView.swift:91` 报 “`webView(_:decidePolicyFor:decisionHandler:)` nearly matches optional requirement”（S0-03 之前就有，不是新增）。签名不匹配时 WebKit 不会调用它，顶层跨域导航拦截可能已失效；建议 S0-16 重写 CaptchaView 时按新 SDK 修正签名并补测试，或由 S0-19 收口 |
 | 超过 800 行的设计稿文件拆分 | v-account-new、v-account-edit、v-user-edit、v-analytics、v-groups 等 |
 | 监控告警详情里“阈值 5% · 近 5 分钟”的窗口说明 | 这是告警规则自己的窗口，目前保留；如需全应用都不写窗口再去掉 |
+| 长超时读请求超时后的自动重试 | S0-04 按 00 §2.4 对所有读请求的超时自动重试 2 次，统计聚合（45 秒）与 dashboard/stats（90 秒）最坏约 4.5 分钟才报错、同一重查询最多跑 3 遍；阶段 1 / U54 在生产量级实测后决定是否对这两类不再重试超时，或改用 count_mode=deferred 缩短 |
+| 分页 page_size 超限的 Debug 断言没有退出测试 | `APIClient.pagination` 在 Debug 下对超出 1–1000 的 pageSize 断言、Release 夹到 1000；S0-04 只测了夹值与默认 20，没有加 Swift Testing 的退出测试（`#expect(processExitsWith:)`），需要时在 S0-19 收口补上 |
