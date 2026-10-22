@@ -190,7 +190,8 @@ public actor APIClient {
     public func userUsage(id: Int) async throws -> UserUsageSummary {
         // The legacy /admin/users/:id/usage endpoint currently returns mock zeros in this backend.
         // Query real monthly usage aggregates instead.
-        try await request("admin/usage/stats", query: monthRange() + [URLQueryItem(name: "user_id", value: String(validID(id)))])
+        try await request("admin/usage/stats", query: monthRange() + [URLQueryItem(name: "user_id", value: String(validID(id)))],
+                          timeout: RequestTimeout.aggregate)
     }
     public func userKeys(id: Int, page: Int) async throws -> Page<UserAPIKey> {
         try await request("admin/users/\(validID(id))/api-keys", query: pagination(page, search: "", status: nil))

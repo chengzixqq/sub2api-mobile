@@ -212,8 +212,11 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     _ = try? await client.dashboardMonitoring()
     _ = try? await client.requestRecords(page: 1, filter: RequestLogFilter())
     _ = try? await client.usageAnalysis(hour)
+    _ = try? await client.userUsage(id: 7)
     _ = try? await client.login(email: "admin@example.invalid", password: "only-test")
-    let sent = await transport.requests.map { ("\($0.httpMethod ?? "") \($0.url?.path ?? "")", $0.timeoutInterval) }
+    let requests = await transport.requests
+    #expect(requests.filter { $0.url?.path == "/api/v1/admin/usage/stats" }.map(\.timeoutInterval) == [45, 45])
+    let sent = requests.map { ("\($0.httpMethod ?? "") \($0.url?.path ?? "")", $0.timeoutInterval) }
     let timeouts = Dictionary(sent, uniquingKeysWith: { first, _ in first })
     let expected: [String: TimeInterval] = [
         "GET /api/v1/settings/public": 15, "POST /api/v1/auth/refresh": 20, "GET /api/v1/admin/users/7": 20, "GET /api/v1/admin/users": 20,
