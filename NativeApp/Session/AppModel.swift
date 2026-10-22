@@ -112,6 +112,8 @@ final class AppModel {
         }
         guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
         let verifiedCredential = await candidate.currentCredential() ?? credential
+        // me() set the ETag cache identity on the candidate; S0-10's ClientWiring must keep handing it over.
+        let cacheIdentity = await candidate.conditionalCacheIdentity()
         guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
         let lease = UUID()
         let scopedStore = try await credentials.commit(verifiedCredential, serverID: profile.id, lease: lease)
@@ -123,7 +125,7 @@ final class AppModel {
         let previousProfileID = activeProfile?.id
         let previousLease = activeLease
         sessionGeneration = UUID()
-        client = APIClient(server: profile, credential: verifiedCredential, credentialStore: scopedStore)
+        client = APIClient(server: profile, credential: verifiedCredential, credentialStore: scopedStore, cacheIdentity: cacheIdentity)
         activeLease = lease
         activeProfile = profile
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }

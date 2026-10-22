@@ -23,7 +23,11 @@ public actor APIClient {
     private var credential: Credential?
     private let store: (any CredentialStore)?
     private let transport: any HTTPTransport
-    private let requestClock: RequestClock
+    let requestClock: RequestClock
+    /// 00 §4.2 ETag cache; each client owns one unless a test injects a shared one.
+    let conditionalCache: ConditionalCache
+    /// Set by `me()`; while unknown, no request is conditional and nothing is cached.
+    private(set) var cacheIdentity: ConditionalCache.Identity?
     private var generation = UUID()
     private var cancellations: [UUID: @Sendable () -> Void] = [:]
     private var refreshTask: Task<TokenPair, any Error>?
@@ -34,11 +38,22 @@ public actor APIClient {
     /// A refresh rejection ends the session: later requests fail with it and never reach the network.
     private var sessionEnded: APIError?
     public init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil, deviceID: UUID? = nil,
-                transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live) {
+                transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live,
+                cacheIdentity: ConditionalCache.Identity? = nil, conditionalCache: ConditionalCache = ConditionalCache()) {
         self.server = server; self.credential = credential; store = credentialStore; self.deviceID = deviceID
         self.transport = transport; self.requestClock = requestClock
+        self.cacheIdentity = cacheIdentity; self.conditionalCache = conditionalCache
     }
     public func currentCredential() -> Credential? { credential }
+    public func conditionalCacheIdentity() -> ConditionalCache.Identity? { cacheIdentity }
+    /// A different identity empties this site's entries (meta/catalog differs per caller, 00 §4.2).
+    public func setConditionalCacheIdentity(_ identity: ConditionalCache.Identity?) async {
+        guard identity != cacheIdentity else { return }
+        cacheIdentity = identity
+        await conditionalCache.clear(siteID: server.id)
+    }
+    /// S0-11 calls this when switching sites or ending a session.
+    public func clearConditionalCache() async { await conditionalCache.clear(siteID: server.id) }
     public func cancelAll() async {
         generation = UUID()
         refreshTask?.cancel(); refreshTask = nil; refreshID = nil
@@ -71,8 +86,9 @@ public actor APIClient {
     public func logout() async throws {
         let oldCredential = credential
         await cancelAll()
-        credential = nil; resetRefreshState()
+        credential = nil; resetRefreshState(); cacheIdentity = nil
         // Local erasure happens even when the station is unreachable.
+        await conditionalCache.clear(siteID: server.id)
         try await store?.remove(serverID: server.id)
         if case .tokens(let tokens) = oldCredential, !tokens.refreshToken.isEmpty {
             let _: EmptyReply = try await request("auth/logout", method: "POST", body: encode(["refresh_token": tokens.refreshToken]),
@@ -315,22 +331,31 @@ public actor APIClient {
         try await requestWithHeaders(path, method: method, query: query, body: body, headers: headers, requestClass: requestClass,
                                      authenticated: authenticated, timeout: timeout, context: context).value
     }
-    /// Value, status and lowercased headers (00 §9.1). Hooks: S0-05 wraps `send` with the conditional cache;
-    /// S0-13 intercepts between `failure` and `surfaced`.
+    /// Value, status and lowercased headers (00 §9.1). The conditional cache (S0-05) wraps `send`: a 304 keeps its status and
+    /// headers but carries the cached value. S0-13 intercepts between `failure` and `surfaced`.
     func requestWithHeaders<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
                                                      headers: [String: String] = [:], requestClass: RequestClass? = nil, authenticated: Bool = true,
                                                      timeout: TimeInterval? = nil, context: ReasonCatalog.Context = .business) async throws -> APIResponse<T> {
         let snapshot = generation
-        let spec = OutgoingRequest(path: path, method: method, query: query, body: body, headers: headers, requestClass: requestClass,
-                                   timeout: timeout, authenticated: authenticated)
-        let response: HTTPResponse
-        do { response = try await send(spec, context: context, generation: snapshot) }
+        let plan: ConditionalPlan?, received: HTTPResponse, response: HTTPResponse
+        do {
+            plan = try await conditionalPlan(path: path, method: method, query: query, body: body, authenticated: authenticated)
+            let spec = OutgoingRequest(path: path, method: method, query: query, body: body,
+                                       headers: headers.merging(plan?.validatorHeaders ?? [:]) { _, validator in validator },
+                                       requestClass: requestClass, timeout: timeout, authenticated: authenticated)
+            received = try await send(spec, context: context, generation: snapshot)
+            response = try await resolveConditional(received, plan: plan)
+        }
         catch let error as APIError { throw surfaced(error, context: context, generation: snapshot) }
         catch is CancellationError { throw CancellationError() }
         catch { throw surfaced(APIError.transport(error), context: context, generation: snapshot) }
         guard (200..<300).contains(response.statusCode) else { throw surfaced(failure(response, context: context), context: context, generation: snapshot) }
-        do { return APIResponse(value: try Self.decode(response, context: context), status: response.statusCode, headers: response.headers) }
+        let value: T
+        do { value = try Self.decode(response, context: context) }
         catch let error as APIError { throw surfaced(error, context: context, generation: snapshot) }
+        await recordConditional(received, plan: plan)
+        try check(snapshot)
+        return APIResponse(value: value, status: received.statusCode, headers: response.headers)
     }
     /// 00 §2.4: only reads retry on their own — at most twice, after 1 s and 3 s plus jitter — and each wait is bound to the generation.
     private func send(_ spec: OutgoingRequest, context: ReasonCatalog.Context, generation snapshot: UUID) async throws -> HTTPResponse {

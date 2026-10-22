@@ -23,6 +23,16 @@ public enum AdminAuthMethod: Hashable, Sendable, Decodable {
     }
     /// Admin Key and `sat_`: no step-up and no session list (backend `IsMachineCredential`).
     public var isMachineCredential: Bool { self == .adminAPIKey || self == .adminAccessToken }
+    /// The only inference for a missing `auth_method` (D09): the reported value wins, otherwise the credential kind decides.
+    public static func resolved(reported: AdminAuthMethod?, credential: Credential?) -> AdminAuthMethod? {
+        if let reported { return reported }
+        switch credential {
+        case .tokens: return .jwt
+        case .adminKey: return .adminAPIKey
+        case .accessToken: return .adminAccessToken
+        case nil: return nil
+        }
+    }
 }
 
 /// 00 §5: backend `adminMeCapabilities` plus the embedded-Web `web.accounts_edit_deep_link`. Check with `AdminMe.has(_:)`.
@@ -254,6 +264,8 @@ extension APIClient {
         let result: AdminMe
         do { result = try await request("admin/me", timeout: RequestTimeout.probe) }
         catch let error as APIError where error.kind == .unsupported { result = try await legacyMe(credential) }
+        try check(snapshot)
+        await setConditionalCacheIdentity(ConditionalCache.Identity(me: result, credential: credential))
         try check(snapshot)
         return result
     }
