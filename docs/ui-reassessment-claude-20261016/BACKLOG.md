@@ -176,3 +176,6 @@
 | 真机确认 ETag 304 | S0-05 的条件请求只经桩传输层测试：URLSessionTransport（ephemeral、urlCache=nil、reloadIgnoringLocalCacheData）对手动设置的 If-None-Match 收到 304 时应原样返回空体 304。在测试环境连真实站点确认一次账号列表或用户列表的第二次请求得到 304、页面数据不变，并记入进度表 |
 | 余额页“稍后核对”的 UI 测试 | S0-06 给现有 BalanceView 加了“稍后核对”（balance.later），但 -ui-testing 模式在落盘前就拒绝余额写入，按钮不会出现；阶段 3 重写 BalanceKeypadSheet 时用夹具模拟慢写入（等待中点“稍后核对”→ 记录保留待核对、显示 00 §2.5.4 文案），补 UI 测试 |
 | UI 测试 6 并发下的快照停顿 | S0-07 的 gate 里，Mac 负载 90–170 时模拟器无障碍快照会停顿 15–20 秒（基线 709c047 同样出现）。Sub2MobileUITests.testDashboardSlowTrendDoesNotDelayCountersOrMonitoring 只有夹具 8 秒的趋势延迟作窗口，停顿落在登录后就误报；趋势缩放用例的 5 秒等待同理。S0-19 诊断时考虑：降低默认并发、把慢趋势夹具延迟加长或改为由测试显式放行、等待改为基于状态而不是时间窗 |
+| 数值格式里规格没写清的定法 | S0-08 在 DisplayFormat 里按字面或“按舍入后的值”定了这些细节，等用户确认：RPM 小于 10 保留 1 位（2 → 2.0、0.04 → 0.0）；minutesLeft 整点写“2 小时”（设计稿 fmt 会写“2 小时 0 分钟”）；change 舍入为 0 写“0.0%”不带箭头；relativeTime 跨年的日期不带年份、未来 60 秒内也写“刚刚”；跨档按舍入后的值（999,950 → 1M、99.96 秒 → 100s、$999.995 → $1.00K）；countdown 秒数向上取整；compact 不加千分位（1000B 以上才会出现）。要改只改 `Sources/Sub2Core/DisplayFormat.swift` 一处与 DisplayFormatTests。 |
+| 缺失值“—”的读屏 | S0-08 把全 App 的缺失值统一为“—”，现有页面的 accessibilityValue 沿用显示文字，VoiceOver 可能读成“破折号”或跳过。各页面重写时决定是否给缺失值单独的朗读文案（如“无数据”）。 |
+| 倍率的显示位数 | 账号倍率、分组计费倍率与上游探测倍率规格没有格式规则，S0-08 仍显示服务端原值的全部位数（如 1.234567890123456789×），不走 DisplayFormat。阶段 2 / 5 重写账号、分组页时定位数，届时用 DisplayFormat.decimal。 |
