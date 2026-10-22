@@ -111,7 +111,11 @@ public struct TwoFactorChallenge: Sendable {
 public struct AuthSession: Sendable {
     public let user: AdminUser
     public let tokens: TokenPair
-    public init(user: AdminUser, tokens: TokenPair) { self.user = user; self.tokens = tokens }
+    /// The server issued no refresh token: sign in again once the access expires (00 §1.4 step 5).
+    public let refreshTokenUnavailable: Bool
+    public init(user: AdminUser, tokens: TokenPair, refreshTokenUnavailable: Bool = false) {
+        self.user = user; self.tokens = tokens; self.refreshTokenUnavailable = refreshTokenUnavailable
+    }
 }
 public enum LoginResult: Sendable { case authenticated(AuthSession), twoFactor(TwoFactorChallenge) }
 

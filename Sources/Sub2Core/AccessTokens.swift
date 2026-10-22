@@ -13,9 +13,10 @@ public struct AdminAccessToken: Identifiable, Decodable, Sendable, Equatable {
     public let createdAt: String?
     /// The token that authenticated this request.
     public let current: Bool
+    public var isReadOnly: Bool { Self.isReadOnly(scope: scope) }
     /// Backend `ReadOnly()` is anything but "write". An unknown scope counts as writable until the server
     /// answers `ACCESS_TOKEN_READ_ONLY` (00 §1.6).
-    public var isReadOnly: Bool { scope.map { $0 != "write" } ?? false }
+    public static func isReadOnly(scope: String?) -> Bool { scope.map { $0 != "write" } ?? false }
 
     enum CodingKeys: String, CodingKey {
         case id, name, prefix, last4, scope, current

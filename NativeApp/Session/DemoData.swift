@@ -5,6 +5,25 @@ import Sub2Core
 enum DemoData {
     /// The only server zone in UI fixtures (D30); trend buckets and the AdminMe fixture use it.
     static let serverTimeZone = ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00")!
+    /// The password login's fixture session; it never expires, so nothing is refreshed.
+    static let passwordCredential = Credential.tokens(TokenPair(accessToken: "ui-test-access", refreshToken: "ui-test-refresh", expiresAt: .distantFuture))
+    /// Every capability, compliance accepted and step-up off, so all gated entries show (D30 zone).
+    static func adminMe(authMethod: AdminAuthMethod) -> AdminMe {
+        AdminMe(authMethod: authMethod, user: .init(id: 1, email: "admin@example.com", username: "管理员", role: "admin"),
+                security: .init(totpEnabled: false, stepUpEnabled: false, stepUpAvailable: false, stepUpGranted: false, sessionBindingEnabled: false),
+                compliance: .init(required: false),
+                features: .init(opsMonitoringEnabled: true, opsRealtimeMonitoringEnabled: true, channelMonitorEnabled: false,
+                                backendModeEnabled: false, paymentEnabled: false, subscriptionEnabled: false),
+                server: .init(version: "ui-test", runMode: "standard", serverTimezone: serverTimeZone.identifier,
+                              serverUTCOffset: serverTimeZone.rawUTCOffset, capabilities: Set(Capability.allCases.map(\.rawValue))))
+    }
+    /// Access tokens write unless `-ui-readonly-token` is passed (kept for S0-13 and S0-19).
+    static func siteSession(credential: Credential) -> SiteSession {
+        let method = AdminAuthMethod.resolved(reported: nil, credential: credential) ?? .jwt
+        let scope = ProcessInfo.processInfo.arguments.contains("-ui-readonly-token") ? "read" : "write"
+        return SiteSession(me: adminMe(authMethod: method), credential: credential, accessTokenScope: scope,
+                           serverTimeZone: serverTimeZone, clockOffset: 0, probedAt: Date())
+    }
     static let dashboard = DashboardSummary(
         stats: DashboardStats(
             todayRequests: 128, todayTokens: 1_234_567, todayCost: Decimal(string: "99.99")!,

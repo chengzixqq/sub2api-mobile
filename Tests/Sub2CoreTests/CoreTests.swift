@@ -133,20 +133,25 @@ private actor MockTransport: HTTPTransport {
         return ok(#"{"requires_2fa":true,"temp_token":"temporary","user_email_masked":"a***@example.invalid"}"#)
     }
     let client = APIClient(server: server(), transport: transport)
-    let result = try await client.login(email: "admin@example.invalid", password: "only-test", proof: CaptchaProof(tencentTicket: "proof", tencentRandstr: "random"))
+    let result = try await client.login(email: "admin@example.invalid", password: "only-test", proof: CaptchaProof(provider: "tencent", tencentTicket: "proof", tencentRandstr: "random"),
+                                        deviceName: "iPhone", declaresCaptchaProvider: false)
     guard case .twoFactor(let challenge) = result else { Issue.record("Expected TOTP challenge"); return }
     #expect(challenge.tempToken == "temporary"); #expect(await client.currentCredential() == nil)
     let session = try await client.completeTOTP(tempToken: challenge.tempToken, code: "123456")
     #expect(session.user.role == "admin")
     let requests = await transport.requests()
     let bodyData = try #require(requests[0].httpBody)
-    let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: String])
-    #expect(body["tencent_captcha_ticket"] == "proof"); #expect(body["tencent_captcha_randstr"] == "random")
+    let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+    #expect(body["tencent_captcha_ticket"] as? String == "proof"); #expect(body["tencent_captcha_randstr"] as? String == "random")
+    #expect(body["captcha_provider"] == nil)
     #expect(requests[1].url?.path == "/api/v1/auth/login/2fa")
     let regular = MockTransport { _ in ok("{\"access_token\":\"secret\",\"user\":\(userJSON.replacingOccurrences(of: "admin\"", with: "user\""))}") }
     let regularClient = APIClient(server: server(), transport: regular)
-    await #expect(throws: APIError.administratorRequired) { try await regularClient.login(email: "user@example.invalid", password: "test") }
+    await #expect(throws: APIError.administratorRequired) {
+        try await regularClient.login(email: "user@example.invalid", password: "test", deviceName: "iPhone", declaresCaptchaProvider: true)
+    }
     #expect(await regularClient.currentCredential() == nil)
+    #expect(await regular.requests().map { $0.url?.path } == ["/api/v1/auth/login", "/api/v1/auth/logout"])
 }
 
 @Test func tokenRefreshIsSingleFlightAcrossConcurrentReads() async throws {

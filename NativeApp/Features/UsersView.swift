@@ -396,7 +396,8 @@ private struct UserEditorView: View {
                     notes: notes == (user.notes ?? "") ? nil : notes,
                     role: changedRole, concurrency: maxConcurrency, rpmLimit: rpm,
                     adjustmentNotes: maxConcurrency == nil || adjustmentNotes.isEmpty ? nil : adjustmentNotes)
-                prepared = .update(try PendingUserUpdateOperation(serverID: target.context.serverID, identity: identity, userID: user.id, request: changes))
+                prepared = .update(try PendingUserUpdateOperation(serverID: target.context.serverID, identity: identity, userID: user.id, request: changes,
+                                                                  serverSupportsIdempotentWrites: target.context.has(.adminIdempotentWrites)))
             } else {
                 guard let selectedRole = AdminUserRole(rawValue: role) else { throw AppFailure("请选择有效的角色。") }
                 let rawBalance = initialBalance.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -408,9 +409,9 @@ private struct UserEditorView: View {
                 }
                 let input = UserCreateRequest(email: email, password: password, username: username, notes: notes, role: selectedRole,
                     concurrency: try integer(concurrency), rpmLimit: try integer(rpmLimit), balance: balance)
-                // S0-10 passes admin.idempotent_writes here (D24); until then creation is sent without a key.
+                // With admin.idempotent_writes the operation number is also the Idempotency-Key (00 §2.5.1, D24).
                 prepared = .create(try PendingUserCreateOperation(serverID: target.context.serverID, identity: identity, request: input,
-                                                                  sendsIdempotencyKey: false))
+                                                                  sendsIdempotencyKey: target.context.has(.adminIdempotentWrites)))
             }
             password = ""; uncertain = false; message = nil; confirming = true
         } catch { message = error.localizedDescription }

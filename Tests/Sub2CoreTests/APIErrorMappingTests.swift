@@ -180,7 +180,7 @@ private func thrownError(_ operation: () async throws -> Void) async -> APIError
     for (response, message, action) in cases {
         let transport = ErrorMappingTransport { _ in response }
         let client = APIClient(server: mappingServer(), transport: transport)
-        let error = try #require(await thrownError { _ = try await client.login(email: "admin@example.invalid", password: "only-test") })
+        let error = try #require(await thrownError { _ = try await client.login(email: "admin@example.invalid", password: "only-test", deviceName: "iPhone", declaresCaptchaProvider: true) })
         #expect(error.localizedDescription == message); #expect(error.action == action)
         #expect(await transport.requests().count == 1)
     }

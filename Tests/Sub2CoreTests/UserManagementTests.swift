@@ -178,3 +178,24 @@ private func userTokens() -> Credential {
     // Without a key the frozen operation number is still the X-Request-ID, so the server ledger can be matched.
     #expect(sent[0].value(forHTTPHeaderField: "X-Request-ID") == create.key && sent[1].value(forHTTPHeaderField: "X-Request-ID") == edit.key)
 }
+
+// D24: the editor passes `admin.idempotent_writes` from /admin/me to both operations.
+@Test(arguments: [true, false])
+func userWritesCarryIdempotencyKeyOnlyWithCapability(capable: Bool) async throws {
+    let me = try JSONDecoder().decode(AdminMe.self, from: Data("{\"server\":{\"capabilities\":[\(capable ? "\"admin.idempotent_writes\"" : "")]}}".utf8))
+    let transport = UserWriteTransport()
+    let server = userServer()
+    let client = APIClient(server: server, credential: .adminKey("fixture-key"), transport: transport)
+    let identity = await client.userWriteIdentity()
+    let create = try PendingUserCreateOperation(serverID: server.id, identity: identity, request: UserCreateRequest(email: "a@example.invalid", password: "abcdef", role: .user),
+                                                sendsIdempotencyKey: me.has(.adminIdempotentWrites))
+    let edit = try PendingUserUpdateOperation(serverID: server.id, identity: identity, userID: 24, request: UserUpdateRequest(username: "新名称"),
+                                              serverSupportsIdempotentWrites: me.has(.adminIdempotentWrites))
+    _ = try await client.createUser(create)
+    _ = try await client.updateUser(edit)
+    let sent = await transport.requests()
+    #expect(sent.count == 2)
+    #expect(sent[0].value(forHTTPHeaderField: "Idempotency-Key") == (capable ? create.key : nil))
+    #expect(sent[1].value(forHTTPHeaderField: "Idempotency-Key") == (capable ? edit.key : nil))
+    #expect(sent[0].value(forHTTPHeaderField: "X-Request-ID") == create.key && sent[1].value(forHTTPHeaderField: "X-Request-ID") == edit.key)
+}

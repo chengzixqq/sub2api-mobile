@@ -2,11 +2,16 @@ import Foundation
 import Observation
 import Sub2Core
 import SwiftUI
+import UIKit
 
 struct SessionContext: Sendable {
     let generation: UUID
     let serverID: UUID
     let client: APIClient
+    let site: SiteSession
+    /// Pages gate features with this, for example `session?.has(.dashboardRates)` (00 §5, D08).
+    func has(_ capability: Capability) -> Bool { site.has(capability) }
+    var isReadOnlyToken: Bool { site.isReadOnlyToken }
 }
 
 private struct SessionContextKey: EnvironmentKey { static let defaultValue: SessionContext? = nil }
@@ -23,6 +28,8 @@ final class AppModel {
     private(set) var activeProfile: ServerProfile?
     private(set) var sessionGeneration = UUID()
     private(set) var client: APIClient?
+    /// Published together with `client` (D13); nil while no site is connected.
+    private(set) var siteSession: SiteSession?
     private(set) var pendingBalances: [PendingBalanceOperation] = []
     var errorMessage: String?
     var isRestoring = true
@@ -41,9 +48,11 @@ final class AppModel {
     private let pendingFileURL: URL?
     @ObservationIgnored private var pendingPersistenceAvailable = true
     var sessionContext: SessionContext? {
-        guard let client, let activeProfile else { return nil }
-        return SessionContext(generation: sessionGeneration, serverID: activeProfile.id, client: client)
+        guard let client, let activeProfile, let siteSession else { return nil }
+        return SessionContext(generation: sessionGeneration, serverID: activeProfile.id, client: client, site: siteSession)
     }
+    /// `client.device_name` of a new login (00 §1.2).
+    var deviceName: String { UIDevice.current.name }
 
     init(isUITesting: Bool = ProcessInfo.processInfo.arguments.contains("-ui-testing")) {
         self.isUITesting = isUITesting
@@ -95,49 +104,89 @@ final class AppModel {
         Task { await pending?.cancelAll() }
     }
 
-    func connect(profile: ServerProfile, credential: Credential, attempt: UUID? = nil) async throws {
+    /// 00 §1.1: the site is saved only after /admin/me accepted the credential, and a failed attempt never replaces the connected one.
+    /// `draft` is the device ID a new login already sent; it is saved with the credential, otherwise the site's own is read.
+    func connect(profile requested: ServerProfile, credential: Credential, deviceID draft: UUID? = nil, attempt: UUID? = nil) async throws {
         guard !isSigningOut else { throw CancellationError() }
         let ticket = attempt ?? beginConnection()
         guard ticket == connectionAttempt else { throw CancellationError() }
         isConnecting = true
         defer { if ticket == connectionAttempt { isConnecting = false; pendingCandidate = nil } }
+        // A site saved before sat_ support was stored as an Admin Key site (00 §9.4).
+        var profile = requested
+        profile.authentication = credential.authenticationKind
+        let deviceID: UUID
+        if let draft { deviceID = draft } else { deviceID = try await credentials.deviceID(serverID: profile.id) }
+        guard ticket == connectionAttempt else { throw CancellationError() }
         // Verification may refresh a token, but never touches the shared vault.
-        let candidate = APIClient(server: profile, credential: credential)
+        let candidate = APIClient(server: profile, credential: credential, deviceID: deviceID)
         pendingCandidate = candidate
         defer { Task { await candidate.cancelAll() } }
-        if !isUITesting {
-            // The site session (S0-10) will keep this snapshot; for now it only gates administrators.
-            let me = try await candidate.me()
-            guard me.isAdministrator else { throw APIError.administratorRequired }
-        }
-        guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
-        let verifiedCredential = await candidate.currentCredential() ?? credential
-        // me() set the ETag cache identity and the server zone on the candidate, whose clock already holds the Date offset;
-        // S0-10's ClientWiring must keep handing all three over.
-        let cacheIdentity = await candidate.conditionalCacheIdentity()
-        let serverTimeZone = await candidate.serverTimeZone()
-        guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
+        let site = try await probe(candidate, credential: credential, knownScope: nil)
+        guard ticket == connectionAttempt else { throw CancellationError() }
+        let verified = await candidate.currentCredential() ?? credential
+        let wiring = await ClientWiring.inherit(from: candidate, site: site, deviceID: deviceID)
+        let store = try await commit(verified, profile: profile, draft: draft, ticket: ticket)
+        let previous = (client: client, profileID: activeProfile?.id, lease: activeLease)
+        let generation = UUID()
+        let next = wiring.makeClient(server: profile, credential: verified, store: store)
+        publish(profile, generation: generation, site: site, client: next, lease: store.lease)
+        await candidate.cancelAll()
+        await previous.client?.cancelAll()
+        if let id = previous.profileID, let lease = previous.lease { try await credentials.revoke(serverID: id, lease: lease, erase: false) }
+    }
+
+    /// S0-11 (foreground after five minutes) and S0-13 (after compliance and step-up) probe the connected site again. A token
+    /// scope already known survives a failed scope probe; a reply for an older session is dropped.
+    func reloadSiteSession() async throws {
+        guard let client, let current = siteSession, let credential = await client.currentCredential() else { return }
+        let generation = sessionGeneration
+        let site = try await probe(client, credential: credential, knownScope: current.accessTokenScope)
+        guard generation == sessionGeneration else { throw CancellationError() }
+        siteSession = site
+    }
+    /// A write of this session was answered ACCESS_TOKEN_READ_ONLY (00 §1.6 step 3; S0-13 and 00 §2.6.3 call it).
+    func markAccessTokenReadOnly(generation: UUID) {
+        guard generation == sessionGeneration, let siteSession else { return }
+        self.siteSession = siteSession.markingReadOnly()
+    }
+
+    private func probe(_ client: APIClient, credential: Credential, knownScope: String?) async throws -> SiteSession {
+        if isUITesting { return DemoData.siteSession(credential: credential) }
+        return try await SiteSession.establish(client: client, knownScope: knownScope)
+    }
+    /// The draft device ID goes in before the credential; an attempt that fails here or is overtaken right after takes both
+    /// back, and the draft of a site that was never saved is forgotten (D07).
+    private func commit(_ credential: Credential, profile: ServerProfile, draft: UUID?, ticket: UUID) async throws -> LeasedCredentialStore {
+        guard ticket == connectionAttempt else { throw CancellationError() }
         let lease = UUID()
-        let scopedStore = try await credentials.commit(verifiedCredential, serverID: profile.id, lease: lease)
-        guard ticket == connectionAttempt else {
-            try await credentials.revoke(serverID: profile.id, lease: lease, erase: true)
-            await candidate.cancelAll(); throw CancellationError()
+        let store: LeasedCredentialStore
+        do { store = try await credentials.commit(credential, serverID: profile.id, lease: lease, deviceID: draft) }
+        catch {
+            try? await credentials.abandon(serverID: profile.id, lease: nil, forgetDevice: forgetsDraft(draft, of: profile))
+            throw error
         }
-        let previous = client
-        let previousProfileID = activeProfile?.id
-        let previousLease = activeLease
-        sessionGeneration = UUID()
-        client = APIClient(server: profile, credential: verifiedCredential, credentialStore: scopedStore, cacheIdentity: cacheIdentity,
-                           serverTimeZone: serverTimeZone, serverClock: candidate.serverClock)
+        guard ticket == connectionAttempt else {
+            try await credentials.abandon(serverID: profile.id, lease: lease, forgetDevice: forgetsDraft(draft, of: profile))
+            throw CancellationError()
+        }
+        return store
+    }
+    private func forgetsDraft(_ draft: UUID?, of profile: ServerProfile) -> Bool {
+        draft != nil && !profiles.contains { $0.id == profile.id }
+    }
+    /// One synchronous step, so no page sees a client without its site session. The generation is made before the client so
+    /// S0-11's callbacks can capture it (D13).
+    private func publish(_ profile: ServerProfile, generation: UUID, site: SiteSession, client next: APIClient, lease: UUID) {
+        sessionGeneration = generation
+        client = next
+        siteSession = site
         activeLease = lease
         activeProfile = profile
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
         else { profiles.append(profile) }
         savedActiveID = profile.id
         persistProfiles()
-        await candidate.cancelAll()
-        await previous?.cancelAll()
-        if let previousProfileID, let previousLease { try await credentials.revoke(serverID: previousProfileID, lease: previousLease, erase: false) }
     }
 
     func switchTo(_ profile: ServerProfile) async {
@@ -161,6 +210,7 @@ final class AppModel {
         cancelConnection()
         sessionGeneration = UUID()
         client = nil
+        siteSession = nil
         activeProfile = nil
         activeLease = nil
         savedActiveID = nil
@@ -169,9 +219,11 @@ final class AppModel {
         if let id {
             do {
                 if let lease { try await credentials.revoke(serverID: id, lease: lease, erase: true) }
-                else { try await credentials.remove(serverID: id) }
+                else { try await credentials.eraseCredential(serverID: id) }
             } catch { report(error) }
         }
+        // Fixture sites are not reachable; S0-11 rewrites this order (00 §1.7.5).
+        guard !isUITesting else { return }
         do { try await old?.logout() } catch { report(error) }
     }
 
@@ -182,7 +234,7 @@ final class AppModel {
         cancelConnection()
         profiles.removeAll { $0.id == profile.id }
         persistProfiles()
-        if wasActive { return }
+        // Signing out above kept the device ID; deleting the site removes it too (00 §1.1). S0-11 completes the order.
         do {
             try await credentials.remove(serverID: profile.id)
         } catch { report(error) }

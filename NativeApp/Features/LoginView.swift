@@ -22,6 +22,8 @@ struct LoginView: View {
     @State private var busy = false
     @State private var unsupported = false
     @State private var task: Task<Void, Never>?
+    /// X-Device-ID of this login; saved with the credential once connected, renewed when the address changes (00 §1.2).
+    @State private var draftDeviceID = UUID()
 
     var body: some View {
         Form {
@@ -110,7 +112,7 @@ struct LoginView: View {
             }
         }
         .onChange(of: kind) { _, _ in resetChallenge() }
-        .onChange(of: address) { _, _ in resetChallenge() }
+        .onChange(of: address) { _, _ in resetChallenge(); draftDeviceID = UUID() }
         .onDisappear { task?.cancel(); model.cancelConnection(); password = ""; key = ""; proof = nil; proofExpiresAt = nil; code = "" }
     }
 
@@ -135,13 +137,15 @@ struct LoginView: View {
             pendingAttempt = attempt
             do {
                 if model.isUITesting {
-                    try await model.connect(profile: profile, credential: .adminKey("ui-test-fixture"), attempt: attempt)
+                    let fixture = kind == .adminKey ? Credential.fromAPIKey(key) : DemoData.passwordCredential
+                    try await model.connect(profile: profile, credential: fixture, deviceID: draftDeviceID, attempt: attempt)
                     password = ""; key = ""; dismiss(); return
                 }
                 if kind == .adminKey {
-                    try await model.connect(profile: profile, credential: .adminKey(key), attempt: attempt)
+                    // A pasted sat_ token is an access token (00 §1.3).
+                    try await model.connect(profile: profile, credential: .fromAPIKey(key), deviceID: draftDeviceID, attempt: attempt)
                 } else {
-                    let candidate = loginClient ?? APIClient(server: profile)
+                    let candidate = loginClient ?? APIClient(server: profile, deviceID: draftDeviceID)
                     loginClient = candidate
                     pendingProfile = profile
                     let session: AuthSession
@@ -160,7 +164,8 @@ struct LoginView: View {
                             captcha = CaptchaRequest(server: profile, provider: settings.captchaProvider!)
                             return
                         }
-                        let result = try await candidate.login(email: email, password: password, proof: proof)
+                        let result = try await candidate.login(email: email, password: password, proof: proof, deviceName: model.deviceName,
+                                                               declaresCaptchaProvider: settings.hasCaptchaProviderKey)
                         proof = nil
                         proofExpiresAt = nil
                         switch result {
@@ -168,8 +173,8 @@ struct LoginView: View {
                         case .authenticated(let authenticated): session = authenticated
                         }
                     }
-                    guard session.user.role == "admin" else { unsupported = true; throw AppFailure("此账号不是管理员，未建立管理会话。") }
-                    try await model.connect(profile: profile, credential: .tokens(session.tokens), attempt: attempt)
+                    // Other roles never get here: login already discarded their session (00 §1.11).
+                    try await model.connect(profile: profile, credential: .tokens(session.tokens), deviceID: draftDeviceID, attempt: attempt)
                 }
                 password = ""; key = ""; code = ""; proof = nil; proofExpiresAt = nil; dismiss()
             } catch {

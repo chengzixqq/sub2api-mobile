@@ -36,7 +36,7 @@ public struct APIError: LocalizedError, Sendable, Equatable {
     public static let invalidResponse = APIError(kind: .response, message: "服务器响应格式不符合当前接口契约。")
     public static let authenticationRequired = APIError(kind: .authentication, statusCode: 401, message: "登录已失效，请重新登录",
                                                         category: .sessionExpired, action: .clearSession)
-    public static let administratorRequired = APIError(kind: .permission, statusCode: 403, message: "当前版本仅支持管理员账号，普通用户功能尚未开放。")
+    public static let administratorRequired = APIError(kind: .permission, statusCode: 403, message: "当前版本仅支持管理员账号")
     public static let stationMismatch = APIError(kind: .validation, message: "该操作属于其他站点，已阻止发送。")
     public static let incompleteStream = APIError(kind: .stream, message: "连接已结束，但未收到测试完成结果；请检查后手动重试。")
     /// 00 §1.7.2: refresh failed for a transient reason and the access has expired; the session is kept.

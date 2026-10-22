@@ -18,8 +18,8 @@ public struct DashboardCostSnapshot: Sendable {
 
 public actor APIClient {
     public nonisolated let server: ServerProfile
-    /// Sent as X-Device-ID on every request (00 §1.2); nil only until S0-10 passes the per-site Keychain value everywhere.
-    public nonisolated let deviceID: UUID?
+    /// The site's fixed Keychain value (00 §1.2), sent as X-Device-ID on every request and as the login's `client.device_id`.
+    public nonisolated let deviceID: UUID
     private var credential: Credential?
     private let store: (any CredentialStore)?
     private let transport: any HTTPTransport
@@ -41,7 +41,9 @@ public actor APIClient {
     private var refreshRetryAt: Date?
     /// A refresh rejection ends the session: later requests fail with it and never reach the network.
     private var sessionEnded: APIError?
-    public init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil, deviceID: UUID? = nil,
+    /// `credentialStore` is a LeasedCredentialStore or nil, never the vault itself: `logout` and the persist fence call its
+    /// `remove`, which must not delete the site's device ID (D07).
+    public init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil, deviceID: UUID,
                 transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live,
                 cacheIdentity: ConditionalCache.Identity? = nil, conditionalCache: ConditionalCache = ConditionalCache(),
                 serverTimeZone: ServerTimeZone = .device, serverClock: ServerClock = ServerClock()) {
@@ -50,6 +52,18 @@ public actor APIClient {
         self.cacheIdentity = cacheIdentity; self.conditionalCache = conditionalCache
         serverZone = serverTimeZone; self.serverClock = serverClock
     }
+    // Same parameters as the public init minus `deviceID` (D02): keep both lists in step. Only tests that do not care use it.
+    init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil,
+         transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live,
+         cacheIdentity: ConditionalCache.Identity? = nil, conditionalCache: ConditionalCache = ConditionalCache(),
+         serverTimeZone: ServerTimeZone = .device, serverClock: ServerClock = ServerClock()) {
+        self.init(server: server, credential: credential, credentialStore: credentialStore, deviceID: Self.testingDeviceID, transport: transport,
+                  requestClock: requestClock, cacheIdentity: cacheIdentity, conditionalCache: conditionalCache,
+                  serverTimeZone: serverTimeZone, serverClock: serverClock)
+    }
+    static let testingDeviceID = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
+    /// The one spelling of the device ID on the wire: X-Device-ID and `client.device_id` are byte for byte the same.
+    nonisolated var deviceIDHeader: String { deviceID.uuidString.lowercased() }
     public func currentCredential() -> Credential? { credential }
     public func conditionalCacheIdentity() -> ConditionalCache.Identity? { cacheIdentity }
     /// `me()` applies the zone it reports; S0-10 also calls this when a site reload changes it.
@@ -72,9 +86,13 @@ public actor APIClient {
     public func publicSettings() async throws -> PublicSettings {
         try await request("settings/public", authenticated: false, timeout: RequestTimeout.probe)
     }
-    public func login(email: String, password: String, proof: CaptchaProof? = nil) async throws -> LoginResult {
+    /// 00 §1.4 step 2. `declaresCaptchaProvider` is `PublicSettings.hasCaptchaProviderKey`; the second factor declares nothing
+    /// (the server keeps the first step's client).
+    public func login(email: String, password: String, proof: CaptchaProof? = nil, deviceName: String,
+                      declaresCaptchaProvider: Bool) async throws -> LoginResult {
         let snapshot = generation
-        let body = LoginBody(email: email, password: password, turnstileToken: proof?.turnstileToken, tencentTicket: proof?.tencentTicket, tencentRandstr: proof?.tencentRandstr)
+        let body = LoginBody(email: email, password: password, client: LoginClient(deviceID: deviceIDHeader, deviceName: deviceName),
+                             proof: proof, declaresCaptchaProvider: declaresCaptchaProvider)
         let reply: LoginReply = try await request("auth/login", method: "POST", body: encode(body), requestClass: .auth, authenticated: false, context: .login)
         try check(snapshot)
         if reply.requires2FA == true {
@@ -240,12 +258,28 @@ public actor APIClient {
     private func acceptLogin(_ reply: LoginReply, generation snapshot: UUID) async throws -> AuthSession {
         try check(snapshot)
         guard let user = reply.user, let token = reply.accessToken, !token.isEmpty else { throw APIError.invalidResponse }
-        guard user.role == "admin" else { throw APIError.administratorRequired }
         let pair = TokenPair(accessToken: token, refreshToken: reply.refreshToken ?? "", expiresAt: requestClock.now().addingTimeInterval(TimeInterval(reply.expiresIn ?? 300)))
+        guard user.role == "admin" else {
+            // 00 §1.4 step 4, §1.11: the session just issued is discarded on a best-effort basis before refusing.
+            try? await postLogout(pair)
+            throw APIError.administratorRequired
+        }
         let current = Credential.tokens(pair)
         try await persist(current, generation: snapshot)
         credential = current; resetRefreshState()
-        return AuthSession(user: user, tokens: pair)
+        return AuthSession(user: user, tokens: pair, refreshTokenUnavailable: reply.refreshTokenUnavailable == true || pair.refreshToken.isEmpty)
+    }
+    /// The only auth/logout request (D15): `{"refresh_token": …}`, or `{}` without one, with that session's Bearer access and
+    /// X-Device-ID. Sent once: no token refresh, no retry, no session-invalid report. S0-11's logout reuses it.
+    func postLogout(_ tokens: TokenPair) async throws {
+        let snapshot = generation
+        let body = try tokens.refreshToken.isEmpty ? Data("{}".utf8) : encode(["refresh_token": tokens.refreshToken])
+        let spec = OutgoingRequest(path: "auth/logout", method: "POST", body: body, requestClass: .auth)
+        let response: HTTPResponse
+        do { response = try await transmit(makeRequest(spec, credential: .tokens(tokens)), generation: snapshot, requestClass: .auth) }
+        catch is CancellationError { throw CancellationError() }
+        catch { throw APIError.transport(error) }
+        guard (200..<300).contains(response.statusCode) else { throw failure(response) }
     }
     private func persist(_ value: Credential, generation snapshot: UUID) async throws {
         try check(snapshot)
@@ -471,7 +505,7 @@ public actor APIClient {
         if request.value(forHTTPHeaderField: "Accept") == nil { request.setValue("application/json", forHTTPHeaderField: "Accept") }
         request.setValue(RequestPolicy.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("zh-CN", forHTTPHeaderField: "Accept-Language")
-        if let deviceID { request.setValue(deviceID.uuidString.lowercased(), forHTTPHeaderField: "X-Device-ID") }
+        request.setValue(deviceIDHeader, forHTTPHeaderField: "X-Device-ID")
         if let requestID = spec.requestID { request.setValue(requestID, forHTTPHeaderField: "X-Request-ID") }
         if let key = spec.requestClass.idempotencyKey { request.setValue(key, forHTTPHeaderField: "Idempotency-Key") }
         if spec.body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
@@ -621,18 +655,6 @@ private struct OpsReply: Decodable, Sendable {
     let qps: Rate?
     struct Rate: Decodable, Sendable { let current: Double? }
     enum CodingKeys: String, CodingKey { case errorRate = "error_rate", qps }
-}
-private struct LoginBody: Encodable {
-    let email: String; let password: String; let turnstileToken: String?; let tencentTicket: String?; let tencentRandstr: String?
-    enum CodingKeys: String, CodingKey { case email, password, turnstileToken = "turnstile_token", tencentTicket = "tencent_captcha_ticket", tencentRandstr = "tencent_captcha_randstr" }
-}
-private struct LoginReply: Decodable, Sendable {
-    let requires2FA: Bool?; let tempToken: String?; let maskedEmail: String?
-    let accessToken: String?; let refreshToken: String?; let expiresIn: Int?; let user: AdminUser?
-    enum CodingKeys: String, CodingKey {
-        case requires2FA = "requires_2fa", tempToken = "temp_token", maskedEmail = "user_email_masked"
-        case accessToken = "access_token", refreshToken = "refresh_token", expiresIn = "expires_in", user
-    }
 }
 private struct RefreshReply: Decodable, Sendable {
     let accessToken: String; let refreshToken: String; let expiresIn: Int?

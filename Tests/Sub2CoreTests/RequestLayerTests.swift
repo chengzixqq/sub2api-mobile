@@ -5,7 +5,7 @@ import FoundationNetworking
 import Testing
 @testable import Sub2Core
 
-private func layerClient(_ transport: ScriptedTransport, credential: Credential? = .adminKey("fixture"), deviceID: UUID? = stubDeviceID,
+private func layerClient(_ transport: ScriptedTransport, credential: Credential? = .adminKey("fixture"), deviceID: UUID = stubDeviceID,
                          clock: RequestClock = .immediate) -> APIClient {
     APIClient(server: stubServer(), credential: credential, deviceID: deviceID, transport: transport, requestClock: clock)
 }
@@ -24,10 +24,12 @@ private let device = stubDeviceID.uuidString.lowercased()
         #expect(sentHeader(request, "X-Request-ID") == nil); #expect(sentHeader(request, "Content-Type") == nil)
     }
     #expect(sentHeader(requests.last, "x-api-key") == nil)
-    let anonymous = ScriptedTransport { _ in okReply(stubUserJSON) }
-    _ = try await layerClient(anonymous, deviceID: nil).user(id: 7)
-    let first = await anonymous.requests.first
-    #expect(sentHeader(first, "X-Device-ID") == nil); #expect(sentHeader(first, "User-Agent") == "Sub2Mobile-iOS")
+    // The device ID is required (D02); tests that leave it out get the fixed testing value.
+    let unnamed = ScriptedTransport { _ in okReply(stubUserJSON) }
+    _ = try await APIClient(server: stubServer(), credential: .adminKey("fixture"), transport: unnamed, requestClock: .immediate).user(id: 7)
+    let first = await unnamed.requests.first
+    #expect(sentHeader(first, "X-Device-ID") == APIClient.testingDeviceID.uuidString.lowercased())
+    #expect(APIClient.testingDeviceID.uuidString.lowercased() == "00000000-0000-4000-8000-000000000001")
 }
 
 @Test(arguments: [Credential.adminKey("fixture"), .accessToken("sat_fixture"), stubTokens()])
@@ -145,7 +147,7 @@ func unkeyedWritesAndLoginNeverAutomaticallyRetry(step: ScriptStep) async throws
     let recorder = SleepRecorder()
     let operations: [@Sendable (APIClient) async throws -> Void] = [
         { _ = try await $0.setUserStatus(id: 7, status: "active") },
-        { _ = try await $0.login(email: "admin@example.invalid", password: "only-test") },
+        { _ = try await $0.login(email: "admin@example.invalid", password: "only-test", deviceName: "iPhone", declaresCaptchaProvider: true) },
         { _ = try await $0.completeTOTP(tempToken: "temporary", code: "123456") }
     ]
     for (index, operation) in operations.enumerated() {
@@ -213,7 +215,7 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     _ = try? await client.requestRecords(page: 1, filter: RequestLogFilter())
     _ = try? await client.usageAnalysis(hour)
     _ = try? await client.userUsage(id: 7)
-    _ = try? await client.login(email: "admin@example.invalid", password: "only-test")
+    _ = try? await client.login(email: "admin@example.invalid", password: "only-test", deviceName: "iPhone", declaresCaptchaProvider: true)
     let requests = await transport.requests
     #expect(requests.filter { $0.url?.path == "/api/v1/admin/usage/stats" }.map(\.timeoutInterval) == [45, 45])
     let sent = requests.map { ("\($0.httpMethod ?? "") \($0.url?.path ?? "")", $0.timeoutInterval) }
