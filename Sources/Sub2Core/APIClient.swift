@@ -58,20 +58,6 @@ public actor APIClient {
                                                   authenticated: false, context: .twoFactor)
         return try await acceptLogin(reply, generation: snapshot)
     }
-    public func verifyAdministrator() async throws {
-        let snapshot = generation
-        guard let credential else { throw APIError.authenticationRequired }
-        switch credential {
-        case .adminKey(let key):
-            guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw APIError.authenticationRequired }
-            let _: EmptyReply = try await request("admin/dashboard/realtime")
-        case .tokens:
-            let user: AdminUser = try await request("auth/me")
-            guard user.role == "admin" else { throw APIError.administratorRequired }
-        }
-        try check(snapshot)
-        if let current = self.credential { try await persist(current, generation: snapshot) }
-    }
     public func logout() async throws {
         let oldCredential = credential
         await cancelAll()
@@ -365,7 +351,7 @@ public actor APIClient {
         request.setValue("zh-CN", forHTTPHeaderField: "Accept-Language")
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         switch credential {
-        case .adminKey(let key): request.setValue(key, forHTTPHeaderField: "x-api-key")
+        case .adminKey(let key), .accessToken(let key): request.setValue(key, forHTTPHeaderField: "x-api-key")
         case .tokens(let tokens): request.setValue("Bearer " + tokens.accessToken, forHTTPHeaderField: "Authorization")
         case nil: break
         }
@@ -377,7 +363,7 @@ public actor APIClient {
         guard (200..<300).contains(response.statusCode) else { throw APIError.from(response, context: context) }
         let envelope: Envelope<T>
         do { envelope = try JSONDecoder().decode(Envelope<T>.self, from: response.data) }
-        catch let error as APIError { throw error } // Models may reject a payload with their own error (captcha conflict).
+        catch let error as APIError { throw error } // Models may reject a payload with their own error (page counters).
         catch { throw APIError.invalidResponse }
         guard envelope.status.code != nil else { throw APIError.invalidResponse }
         guard envelope.status.isSuccess else { throw APIError.from(response, context: context) }
@@ -385,7 +371,8 @@ public actor APIClient {
         guard let result = envelope.data else { throw APIError.invalidResponse }
         return result
     }
-    private func check(_ snapshot: UUID) throws { try Task.checkCancellation(); guard snapshot == generation else { throw CancellationError() } }
+    func check(_ snapshot: UUID) throws { try Task.checkCancellation(); guard snapshot == generation else { throw CancellationError() } }
+    func currentGeneration() -> UUID { generation }
     private func removeCancellation(_ id: UUID) { cancellations[id] = nil }
     private func validTOTP(_ code: String) -> Bool { code.utf8.count == 6 && code.utf8.allSatisfy { (48...57).contains($0) } }
     func validID(_ value: Int) throws -> Int {
@@ -425,7 +412,7 @@ private struct Envelope<T: Decodable & Sendable>: Decodable, Sendable {
     }
     private enum CodingKeys: String, CodingKey { case data }
 }
-private struct EmptyReply: Decodable, Sendable {}
+struct EmptyReply: Decodable, Sendable {}
 private struct TrendReply: Decodable, Sendable { let trend: [TrendPoint] }
 private struct DashboardStatsSnapshotReply: Decodable, Sendable { let stats: DashboardStats? }
 private struct StepUpReply: Decodable, Sendable { let verified: Bool }

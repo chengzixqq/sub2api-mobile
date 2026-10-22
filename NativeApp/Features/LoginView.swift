@@ -151,6 +151,8 @@ struct LoginView: View {
                     } else {
                         let settings = try await candidate.publicSettings()
                         if let expiry = proofExpiresAt, expiry <= Date() { proof = nil; proofExpiresAt = nil }
+                        // Decoding no longer rejects a conflict; stop here with the catalog wording (00 §1.4).
+                        if settings.isCaptchaConflict { throw APIError.server(status: 503, reason: "CAPTCHA_PROVIDER_CONFLICT", context: .login) }
                         if settings.captchaEnabled && proof == nil {
                             guard ["turnstile", "tencent", "aliyun"].contains(settings.captchaProvider ?? "") else {
                                 throw AppFailure("此站点的验证码暂不支持原生验证，请使用 Web 后台。")

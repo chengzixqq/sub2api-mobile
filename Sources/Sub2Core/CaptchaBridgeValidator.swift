@@ -20,10 +20,13 @@ public enum CaptchaBridgeValidator {
                   let proof = object["proof"] as? [String: Any] else { throw invalidMessage }
             if provider == "tencent" {
                 guard Set(proof.keys) == Set(["tencent_captcha_ticket", "tencent_captcha_randstr"]) else { throw invalidMessage }
-                return .proof(CaptchaProof(tencentTicket: try token(proof["tencent_captcha_ticket"]), tencentRandstr: try token(proof["tencent_captcha_randstr"])))
+                return .proof(CaptchaProof(provider: provider, tencentTicket: try token(proof["tencent_captcha_ticket"]),
+                                           tencentRandstr: try token(proof["tencent_captcha_randstr"])))
             }
             guard Set(proof.keys) == Set(["turnstile_token"]) else { throw invalidMessage }
-            return .proof(CaptchaProof(turnstileToken: try token(proof["turnstile_token"])))
+            // Aliyun's verify param arrives as turnstile_token; old servers read it there, new ones as aliyun_captcha_param (00 §1.5).
+            let value = try token(proof["turnstile_token"])
+            return .proof(CaptchaProof(provider: provider, turnstileToken: value, aliyunParam: provider == "aliyun" ? value : nil))
         } catch { throw invalidMessage }
     }
     private struct Header: Decodable { let version: Int; let nonce: String; let cancelled: Bool? }

@@ -33,7 +33,7 @@ struct SettingsView: View {
             }
             if let profile = model.activeProfile {
                 Section("当前连接") {
-                    LabeledValue(label: "认证方式", value: profile.authentication == .adminKey ? "Admin Key" : "邮箱和密码")
+                    LabeledValue(label: "认证方式", value: authenticationLabel(profile.authentication))
                     Button { openURL(profile.baseURL) } label: { Label("打开 Web 后台", systemImage: "safari") }.frame(minHeight: 44)
                     Button("退出并清除当前凭据", role: .destructive) { confirmLogout = true }.frame(minHeight: 44).accessibilityIdentifier("settings.logout")
                 }
@@ -66,5 +66,13 @@ struct SettingsView: View {
         .confirmationDialog("退出当前站点？", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("退出并清除凭据", role: .destructive) { Task { await model.logout() } }
         } message: { Text("\(model.activeProfile?.name ?? "")\n此设备上的登录凭据将被清除。") }
+    }
+    // Interim wording until the site session shows /admin/me's auth method.
+    private func authenticationLabel(_ kind: AuthenticationKind) -> String {
+        switch kind {
+        case .password: "邮箱和密码"
+        case .adminKey: "Admin Key"
+        case .accessToken: "管理访问令牌"
+        }
     }
 }

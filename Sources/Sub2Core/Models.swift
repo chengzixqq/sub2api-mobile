@@ -1,6 +1,12 @@
 import Foundation
 
-public enum AuthenticationKind: String, Codable, Sendable { case adminKey, password }
+public enum AuthenticationKind: String, Codable, Sendable {
+    case adminKey, password, accessToken
+    /// An unknown stored value only changes wording, so it never drops the site (an older App reading newer data).
+    public init(from decoder: any Decoder) throws {
+        self = AuthenticationKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .password
+    }
+}
 
 public struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     public let id: UUID
@@ -18,6 +24,20 @@ public struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
         return baseURL
     }
 }
+extension ServerProfile {
+    /// Saved profiles are read one by one: an unreadable entry is skipped instead of emptying the list,
+    /// which would then be written back over the good entries.
+    public static func storedList(from data: Data) -> [ServerProfile] {
+        ((try? JSONDecoder().decode([Lossy<ServerProfile>].self, from: data)) ?? []).compactMap(\.value)
+    }
+    public static func storedArchive(from data: Data) -> [UUID: ServerProfile] {
+        ((try? JSONDecoder().decode([UUID: Lossy<ServerProfile>].self, from: data)) ?? [:]).compactMapValues(\.value)
+    }
+}
+private struct Lossy<Value: Decodable>: Decodable {
+    let value: Value?
+    init(from decoder: any Decoder) throws { value = try? Value(from: decoder) }
+}
 
 public struct TokenPair: Codable, Sendable, Equatable {
     public var accessToken: String
@@ -28,7 +48,40 @@ public struct TokenPair: Codable, Sendable, Equatable {
     }
 }
 
-public enum Credential: Codable, Sendable, Equatable { case adminKey(String), tokens(TokenPair) }
+public enum Credential: Codable, Sendable, Equatable {
+    case adminKey(String), tokens(TokenPair), accessToken(String)
+
+    /// The only `sat_` rule: trimmed, then the backend's case-sensitive prefix check (`IsAdminAccessToken`).
+    public static func fromAPIKey(_ raw: String) -> Credential {
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return key.hasPrefix("sat_") ? .accessToken(key) : .adminKey(key)
+    }
+    public var authenticationKind: AuthenticationKind {
+        switch self {
+        case .tokens: .password
+        case .adminKey: .adminKey
+        case .accessToken: .accessToken
+        }
+    }
+    /// Keeps the synthesized Keychain format (`{"adminKey":{"_0":…}}`) byte for byte.
+    private enum Stored: Codable { case adminKey(String), tokens(TokenPair), accessToken(String) }
+    public init(from decoder: any Decoder) throws {
+        switch try Stored(from: decoder) {
+        // Tokens saved as Admin Keys before `sat_` support are migrated by prefix (00 §9.4).
+        case .adminKey(let key): self = Self.fromAPIKey(key)
+        case .tokens(let pair): self = .tokens(pair)
+        case .accessToken(let key): self = .accessToken(key)
+        }
+    }
+    public func encode(to encoder: any Encoder) throws {
+        let stored: Stored = switch self {
+        case .adminKey(let key): .adminKey(key)
+        case .tokens(let pair): .tokens(pair)
+        case .accessToken(let key): .accessToken(key)
+        }
+        try stored.encode(to: encoder)
+    }
+}
 public protocol CredentialStore: Sendable {
     func load(serverID: UUID) async throws -> Credential?
     func save(_ credential: Credential, serverID: UUID) async throws
@@ -36,14 +89,18 @@ public protocol CredentialStore: Sendable {
 }
 
 public struct CaptchaProof: Codable, Sendable {
+    public var provider: String?
     public var turnstileToken: String?
     public var tencentTicket: String?
     public var tencentRandstr: String?
-    public init(turnstileToken: String? = nil, tencentTicket: String? = nil, tencentRandstr: String? = nil) {
-        self.turnstileToken = turnstileToken; self.tencentTicket = tencentTicket; self.tencentRandstr = tencentRandstr
+    public var aliyunParam: String?
+    public init(provider: String? = nil, turnstileToken: String? = nil, tencentTicket: String? = nil, tencentRandstr: String? = nil, aliyunParam: String? = nil) {
+        self.provider = provider; self.turnstileToken = turnstileToken; self.tencentTicket = tencentTicket
+        self.tencentRandstr = tencentRandstr; self.aliyunParam = aliyunParam
     }
     enum CodingKeys: String, CodingKey {
-        case turnstileToken = "turnstile_token", tencentTicket = "tencent_captcha_ticket", tencentRandstr = "tencent_captcha_randstr"
+        case provider = "captcha_provider", turnstileToken = "turnstile_token", tencentTicket = "tencent_captcha_ticket"
+        case tencentRandstr = "tencent_captcha_randstr", aliyunParam = "aliyun_captcha_param"
     }
 }
 public struct TwoFactorChallenge: Sendable {
@@ -58,25 +115,44 @@ public struct AuthSession: Sendable {
 }
 public enum LoginResult: Sendable { case authenticated(AuthSession), twoFactor(TwoFactorChallenge) }
 
-public struct Page<T: Codable & Sendable>: Codable, Sendable {
+public struct Page<T: Decodable & Sendable>: Decodable, Sendable {
     public let items: [T]
-    public let total: Int
+    /// nil in deferred-count envelopes: show no total and page by `hasMore` (00 §4.1).
+    public let total: Int?
     public let page: Int
     public let pageSize: Int
-    public let pages: Int
-    public var hasMore: Bool { page < pages }
-    public init(items: [T], total: Int, page: Int, pageSize: Int, pages: Int) {
-        self.items = items; self.total = total; self.page = page; self.pageSize = pageSize; self.pages = pages
+    public let pages: Int?
+    /// Raw `has_more`; incremental envelopes also carry `since_id` / `latest_id`.
+    public let reportedHasMore: Bool?
+    public let sinceID: Int?
+    public let latestID: Int?
+    public var hasMore: Bool {
+        if let reportedHasMore { return reportedHasMore }
+        if let pages { return page < pages }
+        if let total, pageSize > 0 { return page <= Int.max / pageSize && page * pageSize < total }
+        return false
     }
-    enum CodingKeys: String, CodingKey { case items, total, page, pageSize = "page_size", pages }
+    public init(items: [T], total: Int?, page: Int, pageSize: Int, pages: Int?, hasMore: Bool? = nil, sinceID: Int? = nil, latestID: Int? = nil) {
+        self.items = items; self.total = total; self.page = page; self.pageSize = pageSize; self.pages = pages
+        reportedHasMore = hasMore; self.sinceID = sinceID; self.latestID = latestID
+    }
+    enum CodingKeys: String, CodingKey {
+        case items, total, page, pageSize = "page_size", pages, hasMore = "has_more", sinceID = "since_id", latestID = "latest_id"
+    }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        items = try c.decode([T].self, forKey: .items); total = try c.decode(Int.self, forKey: .total)
+        items = try c.decode([T].self, forKey: .items); total = try c.decodeIfPresent(Int.self, forKey: .total)
         page = try c.decode(Int.self, forKey: .page); pageSize = try c.decode(Int.self, forKey: .pageSize)
-        guard total >= 0, page >= 1, pageSize > 0 else { throw APIError.invalidResponse }
-        let calculated = total / pageSize + (total % pageSize == 0 ? 0 : 1)
-        pages = try c.decodeIfPresent(Int.self, forKey: .pages) ?? calculated
-        guard pages >= 0 else { throw APIError.invalidResponse }
+        guard total.map({ $0 >= 0 }) ?? true, page >= 1, pageSize > 0 else { throw APIError.invalidResponse }
+        let size = pageSize
+        pages = try c.decodeIfPresent(Int.self, forKey: .pages) ?? total.map { $0 / size + ($0 % size == 0 ? 0 : 1) }
+        guard pages.map({ $0 >= 0 }) ?? true else { throw APIError.invalidResponse }
+        reportedHasMore = try c.decodeIfPresent(Bool.self, forKey: .hasMore)
+        sinceID = try c.decodeIfPresent(Int.self, forKey: .sinceID); latestID = try c.decodeIfPresent(Int.self, forKey: .latestID)
+    }
+    public func mapItems<U: Decodable & Sendable>(_ transform: (T) throws -> U) rethrows -> Page<U> {
+        Page<U>(items: try items.map(transform), total: total, page: page, pageSize: pageSize, pages: pages,
+                hasMore: reportedHasMore, sinceID: sinceID, latestID: latestID)
     }
 }
 
@@ -364,24 +440,62 @@ public struct UserAPIKey: Identifiable, Codable, Sendable {
         quota = try c.decimal(.quota); quotaUsed = try c.decimal(.quotaUsed)
     }
 }
+public struct LoginAgreementDocument: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let title: String
+    public let contentMarkdown: String
+    public init(id: String, title: String, contentMarkdown: String) { self.id = id; self.title = title; self.contentMarkdown = contentMarkdown }
+    enum CodingKeys: String, CodingKey { case id, title, contentMarkdown = "content_md" }
+}
+/// Raw `settings/public` fields (00 §9.4). A captcha conflict is reported to the login page, never thrown while decoding.
 public struct PublicSettings: Decodable, Sendable {
-    public let captchaProvider: String?
-    public let captchaEnabled: Bool
-    public init(captchaProvider: String? = nil, captchaEnabled: Bool = false) { self.captchaProvider = captchaProvider; self.captchaEnabled = captchaEnabled }
-    enum CodingKeys: String, CodingKey { case turnstile = "turnstile_enabled", tencent = "tencent_captcha_enabled", aliyun = "aliyun_captcha_enabled" }
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        let tencent = try c.decodeIfPresent(Bool.self, forKey: .tencent) == true
-        let aliyun = try c.decodeIfPresent(Bool.self, forKey: .aliyun) == true
-        let turnstile = try c.decodeIfPresent(Bool.self, forKey: .turnstile) == true
-        guard [tencent, aliyun, turnstile].filter({ $0 }).count <= 1 else {
-            throw APIError(kind: .captcha, reason: "CAPTCHA_PROVIDER_CONFLICT", message: "站点启用了多个验证码服务，请先在 Web 后台修正配置。")
-        }
-        if tencent { captchaProvider = "tencent" }
-        else if aliyun { captchaProvider = "aliyun" }
-        else if turnstile { captchaProvider = "turnstile" }
-        else { captchaProvider = nil }
-        captchaEnabled = captchaProvider != nil
+    /// nil when the key is absent (servers before `auth.captcha_provider`); "" means no captcha.
+    public let rawCaptchaProvider: String?
+    public let turnstileEnabled: Bool?
+    public let tencentCaptchaEnabled: Bool?
+    public let aliyunCaptchaEnabled: Bool?
+    /// "" (front end deployed separately) and a missing key mean different things (00 §1.5).
+    public let mobileVerifyPath: String?
+    public let siteName: String?
+    public let siteLogo: String?
+    public let version: String?
+    public let serverTimezone: String?
+    public let serverUTCOffset: String?
+    public let backendModeEnabled: Bool?
+    public let totpEnabled: Bool?
+    public let loginAgreementEnabled: Bool?
+    public let loginAgreementMode: String?
+    public let loginAgreementRevision: String?
+    public let loginAgreementUpdatedAt: String?
+    private let agreementDocuments: [LoginAgreementDocument]?
+    public let channelMonitorEnabled: Bool?
+    public let channelMonitorMode: String?
+    public let paymentEnabled: Bool?
+    public let subscriptionEnabled: Bool?
+
+    public var loginAgreementDocuments: [LoginAgreementDocument] { agreementDocuments ?? [] }
+    public var hasCaptchaProviderKey: Bool { rawCaptchaProvider != nil }
+    /// nil, turnstile, tencent, aliyun, conflict, or an unknown value from a newer server. Without the
+    /// provider key the three legacy switches decide, and more than one enabled is a conflict.
+    public var captchaProvider: String? {
+        if let rawCaptchaProvider { return rawCaptchaProvider.isEmpty ? nil : rawCaptchaProvider }
+        let enabled = [("turnstile", turnstileEnabled), ("tencent", tencentCaptchaEnabled), ("aliyun", aliyunCaptchaEnabled)].filter { $0.1 == true }
+        return enabled.count > 1 ? "conflict" : enabled.first?.0
+    }
+    public var captchaEnabled: Bool { captchaProvider != nil }
+    public var isCaptchaConflict: Bool { captchaProvider == "conflict" }
+
+    enum CodingKeys: String, CodingKey {
+        case rawCaptchaProvider = "captcha_provider", turnstileEnabled = "turnstile_enabled"
+        case tencentCaptchaEnabled = "tencent_captcha_enabled", aliyunCaptchaEnabled = "aliyun_captcha_enabled"
+        case mobileVerifyPath = "mobile_verify_path", siteName = "site_name", siteLogo = "site_logo", version
+        case serverTimezone = "server_timezone", serverUTCOffset = "server_utc_offset"
+        case backendModeEnabled = "backend_mode_enabled", totpEnabled = "totp_enabled"
+        case loginAgreementEnabled = "login_agreement_enabled", loginAgreementMode = "login_agreement_mode"
+        case loginAgreementRevision = "login_agreement_revision", loginAgreementUpdatedAt = "login_agreement_updated_at"
+        case agreementDocuments = "login_agreement_documents"
+        case channelMonitorEnabled = "channel_monitor_enabled", channelMonitorMode = "channel_monitor_mode"
+        case paymentEnabled = "payment_enabled", subscriptionEnabled = "subscription_enabled"
     }
 }
 

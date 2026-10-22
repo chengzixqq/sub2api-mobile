@@ -52,10 +52,8 @@ final class AppModel {
         pendingFileURL = isUITesting ? nil : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("Sub2Mobile", isDirectory: true).appendingPathComponent("pending-balances.json")
         if isUITesting { defaults.removePersistentDomain(forName: "com.chengzixqq.sub2mobile.uitesting") }
-        if let data = defaults.data(forKey: "profiles") {
-            profiles = (try? JSONDecoder().decode([ServerProfile].self, from: data)) ?? []
-        }
-        if let data = defaults.data(forKey: "profileArchive") { profileArchive = (try? JSONDecoder().decode([UUID: ServerProfile].self, from: data)) ?? [:] }
+        if let data = defaults.data(forKey: "profiles") { profiles = ServerProfile.storedList(from: data) }
+        if let data = defaults.data(forKey: "profileArchive") { profileArchive = ServerProfile.storedArchive(from: data) }
         if let raw = defaults.string(forKey: "activeProfile") { savedActiveID = UUID(uuidString: raw) }
         if let pendingFileURL, FileManager.default.fileExists(atPath: pendingFileURL.path) {
             do { pendingBalances = try JSONDecoder().decode([PendingBalanceOperation].self, from: Data(contentsOf: pendingFileURL)) }
@@ -107,7 +105,11 @@ final class AppModel {
         let candidate = APIClient(server: profile, credential: credential)
         pendingCandidate = candidate
         defer { Task { await candidate.cancelAll() } }
-        if !isUITesting { try await candidate.verifyAdministrator() }
+        if !isUITesting {
+            // The site session (S0-10) will keep this snapshot; for now it only gates administrators.
+            let me = try await candidate.me()
+            guard me.isAdministrator else { throw APIError.administratorRequired }
+        }
         guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
         let verifiedCredential = await candidate.currentCredential() ?? credential
         guard ticket == connectionAttempt else { await candidate.cancelAll(); throw CancellationError() }
@@ -273,7 +275,7 @@ final class AppModel {
     func accounts(page: Int, search: String, status: String?, platform: String?, includeSchedulerScore: Bool = false) async throws -> Page<UpstreamAccount> {
         if isUITesting {
             let result = DemoData.accounts(page: page, search: search, status: status, platform: platform)
-            return Page(items: result.items.map(accountFixture), total: result.total, page: result.page, pageSize: result.pageSize, pages: result.pages)
+            return result.mapItems(accountFixture)
         }
         return try await requireClient().accounts(page: page, search: search, status: status, platform: platform, includeSchedulerScore: includeSchedulerScore)
     }

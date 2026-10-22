@@ -27,7 +27,7 @@ struct AccountsView: View {
     @State private var filters = AccountListQuery()
     @State private var page = 0
     @State private var hasMore = false
-    @State private var total = 0
+    @State private var total: Int?
     @State private var loading = false
     @State private var error: String?
     @State private var failedPage: Int?
@@ -67,7 +67,7 @@ struct AccountsView: View {
         List {
             Section {
                 Button { editingFilters = true } label: {
-                    HStack { Label("筛选与排序", systemImage: "line.3.horizontal.decrease.circle"); Spacer(); Text("\(total) 个").foregroundStyle(.secondary) }
+                    HStack { Label("筛选与排序", systemImage: "line.3.horizontal.decrease.circle"); Spacer(); Text(total.map { "\($0) 个" } ?? "—").foregroundStyle(.secondary) }
                 }.accessibilityIdentifier("accounts.filters")
                 Toggle("前台自动刷新（30 秒）", isOn: $autoRefresh).accessibilityIdentifier("accounts.auto-refresh")
                 if selecting {
@@ -188,7 +188,7 @@ struct AccountsView: View {
         }
         .task(id: query) {
             cancelReads()
-            page = 0; hasMore = false; accounts = []; total = 0; error = nil; failedPage = nil; selected = []
+            page = 0; hasMore = false; accounts = []; total = nil; error = nil; failedPage = nil; selected = []
             todayStats.cancel(); todayStats.value = nil; loadedAt = nil
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             await load(nextPage: 1, replace: true)
@@ -346,7 +346,7 @@ struct AccountsView: View {
         }
         guard let client = session?.client else { throw APIError.authenticationRequired }
         let result = try await client.managedAccounts(page: number, query: query)
-        return Page(items: result.items.map(withGroupNames), total: result.total, page: result.page, pageSize: result.pageSize, pages: result.pages)
+        return result.mapItems(withGroupNames)
     }
     private func load(nextPage: Int, replace: Bool = false) async {
         guard !loading, let generation = session?.generation, generation == model.sessionGeneration else { return }

@@ -231,9 +231,12 @@ private func thrownError(_ operation: () async throws -> Void) async -> APIError
 }
 
 @Test func successBodiesKeepModelErrorsAndContractChecks() async throws {
+    // A captcha conflict is reported to the login page instead of failing the decode (00 §9.4).
     let conflict = ErrorMappingTransport { _ in mappingSuccess(#"{"turnstile_enabled":true,"tencent_captcha_enabled":true}"#) }
-    let captcha = try #require(await thrownError { _ = try await APIClient(server: mappingServer(), transport: conflict).publicSettings() })
-    #expect(captcha.kind == .captcha); #expect(captcha.reason == "CAPTCHA_PROVIDER_CONFLICT")
+    #expect(try await APIClient(server: mappingServer(), transport: conflict).publicSettings().isCaptchaConflict)
+    let counters = ErrorMappingTransport { _ in mappingSuccess(#"{"items":[],"total":-1,"page":1,"page_size":20}"#) }
+    let page = await thrownError { _ = try await APIClient(server: mappingServer(), credential: .adminKey("fixture"), transport: counters).users(page: 1, search: "", status: nil) }
+    #expect(page == .invalidResponse)
     for body in [#"{"code":0}"#, #"{"code":0,"data":{"id":"x"}}"#, #"{"data":{}}"#, "<html></html>"] {
         let transport = ErrorMappingTransport { _ in mappingReply(200, body) }
         let error = await thrownError { _ = try await APIClient(server: mappingServer(), credential: .adminKey("fixture"), transport: transport).user(id: 7) }

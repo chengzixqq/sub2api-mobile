@@ -68,14 +68,13 @@ private actor AttemptCounter {
     #expect(!last.hasMore)
 }
 
-@Test func publicSettingsMatchesCaptchaProviderAndRejectsConfigurationConflict() throws {
+@Test func publicSettingsInfersLegacyProviderAndReportsConflictWithoutThrowing() throws {
     let settings = try JSONDecoder().decode(PublicSettings.self, from: Data(#"{"turnstile_enabled":false,"tencent_captcha_enabled":true,"aliyun_captcha_enabled":false}"#.utf8))
     #expect(settings.captchaEnabled); #expect(settings.captchaProvider == "tencent")
     let none = try JSONDecoder().decode(PublicSettings.self, from: Data("{}".utf8))
     #expect(!none.captchaEnabled); #expect(none.captchaProvider == nil)
-    #expect(throws: APIError.self) {
-        try JSONDecoder().decode(PublicSettings.self, from: Data(#"{"turnstile_enabled":true,"tencent_captcha_enabled":true}"#.utf8))
-    }
+    let conflict = try JSONDecoder().decode(PublicSettings.self, from: Data(#"{"turnstile_enabled":true,"tencent_captcha_enabled":true}"#.utf8))
+    #expect(conflict.isCaptchaConflict)
 }
 
 @Test func secureStationValidation() throws {
@@ -289,19 +288,6 @@ private actor AttemptCounter {
     #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "user_id" }?.value == "7")
 }
 
-@Test func adminKeyVerificationUsesLightweightAuthenticatedRealtimeProbe() async throws {
-    let transport = MockTransport { request in
-        #expect(request.httpMethod == "GET")
-        #expect(request.value(forHTTPHeaderField: "x-api-key") == "fixture")
-        guard request.url?.path == "/api/v1/admin/dashboard/realtime" else { throw URLError(.timedOut) }
-        // This is only a permission probe; none of these placeholder metrics enter the dashboard.
-        return ok(#"{"requests":0,"tokens":0,"cost":0}"#)
-    }
-    let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
-    try await client.verifyAdministrator()
-    #expect(await transport.requests().count == 1)
-}
-
 @Test func dashboardDetailsLoadExplicitlyWithShortRangeAndOwnTimeouts() async throws {
     let transport = MockTransport { request in
         if request.url?.path.hasSuffix("/trend") == true {
@@ -424,11 +410,12 @@ func dashboardReadsRejectLateResultsAfterStationCancellation(section: String) as
     for provider in ["turnstile", "aliyun"] {
         let data = Data("{\"version\":1,\"nonce\":\"\(nonce.uuidString)\",\"provider\":\"\(provider)\",\"proof\":{\"turnstile_token\":\"fixture-proof\"}}".utf8)
         guard case .proof(let proof) = try CaptchaBridgeValidator.parse(data, nonce: nonce, provider: provider) else { Issue.record("Expected proof"); continue }
-        #expect(proof.turnstileToken == "fixture-proof"); #expect(proof.tencentTicket == nil)
+        #expect(proof.turnstileToken == "fixture-proof"); #expect(proof.tencentTicket == nil); #expect(proof.provider == provider)
+        #expect(proof.aliyunParam == (provider == "aliyun" ? "fixture-proof" : nil))
     }
     let tencent = Data("{\"version\":1,\"nonce\":\"\(nonce.uuidString)\",\"provider\":\"tencent\",\"proof\":{\"tencent_captcha_ticket\":\"ticket\",\"tencent_captcha_randstr\":\"random\"}}".utf8)
     guard case .proof(let proof) = try CaptchaBridgeValidator.parse(tencent, nonce: nonce, provider: "tencent") else { Issue.record("Expected Tencent proof"); return }
-    #expect(proof.tencentTicket == "ticket"); #expect(proof.tencentRandstr == "random")
+    #expect(proof.tencentTicket == "ticket"); #expect(proof.tencentRandstr == "random"); #expect(proof.provider == "tencent")
     let cancel = Data("{\"version\":1,\"nonce\":\"\(nonce.uuidString)\",\"cancelled\":true}".utf8)
     guard case .cancelled = try CaptchaBridgeValidator.parse(cancel, nonce: nonce, provider: "turnstile") else { Issue.record("Expected cancellation"); return }
 }
