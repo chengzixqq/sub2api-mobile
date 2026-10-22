@@ -57,7 +57,7 @@ def generate():
     test_sources = add("test:sources", f"isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = {refs(source_groups['UITests'][1])}; runOnlyForDeploymentPostprocessing = 0;")
     test_frameworks = add("test:frameworks", "isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;")
     configurations = {}
-    common = {"IPHONEOS_DEPLOYMENT_TARGET": "17.0", "SDKROOT": "iphoneos", "SWIFT_VERSION": "6.0", "SWIFT_STRICT_CONCURRENCY": "complete", "CLANG_ENABLE_MODULES": "YES", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"}
+    common = {"IPHONEOS_DEPLOYMENT_TARGET": "26.0", "SDKROOT": "iphoneos", "SWIFT_VERSION": "6.0", "SWIFT_STRICT_CONCURRENCY": "complete", "CLANG_ENABLE_MODULES": "YES", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"}
     for target in ("project", "app", "test"):
         configs = []
         for name in ("Debug", "Release"):

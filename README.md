@@ -1,6 +1,6 @@
 # Sub2 Mobile
 
-中文优先的 Sub2API 原生管理员客户端，采用 SwiftUI、Observation、Swift Concurrency、URLSession、Swift Charts 和 Keychain。最低 iOS 17，支持 iPhone、基本 iPad 布局、深浅色和动态字体。
+中文优先的 Sub2API 原生管理员客户端，采用 SwiftUI、Observation、Swift Concurrency、URLSession、Swift Charts 和 Keychain。最低 iOS 26，支持 iPhone、基本 iPad 布局、深浅色和动态字体。
 
 功能和接口说明见 [管理模块契约](docs/ADMIN_MODULES.md) 与 [API 兼容边界](docs/API_COMPATIBILITY.md)。各版本的实际测试、构建、IPA 校验和真机验收结果统一记录在 [验收记录](docs/ACCEPTANCE.md)；功能已实现与真机已验收分别记录。
 
@@ -34,7 +34,7 @@
 
 ## 工具链与构建
 
-要求 **Xcode 27.0 正式版（`27A266a`）、自带 Swift 6.4 编译器、Swift 6 语言模式**。Bundle ID 为 `com.chengzixqq.sub2mobile`，最低 iOS 17。工具链守卫核对正式版构建号，拒绝其他版本及 Beta、RC、seed 标记，不自动降级。
+要求 **Xcode 27.1 正式版（`27A9275`，由同号 RC 转正）、自带 Swift 6.4 编译器、Swift 6 语言模式**。Bundle ID 为 `com.chengzixqq.sub2mobile`，最低 iOS 26。工具链守卫核对正式版构建号，拒绝其他版本及 Beta、RC、seed 标记，不自动降级。
 
 在已安装正式工具链和 iOS 模拟器 runtime 的 Mac 上，进入已同步到所需提交且工作区干净的原生源码目录：
 
