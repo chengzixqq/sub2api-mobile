@@ -4,22 +4,44 @@
 >
 > **最高优先级：不能影响生产的任何工作。** 下面第 1 节的红线，只要有一条可能被触碰，立即停下来，向用户报告，不要自作主张绕过。
 
+## 0. 第二次执行须知（2026-10-22 第一次执行停在镜像构建，本版已据报告修订）
+
+第一次执行的报告在 `sub2test-20261022/REPORT.md`。确认过的事实和本版的改动：
+
+- **生产的真实容器**是 `linapi-sub2api-rolling-rpm-60s-20261015-green`（应用，蓝绿部署，回环端口 18136）、`linapi-sub2api-postgres`、`linapi-sub2api-redis`，不是文档旧版写的 `sub2api`。本版改为开工时用 `docker ps` 识别并记下“受保护容器清单”（第 1.0 节），之后所有检查都以这份清单为准。生产将来可能换成 blue / 其他名字，每次都要重新识别。
+- **生产版本**是 `e5ab7e4f4`（旧镜像只按这个提交构建）。
+- **18080 已被占用**，测试端口用 18081（或 18080–18099 里第一个空闲的）。
+- **构建方式改了**：不要再起独立的 BuildKit 容器（第一次在它里面因 `mkdir /sys/fs/cgroup/buildkit: read-only file system` 失败），直接用宿主 Docker 守护进程自带的默认构建器（`docker build`，守护进程内置 BuildKit）。这台主机有 128 核、约 239 GiB 可用内存，构建不会挤占生产；不需要也不要为构建另配 cgroup、特权或改主机安全配置。
+- **Dockerfile 用 `deploy/Dockerfile`**：仓库根目录的 `Dockerfile` 不打包 `/app/migration-preflight`，`deploy/Dockerfile` 打包了（构建上下文仍是仓库根目录）。第一次执行做的 `Dockerfile.test`（根 Dockerfile 加 preflight 的补丁副本）也可以用，二选一，报告里写明用的哪个。
+- **清理第一次留下的构建器资源**（都属于 sub2test，可以删）：已停止的 `sub2test-builder` 容器、`sub2test-build-net` 网络、`sub2test_buildkit` 卷；`moby/buildkit` 镜像先用 `docker ps -a --filter ancestor=moby/buildkit` 确认没有其他容器在用，再删。
+- **不要对生产执行 `docker exec`**（旧版第 5 节写过一个只读 exec，已删除，与红线冲突时以红线为准）。
+- 第一次执行留下的 `/opt/sub2test/src`、`/opt/sub2test/old` 可以复用；先 `git -C /opt/sub2test/src fetch && git -C /opt/sub2test/src checkout <最新 main>`。
+
 ---
 
 ## 1. 红线（任何一步违反都必须中止并报告）
 
+### 1.0 开工第一步：识别并记下受保护对象
+
+```bash
+docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+docker network ls; docker volume ls
+```
+
+把**所有不以 `sub2test` 开头**的容器、网络、卷都视为生产或他人的资源，写进报告的“受保护清单”。其中 sub2api 应用容器（目前是 `linapi-sub2api-rolling-rpm-60s-*`，蓝绿部署可能是 green 或 blue）记为 `$PROD_APP`，它的回环端口记为 `$PROD_PORT`（`docker port $PROD_APP`）。下面所说的“生产容器”都指这份清单。
+
 1. **不碰生产的容器、镜像、卷、网络、端口、配置和数据库。**
-   - 生产容器名是 `sub2api`、`sub2api-postgres`、`sub2api-redis`，以 `docker ps` 实际看到的为准。不得对它们执行 `stop`、`restart`、`rm`、`exec`（只读的 `inspect`、`ps` 可以）、`update`、`compose up` / `down` / `pull`。
+   - 不得对受保护清单里的任何容器执行 `stop`、`restart`、`rm`、`exec`、`update`、`compose up` / `down` / `pull`。只允许只读的 `docker ps`、`docker inspect`、`docker port`、`docker stats --no-stream`。
    - 不得修改生产的 compose 文件、`.env`、`config.yaml`、`data/` 目录，也不得运行 `deploy/upgrade-compose.sh`。
    - 不得连接生产数据库或生产 Redis，包括只读查询。测试环境的迁移验证只用测试库里自己造的数据。
-   - 不得删除、改标签或覆盖生产正在使用的镜像（`docker inspect sub2api --format '{{.Config.Image}}'` 查到的那个），也不得执行 `docker image prune`、`docker system prune`、`docker volume prune`、`docker network prune`。
+   - 不得删除、改标签或覆盖生产正在使用的镜像（`docker inspect $PROD_APP --format '{{.Config.Image}}'` 查到的那个），也不得执行 `docker image prune`、`docker system prune`、`docker volume prune`、`docker network prune`、`docker builder prune`。
 2. **测试环境一律用独立名字。**
    - compose 项目名固定为 `sub2test`。
    - 容器名、卷名、网络名都以 `sub2test` 开头。
    - 镜像标签用 `sub2api-test:<commit>`。
    - 所有 `docker compose` 命令都必须带 `-p sub2test -f <测试目录>/docker-compose.test.yml`，不能依赖默认值。
 3. **测试环境不对公网开放。**
-   - 只绑定 `127.0.0.1`，端口用 `18080`；先确认这个端口没被占用，被占用就换一个空闲的 18xxx 端口，并在报告里写明。
+   - 只绑定 `127.0.0.1`，端口从 18080–18099 里选第一个空闲的（`ss -ltn` 确认；第一次执行时 18080 已被占用，用的是 18081），在报告里写明。
    - 不改生产的反向代理（Caddy、Nginx）、防火墙或 DNS。
    - App 联调通过 SSH 隧道访问（见第 6 节）。
 4. **测试环境不能对外产生真实副作用。**
@@ -32,10 +54,10 @@
    - 测试的 PostgreSQL 用小参数：`max_connections=50`、`shared_buffers=128MB`、`maintenance_work_mem=64MB`。
    - 给三个测试容器都设 CPU 和内存上限，例如 app `cpus: 1.0`、`mem_limit: 1g`，postgres `cpus: 1.0`、`mem_limit: 1g`，redis `cpus: 0.5`、`mem_limit: 256m`。
    - 开始之前先看主机资源：`free -h`、`df -h`、`nproc`、`docker stats --no-stream`。可用内存不足 3GB 或磁盘可用不足 15GB 时，停下来报告。
-   - 镜像构建可能吃满 CPU，所以要用 `nice -n 19 ionice -c3` 运行，并选业务低峰时段。
+   - 镜像构建用宿主 Docker 守护进程的默认构建器即可（见第 0 节），客户端命令用 `nice -n 19 ionice -c3` 运行。构建期间每 2 分钟看一次生产健康（第 6 条）。
 6. **每一步之后确认生产仍然健康。**
-   - 执行 `docker ps --filter name=^sub2api$ --format '{{.Status}}'`，结果要包含 `healthy`。
-   - 执行 `curl -fsS http://127.0.0.1:<生产端口>/health`（生产端口从 `docker port sub2api` 读取）。
+   - 执行 `docker inspect $PROD_APP --format '{{.State.Status}} {{.State.Health.Status}} {{.State.StartedAt}} {{.RestartCount}}'`，结果应为 `running healthy`，启动时间和重启次数与开工时一致；生产 postgres、redis 容器同样检查。
+   - 执行 `curl -fsS http://127.0.0.1:$PROD_PORT/health`，期望 200 `{"status":"ok"}`。
    - 如果生产出现任何异常，立即停止测试环境（`docker compose -p sub2test ... stop`），然后报告。
 
 ---
@@ -45,7 +67,7 @@
 ```bash
 # 2.1 记录生产现状（只读），写进报告留作对照
 docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
-docker inspect sub2api --format '{{.Config.Image}} {{.Image}}'
+docker inspect $PROD_APP --format '{{.Config.Image}} {{.Image}}'   # $PROD_APP 见第 1.0 节
 docker volume ls; docker network ls
 free -h; df -h; nproc
 
@@ -68,11 +90,14 @@ cd $T/src && git checkout main && git log --oneline -1   # 记下提交号，应
 ```bash
 cd $T/src
 COMMIT=$(git rev-parse --short HEAD)
-nice -n 19 ionice -c3 docker build -t sub2api-test:$COMMIT -f Dockerfile .
+# 宿主守护进程的默认构建器；deploy/Dockerfile 会打包 /app/migration-preflight
+DOCKER_BUILDKIT=1 nice -n 19 ionice -c3 docker build -t sub2api-test:$COMMIT -f deploy/Dockerfile .
 docker image inspect sub2api-test:$COMMIT --format '{{.Id}}'
+docker run --rm --entrypoint /app/migration-preflight sub2api-test:$COMMIT --help >/dev/null 2>&1 && echo preflight-packaged
 ```
 
 - 不要用 `deploy/build_image.sh`，它会打 `sub2api:latest` 标签，可能和生产重名。
+- 不要起独立的 BuildKit 容器、不要为构建授予特权或改主机 cgroup / AppArmor / sysctl。
 - 构建失败时把完整错误贴进报告，然后停下。
 
 ---
@@ -171,7 +196,7 @@ networks:
 ```bash
 cat > $T/.env.test <<EOF
 SUB2TEST_IMAGE=sub2api-test:$COMMIT
-SUB2TEST_PORT=18080
+SUB2TEST_PORT=18081   # 第 1 节第 3 条选出的空闲端口
 SUB2TEST_DB_PASSWORD=$(openssl rand -hex 16)
 SUB2TEST_REDIS_PASSWORD=$(openssl rand -hex 16)
 SUB2TEST_JWT_SECRET=$(openssl rand -hex 32)
@@ -195,9 +220,9 @@ dct config >/dev/null && echo compose-ok
 
 目的：证明从**当前生产版本**升级到新版本时，迁移 247–257 能在已有数据的库上顺利执行，不报错，数据不丢。
 
-1. **确定生产版本**：`docker inspect sub2api --format '{{.Config.Image}}'`，结合镜像标签或 `docker exec sub2api /app/sub2api --version`（只读命令）确定对应的提交或版本。确定不了就用基线 `3bcd2577d`，并在报告里注明“按基线 3bcd2577d 模拟”。
-2. **用旧版本起测试库**：在 `$T/src` 另开一个目录 `git worktree add $T/old <旧提交>`，构建 `sub2api-test-old:<旧提交>`；把 `.env.test` 里的 `SUB2TEST_IMAGE` 换成旧镜像，执行 `dct up -d`，等健康检查通过。
-3. **造数据**：只调用测试环境的接口，地址是 `http://127.0.0.1:18080`，管理员账号密码见 `.env.test`。数据要覆盖新迁移涉及的表：
+1. **确定生产版本**：第一次执行已确认生产是 `e5ab7e4f4`。只用 `docker inspect $PROD_APP` 的镜像标签与镜像标签上的 label 核对，不要 `docker exec` 进生产容器。
+2. **用旧版本起测试库**：用 `$T/old`（检出 `e5ab7e4f4`）构建 `sub2api-test-old:e5ab7e4f4`（同第 3 节的命令，旧版用哪个 Dockerfile 都行，旧镜像不需要 preflight）；把 `.env.test` 里的 `SUB2TEST_IMAGE` 换成旧镜像，执行 `dct up -d`，等健康检查通过。
+3. **造数据**：只调用测试环境的接口，地址是 `http://127.0.0.1:<测试端口>`，管理员账号密码见 `.env.test`。数据要覆盖新迁移涉及的表：
    - 若干用户（含余额）；
    - 2 个分组；
    - 5 个账号，Key 用虚构值，例如 `sk-test-...`，其中包括 error 状态和停用状态；
@@ -242,7 +267,7 @@ dct config >/dev/null && echo compose-ok
   - `auth/sessions`
 - 错误路径：用过期 token 访问返回 401 `TOKEN_EXPIRED`；`PUT /admin/users/:id` 带 `balance` 返回 400。
 - 在测试的 PostgreSQL 里确认两条 P95/P99 延迟告警规则存在。测试环境不配邮件，所以就算触发也不会发信。
-- **给 App 联调用的访问方式**：在开发机上执行 `ssh -N -L 18080:127.0.0.1:18080 <服务器>`，然后让 App 连 `http://127.0.0.1:18080`。不要开放公网端口。
+- **给 App 联调用的访问方式**：在开发机（Mac）上执行 `ssh -N -L 18080:127.0.0.1:<测试端口> <服务器>`，然后让模拟器里的 App 连 `http://127.0.0.1:18080`。不要开放公网端口。真机不能用开发机的回环地址，真机联调另行安排。
 
 ---
 
