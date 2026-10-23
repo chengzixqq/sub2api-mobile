@@ -187,3 +187,6 @@
 | 让其他设备下线可能连本机一起下线 | 后端对部署前签发、令牌里没有 sid 的旧会话，keep_current=true 仍会撤销全部会话，两种结果只有 message 不同。S0-11 的 revokeOtherSessions 不返回结果，本机若被撤销靠下一次 401 TOKEN_REVOKED 回到登录页；阶段 6 登录设备页操作后重载列表即可触发 |
 | 推送登记要等待该站点的收尾结束 | S0-11 删除站点的服务端收尾（最长 20 秒）可能在用户马上用同一地址重新登录后才 DELETE 推送设备；阶段 6 的 PushCoordinator 注册前应等待该站点的收尾任务结束，避免刚登记的同 id 设备被删 |
 | UI 测试期间模拟器后台进程暴涨 | S0-11 的三次 gate 中 Mac 负载多次冲到 100–600：模拟器克隆里 PosterBoard / *Poster 扩展与 SetStoreUpdateService 成批启动（按 Home 回桌面时也会触发），单个用例耗时到 5–10 分钟，计时类用例因此偶发失败。S0-19 诊断基线时一并看是否要在模拟器里关掉墙纸 / 海报扩展或降低并发 |
+| 资金写待核对的界面与回前台自动核对 | S0-12 只建了三类本机记录、AppModel.reconcile 与 R03 门控（moneyWriteGate）、重试权限；概览“待处理”、设置页三类分区、用户详情与兑换码横幅、核对结果页，以及回到前台对本站点记录自动核对一次（30 §3.6、60 §19.4 第 9 步），分别由 S0-15、阶段 1 / 3 / 6 接上。现有余额页仍是旧界面，不调用 moneyWriteGate |
+| 余额核对的阶段 3 部分 | BalanceReconciliation 只做 00 §2.5.5 的精确复核（D25）。30 §3.4 的候选匹配、多条候选、X-Request-ID 回显检查与按站点保存 requestIDUnreliable、旧记录（无 createdAt / 邮箱）按用户 ID 查询，在阶段 3 同一文件扩展 |
+| 待核对文件锁屏读不出 | completeFileProtection 文件在设备锁定时启动（预热）读不出，会被标为不可读并暂停该类资金写、启动时弹提示；S0-12 在回到前台时重读一次，但启动时那条提示仍会出现。真机验证后决定是否改成 completeUntilFirstUserAuthentication 或延后提示 |
