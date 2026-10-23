@@ -32,6 +32,8 @@ final class AppModel {
     private(set) var siteSession: SiteSession?
     /// Money writes awaiting a result (00 §2.5.5); read and changed through AppModel+Pending.swift.
     private(set) var pendingMoney = PendingMoneyLedger()
+    /// The global compliance and step-up sheet (AppModel+Security.swift); reset whenever the session changes.
+    let securityPrompts = SecurityPromptCenter()
     var errorMessage: String?
     var isRestoring = true
     /// Set while signing out or deleting the connected site (AppModel+Session.swift).
@@ -142,8 +144,11 @@ final class AppModel {
         let previous = (client: client, profileID: activeProfile?.id, lease: activeLease)
         let generation = UUID()
         let next = wiring.makeClient(server: profile, credential: verified, store: store,
-                                     onSessionInvalid: sessionInvalidHandler(serverID: profile.id, generation: generation))
+                                     onSessionInvalid: sessionInvalidHandler(serverID: profile.id, generation: generation),
+                                     securityInterceptor: makeSecurityInterceptor(generation: generation))
         publish(profile, generation: generation, site: site, client: next, lease: store.lease)
+        // Not awaited: connecting ends here while the compliance sheet waits for the administrator (S0-16).
+        Task { await presentComplianceIfRequired() }
         await candidate.cancelAll()
         await previous.client?.cancelAll()
         await previous.client?.clearConditionalCache()
@@ -200,6 +205,7 @@ final class AppModel {
     /// One synchronous step, so no page sees a client without its site session. The generation is made before the client so
     /// S0-11's callbacks can capture it (D13).
     private func publish(_ profile: ServerProfile, generation: UUID, site: SiteSession, client next: APIClient, lease: UUID) {
+        securityPrompts.reset()
         sessionGeneration = generation
         client = next
         siteSession = site
@@ -220,6 +226,7 @@ final class AppModel {
         guard let profile = activeProfile else { return nil }
         let old = client, lease = activeLease
         if cancelsConnection { cancelConnection() }
+        securityPrompts.reset()
         sessionGeneration = UUID()
         client = nil; siteSession = nil; activeProfile = nil; activeLease = nil; savedActiveID = nil
         if case .siteLogin(let notice) = exit { openSiteLogin(profile, notice: notice) }
@@ -374,6 +381,7 @@ final class AppModel {
         if !isUITesting { return try await client.createUser(operation) }
         let generation = sessionGeneration
         guard operation.identity == (await client.userWriteIdentity()), generation == sessionGeneration else { throw CancellationError() }
+        if let refusal = await fixtureSecurityRefusal(body: operation.body) { throw refusal }
         var payload = try JSONSerialization.jsonObject(with: operation.body) as! [String: Any]
         payload.removeValue(forKey: "password")
         var users = demoUsersBySession[generation] ?? DemoData.allUsers
@@ -395,6 +403,7 @@ final class AppModel {
         guard operation.serverID == activeProfile?.id, operation.identity == (await client.userWriteIdentity()), generation == sessionGeneration else {
             throw APIError.stationMismatch
         }
+        if let refusal = await fixtureSecurityRefusal(body: operation.body) { throw refusal }
         if let result = demoUserUpdates[operation.id] { return WriteOutcome(value: result, replayed: true) }
         var users = demoUsersBySession[generation] ?? DemoData.allUsers
         guard let index = users.firstIndex(where: { $0.id == operation.userID }) else { throw APIError.invalidResponse }

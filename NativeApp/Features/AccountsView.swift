@@ -52,7 +52,6 @@ struct AccountsView: View {
     @State private var batchOutcomes: [AccountBatchOutcome] = []
     @State private var batchSite = ""
     @State private var showOutcomes = false
-    @State private var stepUp = false
     private var query: AccountListQuery {
         var result = filters; result.includeSchedulerScore = fieldSelection.isEnabled(.schedulerScore); return result
     }
@@ -148,9 +147,6 @@ struct AccountsView: View {
             }
         }
         .sheet(isPresented: $showOutcomes) { outcomeSheet }
-        .sheet(isPresented: $stepUp) {
-            if let client = session?.client { StepUpView(client: client) { error = "验证通过，请核对批量结果后重新选择尚未执行的账号。" } }
-        }
         .confirmationDialog(pendingBatch.map { "\($0.action.title)：\($0.accounts.count) 个账号？" } ?? "批量操作", isPresented: Binding(get: { pendingBatch != nil }, set: { if !$0 { pendingBatch = nil } }), titleVisibility: .visible) {
             Button("确认执行", role: .destructive) {
                 if let pending = pendingBatch { pendingBatch = nil; Task { await executeBatch(pending) } }
@@ -171,6 +167,8 @@ struct AccountsView: View {
         }
         .searchable(text: $filters.search, prompt: "搜索账号名称")
         .refreshable { await load(nextPage: 1, replace: true) }
+        // A list that failed while compliance was pending reads again once it is accepted (00 §1.10).
+        .onChange(of: model.securityPrompts.complianceRevision) { _, _ in Task { await load(nextPage: 1, replace: true) } }
         .task(id: statsQuery) { await loadTodayStats() }
         .onAppear { visible = true; pageRevision = UUID() }
         .onDisappear { visible = false; cancelReads() }
@@ -281,11 +279,9 @@ struct AccountsView: View {
                     } catch {
                         guard operation.generation == model.sessionGeneration else { return }
                         batchOutcomes.append(.init(id: account.id, name: account.name, message: accountWriteFailure(error)))
-                        // Stop the batch when every later account would hit the same session, verification or compliance gate.
-                        let kind = (error as? APIError)?.kind
-                        if needsStepUp(error) || kind == .authentication || kind == .compliance {
-                            if needsStepUp(error) { stepUp = true }
-                            for skipped in operation.accounts.dropFirst(index + 1) { batchOutcomes.append(.init(id: skipped.id, name: skipped.name, message: "尚未执行，请完成验证后手动选择。")) }
+                        // Every later account would hit the same session or security gate; the global sheet already handled it.
+                        if let refusal = error as? APIError, refusal.kind == .authentication || SecurityInterruption(refusal) != nil {
+                            for skipped in operation.accounts.dropFirst(index + 1) { batchOutcomes.append(.init(id: skipped.id, name: skipped.name, message: "尚未执行，请重新选择")) }
                             break
                         }
                     }
@@ -301,10 +297,9 @@ struct AccountsView: View {
         } catch {
             guard operation.generation == model.sessionGeneration else { return }
             batchOutcomes = operation.accounts.map { .init(id: $0.id, name: $0.name, message: accountWriteFailure(error)) }
-            if needsStepUp(error) { stepUp = true }
         }
         guard operation.generation == model.sessionGeneration else { return }
-        selected = []; selecting = false; showOutcomes = !stepUp
+        selected = []; selecting = false; showOutcomes = true
         await load(nextPage: 1, replace: true)
     }
     private func loadGroups() async {
@@ -380,6 +375,8 @@ struct AccountsView: View {
 }
 
 func accountWriteFailure(_ error: any Error) -> String {
+    // Compliance, step-up and read-only refusals come before the handler; the global sheet already answered them.
+    if let api = error as? APIError, SecurityInterruption(api) != nil { return "尚未执行：\(api.localizedDescription)" }
     if let api = error as? APIError, let status = api.statusCode, (400..<500).contains(status), status != 408 {
         if status == 409 { return "服务器拒绝：账号或分组存在冲突，请核对配置；未自动覆盖混合渠道限制。" }
         return "服务器拒绝：\(api.localizedDescription)"
@@ -399,7 +396,6 @@ struct AccountDetailView: View {
     @State private var action: AccountAction?
     @State private var busy = false
     @State private var testing = false
-    @State private var stepUp = false
     @State private var editing = false
     @State private var visible = false
     @State private var accountLoading = false
@@ -513,9 +509,6 @@ struct AccountDetailView: View {
                 account = updated; if model.isUITesting { editedFixture = updated }
             }
         }
-        .sheet(isPresented: $stepUp) {
-            if let client = session?.client { StepUpView(client: client) { error = "验证通过，请重新确认管理操作。" } }
-        }
     }
     private func reload() async {
         async let current: Void = reloadAccount()
@@ -583,7 +576,9 @@ struct AccountDetailView: View {
             error = nil
         } catch {
             guard generation == model.sessionGeneration else { return }
-            if needsStepUp(error) { stepUp = true } else { self.error = error.localizedDescription }
+            self.error = error.localizedDescription
+            // Cleared by the global sheet: the same operation is confirmed again (00 §2.6.2 step 4).
+            if isClearedForReconfirmation(error) { self.action = action }
         }
     }
 }
@@ -598,7 +593,6 @@ struct AccountTestView: View {
     @State private var running = false
     @State private var outcome: String?
     @State private var task: Task<Void, Never>?
-    @State private var stepUp = false
     var body: some View {
         NavigationStack {
             Form {
@@ -615,7 +609,6 @@ struct AccountTestView: View {
             .navigationTitle("手动测试")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(running ? "停止并关闭" : "关闭") { task?.cancel(); dismiss() } } }
             .onDisappear { task?.cancel() }
-            .sheet(isPresented: $stepUp) { if let client = session?.client { StepUpView(client: client) { outcome = "验证通过，请重新确认测试。" } } }
         }
     }
     private func start() {
@@ -640,8 +633,8 @@ struct AccountTestView: View {
                 if !completed { outcome = "连接结束，但未收到测试完成事件，不能判定成功。" }
             } catch {
                 guard generation == model.sessionGeneration else { return }
-                if needsStepUp(error) { stepUp = true }
-                else if !(error is CancellationError) { outcome = error.localizedDescription }
+                // A compliance or step-up refusal was answered in the global sheet; the text says whether to start again.
+                if !(error is CancellationError) { outcome = error.localizedDescription }
             }
         }
     }

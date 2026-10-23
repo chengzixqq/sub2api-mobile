@@ -73,6 +73,8 @@ struct UsersView: View {
         .refreshable { await load(nextPage: 1, replace: true) }
         // A load cancelled by going to the background ends silently; reload on return (D18).
         .onChange(of: model.foregroundRevision) { _, _ in Task { await load(nextPage: 1, replace: true) } }
+        // A list that failed while compliance was pending reads again once it is accepted (00 §1.10).
+        .onChange(of: model.securityPrompts.complianceRevision) { _, _ in Task { await load(nextPage: 1, replace: true) } }
         .task(id: query) {
             requestID = UUID(); loading = false
             page = 0; hasMore = false; users = []; error = nil; failedPage = nil
@@ -129,7 +131,6 @@ struct UserDetailView: View {
     @State private var busy = false
     @State private var confirmStatus = false
     @State private var balanceSheet = false
-    @State private var stepUp = false
     @State private var editorTarget: UserEditorTarget?
     init(initial: AdminUser) { _user = State(initialValue: initial) }
     var body: some View {
@@ -191,7 +192,6 @@ struct UserDetailView: View {
         } message: { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)（#\(user.id)）") }
         .sheet(isPresented: $balanceSheet, onDismiss: { Task { await reload() } }) { BalanceView(user: user) }
         .sheet(item: $editorTarget, onDismiss: { Task { await reload() } }) { UserEditorView(target: $0) }
-        .sheet(isPresented: $stepUp) { if let client = session?.client { StepUpView(client: client) { error = "验证通过，请重新确认用户操作。" } } }
     }
     private func reload() async {
         let generation = session?.generation ?? UUID()
@@ -227,7 +227,12 @@ struct UserDetailView: View {
             guard let client = session?.client else { return }
             let result = try await client.setUserStatus(id: user.id, status: user.status == "active" ? "disabled" : "active")
             guard generation == model.sessionGeneration else { return }; user = result; error = nil
-        } catch { guard generation == model.sessionGeneration else { return }; if needsStepUp(error) { stepUp = true } else { self.error = error.localizedDescription } }
+        } catch {
+            guard generation == model.sessionGeneration else { return }
+            self.error = error.localizedDescription
+            // Cleared by the global sheet: the same change is confirmed again (00 §2.6.2 step 4).
+            if isClearedForReconfirmation(error) { confirmStatus = true }
+        }
     }
 }
 
@@ -272,7 +277,6 @@ private struct UserEditorView: View {
     @State private var prepared: PreparedUserMutation?
     @State private var busy = false
     @State private var confirming = false
-    @State private var stepUp = false
     @State private var uncertain = false
     @State private var discardAlert = false
     @State private var message: String?
@@ -365,12 +369,6 @@ private struct UserEditorView: View {
             } message: {
                 Text("关闭会清除内存中的原始请求和密码。请先保存操作编号（如有）；关闭后先在列表或 Web 核对实际状态，不要新建相同操作。")
             }
-            .sheet(isPresented: $stepUp) {
-                StepUpView(client: target.context.client) {
-                    guard isCurrent else { return }
-                    message = "二次验证通过。原请求尚未重发，请再次核对并确认发送。"
-                }
-            }
             .onChange(of: model.sessionGeneration) { _, _ in password = ""; prepared = nil; dismiss() }
             .onDisappear { password = ""; prepared = nil }
         }
@@ -441,12 +439,9 @@ private struct UserEditorView: View {
         } else if let failure = error as? KeyedWriteFailure {
             uncertain = true
             message = "\(failure.localizedDescription)\n表单已锁定，请使用相同操作编号和原始请求重试，不要另建请求。原始请求仅保留在本页内存中。"
-        } else if let failure = error as? APIError, ["STEP_UP_ADMIN_API_KEY_FORBIDDEN", "STEP_UP_TOTP_NOT_ENABLED"].contains(failure.reason?.uppercased() ?? "") {
-            self.prepared = nil; password = ""
-            message = "此敏感操作需要使用已启用双因素验证的管理员账号登录，请在 Web 完成配置后重试。"
-        } else if needsStepUp(error) {
-            uncertain = false; stepUp = true
-            message = "站点要求二次验证。验证后仍需手动重新确认原请求，不会自动重发。"
+        } else if isClearedForReconfirmation(error) {
+            // Verified or accepted in the global sheet: the same number and bytes are confirmed again (00 §2.6.2 step 4).
+            uncertain = false; message = error.localizedDescription; confirming = true
         } else if let failure = error as? APIError, definitelyRejected(failure) {
             self.prepared = nil; password = ""; uncertain = false
             message = "请求被拒绝，未确认任何修改。\n\(error.localizedDescription)"
@@ -477,7 +472,6 @@ struct BalanceView: View {
     @State private var prepared: PendingBalanceOperation?
     @State private var busy = false
     @State private var sending: Task<Void, Never>?
-    @State private var stepUp = false
     private var pending: [PendingBalanceOperation] { model.pendingBalances.filter { $0.userID == user.id && $0.serverID == model.activeProfile?.id } }
     var body: some View {
         NavigationStack {
@@ -525,7 +519,6 @@ struct BalanceView: View {
             } message: {
                 if let prepared { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)\n\(operationName(prepared.operation))：\(DisplayFormat.moneyExact(prepared.amount))") }
             }
-            .sheet(isPresented: $stepUp) { if let client = session?.client { StepUpView(client: client) { message = "验证通过，请点击“重试原请求”并重新确认。" } } }
         }
     }
     private func operationName(_ value: BalanceOperation) -> String {
@@ -578,12 +571,18 @@ struct BalanceView: View {
             if !submitted { message = "请求未发送。\n\(error.localizedDescription)" }
             else if error is CancellationError { message = KeyedWriteFailure.unconfirmedMessage }
             else if let failure = error as? KeyedWriteFailure { handle(failure, of: item) }
-            else if needsStepUp(error) { stepUp = true }
+            else if isClearedForReconfirmation(error) { reconfirm(item, notice: error.localizedDescription) }
             else if definitelyRejected(error) {
                 do { try model.resolve(item); prepared = nil; message = "请求已被拒绝，余额未调整。\n\(error.localizedDescription)" }
                 catch { message = "拒绝结果已收到，但无法更新本机记录。请检查设备存储，保留原操作编号。" }
             } else { message = "\(error.localizedDescription)\n如请求已经发送，结果仍待确认。请保留并重试原操作。" }
         }
+    }
+    /// A security refusal came before the handler, so the record is resolved; confirming again saves the same record
+    /// (same id, key and amount) before it is sent (00 §2.6.2 step 4).
+    private func reconfirm(_ item: PendingBalanceOperation, notice: String) {
+        do { try model.resolve(item); prepared = item; message = notice; confirm = true }
+        catch { message = "拒绝结果已收到，但无法更新本机记录。请检查设备存储，保留原操作编号。" }
     }
     /// 30 §3.4: a key conflict keeps the record for checking; an invalid key or body was never executed.
     private func handle(_ failure: KeyedWriteFailure, of item: PendingBalanceOperation) {
@@ -606,7 +605,8 @@ struct BalanceView: View {
     }
     private func definitelyRejected(_ error: Error) -> Bool {
         guard let failure = error as? APIError else { return false }
-        if failure.kind == .validation { return true }
+        // Compliance, step-up and read-only refusals are all answered before the handler (00 §0 rules 5–6).
+        if failure.kind == .validation || SecurityInterruption(failure) != nil { return true }
         if failure.statusCode == 401 || failure.statusCode == 403 { return true }
         let reason = failure.reason?.uppercased() ?? ""
         return failure.statusCode == 400 && ["VALIDATION_ERROR", "INVALID_REQUEST", "INVALID_AMOUNT", "BAD_REQUEST"].contains(reason)

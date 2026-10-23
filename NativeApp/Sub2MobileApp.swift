@@ -19,6 +19,8 @@ struct Sub2MobileApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    /// The global compliance and step-up sheet lives in a window above every page sheet (00 §2.7.1).
+    @State private var securityPresenter = SecurityPromptPresenter()
     var body: some View {
         @Bindable var model = model
         Group {
@@ -35,6 +37,7 @@ struct RootView: View {
         .alert("操作未完成", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("知道了", role: .cancel) { model.errorMessage = nil }
         } message: { Text(model.errorMessage ?? "") }
+        .onChange(of: model.securityPrompts.active, initial: true) { _, prompt in securityPresenter.sync(prompt, model: model) }
     }
 }
 

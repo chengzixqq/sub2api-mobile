@@ -7,16 +7,26 @@ enum DemoData {
     static let serverTimeZone = ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00")!
     /// The password login's fixture session; it never expires, so nothing is refreshed.
     static let passwordCredential = Credential.tokens(TokenPair(accessToken: "ui-test-access", refreshToken: "ui-test-refresh", expiresAt: .distantFuture))
-    /// Every capability, compliance accepted and step-up off, so all gated entries show (D30 zone).
+    /// Every capability, compliance accepted and step-up off, so all gated entries show (D30 zone). S0-13's launch
+    /// arguments require compliance (`-ui-compliance-required`) or turn step-up on with TOTP (`-ui-step-up-required`) or
+    /// without it (`-ui-step-up-no-totp`).
     static func adminMe(authMethod: AdminAuthMethod) -> AdminMe {
-        AdminMe(authMethod: authMethod, user: .init(id: 1, email: "admin@example.com", username: "管理员", role: "admin"),
-                security: .init(totpEnabled: false, stepUpEnabled: false, stepUpAvailable: false, stepUpGranted: false, sessionBindingEnabled: false),
-                compliance: .init(required: false),
+        let arguments = ProcessInfo.processInfo.arguments
+        let totp = arguments.contains("-ui-step-up-required"), stepUp = totp || arguments.contains("-ui-step-up-no-totp")
+        let compliance = arguments.contains("-ui-compliance-required")
+        return AdminMe(authMethod: authMethod, user: .init(id: 1, email: "admin@example.com", username: "管理员", role: "admin"),
+                security: .init(totpEnabled: totp, stepUpEnabled: stepUp, stepUpAvailable: totp && authMethod == .jwt, stepUpGranted: false,
+                                sessionBindingEnabled: false),
+                compliance: .init(required: compliance, version: compliance ? complianceStatus.version : nil),
                 features: .init(opsMonitoringEnabled: true, opsRealtimeMonitoringEnabled: true, channelMonitorEnabled: false,
                                 backendModeEnabled: false, paymentEnabled: false, subscriptionEnabled: false),
                 server: .init(version: "ui-test", runMode: "standard", serverTimezone: serverTimeZone.identifier,
                               serverUTCOffset: serverTimeZone.rawUTCOffset, capabilities: Set(Capability.allCases.map(\.rawValue))))
     }
+    /// `GET admin/compliance` of the compliance fixture; the document is never opened by the tests.
+    static let complianceStatus = AdminComplianceStatus(required: true, version: "2026-06", documentPathZH: "docs/legal/admin-compliance.zh.md",
+                                                        documentURLZH: "https://example.invalid/admin-compliance.zh.md",
+                                                        ackPhraseZH: "我已阅读、理解并同意 Sub2API 部署与运营合规承诺")
     /// Access tokens write unless `-ui-readonly-token` is passed (kept for S0-13 and S0-19).
     static func siteSession(credential: Credential) -> SiteSession {
         let method = AdminAuthMethod.resolved(reported: nil, credential: credential) ?? .jwt

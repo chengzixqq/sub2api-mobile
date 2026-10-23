@@ -46,35 +46,6 @@ struct MetricView<Footer: View>: View {
     }
 }
 
-struct StepUpView: View {
-    let client: APIClient
-    let onSuccess: () -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var code = ""
-    @State private var error: String?
-    @State private var busy = false
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Text("此操作需要二次验证。验证完成后请重新确认操作；系统不会自动重放写入请求。")
-                    TextField("6 位动态验证码", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode)
-                        .accessibilityIdentifier("stepup.code")
-                    if let error { Text(error).foregroundStyle(.red) }
-                    Button("验证") {
-                        busy = true
-                        Task {
-                            defer { busy = false }
-                            do { _ = try await client.stepUp(code: code); onSuccess(); dismiss() }
-                            catch { self.error = error.localizedDescription }
-                        }
-                    }.disabled(busy || code.count != 6).frame(minHeight: 44)
-                }
-            }.navigationTitle("二次验证")
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
-        }
-    }
-}
-
-/// Only 403 STEP_UP_REQUIRED opens verification; 423 compliance and the step-up setup errors never do.
-func needsStepUp(_ error: Error) -> Bool { (error as? APIError)?.action == .stepUp }
+/// A write the global sheet cleared (compliance accepted or step-up verified, S0-13): the page shows the notice and opens
+/// its confirmation again with the same key and body (00 §2.6.2 step 4). Other outcomes are ordinary refusals.
+func isClearedForReconfirmation(_ error: Error) -> Bool { (error as? APIError)?.securityOutcome == .passed }

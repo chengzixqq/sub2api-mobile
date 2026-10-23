@@ -22,7 +22,6 @@ struct AccountEditView: View {
     @State private var saving = false
     @State private var unresolved = false
     @State private var confirming = false
-    @State private var stepUp = false
     @State private var pending: PendingAccountUpdate?
     @State private var changedFields: [String] = []
 
@@ -82,9 +81,6 @@ struct AccountEditView: View {
                 Button("确认保存", role: .destructive) { Task { await save() } }
             } message: {
                 Text("站点：\(model.activeProfile?.name ?? "")\n账号：\(initial.name)（#\(initial.id)）\n修改：\(changedFields.joined(separator: "、"))")
-            }
-            .sheet(isPresented: $stepUp) {
-                if let client = session?.client { StepUpView(client: client) { error = "验证通过，请再次保存并确认。" } }
             }
             .interactiveDismissDisabled(saving)
         }
@@ -164,7 +160,8 @@ struct AccountEditView: View {
         } catch {
             guard session.generation == model.sessionGeneration else { return }
             self.error = accountWriteFailure(error)
-            if needsStepUp(error) { stepUp = true }
+            // Cleared by the global sheet: the same pending update is confirmed again (00 §2.6.2 step 4).
+            if isClearedForReconfirmation(error) { self.error = error.localizedDescription; confirming = true }
             else if let api = error as? APIError, let code = api.statusCode, (400..<500).contains(code), code != 408 { /* Explicit rejection permits a corrected request. */ }
             else { unresolved = true }
         }

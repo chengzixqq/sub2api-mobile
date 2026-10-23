@@ -392,6 +392,12 @@ struct DashboardView: View {
         .onAppear { visible = true }
         .onDisappear { visible = false; cancelLoads() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { cancelLoads() } }
+        // Blocks that failed while compliance was pending read again once it is accepted (00 §1.10); waiting ones were resent.
+        .onChange(of: model.securityPrompts.complianceRevision) { _, _ in
+            if !stats.isLoading { Task { await loadStats(forceCosts: true) } }
+            if !trend.isLoading { Task { await loadTrend() } }
+            if !monitoring.isLoading { Task { await loadMonitoring() } }
+        }
         .task(id: shouldPoll) {
             guard shouldPoll else { return }
             while !Task.isCancelled {
