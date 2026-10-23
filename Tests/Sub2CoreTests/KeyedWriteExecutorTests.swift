@@ -146,7 +146,8 @@ func businessErrorsAreThrownAsAPIErrorWithoutRetry(response: HTTPResponse) async
 @Test(arguments: [ScriptStep.fail(URLError(.timedOut)), .reply(HTTPResponse(statusCode: 504, data: Data())), .reply(inProgress(["Retry-After": "1"])),
                   .reply(errorReply(409, reason: "IDEMPOTENCY_RETRY_BACKOFF", headers: ["Retry-After": "1"]))],
       [errorReply(401, reason: "TOKEN_REVOKED"), errorReply(403, reason: "FORBIDDEN"), errorReply(403, reason: "STEP_UP_REQUIRED"),
-       errorReply(423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED"), errorReply(429, reason: "RATE_LIMITED")])
+       errorReply(423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED"), errorReply(429, reason: "RATE_LIMITED"),
+       errorReply(503, reason: "STEP_UP_UNAVAILABLE")])
 func rejectionBeforeExecutionAfterUncertainAttemptStaysUnconfirmed(first: ScriptStep, then rejection: HTTPResponse) async throws {
     let action = UUID()
     let transport = ScriptedTransport(script: [first, .reply(HTTPResponse(statusCode: rejection.statusCode,

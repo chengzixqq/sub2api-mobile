@@ -8,6 +8,7 @@ struct ComplianceSheet: View {
     @Environment(AppModel.self) private var model
     @State private var status: AdminComplianceStatus?
     @State private var loadError: String?
+    @State private var attempt = 0
     @State private var phrase = ""
     @State private var error: String?
     @State private var busy = false
@@ -22,7 +23,7 @@ struct ComplianceSheet: View {
                 else if let loadError {
                     Section {
                         Text(loadError).foregroundStyle(Palette.criticalInk).accessibilityIdentifier("compliance.error")
-                        Button("重试") { Task { await load() } }.frame(minHeight: 44).accessibilityIdentifier("compliance.retry")
+                        Button("重试") { attempt += 1 }.frame(minHeight: 44).accessibilityIdentifier("compliance.retry")
                     }
                 } else { ProgressView("正在读取合规要求…").frame(maxWidth: .infinity) }
             }
@@ -33,7 +34,9 @@ struct ComplianceSheet: View {
                     Button("稍后") { finish(.cancelled) }.disabled(busy).accessibilityIdentifier("compliance.later")
                 }
             }
-            .task { await load() }
+            .task(id: attempt) { await load() }
+            // A read stopped by going to the background ends silently and the sheet stays open: read again on return (D18).
+            .onChange(of: model.foregroundRevision) { _, _ in if status == nil { attempt += 1 } }
             .sheet(item: $document) { SafariView(url: $0.url).ignoresSafeArea() }
         }
     }

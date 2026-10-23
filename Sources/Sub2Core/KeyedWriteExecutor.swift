@@ -25,8 +25,11 @@ struct KeyedWriteFlow: Sendable {
         case unresolved(KeyedWriteFailure.Disposition)
         case retry(after: Duration, KeyedWriteEvent)
     }
-    /// Turned away by the middleware before the handler and its idempotency record (00 §0 rule 5, §2.4).
-    static let refusedBeforeHandler: Set<Int> = [401, 403, 423, 429]
+    /// Turned away by the middleware before the handler and its idempotency record (00 §0 rules 5–6, §2.4), including an
+    /// unavailable step-up check (503 STEP_UP_UNAVAILABLE).
+    static func isRefusedBeforeHandler(status: Int, marker: String?) -> Bool {
+        [401, 403, 423, 429].contains(status) || SecurityInterruption(status: status, reason: marker) != nil
+    }
     private(set) var actionID: UUID?
     /// An earlier attempt may have run: lost, 502/504/proxy 503, IN_PROGRESS or RETRY_BACKOFF. From then on only a 2xx or a
     /// business answer settles the write (00 §2.5.4 step 2); a later attempt refused before the handler says nothing about it.
@@ -45,7 +48,7 @@ struct KeyedWriteFlow: Sendable {
         guard case .reply(let response) = attempt else { return transportRetry() }
         switch IdempotencyOutcome.classify(response) {
         case .succeeded: return .succeeded(response)
-        case .rejected where mayHaveRun && Self.refusedBeforeHandler.contains(response.statusCode):
+        case .rejected where mayHaveRun && Self.isRefusedBeforeHandler(status: response.statusCode, marker: ErrorEnvelope.decode(response.data)?.marker):
             return .unresolved(.unconfirmed(.transport, retryNotBefore: nil))
         case .rejected: return .rejected(response)
         case .transportFailure: return transportRetry()
@@ -74,6 +77,13 @@ struct KeyedWriteFlow: Sendable {
         let elapsed = now.timeIntervalSince(since), remaining = IdempotencyPolicy.waitBudget - elapsed
         guard remaining > 0 else { return .unresolved(.unconfirmed(.stillProcessing, retryNotBefore: nil)) }
         return .retry(after: .seconds(min(Double(seconds), remaining)), .waitingForServer(elapsedSeconds: Int(elapsed)))
+    }
+}
+
+extension APIError {
+    /// The same rule across calls: retrying a write that may have run, such an answer leaves it unconfirmed (00 §2.5.4).
+    public var isRefusedBeforeHandler: Bool {
+        statusCode.map { KeyedWriteFlow.isRefusedBeforeHandler(status: $0, marker: reason) } ?? false
     }
 }
 

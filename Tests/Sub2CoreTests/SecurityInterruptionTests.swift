@@ -29,6 +29,22 @@ private let phrase = "我已阅读、理解并同意 Sub2API 部署与运营合�
     for error in others { #expect(SecurityInterruption(error) == nil) }
 }
 
+/// 00 §2.5.4 step 2 across calls: a retry of a write that may have run is not settled by an answer from before the handler,
+/// whatever the global sheet ended with.
+@Test func refusalsBeforeTheHandlerAreToldApartFromAnswers() {
+    let before = [refusal(423, "ADMIN_COMPLIANCE_ACK_REQUIRED"), APIError.server(status: 423, envelope: nil), refusal(403, "STEP_UP_REQUIRED"),
+                  refusal(403, "STEP_UP_TOTP_NOT_ENABLED"), refusal(403, "STEP_UP_ADMIN_API_KEY_FORBIDDEN"), refusal(403, "ACCESS_TOKEN_READ_ONLY"),
+                  refusal(403, "FORBIDDEN"), refusal(503, "STEP_UP_UNAVAILABLE"), refusal(401, "TOKEN_REVOKED"), refusal(429, "RATE_LIMITED")]
+    for error in before {
+        #expect(error.isRefusedBeforeHandler)
+        for outcome in [SecurityPromptOutcome.passed, .cancelled, .blocked] { #expect(error.withSecurityOutcome(outcome).isRefusedBeforeHandler) }
+    }
+    let answers = [refusal(400, "INVALID_BALANCE"), refusal(400, "VALIDATION_ERROR"), refusal(404, "USER_NOT_FOUND"), refusal(409, "EMAIL_EXISTS"),
+                   refusal(422, nil), refusal(500, nil), refusal(503, nil), refusal(503, "IDEMPOTENCY_STORE_UNAVAILABLE"),
+                   APIError.invalidAmount, APIError.stationMismatch, APIError(kind: .stepUp, message: "本地错误")]
+    for error in answers { #expect(!error.isRefusedBeforeHandler) }
+}
+
 @Test func outcomeKeepsTheAnswerAndOnlyPassedChangesTheText() {
     let stepUp = refusal(403, "STEP_UP_REQUIRED")
     #expect(stepUp.securityOutcome == nil)

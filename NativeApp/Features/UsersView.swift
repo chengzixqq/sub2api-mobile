@@ -420,6 +420,8 @@ private struct UserEditorView: View {
     private func send() async {
         guard !busy, isCurrent, let prepared, !uncertain || prepared.supportsSafeRetry else { return }
         busy = true; defer { busy = false }
+        // A locked form sends again a request that may have run (00 §2.5.4).
+        let retrying = uncertain
         do {
             switch prepared {
             case .create(let operation): _ = try await model.createUser(operation)
@@ -429,10 +431,10 @@ private struct UserEditorView: View {
             self.prepared = nil; password = ""; uncertain = false; dismiss()
         } catch {
             guard isCurrent else { return }
-            handleFailure(error, of: prepared)
+            handleFailure(error, of: prepared, retrying: retrying)
         }
     }
-    private func handleFailure(_ error: Error, of prepared: PreparedUserMutation) {
+    private func handleFailure(_ error: Error, of prepared: PreparedUserMutation, retrying: Bool) {
         if let failure = error as? KeyedWriteFailure, case .needsNewKey = failure.disposition {
             self.prepared = nil; password = ""; uncertain = false
             message = "请求未执行，请重新核对并确认。\n\(failure.localizedDescription)"
@@ -440,9 +442,10 @@ private struct UserEditorView: View {
             uncertain = true
             message = "\(failure.localizedDescription)\n表单已锁定，请使用相同操作编号和原始请求重试，不要另建请求。原始请求仅保留在本页内存中。"
         } else if isClearedForReconfirmation(error) {
-            // Verified or accepted in the global sheet: the same number and bytes are confirmed again (00 §2.6.2 step 4).
-            uncertain = false; message = error.localizedDescription; confirming = true
-        } else if let failure = error as? APIError, definitelyRejected(failure) {
+            // Verified or accepted in the global sheet: the same number and bytes are confirmed again (00 §2.6.2 step 4); a
+            // locked form stays locked.
+            message = error.localizedDescription; confirming = true
+        } else if let failure = error as? APIError, definitelyRejected(failure, retrying: retrying) {
             self.prepared = nil; password = ""; uncertain = false
             message = "请求被拒绝，未确认任何修改。\n\(error.localizedDescription)"
         } else {
@@ -453,9 +456,12 @@ private struct UserEditorView: View {
         }
     }
     /// A repeated creation can only get 409 EMAIL_EXISTS, never a second account (00 §2.5.2), so that answer is final too (D31).
-    private func definitelyRejected(_ failure: APIError) -> Bool {
-        [400, 401, 403, 404, 422].contains(failure.statusCode ?? 0) || failure.kind == .validation
-            || (failure.statusCode == 409 && failure.reason == "EMAIL_EXISTS")
+    /// Security refusals come before the handler (00 §0 rules 5–6), but for a retry they say nothing about the attempt that
+    /// may have run (00 §2.5.4 step 2).
+    private func definitelyRejected(_ failure: APIError, retrying: Bool) -> Bool {
+        if retrying && failure.isRefusedBeforeHandler { return false }
+        return [400, 401, 403, 404, 422].contains(failure.statusCode ?? 0) || failure.kind == .validation
+            || SecurityInterruption(failure) != nil || (failure.statusCode == 409 && failure.reason == "EMAIL_EXISTS")
     }
 }
 
@@ -561,6 +567,8 @@ struct BalanceView: View {
         busy = true; defer { busy = false; sending = nil }
         let generation = session?.generation ?? UUID()
         guard generation == model.sessionGeneration else { return }
+        // A saved record was sent before and may have run (00 §2.5.4).
+        let retrying = model.pendingBalances.contains { $0.id == item.id }
         var submitted = false
         do {
             guard !model.isUITesting else { throw AppFailure("界面测试模式不执行余额写入。") }
@@ -579,6 +587,7 @@ struct BalanceView: View {
             if !submitted { message = "请求未发送。\n\(error.localizedDescription)" }
             else if error is CancellationError { message = KeyedWriteFailure.unconfirmedMessage }
             else if let failure = error as? KeyedWriteFailure { handle(failure, of: item) }
+            else if retrying, (error as? APIError)?.isRefusedBeforeHandler == true { keepForRetry(item, after: error) }
             else if isClearedForReconfirmation(error) { reconfirm(item, notice: error.localizedDescription) }
             else if definitelyRejected(error) {
                 do { try model.resolve(item); prepared = nil; message = "请求已被拒绝，余额未调整。\n\(error.localizedDescription)" }
@@ -586,11 +595,17 @@ struct BalanceView: View {
             } else { message = "\(error.localizedDescription)\n如请求已经发送，结果仍待确认。请保留并重试原操作。" }
         }
     }
-    /// A security refusal came before the handler, so the record is resolved; confirming again saves the same record
-    /// (same id, key and amount) before it is sent (00 §2.6.2 step 4).
+    /// A security refusal of a first send came before the handler, so the record is resolved; confirming again saves the
+    /// same record (same id, key and amount) before it is sent (00 §2.6.2 step 4).
     private func reconfirm(_ item: PendingBalanceOperation, notice: String) {
         do { try model.resolve(item); prepared = item; message = notice; confirm = true }
         catch { message = "拒绝结果已收到，但无法更新本机记录。请检查设备存储，保留原操作编号。" }
+    }
+    /// A retry refused before the handler says nothing about the earlier attempt (00 §2.5.4 step 2): the record stays to be
+    /// checked, and once cleared the same record is confirmed again with its own createdAt.
+    private func keepForRetry(_ item: PendingBalanceOperation, after error: Error) {
+        if isClearedForReconfirmation(error) { prepared = item; message = error.localizedDescription; confirm = true }
+        else { message = "\(error.localizedDescription)\n\(KeyedWriteFailure.unconfirmedMessage)" }
     }
     /// 30 §3.4: a key conflict keeps the record for checking; an invalid key or body was never executed.
     private func handle(_ failure: KeyedWriteFailure, of item: PendingBalanceOperation) {

@@ -7,7 +7,10 @@ public enum SecurityInterruption: Equatable, Sendable {
 
     public init?(_ error: APIError) {
         guard let status = error.statusCode else { return nil }
-        switch (status, error.reason) {
+        self.init(status: status, reason: error.reason)
+    }
+    init?(status: Int, reason: String?) {
+        switch (status, reason) {
         case (423, _): self = .complianceRequired
         case (403, "STEP_UP_REQUIRED"?): self = .stepUpRequired
         case (403, "STEP_UP_TOTP_NOT_ENABLED"?): self = .stepUpTOTPNotEnabled
