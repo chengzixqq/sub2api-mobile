@@ -71,6 +71,8 @@ struct UsersView: View {
         }
         .searchable(text: $search, prompt: "搜索邮箱或用户名")
         .refreshable { await load(nextPage: 1, replace: true) }
+        // A load cancelled by going to the background ends silently; reload on return (D18).
+        .onChange(of: model.foregroundRevision) { _, _ in Task { await load(nextPage: 1, replace: true) } }
         .task(id: query) {
             requestID = UUID(); loading = false
             page = 0; hasMore = false; users = []; error = nil; failedPage = nil

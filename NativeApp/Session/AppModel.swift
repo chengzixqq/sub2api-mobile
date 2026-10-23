@@ -47,6 +47,10 @@ final class AppModel {
     @ObservationIgnored private var profileArchive: [UUID: ServerProfile] = [:]
     private let pendingFileURL: URL?
     @ObservationIgnored private var pendingPersistenceAvailable = true
+    /// Scene state (D18); changed only by `sceneDidChange(to:)` in AppModel+Session.swift.
+    var lifecycle = SessionLifecycle()
+    /// Keeps suspend and resume reaching the client in order (AppModel+Session.swift).
+    @ObservationIgnored var sceneTask: Task<Void, Never>?
     var sessionContext: SessionContext? {
         guard let client, let activeProfile, let siteSession else { return nil }
         return SessionContext(generation: sessionGeneration, serverID: activeProfile.id, client: client, site: siteSession)
@@ -136,8 +140,8 @@ final class AppModel {
         if let id = previous.profileID, let lease = previous.lease { try await credentials.revoke(serverID: id, lease: lease, erase: false) }
     }
 
-    /// S0-11 (foreground after five minutes) and S0-13 (after compliance and step-up) probe the connected site again. A token
-    /// scope already known survives a failed scope probe; a reply for an older session is dropped.
+    /// `reprobeActiveSession` (back after five minutes) and S0-13 (after compliance and step-up) probe the connected site again.
+    /// A token scope already known survives a failed scope probe; a reply for an older session is dropped.
     func reloadSiteSession() async throws {
         guard let client, let current = siteSession, let credential = await client.currentCredential() else { return }
         let generation = sessionGeneration

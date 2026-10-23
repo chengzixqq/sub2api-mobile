@@ -108,6 +108,8 @@ struct GroupsView: View {
         } }
         .sheet(item: $editor, onDismiss: { startLoad(1, replace: true) }) { GroupEditorView(target: $0).environment(workspace) }
         .refreshable { await load(1, replace: true) }
+        // A load cancelled by going to the background ends silently; reload on return (D18).
+        .onChange(of: model.foregroundRevision) { _, _ in startLoad(1, replace: true) }
         .task(id: query) {
             pageTask?.cancel()
             ticket = UUID(); loading = false; groups = []; page = 0; hasMore = false; error = nil; failedPage = nil

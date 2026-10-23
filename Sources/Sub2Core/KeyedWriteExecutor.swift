@@ -99,7 +99,13 @@ extension APIClient {
             case .rejected(let response): throw surfaced(failure(response), context: .business, generation: snapshot)
             case .unresolved(let disposition):
                 throw KeyedWriteFailure(disposition: disposition, key: key, actionID: flow.actionID, lastError: lastError(of: attempt, generation: snapshot))
-            case .retry(let delay, let event): try await waitToRetry(delay, event: event, onEvent: onEvent, generation: snapshot)
+            case .retry(let delay, let event):
+                do { try await waitToRetry(delay, event: event, onEvent: onEvent, generation: snapshot) }
+                catch is CancellationError where currentGeneration() == snapshot && !Task.isCancelled {
+                    // Suspended: the same key is retried only in the foreground (D18), so the record stays to be checked.
+                    throw KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: key, actionID: flow.actionID,
+                                            lastError: lastError(of: attempt, generation: snapshot))
+                }
             }
         }
     }
@@ -109,7 +115,7 @@ extension APIClient {
         return WriteOutcome(value: response.value, headers: response.headers)
     }
 
-    /// The only wait between two attempts; S0-11 turns a wait interrupted by suspend into unconfirmed(.transport) here (D18).
+    /// The only wait between two attempts; `suspend()` interrupts it and the caller turns that into unconfirmed(.transport).
     private func waitToRetry(_ delay: Duration, event: KeyedWriteEvent, onEvent: KeyedWriteEventHandler?, generation snapshot: UUID) async throws {
         await onEvent?(event)
         try await pause(delay, generation: snapshot)

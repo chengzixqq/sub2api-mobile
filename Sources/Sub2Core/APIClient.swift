@@ -33,7 +33,11 @@ public actor APIClient {
     /// Date-header offset of this site (00 §6.3), recorded by `transmit` and `openStream`.
     public nonisolated let serverClock: ServerClock
     private var generation = UUID()
-    private var cancellations: [UUID: @Sendable () -> Void] = [:]
+    /// Changed by `suspend()`: reads, waits and streams registered under an older epoch are dropped (D18).
+    private var epoch = UUID()
+    /// Between `suspend()` and `resume()` no wait starts, so keyed writes never retry in the background (00 §2.5.4).
+    private var isSuspended = false
+    private var cancellations: [UUID: Cancellation] = [:]
     private var refreshTask: Task<TokenPair, any Error>?
     private var refreshID: UUID?
     /// Consecutive transient refresh failures and the earliest next attempt (00 §1.7.2).
@@ -86,9 +90,18 @@ public actor APIClient {
     public func cancelAll() async {
         generation = UUID()
         refreshTask?.cancel(); refreshTask = nil; refreshID = nil
-        let cancel = Array(cancellations.values); cancellations.removeAll()
+        let cancel = cancellations.values.map(\.cancel); cancellations.removeAll()
         for action in cancel { action() }
     }
+    /// Going to the background (00 §4.6, D18): reads, read and keyed-write waits and the account-test stream stop. Unlike
+    /// `cancelAll` the generation (the write identity), the refresh flight and writes already sent are left alone.
+    public func suspend() {
+        epoch = UUID(); isSuspended = true
+        let suspended = cancellations.filter(\.value.suspendable)
+        for id in suspended.keys { cancellations[id] = nil }
+        for entry in suspended.values { entry.cancel() }
+    }
+    public func resume() { isSuspended = false }
     public func publicSettings() async throws -> PublicSettings {
         try await request("settings/public", authenticated: false, timeout: RequestTimeout.probe)
     }
@@ -451,31 +464,38 @@ public actor APIClient {
               RequestPolicy.requiresTokenRefresh(status: 401, marker: ErrorEnvelope.decode(response.data)?.marker, context: context) else { return nil }
         return tokens.accessToken
     }
-    /// The only call into `transport.data(for:)`: registered for cancelAll, late replies fenced by the generation, transport
-    /// errors thrown unchanged for classification. Hooks: S0-07 Date header, S0-11 suspend, S0-19 request log.
+    /// The only call into `transport.data(for:)`: registered for cancelAll, late replies fenced by the generation (and a
+    /// read's by the suspend epoch), transport errors thrown unchanged for classification. Hooks: S0-07 Date header,
+    /// S0-11 suspend, S0-19 request log.
     func transmit(_ request: URLRequest, generation snapshot: UUID, requestClass: RequestClass) async throws -> HTTPResponse {
         try check(snapshot)
         let transport = transport
         let task = Task { try await transport.data(for: request) }
-        let id = register { task.cancel() }
+        let id = register(suspendable: requestClass.isRead) { task.cancel() }
+        let started = epoch
         defer { removeCancellation(id) }
         do {
             let response = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             // Error replies and 304 carry a Date too; a reply after cancelAll still came from this site.
             serverClock.recordDateHeader(response.header("Date"), receivedAt: serverClock.localNow())
             try check(snapshot)
+            if requestClass.isRead && started != epoch { throw CancellationError() }
             return response
         } catch {
-            if snapshot != generation || Task.isCancelled || error is CancellationError { throw CancellationError() }
+            if snapshot != generation || Task.isCancelled || error is CancellationError || (requestClass.isRead && started != epoch) {
+                throw CancellationError()
+            }
             throw error
         }
     }
-    /// Waits on the request clock; cancelAll interrupts the wait and a changed generation fails it (00 §2.4).
+    /// Waits on the request clock; cancelAll and suspend interrupt the wait, a changed generation fails it, and no wait
+    /// starts while suspended (00 §2.4, D18).
     func pause(_ duration: Duration, generation snapshot: UUID) async throws {
         try check(snapshot)
+        guard !isSuspended else { throw CancellationError() }
         let sleep = requestClock.sleep
         let task = Task { try await sleep(duration) }
-        let id = register { task.cancel() }
+        let id = register(suspendable: true) { task.cancel() }
         defer { removeCancellation(id) }
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         try check(snapshot)
@@ -527,8 +547,8 @@ public actor APIClient {
         }
         return request
     }
-    private func register(_ cancel: @escaping @Sendable () -> Void) -> UUID {
-        let id = UUID(); cancellations[id] = cancel; return id
+    private func register(suspendable: Bool = false, _ cancel: @escaping @Sendable () -> Void) -> UUID {
+        let id = UUID(); cancellations[id] = Cancellation(suspendable: suspendable, cancel: cancel); return id
     }
 
     // MARK: Account test stream
@@ -549,7 +569,7 @@ public actor APIClient {
     /// nil for 2xx; otherwise the first 64 KB of the error body, read under the session generation.
     private func rejection(_ response: HTTPStreamResponse, generation snapshot: UUID) async throws -> HTTPResponse? {
         guard !(200..<300).contains(response.statusCode) else { return nil }
-        let id = register { response.cancel() }
+        let id = register(suspendable: true) { response.cancel() }
         defer { removeCancellation(id); response.cancel() }
         var body = Data()
         for try await chunk in response.bytes {
@@ -582,14 +602,14 @@ public actor APIClient {
             }
             await self?.removeCancellation(streamID)
         }
-        cancellations[streamID] = { task.cancel(); response.cancel() }
+        cancellations[streamID] = Cancellation(suspendable: true) { task.cancel(); response.cancel() }
         pair.continuation.onTermination = { _ in task.cancel(); response.cancel() }
         return pair.stream
     }
     private func openStream(_ request: URLRequest, generation snapshot: UUID) async throws -> HTTPStreamResponse {
         let transport = transport
         let task = Task { try await transport.stream(for: request) }
-        let id = register { task.cancel() }
+        let id = register(suspendable: true) { task.cancel() }
         defer { removeCancellation(id) }
         do {
             let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
@@ -648,6 +668,11 @@ private struct Envelope<T: Decodable & Sendable>: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey { case data }
 }
 struct EmptyReply: Decodable, Sendable {}
+/// A registered in-flight request, wait or stream; `suspend()` stops only the suspendable ones.
+private struct Cancellation: Sendable {
+    let suspendable: Bool
+    let cancel: @Sendable () -> Void
+}
 /// `query.timezone` decides how the offset-less buckets are read (00 §6.4); a malformed block is ignored.
 private struct TrendReply: Decodable, Sendable {
     let trend: [TrendPoint]

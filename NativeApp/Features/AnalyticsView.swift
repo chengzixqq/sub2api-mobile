@@ -102,6 +102,8 @@ struct AnalyticsView: View {
         }
         .navigationTitle("统计分析")
         .refreshable { await refresh() }
+        // A load cancelled by going to the background ends silently; reload on return (D18).
+        .onChange(of: model.foregroundRevision) { _, _ in Task { await refresh() } }
         .sheet(isPresented: $filters) { AnalyticsFilterView(initial: query) { query = $0 } }
         .task(id: query) {
             cancel()

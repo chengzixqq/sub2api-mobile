@@ -106,6 +106,8 @@ struct RequestLogsView: View {
             if rollingLastDay { advanceLastDay() }
             await load(page: 1)
         }
+        // A load cancelled by going to the background ends silently; reload on return (D18).
+        .onChange(of: model.foregroundRevision) { _, _ in beginLoad(page: 1) }
         .onDisappear { invalidate() }
     }
     private func advanceLastDay() {

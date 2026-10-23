@@ -276,3 +276,33 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
     #expect(sentHeader(writes[1], "Authorization") == "Bearer new-access")
     #expect(await recorder.durations.isEmpty)
 }
+
+// D18: same-key retries happen only in the foreground. A wait interrupted by suspend leaves the write unconfirmed.
+@Test func suspendDuringWaitLeavesWriteUnconfirmed() async throws {
+    let sleeping = OpenGate()
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(okReply(stubUserJSON))])
+    let clock = RequestClock(sleep: { _ in await sleeping.open(); try await Task.sleep(for: .seconds(60)) }, jitter: { .zero })
+    let client = keyedClient(transport, clock: clock)
+    let write = balanceWrite(client)
+    let pending = Task { try await client.updateBalance(write) }
+    let watcher = Task { _ = try? await pending.value; await sleeping.open() }
+    await sleeping.wait()
+    await client.suspend()
+    let failure = try #require(await keyedFailure { _ = try await pending.value })
+    #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil))
+    #expect(failure.key == write.record.id.uuidString.lowercased())
+    _ = await watcher.value
+    #expect(await transport.requests.count == 1)
+}
+
+@Test func keyedRetryWaitsOnlyWhileInForeground() async throws {
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .fail(URLError(.timedOut)), .reply(okReply(stubUserJSON))])
+    let client = keyedClient(transport)
+    await client.suspend()
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client)) })
+    #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil))
+    #expect(await transport.requests.count == 1)
+    await client.resume()
+    #expect(try await client.updateBalance(balanceWrite(client)).value.id == 7)
+    #expect(await transport.requests.count == 3)
+}

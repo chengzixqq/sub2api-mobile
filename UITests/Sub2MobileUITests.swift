@@ -422,6 +422,20 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertFalse(app.tabBars.buttons["概览"].exists)
     }
 
+    @MainActor func testBackgroundAndForegroundKeepsSession() {
+        launch()
+        login(name: "站点 A", url: "https://a.example.com")
+        app.tabBars.buttons["用户"].tap()
+        XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        // Returning reloads the list instead of leaving it empty, and the session is still connected.
+        XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["login.submit"].exists)
+        app.tabBars.buttons["概览"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard.today-requests"].firstMatch.waitForExistence(timeout: 15))
+    }
+
     @MainActor private func login(name: String, url: String) {
         XCTAssertTrue(app.textFields["login.name"].waitForExistence(timeout: 10))
         enter(name, in: app.textFields["login.name"], towardBottom: false)
