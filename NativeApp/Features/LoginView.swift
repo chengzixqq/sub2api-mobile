@@ -24,6 +24,17 @@ struct LoginView: View {
     @State private var task: Task<Void, Never>?
     /// X-Device-ID of this login; saved with the credential once connected, renewed when the address changes (00 §1.2).
     @State private var draftDeviceID = UUID()
+    /// A known site's login page (00 §1.1, §1.7.4): name, address and sign-in method prefilled, the reason shown on top.
+    private let prompt: LoginPrompt?
+
+    init(prompt: LoginPrompt? = nil) {
+        self.prompt = prompt
+        guard let site = prompt?.profile else { return }
+        _name = State(initialValue: site.name)
+        _address = State(initialValue: site.baseURL.absoluteString)
+        // Until the three-way login page (S0-16) a sat_ token is pasted into the Admin Key field.
+        _kind = State(initialValue: site.authentication == .password ? .password : .adminKey)
+    }
 
     var body: some View {
         Form {
@@ -35,12 +46,17 @@ struct LoginView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }.padding(.vertical, 12)
             }
+            if let notice = prompt?.notice {
+                Section { Text(notice).foregroundStyle(.orange).accessibilityIdentifier("login.notice") }
+            }
             Section("站点") {
                 TextField("站点名称", text: $name).textContentType(.organizationName).accessibilityIdentifier("login.name")
                 TextField("https://sub2.example.com", text: $address)
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("login.url")
-                Text("同一站点可保存多个身份，建议为每个账号使用不同名称。新增登录将建立独立身份。").font(.footnote).foregroundStyle(.secondary)
+                if prompt?.reusesSiteID != true {
+                    Text("同一站点可保存多个身份，建议为每个账号使用不同名称。新增登录将建立独立身份。").font(.footnote).foregroundStyle(.secondary)
+                }
             }.disabled(busy || challenge != nil)
             Section("身份验证") {
                 Picker("登录方式", selection: $kind) {
@@ -116,6 +132,16 @@ struct LoginView: View {
         .onDisappear { task?.cancel(); model.cancelConnection(); password = ""; key = ""; proof = nil; proofExpiresAt = nil; code = "" }
     }
 
+    /// A known site keeps its id when the address is unchanged (LoginPrompt, D17); “添加站点” always makes a new site.
+    private func siteProfile(name: String, url: URL) -> ServerProfile {
+        prompt?.profile(name: name, url: url, authentication: kind) ?? ServerProfile(name: name, baseURL: url, authentication: kind)
+    }
+    /// The same site signs in with its own device ID (session binding, 00 §1.2); a new site with this form's draft.
+    private func loginDeviceID(for profile: ServerProfile) async throws -> UUID {
+        guard profile.id == prompt?.profile.id else { return draftDeviceID }
+        return try await model.credentials.deviceID(serverID: profile.id)
+    }
+
     private func resetChallenge() {
         challenge = nil; code = ""; proof = nil; proofExpiresAt = nil; loginClient = nil; pendingProfile = nil; pendingAttempt = nil
     }
@@ -128,7 +154,7 @@ struct LoginView: View {
             let url = try AppModel.validatedURL(address)
             guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppFailure("请填写站点名称。") }
             guard kind == .adminKey ? !key.isEmpty : (!email.isEmpty && !password.isEmpty) else { throw AppFailure("请完整填写登录凭据。") }
-            profile = pendingProfile ?? ServerProfile(name: name.trimmingCharacters(in: .whitespacesAndNewlines), baseURL: url, authentication: kind)
+            profile = pendingProfile ?? siteProfile(name: name.trimmingCharacters(in: .whitespacesAndNewlines), url: url)
         } catch { self.error = error.localizedDescription; return }
         busy = true
         task = Task {
@@ -136,16 +162,17 @@ struct LoginView: View {
             let attempt = pendingAttempt ?? model.beginConnection()
             pendingAttempt = attempt
             do {
+                let deviceID = try await loginDeviceID(for: profile)
                 if model.isUITesting {
                     let fixture = kind == .adminKey ? Credential.fromAPIKey(key) : DemoData.passwordCredential
-                    try await model.connect(profile: profile, credential: fixture, deviceID: draftDeviceID, attempt: attempt)
+                    try await model.connect(profile: profile, credential: fixture, deviceID: deviceID, attempt: attempt)
                     password = ""; key = ""; dismiss(); return
                 }
                 if kind == .adminKey {
                     // A pasted sat_ token is an access token (00 §1.3).
-                    try await model.connect(profile: profile, credential: .fromAPIKey(key), deviceID: draftDeviceID, attempt: attempt)
+                    try await model.connect(profile: profile, credential: .fromAPIKey(key), deviceID: deviceID, attempt: attempt)
                 } else {
-                    let candidate = loginClient ?? APIClient(server: profile, deviceID: draftDeviceID)
+                    let candidate = loginClient ?? APIClient(server: profile, deviceID: deviceID)
                     loginClient = candidate
                     pendingProfile = profile
                     let session: AuthSession
@@ -174,7 +201,7 @@ struct LoginView: View {
                         }
                     }
                     // Other roles never get here: login already discarded their session (00 §1.11).
-                    try await model.connect(profile: profile, credential: .tokens(session.tokens), deviceID: draftDeviceID, attempt: attempt)
+                    try await model.connect(profile: profile, credential: .tokens(session.tokens), deviceID: deviceID, attempt: attempt)
                 }
                 password = ""; key = ""; code = ""; proof = nil; proofExpiresAt = nil; dismiss()
             } catch {

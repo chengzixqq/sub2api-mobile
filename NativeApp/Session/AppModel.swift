@@ -33,10 +33,14 @@ final class AppModel {
     private(set) var pendingBalances: [PendingBalanceOperation] = []
     var errorMessage: String?
     var isRestoring = true
-    private(set) var isSigningOut = false
+    /// Set while signing out or deleting the connected site (AppModel+Session.swift).
+    var isSigningOut = false
+    /// The site login page to show: the root page without a connected site, a sheet over it otherwise (00 §1.1).
+    var loginPrompt: LoginPrompt?
     var isConnecting = false
     let isUITesting: Bool
     let credentials: KeychainCredentialStore
+    let pushRecords: PushDeviceRecords
     private let defaults: UserDefaults
     @ObservationIgnored private var demoUsersBySession: [UUID: [AdminUser]] = [:]
     @ObservationIgnored private var demoUserUpdates: [UUID: AdminUser] = [:]
@@ -44,7 +48,8 @@ final class AppModel {
     @ObservationIgnored private var pendingCandidate: APIClient?
     @ObservationIgnored private var activeLease: UUID?
     @ObservationIgnored private var savedActiveID: UUID?
-    @ObservationIgnored private var profileArchive: [UUID: ServerProfile] = [:]
+    /// Deleted sites that still have records awaiting reconciliation (AppModel+Session.swift adds to it).
+    @ObservationIgnored var profileArchive: [UUID: ServerProfile] = [:]
     private let pendingFileURL: URL?
     @ObservationIgnored private var pendingPersistenceAvailable = true
     /// Scene state (D18); changed only by `sceneDidChange(to:)` in AppModel+Session.swift.
@@ -61,7 +66,9 @@ final class AppModel {
     init(isUITesting: Bool = ProcessInfo.processInfo.arguments.contains("-ui-testing")) {
         self.isUITesting = isUITesting
         credentials = KeychainCredentialStore(memoryOnly: isUITesting)
-        defaults = isUITesting ? UserDefaults(suiteName: "com.chengzixqq.sub2mobile.uitesting")! : .standard
+        let defaults = isUITesting ? UserDefaults(suiteName: "com.chengzixqq.sub2mobile.uitesting")! : .standard
+        self.defaults = defaults
+        pushRecords = PushDeviceRecords(defaults: defaults)
         pendingFileURL = isUITesting ? nil : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("Sub2Mobile", isDirectory: true).appendingPathComponent("pending-balances.json")
         if isUITesting { defaults.removePersistentDomain(forName: "com.chengzixqq.sub2mobile.uitesting") }
@@ -78,9 +85,12 @@ final class AppModel {
         defer { isRestoring = false }
         guard let id = savedActiveID, let profile = profiles.first(where: { $0.id == id }) else { return }
         do {
-            guard let credential = try await credentials.load(serverID: id) else { return }
+            guard let credential = try await credentials.load(serverID: id) else {
+                openSiteLogin(profile, notice: Self.credentialClearedNotice)
+                return
+            }
             try await connect(profile: profile, credential: credential)
-        } catch { report(error) }
+        } catch { await connectionFailed(error, profile: profile) }
     }
 
     static func validatedURL(_ raw: String) throws -> URL {
@@ -107,6 +117,7 @@ final class AppModel {
         let pending = pendingCandidate; pendingCandidate = nil
         Task { await pending?.cancelAll() }
     }
+    func isCurrent(_ attempt: UUID) -> Bool { attempt == connectionAttempt }
 
     /// 00 §1.1: the site is saved only after /admin/me accepted the credential, and a failed attempt never replaces the connected one.
     /// `draft` is the device ID a new login already sent; it is saved with the credential, otherwise the site's own is read.
@@ -133,10 +144,12 @@ final class AppModel {
         let store = try await commit(verified, profile: profile, draft: draft, ticket: ticket)
         let previous = (client: client, profileID: activeProfile?.id, lease: activeLease)
         let generation = UUID()
-        let next = wiring.makeClient(server: profile, credential: verified, store: store)
+        let next = wiring.makeClient(server: profile, credential: verified, store: store,
+                                     onSessionInvalid: sessionInvalidHandler(serverID: profile.id, generation: generation))
         publish(profile, generation: generation, site: site, client: next, lease: store.lease)
         await candidate.cancelAll()
         await previous.client?.cancelAll()
+        await previous.client?.clearConditionalCache()
         if let id = previous.profileID, let lease = previous.lease { try await credentials.revoke(serverID: id, lease: lease, erase: false) }
     }
 
@@ -155,6 +168,12 @@ final class AppModel {
         self.siteSession = siteSession.markingReadOnly()
     }
 
+    /// Reports arrive on the client's actor; `invalidateSession` checks them against this site and generation (D13).
+    private func sessionInvalidHandler(serverID: UUID, generation: UUID) -> @Sendable (SessionInvalidation) -> Void {
+        { [weak self] invalidation in
+            Task { @MainActor [weak self] in await self?.invalidateSession(invalidation, serverID: serverID, generation: generation) }
+        }
+    }
     private func probe(_ client: APIClient, credential: Credential, knownScope: String?) async throws -> SiteSession {
         if isUITesting { return DemoData.siteSession(credential: credential) }
         return try await SiteSession.establish(client: client, knownScope: knownScope)
@@ -190,58 +209,32 @@ final class AppModel {
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
         else { profiles.append(profile) }
         savedActiveID = profile.id
+        loginPrompt = nil
         persistProfiles()
     }
 
-    func switchTo(_ profile: ServerProfile) async {
-        guard !isSigningOut else { return }
-        let attempt = beginConnection()
-        do {
-            guard let credential = try await credentials.load(serverID: profile.id) else {
-                throw AppFailure("此站点凭据已清除，请重新登录。")
-            }
-            try await connect(profile: profile, credential: credential, attempt: attempt)
-        } catch { report(error) }
-    }
-
-    func logout() async {
-        guard !isSigningOut else { return }
-        isSigningOut = true
-        defer { isSigningOut = false }
-        let old = client
-        let id = activeProfile?.id
-        let lease = activeLease
-        cancelConnection()
+    enum SessionExit { case savedSites, siteLogin(notice: String?) }
+    /// The local erasure of signing out, deleting, invalidation and forgetting (00 §0 rule 13, §1.7.5 step 4): one synchronous
+    /// step leaves no page with the old client, then the client is cancelled, its ETag cache cleared and the credential
+    /// erased (the device ID stays). Returns the copies the server-side teardown needs.
+    func endActiveSession(cancelsConnection: Bool, then exit: SessionExit) async -> EndedSession? {
+        guard let profile = activeProfile else { return nil }
+        let old = client, lease = activeLease
+        if cancelsConnection { cancelConnection() }
         sessionGeneration = UUID()
-        client = nil
-        siteSession = nil
-        activeProfile = nil
-        activeLease = nil
-        savedActiveID = nil
+        client = nil; siteSession = nil; activeProfile = nil; activeLease = nil; savedActiveID = nil
+        if case .siteLogin(let notice) = exit { openSiteLogin(profile, notice: notice) }
         persistProfiles()
         await old?.cancelAll()
-        if let id {
-            do {
-                if let lease { try await credentials.revoke(serverID: id, lease: lease, erase: true) }
-                else { try await credentials.eraseCredential(serverID: id) }
-            } catch { report(error) }
-        }
-        // Fixture sites are not reachable; S0-11 rewrites this order (00 §1.7.5).
-        guard !isUITesting else { return }
-        do { try await old?.logout() } catch { report(error) }
-    }
-
-    func remove(_ profile: ServerProfile) async {
-        if pendingBalances.contains(where: { $0.serverID == profile.id }) { profileArchive[profile.id] = profile }
-        let wasActive = activeProfile?.id == profile.id
-        if wasActive { await logout() }
-        cancelConnection()
-        profiles.removeAll { $0.id == profile.id }
-        persistProfiles()
-        // Signing out above kept the device ID; deleting the site removes it too (00 §1.1). S0-11 completes the order.
+        // Read after cancelAll, so a refresh landing now can no longer replace it.
+        let credential = await old?.currentCredential()
+        await old?.clearConditionalCache()
         do {
-            try await credentials.remove(serverID: profile.id)
+            if let lease { try await credentials.revoke(serverID: profile.id, lease: lease, erase: true) }
+            else { try await credentials.eraseCredential(serverID: profile.id) }
         } catch { report(error) }
+        guard let old else { return nil }
+        return EndedSession(profile: profile, credential: credential, deviceID: old.deviceID)
     }
 
     /// The only way to obtain a sendable money write: its record is saved first, and a failed save sends nothing (00 §0 rule 4).
@@ -374,6 +367,12 @@ final class AppModel {
     }
     func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser> {
         if isUITesting {
+            if ProcessInfo.processInfo.arguments.contains("-ui-session-revoked"), let profile = activeProfile,
+               let invalidation = SessionInvalidation(error: APIError.server(status: 401, reason: "TOKEN_REVOKED")) {
+                // Stands in for the client's report of a revoked session (D06).
+                await invalidateSession(invalidation, serverID: profile.id, generation: sessionGeneration)
+                throw CancellationError()
+            }
             let matches = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).filter {
                 (search.isEmpty || $0.email.localizedCaseInsensitiveContains(search) || ($0.username?.localizedCaseInsensitiveContains(search) ?? false)) && (status == nil || status == $0.status)
             }
@@ -433,7 +432,7 @@ final class AppModel {
         return try await requireClient().userKeys(id: id, page: page)
     }
 
-    private func persistProfiles() {
+    func persistProfiles() {
         defaults.set(try? JSONEncoder().encode(profiles), forKey: "profiles")
         defaults.set(savedActiveID?.uuidString, forKey: "activeProfile")
         defaults.set(try? JSONEncoder().encode(profileArchive), forKey: "profileArchive")

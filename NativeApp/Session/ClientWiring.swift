@@ -3,7 +3,7 @@ import Sub2Core
 
 /// The only place the active APIClient is built (D13). It keeps what the candidate learned while connecting: the ETag
 /// identity set by me() (S0-05), the Date-header clock (S0-07) and the site session's zone, plus the site's device ID.
-/// S0-11 and S0-13 append their callback and interceptor to `makeClient`.
+/// S0-13 appends its interceptor to `makeClient`.
 struct ClientWiring: Sendable {
     let deviceID: UUID
     let cacheIdentity: ConditionalCache.Identity?
@@ -16,8 +16,9 @@ struct ClientWiring: Sendable {
     }
     /// `store` is the lease of this session (D07), never the vault itself.
     func makeClient(server: ServerProfile, credential: Credential, store: (any CredentialStore)?,
-                    transport: any HTTPTransport = URLSessionTransport()) -> APIClient {
+                    transport: any HTTPTransport = URLSessionTransport(),
+                    onSessionInvalid: (@Sendable (SessionInvalidation) -> Void)? = nil) -> APIClient {
         APIClient(server: server, credential: credential, credentialStore: store, deviceID: deviceID, transport: transport,
-                  cacheIdentity: cacheIdentity, serverTimeZone: serverTimeZone, serverClock: serverClock)
+                  cacheIdentity: cacheIdentity, serverTimeZone: serverTimeZone, serverClock: serverClock, onSessionInvalid: onSessionInvalid)
     }
 }

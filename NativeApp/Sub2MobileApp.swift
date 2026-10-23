@@ -22,8 +22,10 @@ struct RootView: View {
                 ProgressView(model.isSigningOut ? "正在退出并清除凭据…" : "正在恢复连接…")
             } else if model.activeProfile != nil {
                 MainTabs().environment(\.sessionContext, model.sessionContext).id(model.sessionGeneration)
+                    .sheet(item: $model.loginPrompt) { prompt in NavigationStack { LoginView(prompt: prompt) } }
             } else {
-                NavigationStack { LoginView() }
+                // A new prompt is a new page: its fields start from that site.
+                NavigationStack { LoginView(prompt: model.loginPrompt) }.id(model.loginPrompt?.id)
             }
         }
         .alert("操作未完成", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {

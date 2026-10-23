@@ -417,8 +417,47 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 10))
         reveal(app.buttons["login.saved.站点 A"])
         app.buttons["login.saved.站点 A"].tap()
-        XCTAssertTrue(app.alerts["操作未完成"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.alerts.staticTexts["此站点凭据已清除，请重新登录。"].exists)
+        // The site's own login page, prefilled, instead of an error alert (00 §1.1).
+        XCTAssertTrue(app.staticTexts["login.notice"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["login.notice"].label, "此站点凭据已清除，请重新登录。")
+        XCTAssertEqual(app.textFields["login.name"].value as? String, "站点 A")
+        XCTAssertEqual(app.textFields["login.url"].value as? String, "https://a.example.com")
+        XCTAssertFalse(app.tabBars.buttons["概览"].exists)
+        // Signing in again keeps the same site instead of adding a second “站点 A”.
+        enter("admin@example.com", in: app.textFields["login.email"])
+        enter("fixture-password", in: app.secureTextFields["login.password"])
+        submitLogin()
+        XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["设置"].tap()
+        XCTAssertTrue(app.buttons["settings.site.站点 A"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.buttons.matching(identifier: "settings.site.站点 A").count, 1)
+    }
+
+    @MainActor func testRemovingActiveStationReturnsToLoginWithoutIt() {
+        launch()
+        login(name: "站点 A", url: "https://a.example.com")
+        app.tabBars.buttons["设置"].tap()
+        XCTAssertTrue(app.buttons["settings.site.more.站点 A"].waitForExistence(timeout: 10))
+        app.buttons["settings.site.more.站点 A"].tap()
+        XCTAssertTrue(app.buttons["删除站点和凭据"].waitForExistence(timeout: 5))
+        app.buttons["删除站点和凭据"].tap()
+        // The confirmation dialog repeats the action as its destructive button.
+        XCTAssertTrue(app.buttons["删除站点和凭据"].waitForExistence(timeout: 5))
+        app.buttons["删除站点和凭据"].tap()
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["login.saved.站点 A"].exists)
+        XCTAssertFalse(app.tabBars.buttons["概览"].exists)
+    }
+
+    @MainActor func testRevokedSessionReturnsToPrefilledLogin() {
+        launch(arguments: ["-ui-session-revoked"])
+        login(name: "失效站点", url: "https://revoked.example.com")
+        app.tabBars.buttons["用户"].tap()
+        XCTAssertTrue(app.staticTexts["login.notice"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["login.notice"].label, "登录已失效，请重新登录")
+        XCTAssertEqual(app.textFields["login.url"].value as? String, "https://revoked.example.com")
+        // The original sign-in method stays selected (00 §1.7.4).
+        XCTAssertTrue(app.textFields["login.email"].exists)
         XCTAssertFalse(app.tabBars.buttons["概览"].exists)
     }
 
