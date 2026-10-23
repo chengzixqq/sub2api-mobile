@@ -72,7 +72,10 @@ struct PendingMoneyLedger: Sendable {
         reading(PendingMoneyKind.allCases.filter(unreadable.contains), from: files)
     }
     func isAvailable(_ kind: PendingMoneyKind) -> Bool { !unreadable.contains(kind) }
-    var unreadableMessages: [String] { PendingMoneyKind.allCases.filter(unreadable.contains).map(\.unreadableMessage) }
+    /// 00 §2.5.5, one line per unreadable kind; nil once every file reads.
+    var unreadableNotice: String? {
+        unreadable.isEmpty ? nil : PendingMoneyKind.allCases.filter(unreadable.contains).map(\.unreadableMessage).joined(separator: "\n")
+    }
 
     func remembering(_ record: PendingBalanceOperation, in files: PendingMoneyFiles) throws -> PendingMoneyLedger {
         try remembering(record, at: \.balances, kind: .balance, in: files)

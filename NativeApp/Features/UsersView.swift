@@ -515,7 +515,7 @@ struct BalanceView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) } }
             .interactiveDismissDisabled(busy)
             .confirmationDialog("确认调整余额？", isPresented: $confirm, titleVisibility: .visible) {
-                Button("确认发送", role: .destructive) { if let prepared { sending = Task { await send(prepared) } } }
+                Button("确认发送", role: .destructive) { if let prepared { let item = confirmed(prepared); sending = Task { await send(item) } } }
             } message: {
                 if let prepared { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)\n\(operationName(prepared.operation))：\(DisplayFormat.moneyExact(prepared.amount))") }
             }
@@ -547,6 +547,14 @@ struct BalanceView: View {
         catch { message = error.localizedDescription; return }
         prepared = candidate
         confirm = true; message = nil
+    }
+    /// A record not saved yet takes the confirmation time (30 §3.4 step 2); a saved one keeps its own, where the fallback
+    /// window of the reconciliation starts.
+    private func confirmed(_ item: PendingBalanceOperation) -> PendingBalanceOperation {
+        guard !model.pendingBalances.contains(where: { $0.id == item.id }) else { return item }
+        let stamped = item.confirmed(at: Date())
+        prepared = stamped
+        return stamped
     }
     private func send(_ item: PendingBalanceOperation) async {
         guard !busy, item.serverID == model.activeProfile?.id, model.retryPermission(for: item) != .otherActor else { return }

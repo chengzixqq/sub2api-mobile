@@ -57,6 +57,18 @@ public enum BalanceReconciliation {
     }
 }
 
+extension PendingBalanceOperation {
+    /// 30 §3.4 step 2, R05: the record is made when the write is confirmed. A form checked earlier keeps its number, body and
+    /// action id but takes the confirmation time, which starts the execution grace and the fallback window. A legacy
+    /// record is returned unchanged.
+    public func confirmed(at date: Date) -> PendingBalanceOperation {
+        guard !isLegacy else { return self }
+        return PendingBalanceOperation(id: id, serverID: serverID, userID: userID, amount: amount, operation: operation, notes: notes,
+                                       actorUserID: actorUserID, createdAt: date, userDisplayName: userDisplayName, userEmail: userEmail)
+            .with(actionID: actionID)
+    }
+}
+
 extension APIClient {
     /// Only reads: the first query, and the fallback only when the first has no exact match. A failed query is thrown.
     public func reconcileBalance(_ op: PendingBalanceOperation) async throws -> BalanceReconcileOutcome {

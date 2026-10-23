@@ -77,11 +77,14 @@ final class AppModel {
         if let data = defaults.data(forKey: "profileArchive") { profileArchive = ServerProfile.storedArchive(from: data) }
         if let raw = defaults.string(forKey: "activeProfile") { savedActiveID = UUID(uuidString: raw) }
         pendingMoney = PendingMoneyLedger.load(from: pendingFiles)
-        if !pendingMoney.unreadable.isEmpty { errorMessage = pendingMoney.unreadableMessages.joined(separator: "\n") }
     }
 
     func restore() async {
         defer { isRestoring = false }
+        // A prewarmed launch may run init while the device is still locked: read those files again before telling the user,
+        // and before a login prompt decides whether the site id is reused (D17).
+        reloadUnreadablePendingRecords()
+        if let notice = pendingMoney.unreadableNotice { errorMessage = notice }
         guard let id = savedActiveID, let profile = profiles.first(where: { $0.id == id }) else { return }
         do {
             guard let credential = try await credentials.load(serverID: id) else {

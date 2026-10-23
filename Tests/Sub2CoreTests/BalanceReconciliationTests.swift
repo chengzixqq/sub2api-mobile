@@ -98,6 +98,20 @@ private func reconcilingClient(_ transport: ScriptedTransport, server: ServerPro
     #expect(!PendingReconcileOutcome.balance(.stillRunning).confirmsExecution)
 }
 
+/// 30 §3.4 step 2, R05: the current balance page checks the form before its confirmation dialog, so the record takes the
+/// confirmation time; the grace then starts when the write was sent.
+@Test func confirmingStampsCreatedAtAndKeepsNumberAndBody() throws {
+    let station = UUID()
+    let checked = pending(serverID: station, actionID: ledgerAction, createdAt: sentAt.addingTimeInterval(-60))
+    let confirmed = checked.confirmed(at: sentAt)
+    #expect(confirmed == pending(serverID: station, actionID: ledgerAction))
+    #expect(confirmed.requestID == operationKey); #expect(try confirmed.requestBody() == checked.requestBody())
+    #expect(BalanceReconciliation.evaluate(confirmed, rows: [], now: sentAt.addingTimeInterval(5)) == .stillRunning)
+    #expect(BalanceReconciliation.evaluate(checked, rows: [], now: sentAt.addingTimeInterval(5)) == .notExecuted)
+    let old = legacy()
+    #expect(old.confirmed(at: sentAt) == old)
+}
+
 @Test func ignoredFiltersReturningUnrelatedRowsAreNotExecution() async throws {
     let server = stubServer()
     let transport = ScriptedTransport(script: [.reply(ledgerPage(rowJSON(1, user: 5), rowJSON(2, user: 6), rowJSON(3, user: 42, requestID: "other"))), .reply(ledgerPage())])

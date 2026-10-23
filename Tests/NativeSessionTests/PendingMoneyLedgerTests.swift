@@ -54,7 +54,7 @@ private func pendingError(_ operation: () throws -> Void) -> PendingMoneyError? 
     try scratch.write("not json", to: .redeemBatch)
     let ledger = PendingMoneyLedger.load(from: files)
     #expect(ledger.unreadable == [.redeemBatch]); #expect(!ledger.isAvailable(.redeemBatch)); #expect(ledger.isAvailable(.balance))
-    #expect(ledger.unreadableMessages == [PendingMoneyKind.redeemBatch.unreadableMessage])
+    #expect(ledger.unreadableNotice == PendingMoneyKind.redeemBatch.unreadableMessage)
     #expect(pendingError { _ = try ledger.remembering(batch(), in: files) } == PendingMoneyError(kind: .redeemBatch, reason: .paused))
     #expect(try ledger.resolving(id: UUID(), in: files).unreadable == [.redeemBatch])
     let updated = try ledger.remembering(balance(), in: files).remembering(grant(), in: files)
@@ -155,16 +155,23 @@ private func pendingError(_ operation: () throws -> Void) -> PendingMoneyError? 
     let scratch = Scratch(), files = scratch.files
     defer { scratch.remove() }
     try scratch.write("[{", to: .compensation)
+    try scratch.write("[{", to: .redeemBatch)
     let ledger = try PendingMoneyLedger.load(from: files).remembering(balance(), in: files)
-    #expect(ledger.unreadable == [.compensation])
-    #expect(ledger.reloadingUnreadable(from: files).unreadable == [.compensation])
+    #expect(ledger.unreadable == [.redeemBatch, .compensation])
+    #expect(ledger.unreadableNotice == PendingMoneyKind.redeemBatch.unreadableMessage + "\n" + PendingMoneyKind.compensation.unreadableMessage)
+    #expect(ledger.reloadingUnreadable(from: files).unreadable == [.redeemBatch, .compensation])
     let saved = grant()
     try scratch.write(String(decoding: try JSONEncoder().encode([saved]), as: UTF8.self), to: .compensation)
     try scratch.write("[]", to: .balance)
     let recovered = ledger.reloadingUnreadable(from: files)
-    #expect(recovered.unreadable.isEmpty); #expect(recovered.compensations == [saved])
+    #expect(recovered.unreadable == [.redeemBatch]); #expect(recovered.compensations == [saved])
+    // The launch notice shrinks to what is still unreadable, and goes once every file reads (a launch while locked).
+    #expect(recovered.unreadableNotice == PendingMoneyKind.redeemBatch.unreadableMessage)
     // Readable kinds keep what is in memory; only the unreadable file was read again.
     #expect(recovered.balances == ledger.balances)
+    try scratch.write("[]", to: .redeemBatch)
+    let readable = recovered.reloadingUnreadable(from: files)
+    #expect(readable.unreadable.isEmpty); #expect(readable.unreadableNotice == nil)
 }
 
 @Test func memoryOnlyAndProductionFiles() throws {

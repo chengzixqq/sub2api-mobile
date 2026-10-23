@@ -13,12 +13,13 @@ extension AppModel {
     /// The only scene-phase entry (Sub2MobileApp, all windows together); S0-12 and S0-13 dispatch their foreground work
     /// from here too.
     func sceneDidChange(to activity: AppActivity) {
+        // Every activation, including the first after a launch while locked, which is not a resume.
+        if activity == .active { reloadUnreadablePendingRecords() }
         switch lifecycle.transition(to: activity, now: Date(), lastProbe: siteSession?.probedAt) {
         case .none: return
         case .suspend: forwardToClient { await $0.suspend() }
         case .resume(let reprobe):
             forwardToClient { await $0.resume() }
-            reloadUnreadablePendingRecords()
             if reprobe { Task { await reprobeActiveSession() } }
         }
     }

@@ -189,7 +189,9 @@
 | UI 测试期间模拟器后台进程暴涨 | S0-11 的三次 gate 中 Mac 负载多次冲到 100–600：模拟器克隆里 PosterBoard / *Poster 扩展与 SetStoreUpdateService 成批启动（按 Home 回桌面时也会触发），单个用例耗时到 5–10 分钟，计时类用例因此偶发失败。S0-19 诊断基线时一并看是否要在模拟器里关掉墙纸 / 海报扩展或降低并发 |
 | 资金写待核对的界面与回前台自动核对 | S0-12 只建了三类本机记录、AppModel.reconcile 与 R03 门控（moneyWriteGate）、重试权限；概览“待处理”、设置页三类分区、用户详情与兑换码横幅、核对结果页，以及回到前台对本站点记录自动核对一次（30 §3.6、60 §19.4 第 9 步），分别由 S0-15、阶段 1 / 3 / 6 接上。现有余额页仍是旧界面，不调用 moneyWriteGate |
 | 余额核对的阶段 3 部分 | BalanceReconciliation 只做 00 §2.5.5 的精确复核（D25）。30 §3.4 的候选匹配、多条候选、X-Request-ID 回显检查与按站点保存 requestIDUnreliable、旧记录（无 createdAt / 邮箱）按用户 ID 查询，在阶段 3 同一文件扩展 |
-| 待核对文件锁屏读不出 | completeFileProtection 文件在设备锁定时启动（预热）读不出，会被标为不可读并暂停该类资金写、启动时弹提示；S0-12 在回到前台时重读一次，但启动时那条提示仍会出现。真机验证后决定是否改成 completeUntilFirstUserAuthentication 或延后提示 |
+| 待核对文件锁屏读不出 | completeFileProtection 文件在设备锁定时预热启动会读不出，被标为不可读并暂停该类资金写。S0-12 审查修正后，restore() 开头和每次进入 .active（包括启动后的第一次）都会重读；提示改到 restore 里、在重读之后才弹，读出后会收起或缩短。预热启动的实际表现还没有在真机上验证，验证后再决定是否改成 completeUntilFirstUserAuthentication |
+| 待核对门控跨站点 id | R03 门控（PendingMoneyGate / moneyWriteGate）和现有余额页都只按站点 id 判断。按 D17，有待核对记录的站点重新登录会新建站点 id，同一服务器也可以保存多个身份，所以挂在旧站点 id 上、同一服务器同一用户的待核对充值、退款、补偿和兑换码批次，拦不住新站点 id 下的同类写入。旧站点的凭据已经清除，APIClient 的核对又会拒绝其他站点的记录（stationMismatch）；如果直接把同一地址的记录算进门控，没有例外的补偿会被永久拦住。阶段 3 / 6 接入门控时一并决定：同一地址的记录是否计入门控，是否允许用当前身份核对或放弃这类记录 |
+| 余额重试后的执行宽限 | 40 秒执行宽限按 createdAt 计算（30 §3.4、D25）。S0-12 审查修正后，新记录在“确认发送”时取 createdAt；但“用同一编号重试”不更新 createdAt，因为退路查询的时间窗要从第一次发送算起。重试刚发出就核对会判为 notExecuted，并给出“放弃这笔”。阶段 3 实现核对框里的重试时，给记录加“最近一次发送时间”，宽限从这个时间起算（D16 规定 S0-12 不改 Models.swift） |
 | 合规确认页的文案与版式 | S0-13 的全局合规页没有设计稿，标题、说明、按钮与读区块失败文案“需要先完成管理员合规确认”都是自拟；用户看过模拟器截图（Mac 上 ui.xcresult 的 compliance-sheet 附件）后再定，可能要补设计稿 |
 | 后端文档补两个 reason | step-up 接口在用户关闭 TOTP 后返回 400 TOTP_NOT_SETUP，合规确认语句不一致返回 400 ADMIN_COMPLIANCE_INVALID_PHRASE，sub2 docs/API_ERROR_CODES.md 都没有；App 已分别按“未开 TOTP”与“确认语句不一致，请逐字输入”处理，请后端补进文档 |
 | 合规 / 二次验证通过后的回执 | S0-13 通过后只在原页面显示“…已通过，请重新确认后发送”，没有“合规确认已完成”这类回执；S0-14 的回执（ReceiptCenter）建好后补上 |

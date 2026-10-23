@@ -27,10 +27,12 @@ extension AppModel {
     func remember(_ batch: PendingRedeemBatch) throws { try updatePendingMoney { try $0.remembering(batch, in: $1) } }
     func remember(_ grant: PendingCompensation) throws { try updatePendingMoney { try $0.remembering(grant, in: $1) } }
     func resolve(_ record: any PendingMoneyWrite) throws { try updatePendingMoney { try $0.resolving(id: record.id, in: $1) } }
-    /// A file the locked device could not open at launch is read again when the App returns to the foreground (D18).
+    /// A file the locked device could not open at launch is read again on restore and whenever the App becomes active
+    /// (D18); a notice still on screen shrinks to what stays unreadable.
     func reloadUnreadablePendingRecords() {
-        guard !pendingMoney.unreadable.isEmpty else { return }
+        guard let notice = pendingMoney.unreadableNotice else { return }
         updatePendingMoney { ledger, files in ledger.reloadingUnreadable(from: files) }
+        if errorMessage == notice { errorMessage = pendingMoney.unreadableNotice }
     }
 
     /// R03 for the connected site; the pages own the two exceptions.
