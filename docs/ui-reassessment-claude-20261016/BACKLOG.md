@@ -198,3 +198,7 @@
 | 读区块的“完成合规确认”入口 | 用户点“稍后”后，同一会话的后台读请求不再自动弹合规，区块只显示“需要先完成管理员合规确认”；阶段 1 重写概览错误块时加按钮调用 AppModel.presentCompliance()（用户发起，会再次弹出） |
 | 覆盖层窗口的外观与读屏 | S0-13 的全局 sheet 在覆盖层 UIWindow 里，创建时复制主窗口的 overrideUserInterfaceStyle；S0-15 加 App 内外观设置后要在切换时同步这个窗口；VoiceOver 焦点进入与离开覆盖层窗口需要真机核对 |
 | 读类 POST 的安全重发 | S0-13 的钩子只对 RequestClass.isRead 的请求在验证通过后自动重发；reveal（POST admin/api-keys/:id/reveal）等语义是读的 POST 在阶段 3 / 6 实现时要显式声明请求类别，或发送前先调用 ensureStepUp（30 §7 本来就先主动判断） |
+| 站点标题菜单与大标题 | S0-14 在 iOS 27 模拟器上实测：大标题与 `.toolbarTitleDisplayMode(.inlineLarge)` 都打不开 `.toolbarTitleMenu`（标题只是静态文字），所以概览与账号 Tab 的标题改为 inline 显示（系统画下拉箭头，点开就是站点菜单）。10 §0.7-5 要的是“大标题就是站点菜单”，需 iOS 26 / 27 实机确认；要恢复大标题时只改 `NativeApp/Views/SiteMenu.swift` 的 `siteTitleMenu()`（例如 iOS 26 的 `ToolbarItem(placement: .largeTitle)` 放一个以站点名为标签的 `Menu`） |
+| 搜索 Tab 在实机上的样子 | S0-14 在 iOS 27 模拟器上：`Tab(role: .search)` 显示为 Tab 栏里的第五项（没有分离成独立玻璃按钮），选中时不自动弹键盘，搜索框在导航栏抽屉里，与 60 §1.1 一致。U40 要求 iOS 26 / 27 实机各验一次 |
+| 路由参数在旧页面上不生效 | S0-14 把路由映射到现有页面时，现有页面不支持的参数没有传：`.logs` 的 user / model / modelSource、`.analytics` 的 range / focus / metric（目录进统计仍从“今天”开始，40 §1.1 要近 7 天）、`.groups` 的 segment、`.account` 的 focus、`.settings` 的 focus（“站点与凭据”不滚到站点分区，S0-15 改）。各阶段换新页面时生效；`.groupBatch` 的 items 等阶段 5 定义结果类型再加 |
+| 跨 Tab 跳转撤不掉视图式推入的页面 | `AppRouter.select` 只清空目标 Tab 的 path；现有页面用 `NavigationLink { 目标 }` 推入的页面不在 path 里，会留在栈上。阶段 0 只有目录“告警事件”切到监控 Tab，监控 Tab 没有这类页面；概览、账号重写时改用 `NavigationLink(value: AppRoute)` |
