@@ -65,7 +65,7 @@ struct StepUpView: View {
                         busy = true
                         Task {
                             defer { busy = false }
-                            do { try await client.stepUp(code: code); onSuccess(); dismiss() }
+                            do { _ = try await client.stepUp(code: code); onSuccess(); dismiss() }
                             catch { self.error = error.localizedDescription }
                         }
                     }.disabled(busy || code.count != 6).frame(minHeight: 44)

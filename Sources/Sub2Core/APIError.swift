@@ -22,14 +22,20 @@ public struct APIError: LocalizedError, Sendable, Equatable {
     public let requestID: String?
     /// Response header `X-Admin-Adjustment-Action-ID` of a failed keyed write (30 §3.4 step 4).
     public let actionID: UUID?
+    /// What the session owner's security prompt ended with (S0-13); nil when nobody was asked.
+    public let securityOutcome: SecurityPromptOutcome?
     private let message: String
-    public var errorDescription: String? { message }
+    /// A cleared write says so; every other outcome keeps the catalog text.
+    public var errorDescription: String? {
+        guard securityOutcome == .passed, let notice = SecurityInterruption(self)?.passedNotice else { return message }
+        return notice
+    }
     public init(kind: Kind, reason: String? = nil, statusCode: Int? = nil, message: String, category: ReasonCatalog.Category? = nil,
                 action: ReasonCatalog.Action? = nil, retryAfter: Int? = nil, metadata: [String: String] = [:], requestID: String? = nil,
-                actionID: UUID? = nil) {
+                actionID: UUID? = nil, securityOutcome: SecurityPromptOutcome? = nil) {
         self.kind = kind; self.reason = reason; self.statusCode = statusCode; self.message = message
         self.category = category; self.action = action; self.retryAfter = retryAfter; self.metadata = metadata; self.requestID = requestID
-        self.actionID = actionID
+        self.actionID = actionID; self.securityOutcome = securityOutcome
     }
     public static let invalidServer = APIError(kind: .validation, message: "请输入不含路径、账号或查询参数的 HTTPS 站点地址。")
     public static let invalidAmount = APIError(kind: .validation, message: "金额最多 8 位小数且不得超过 999999999999.99999999；增加或减少金额必须大于零。")
@@ -75,7 +81,13 @@ public struct APIError: LocalizedError, Sendable, Equatable {
     func replacing(entry: ReasonCatalog.Entry? = nil, retryAfter seconds: Int? = nil) -> APIError {
         APIError(kind: entry?.kind ?? kind, reason: reason, statusCode: statusCode, message: entry?.message ?? message,
                  category: entry?.category ?? category, action: entry?.action ?? action, retryAfter: seconds ?? retryAfter,
-                 metadata: metadata, requestID: requestID, actionID: actionID)
+                 metadata: metadata, requestID: requestID, actionID: actionID, securityOutcome: securityOutcome)
+    }
+    /// The same refusal with the prompt's outcome: kind, status and reason are kept, so "refused before the handler" checks
+    /// read it as before.
+    public func withSecurityOutcome(_ outcome: SecurityPromptOutcome) -> APIError {
+        APIError(kind: kind, reason: reason, statusCode: statusCode, message: message, category: category, action: action,
+                 retryAfter: retryAfter, metadata: metadata, requestID: requestID, actionID: actionID, securityOutcome: outcome)
     }
     public var diagnostics: [Diagnostic] {
         [Diagnostic(label: "HTTP 状态", value: statusCode.map(String.init) ?? "—"),

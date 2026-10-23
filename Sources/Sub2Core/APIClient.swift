@@ -49,27 +49,31 @@ public actor APIClient {
     private let onSessionInvalid: (@Sendable (SessionInvalidation) -> Void)?
     /// The generation already reported, so a burst of rejected requests reports once.
     private var reportedInvalidation: UUID?
+    /// The session owner's compliance and step-up prompts (S0-13); candidate, login and teardown clients pass nil (D13).
+    let securityInterceptor: SecurityInterceptor?
     /// `credentialStore` is a LeasedCredentialStore or nil, never the vault itself: `logout` and the persist fence call its
     /// `remove`, which must not delete the site's device ID (D07).
     public init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil, deviceID: UUID,
                 transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live,
                 cacheIdentity: ConditionalCache.Identity? = nil, conditionalCache: ConditionalCache = ConditionalCache(),
                 serverTimeZone: ServerTimeZone = .device, serverClock: ServerClock = ServerClock(),
-                onSessionInvalid: (@Sendable (SessionInvalidation) -> Void)? = nil) {
+                onSessionInvalid: (@Sendable (SessionInvalidation) -> Void)? = nil, securityInterceptor: SecurityInterceptor? = nil) {
         self.server = server; self.credential = credential; store = credentialStore; self.deviceID = deviceID
         self.transport = transport; self.requestClock = requestClock
         self.cacheIdentity = cacheIdentity; self.conditionalCache = conditionalCache
         serverZone = serverTimeZone; self.serverClock = serverClock; self.onSessionInvalid = onSessionInvalid
+        self.securityInterceptor = securityInterceptor
     }
     // Same parameters as the public init minus `deviceID` (D02): keep both lists in step. Only tests that do not care use it.
     init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil,
          transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live,
          cacheIdentity: ConditionalCache.Identity? = nil, conditionalCache: ConditionalCache = ConditionalCache(),
          serverTimeZone: ServerTimeZone = .device, serverClock: ServerClock = ServerClock(),
-         onSessionInvalid: (@Sendable (SessionInvalidation) -> Void)? = nil) {
+         onSessionInvalid: (@Sendable (SessionInvalidation) -> Void)? = nil, securityInterceptor: SecurityInterceptor? = nil) {
         self.init(server: server, credential: credential, credentialStore: credentialStore, deviceID: Self.testingDeviceID, transport: transport,
                   requestClock: requestClock, cacheIdentity: cacheIdentity, conditionalCache: conditionalCache,
-                  serverTimeZone: serverTimeZone, serverClock: serverClock, onSessionInvalid: onSessionInvalid)
+                  serverTimeZone: serverTimeZone, serverClock: serverClock, onSessionInvalid: onSessionInvalid,
+                  securityInterceptor: securityInterceptor)
     }
     static let testingDeviceID = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
     /// The one spelling of the device ID on the wire: X-Device-ID and `client.device_id` are byte for byte the same.
@@ -254,18 +258,13 @@ public actor APIClient {
         return try await performKeyedWrite(KeyedWriteRequest(path: "admin/users/\(validID(operation.userID))/balance", method: "POST",
                                                              body: operation.requestBody(), key: operation.id), onEvent: onEvent)
     }
-    public func stepUp(code: String) async throws {
-        guard validTOTP(code) else { throw APIError(kind: .twoFactor, message: "请输入六位双因素验证码。") }
-        let reply: StepUpReply = try await request("user/totp/step-up", method: "POST", body: encode(["code": code]))
-        guard reply.verified else { throw APIError(kind: .twoFactor, message: "二次验证未通过。") }
-    }
     public func testAccount(id: Int, model: String?) async throws -> AsyncThrowingStream<AccountTestEvent, any Error> {
         let snapshot = generation
         let spec = try OutgoingRequest(path: "admin/accounts/\(validID(id))/test", method: "POST", body: encode(["model_id": model ?? ""]),
                                        headers: ["Accept": "text/event-stream"])
         let response: HTTPStreamResponse
         do { response = try await openTestStream(spec, generation: snapshot) }
-        catch let error as APIError { throw surfaced(error, context: .business, generation: snapshot) }
+        catch let error as APIError { throw surfaced(await refusedWrite(error, generation: snapshot), context: .business, generation: snapshot) }
         guard response.headers.first(where: { $0.key.lowercased() == "content-type" })?.value.lowercased().hasPrefix("text/event-stream") == true else {
             response.cancel(); throw APIError.malformedStream
         }
@@ -398,20 +397,25 @@ public actor APIClient {
                                      authenticated: authenticated, timeout: timeout, context: context).value
     }
     /// Value, status and lowercased headers (00 §9.1). The conditional cache (S0-05) wraps `send`: a 304 keeps its status and
-    /// headers but carries the cached value. S0-13 intercepts between `failure` and `surfaced`.
+    /// headers but carries the cached value. S0-13 intercepts between `failure` and `surfaced` (`resendAfterPrompt`).
     func requestWithHeaders<T: Decodable & Sendable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
                                                      headers: [String: String] = [:], requestClass: RequestClass? = nil, authenticated: Bool = true,
                                                      timeout: TimeInterval? = nil, context: ReasonCatalog.Context = .business,
                                                      requestID: String? = nil) async throws -> APIResponse<T> {
         let snapshot = generation
-        let plan: ConditionalPlan?, received: HTTPResponse, response: HTTPResponse
+        let plan: ConditionalPlan?, spec: OutgoingRequest
+        var received: HTTPResponse, response: HTTPResponse
         do {
             plan = try await conditionalPlan(path: path, method: method, query: query, body: body, authenticated: authenticated)
-            let spec = OutgoingRequest(path: path, method: method, query: query, body: body,
-                                       headers: headers.merging(plan?.validatorHeaders ?? [:]) { _, validator in validator },
-                                       requestClass: requestClass, timeout: timeout, authenticated: authenticated, requestID: requestID)
+            spec = OutgoingRequest(path: path, method: method, query: query, body: body,
+                                   headers: headers.merging(plan?.validatorHeaders ?? [:]) { _, validator in validator },
+                                   requestClass: requestClass, timeout: timeout, authenticated: authenticated, requestID: requestID)
             received = try await send(spec, context: context, generation: snapshot)
             response = try await resolveConditional(received, plan: plan)
+            if !(200..<300).contains(response.statusCode) {
+                received = try await resendAfterPrompt(failure(response, context: context), spec: spec, context: context, generation: snapshot)
+                response = try await resolveConditional(received, plan: plan)
+            }
         }
         catch let error as APIError { throw surfaced(error, context: context, generation: snapshot) }
         catch is CancellationError { throw CancellationError() }
@@ -423,6 +427,14 @@ public actor APIClient {
         await recordConditional(received, plan: plan)
         try check(snapshot)
         return APIResponse(value: value, status: received.statusCode, headers: response.headers)
+    }
+    /// 00 §0 rule 5: a read the prompt cleared is sent once more, with the credential current now (`sendAttempt`); every
+    /// other refusal is thrown, a security one carrying the prompt's outcome. A write is never resent (`refusedWrite`).
+    private func resendAfterPrompt(_ error: APIError, spec: OutgoingRequest, context: ReasonCatalog.Context, generation snapshot: UUID) async throws -> HTTPResponse {
+        guard spec.requestClass.isRead else { throw await refusedWrite(error, generation: snapshot) }
+        guard let outcome = try await securityOutcome(for: error, isRead: true, generation: snapshot) else { throw error }
+        guard outcome == .passed else { throw error.withSecurityOutcome(outcome) }
+        return try await sendAttempt(spec, context: context, generation: snapshot)
     }
     /// 00 §2.4: only reads retry on their own — at most twice, after 1 s and 3 s plus jitter — and each wait is bound to the generation.
     private func send(_ spec: OutgoingRequest, context: ReasonCatalog.Context, generation snapshot: UUID) async throws -> HTTPResponse {
@@ -636,7 +648,7 @@ public actor APIClient {
     func check(_ snapshot: UUID) throws { try Task.checkCancellation(); guard snapshot == generation else { throw CancellationError() } }
     func currentGeneration() -> UUID { generation }
     private func removeCancellation(_ id: UUID) { cancellations[id] = nil }
-    private func validTOTP(_ code: String) -> Bool { code.utf8.count == 6 && code.utf8.allSatisfy { (48...57).contains($0) } }
+    private func validTOTP(_ code: String) -> Bool { OneTimeCode.isComplete(code) }
     func validID(_ value: Int) throws -> Int {
         guard value > 0 else { throw APIError(kind: .validation, message: "无效的对象编号。") }; return value
     }
@@ -685,7 +697,6 @@ private struct TrendReply: Decodable, Sendable {
     }
 }
 private struct DashboardStatsSnapshotReply: Decodable, Sendable { let stats: DashboardStats? }
-private struct StepUpReply: Decodable, Sendable { let verified: Bool }
 private struct OpsReply: Decodable, Sendable {
     let errorRate: Double?
     let qps: Rate?
