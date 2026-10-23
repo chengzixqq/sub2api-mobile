@@ -416,8 +416,12 @@ final class Sub2MobileUITests: XCTestCase {
         launch()
         login(name: "站点 A", url: "https://a.example.com")
         app.openSitesSettings()
+        // S0-15: the row now reads like the dialog's button, so the button is told apart by its missing identifier.
+        reveal(app.buttons["settings.logout"])
         app.buttons["settings.logout"].tap()
-        app.buttons["退出并清除凭据"].tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "退出并清除凭据", "settings.logout")).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+        confirm.tap()
         XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 10))
         reveal(app.buttons["login.saved.站点 A"])
         app.buttons["login.saved.站点 A"].tap()

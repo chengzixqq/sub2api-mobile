@@ -57,9 +57,14 @@ extension AppModel {
         let pushIDs = pushRecords.teardownCandidates(serverID: profile.id)
         pushRecords.removeAll(serverID: profile.id)
         do { try await credentials.remove(serverID: profile.id) } catch { report(error) }
-        guard let result = await teardown(ended, of: profile, mode: .removeSite, pushDeviceIDs: pushIDs) else { return nil }
-        // Until S0-15's receipt the notes use the root alert.
-        if !result.notes.isEmpty { errorMessage = "已删除站点 · " + result.notes.joined(separator: "；") }
+        let result = await teardown(ended, of: profile, mode: .removeSite, pushDeviceIDs: pushIDs)
+        // D19: another site's deletion ends with a receipt; after the connected one the login page has no receipt, so its
+        // notes use the root alert.
+        if isActive {
+            if let notes = result?.notes, !notes.isEmpty { errorMessage = "已删除站点 · " + notes.joined(separator: "；") }
+        } else if activeProfile != nil {
+            receipts.show(.siteRemoved(notes: result?.notes ?? []))
+        }
         return result
     }
 

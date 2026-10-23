@@ -14,7 +14,7 @@ struct RouteDestination: View {
         case .group(let id): GroupDestination(id: id)
         case .account(let id, _): AccountDestination(id: id)
         case .user(let id): UserDestination(id: id)
-        case .settings: SettingsView()
+        case .settings(let focus): SettingsView(focus: focus)
         case .alert, .accountScheduledTests, .userLedger, .userNew, .userEdit, .analyticsMore, .analyticsChart, .analyticsRank,
              .analyticsModel, .request, .groupBatch, .groupKeys, .groupSubscriptions, .searchResults, .sessions, .accessTokens,
              .push, .pushTarget, .redeem, .proxies, .proxyDetail, .proxyFallbackAccounts, .announcements, .announcementDetail,

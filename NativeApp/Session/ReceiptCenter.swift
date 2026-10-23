@@ -27,6 +27,11 @@ struct Receipt: Identifiable, Sendable {
 
     /// Design `setSite`, after the site menu or the settings page switched sites (10 §0.7-5).
     static func switched(to siteName: String) -> Receipt { Receipt(text: "已切换到 \(siteName)", systemImage: "server.rack") }
+    /// D19, after deleting another site: the server steps that did not happen follow (60 §3.4, 00 §7.6).
+    static func siteRemoved(notes: [String]) -> Receipt {
+        notes.isEmpty ? Receipt(text: "已删除站点", systemImage: "trash")
+            : Receipt(text: "已删除站点 · " + notes.joined(separator: "；"), systemImage: "exclamationmark.triangle", tone: .caution)
+    }
 }
 
 /// The App's one receipt (10 §0.7-6). AppModel owns it, so a receipt shown right after a site switch survives the

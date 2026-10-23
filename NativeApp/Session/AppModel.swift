@@ -159,6 +159,7 @@ final class AppModel {
                                      onSessionInvalid: sessionInvalidHandler(serverID: profile.id, generation: generation),
                                      securityInterceptor: makeSecurityInterceptor(generation: generation))
         publish(profile, generation: generation, site: site, client: next, lease: store.lease)
+        seedPendingFixture(serverID: profile.id)
         // Not awaited: connecting ends here while the compliance sheet waits for the administrator (S0-16).
         Task { await presentComplianceIfRequired() }
         await candidate.cancelAll()

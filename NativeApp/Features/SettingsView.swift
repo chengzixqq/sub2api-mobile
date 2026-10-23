@@ -1,74 +1,97 @@
 import SwiftUI
 import Sub2Core
 
+/// 60 §3: one page behind “界面与模式” and “站点与凭据”; the latter scrolls to 站点 once. Sections are numbered over the ones
+/// shown (60 §3.3), and the confirmations keep their existing wording.
 struct SettingsView: View {
+    let focus: SettingsFocus
     @Environment(AppModel.self) private var model
-    @Environment(\.openURL) private var openURL
-    @State private var adding = false
+    @State private var status = SettingsSiteStatus()
     @State private var removeProfile: ServerProfile?
     @State private var confirmLogout = false
+    @State private var editingThreshold = false
+    @State private var scrolledToSites = false
+
+    init(focus: SettingsFocus = .interface) { self.focus = focus }
+
+    private var site: SiteSession? { model.siteSession }
+    private var sections: [SettingsPresentation.NumberedSection] {
+        SettingsPresentation.visibleSections(showsNotifications: site.map { SettingsPresentation.showsNotifications($0.me) } ?? false,
+                                             hasCurrentSite: model.activeProfile != nil, hasPending: !model.allPendingMoneyWrites.isEmpty)
+    }
+
     var body: some View {
-        List {
-            Section("站点") {
-                ForEach(model.profiles) { profile in
-                    HStack {
-                        Button { Task { await model.switchTo(profile) } } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(profile.name).font(.headline)
-                                    Text(profile.baseURL.absoluteString).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if profile.id == model.activeProfile?.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(.indigo) }
-                            }.contentShape(Rectangle())
-                        }.buttonStyle(.plain).frame(minHeight: 44).disabled(model.isConnecting)
-                            .accessibilityIdentifier("settings.site.\(profile.name)")
-                        Menu {
-                            Button("删除站点和凭据", role: .destructive) { removeProfile = profile }
-                        } label: { Image(systemName: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("管理站点 \(profile.name)")
-                            .accessibilityIdentifier("settings.site.more.\(profile.name)")
-                    }
+        ScrollViewReader { proxy in
+            List {
+                if let notice = model.pendingMoney.unreadableNotice {
+                    Text(notice).font(.subheadline).foregroundStyle(Tone.critical.ink)
+                        .accessibilityIdentifier("settings.pending.paused")
                 }
-                Button { adding = true } label: { Label("添加站点", systemImage: "plus.circle") }.frame(minHeight: 44).accessibilityIdentifier("settings.add")
-                if model.isConnecting { ProgressView("正在验证站点…") }
-            }
-            if let profile = model.activeProfile {
-                Section("当前连接") {
-                    LabeledValue(label: "认证方式", value: model.siteSession?.authMethodLabel
-                                 ?? AuthPresentation.methodLabel(authMethod: nil, fallback: profile.authentication, accessTokenScope: nil))
-                    if let note = model.siteSession?.operatorNote { Text(note).font(.footnote).foregroundStyle(.secondary) }
-                    Button { openURL(profile.baseURL) } label: { Label("打开 Web 后台", systemImage: "safari") }.frame(minHeight: 44)
-                    Button("退出并清除当前凭据", role: .destructive) { confirmLogout = true }.frame(minHeight: 44).accessibilityIdentifier("settings.logout")
-                }
-            }
-            if !model.pendingBalances.isEmpty {
-                Section("待确认余额请求") {
-                    ForEach(model.pendingBalances) { item in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("\(model.profileForRecord(serverID: item.serverID)?.name ?? "原站点") · 用户 #\(item.userID)")
-                            Text("\(item.operation.rawValue) \(DisplayFormat.moneyExact(item.amount))").font(.caption)
-                            Text(item.id.uuidString).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
-                            if let profile = model.profileForRecord(serverID: item.serverID) { Link("打开原站点核对", destination: profile.baseURL).frame(minHeight: 44) }
+                ForEach(sections) { numbered in
+                    Section {
+                        rows(numbered.section)
+                    } header: {
+                        NumberedSectionHeader(title: numbered.section.title, ordinal: numbered.ordinal)
+                    } footer: {
+                        if numbered.section == .pending && !model.pendingBalances.isEmpty {
+                            Text("仍保存凭据的原身份可切换后打开对应用户，使用原操作编号重试。退出或删除凭据后的旧身份记录仅供 Web 核对；新增登录不能继承旧请求。")
                         }
                     }
-                    Text("仍保存凭据的原身份可切换后打开对应用户，使用原操作编号重试。退出或删除凭据后的旧身份记录仅供 Web 核对；新增登录不能继承旧请求。").font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            Section("关于") {
-                LabeledValue(label: "应用", value: "Sub2 Mobile")
-                LabeledValue(label: "版本", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0")
-                Text("原生 iOS 管理客户端。应用更新通过重新构建并签名 IPA 完成。")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
+            .listStyle(.insetGrouped)
+            .task { await scrollToSitesOnce(proxy) }
         }
-        .navigationTitle("设置")
-        .sheet(isPresented: $adding) { NavigationStack { LoginView() } }
+        .navigationTitle(focus == .sites ? "站点与凭据" : "界面与模式")
+        .navigationSubtitle("设置")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: model.sessionGeneration) {
+            guard let session = model.sessionContext else { return }
+            await status.load(model: model, context: session)
+        }
+        .sheet(isPresented: $editingThreshold) { FaceIDThresholdSheet(gate: model.biometricGate) }
         .confirmationDialog("删除站点？", isPresented: Binding(get: { removeProfile != nil }, set: { if !$0 { removeProfile = nil } }), titleVisibility: .visible) {
-            Button("删除站点和凭据", role: .destructive) { if let profile = removeProfile { removeProfile = nil; Task { await model.remove(profile) } } }
-        } message: { Text("\(removeProfile?.name ?? "")\n站点配置和本机凭据将被清除。旧身份的未决余额记录仍保留，之后仅可在 Web 后台核对。"
-                          + (removeProfile?.authentication == .accessToken ? "\n同时吊销这个管理访问令牌" : "")) }
+            Button("删除站点和凭据", role: .destructive) { if let profile = removeProfile { removeProfile = nil; remove(profile) } }
+        } message: {
+            if let removeProfile { Text(SettingsPresentation.removeSiteMessage(name: removeProfile.name, authentication: removeProfile.authentication)) }
+        }
         .confirmationDialog("退出当前站点？", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("退出并清除凭据", role: .destructive) { Task { await model.logout() } }
         } message: { Text("\(model.activeProfile?.name ?? "")\n此设备上的登录凭据将被清除。") }
+    }
+
+    @ViewBuilder private func rows(_ section: SettingsPresentation.Section) -> some View {
+        switch section {
+        case .interface: SettingsInterfaceRows()
+        case .appearance: SettingsAppearanceRows()
+        case .security: SettingsSecurityRows { editingThreshold = true }
+        case .notifications: SettingsNotificationRows()
+        case .sites: SettingsSiteRows { removeProfile = $0 }
+        case .currentSite: SettingsCurrentSiteRows(status: status) { confirmLogout = true }
+        case .pending: SettingsPendingRows()
+        case .about: aboutRows
+        }
+    }
+
+    @ViewBuilder private var aboutRows: some View {
+        LabeledValue(label: "应用", value: "Sub2 Mobile")
+        LabeledValue(label: "版本", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0")
+        Text("原生 iOS 管理客户端。应用更新通过重新构建并签名 IPA 完成。")
+            .font(.footnote).foregroundStyle(.secondary)
+    }
+
+    /// 60 §3.1: “站点与凭据” opens on 站点, once; coming back from a pushed page keeps the position.
+    private func scrollToSitesOnce(_ proxy: ScrollViewProxy) async {
+        guard focus == .sites, !scrolledToSites else { return }
+        scrolledToSites = true
+        await Task.yield()
+        // Centred: the list runs under the navigation bar, so `.top` would hide the section's header behind it.
+        proxy.scrollTo(SettingsSiteRows.anchorID, anchor: .center)
+    }
+
+    /// Not tied to the page: the server steps of a deletion finish even after the page is gone (D19).
+    private func remove(_ profile: ServerProfile) {
+        let model = model
+        Task { await model.remove(profile) }
     }
 }

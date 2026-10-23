@@ -35,6 +35,14 @@ extension AppModel {
         if errorMessage == notice { errorMessage = pendingMoney.unreadableNotice }
     }
 
+    /// UI tests: the first connected site gets DemoData's records (`-ui-pending-money`), held in memory only.
+    func seedPendingFixture(serverID: UUID) {
+        guard isUITesting, pendingMoney.writes(serverID: nil).isEmpty, pendingMoney.unreadableNotice == nil,
+              let ledger = DemoData.pendingLedger(serverID: serverID, now: Date()) else { return }
+        profileArchive[DemoData.archivedPendingSite.id] = DemoData.archivedPendingSite
+        updatePendingMoney { _, _ in ledger }
+    }
+
     /// R03 for the connected site; the pages own the two exceptions.
     func moneyWriteGate(_ intent: MoneyWriteIntent) -> PendingMoneyGate {
         guard let serverID = activeProfile?.id else { return .clear }

@@ -54,7 +54,9 @@ final class AppNavigationUITests: XCTestCase {
         diagnostics("route-placeholder")
         goBack()
         app.openSearchItem("search.item.interface")
-        XCTAssertTrue(app.buttons["settings.add"].waitForExistence(timeout: 10), app.debugDescription)
+        // S0-15: the settings page opens on 界面模式 under the entry's title.
+        XCTAssertTrue(app.buttons["settings.mode.main"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["界面与模式"].exists, app.debugDescription)
     }
 
     @MainActor func testAlertEventsSelectsMonitorAlertsSegment() {

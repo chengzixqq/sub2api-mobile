@@ -35,6 +35,29 @@ enum DemoData {
         return FixedBiometricAuthenticator(isAvailable: !arguments.contains("-ui-biometric-unavailable"),
                                            succeeds: !arguments.contains("-ui-biometric-deny"))
     }
+    /// Settings → 当前站点 counts (60 §3.6); the fixture sends no request.
+    static let authSessionCount = 3
+    static let accessTokenCount = 2
+    /// `-ui-pending-money` (60 §3.3 柒): a refund and a redeem batch of the first connected site, and a compensation of a
+    /// deleted site that is kept for its record. `-ui-pending-unreadable` also marks the batch file unreadable.
+    static let archivedPendingSite = ServerProfile(id: UUID(uuidString: "6B1F3C2A-0D4E-4F5A-8B9C-1D2E3F4A5B6C")!, name: "旧站点",
+                                                   baseURL: URL(string: "https://old.example.invalid")!, authentication: .password)
+    static func pendingLedger(serverID: UUID, now: Date) -> PendingMoneyLedger? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("-ui-pending-money") else { return nil }
+        let created = now.addingTimeInterval(-300)
+        let refund = PendingBalanceOperation(id: UUID(uuidString: "0A000000-0000-4000-8000-000000000001")!, serverID: serverID, userID: 1,
+                                             amount: Decimal(string: "12.5")!, operation: .subtract, actorUserID: 1, createdAt: created,
+                                             userDisplayName: "Alice", userEmail: "alice@example.com")
+        let batch = PendingRedeemBatch(id: UUID(uuidString: "0A000000-0000-4000-8000-000000000002")!, serverID: serverID, actorUserID: 1,
+                                       createdAt: created, spec: RedeemGenerateSpec(type: .balance, value: 10, count: 20))
+        let grant = PendingCompensation(id: UUID(uuidString: "0A000000-0000-4000-8000-000000000003")!, serverID: archivedPendingSite.id,
+                                        actorUserID: 1, createdAt: created, userID: 3, userDisplayName: "王小明", userEmail: "wang@example.com",
+                                        code: "FIXTURE-GRANT-0001", type: .balance, value: 10)
+        let unreadable: Set<PendingMoneyKind> = arguments.contains("-ui-pending-unreadable") ? [.redeemBatch] : []
+        return PendingMoneyLedger(balances: [refund], redeemBatches: unreadable.isEmpty ? [batch] : [], compensations: [grant],
+                                  unreadable: unreadable)
+    }
     /// Access tokens write unless `-ui-readonly-token` is passed (kept for S0-13 and S0-19).
     static func siteSession(credential: Credential) -> SiteSession {
         let method = AdminAuthMethod.resolved(reported: nil, credential: credential) ?? .jwt
