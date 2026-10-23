@@ -130,7 +130,7 @@ extension APIClient {
                                     lastError: error as? APIError ?? .invalidResponse)
         }
     }
-    /// A reply's error leaves through `surfaced` even inside a KeyedWriteFailure, so S0-11 also sees a 401 that ends a retry.
+    /// A reply's error leaves through `surfaced` even inside a KeyedWriteFailure, so a 401 that ends a retry is still reported.
     private func lastError(of attempt: KeyedAttempt, generation snapshot: UUID) -> APIError {
         switch attempt {
         case .reply(let response): surfaced(failure(response), context: .business, generation: snapshot)

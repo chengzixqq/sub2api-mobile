@@ -220,7 +220,9 @@ private actor MockTransport: HTTPTransport {
     #expect(await store.values[profile.id] == nil)
     let request = try #require(await transport.requests().first)
     #expect(request.url?.path == "/api/v1/auth/logout")
-    #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+    // 00 §1.7.5 step 2: the session's own access goes along so the server ends it at once.
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer old-access")
+    #expect(request.httpBody.map { String(decoding: $0, as: UTF8.self) } == #"{"refresh_token":"old-refresh"}"#)
 }
 
 @Test func stationIsolationAndBalanceRetriesUseSameIdentityAndBytes() async throws {

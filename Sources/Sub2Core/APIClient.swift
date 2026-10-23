@@ -41,25 +41,31 @@ public actor APIClient {
     private var refreshRetryAt: Date?
     /// A refresh rejection ends the session: later requests fail with it and never reach the network.
     private var sessionEnded: APIError?
+    /// The session owner's hook (AppModel); candidate, login and teardown clients pass nil (D13).
+    private let onSessionInvalid: (@Sendable (SessionInvalidation) -> Void)?
+    /// The generation already reported, so a burst of rejected requests reports once.
+    private var reportedInvalidation: UUID?
     /// `credentialStore` is a LeasedCredentialStore or nil, never the vault itself: `logout` and the persist fence call its
     /// `remove`, which must not delete the site's device ID (D07).
     public init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil, deviceID: UUID,
                 transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live,
                 cacheIdentity: ConditionalCache.Identity? = nil, conditionalCache: ConditionalCache = ConditionalCache(),
-                serverTimeZone: ServerTimeZone = .device, serverClock: ServerClock = ServerClock()) {
+                serverTimeZone: ServerTimeZone = .device, serverClock: ServerClock = ServerClock(),
+                onSessionInvalid: (@Sendable (SessionInvalidation) -> Void)? = nil) {
         self.server = server; self.credential = credential; store = credentialStore; self.deviceID = deviceID
         self.transport = transport; self.requestClock = requestClock
         self.cacheIdentity = cacheIdentity; self.conditionalCache = conditionalCache
-        serverZone = serverTimeZone; self.serverClock = serverClock
+        serverZone = serverTimeZone; self.serverClock = serverClock; self.onSessionInvalid = onSessionInvalid
     }
     // Same parameters as the public init minus `deviceID` (D02): keep both lists in step. Only tests that do not care use it.
     init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil,
          transport: any HTTPTransport = URLSessionTransport(), requestClock: RequestClock = .live,
          cacheIdentity: ConditionalCache.Identity? = nil, conditionalCache: ConditionalCache = ConditionalCache(),
-         serverTimeZone: ServerTimeZone = .device, serverClock: ServerClock = ServerClock()) {
+         serverTimeZone: ServerTimeZone = .device, serverClock: ServerClock = ServerClock(),
+         onSessionInvalid: (@Sendable (SessionInvalidation) -> Void)? = nil) {
         self.init(server: server, credential: credential, credentialStore: credentialStore, deviceID: Self.testingDeviceID, transport: transport,
                   requestClock: requestClock, cacheIdentity: cacheIdentity, conditionalCache: conditionalCache,
-                  serverTimeZone: serverTimeZone, serverClock: serverClock)
+                  serverTimeZone: serverTimeZone, serverClock: serverClock, onSessionInvalid: onSessionInvalid)
     }
     static let testingDeviceID = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
     /// The one spelling of the device ID on the wire: X-Device-ID and `client.device_id` are byte for byte the same.
@@ -75,7 +81,7 @@ public actor APIClient {
         cacheIdentity = identity
         await conditionalCache.clear(siteID: server.id)
     }
-    /// S0-11 calls this when switching sites or ending a session.
+    /// Called when switching sites or ending a session (00 §0 rule 13).
     public func clearConditionalCache() async { await conditionalCache.clear(siteID: server.id) }
     public func cancelAll() async {
         generation = UUID()
@@ -110,17 +116,15 @@ public actor APIClient {
                                                   requestClass: .auth, authenticated: false, context: .twoFactor)
         return try await acceptLogin(reply, generation: snapshot)
     }
+    /// 00 §1.7.5: the local credential is gone before anything is sent, even when the site is unreachable. A JWT session then
+    /// tells the server once through `postLogout` (no refresh, no session-invalid report); a key has nothing to sign out.
     public func logout() async throws {
         let oldCredential = credential
         await cancelAll()
         credential = nil; resetRefreshState(); cacheIdentity = nil
-        // Local erasure happens even when the station is unreachable.
         await conditionalCache.clear(siteID: server.id)
         try await store?.remove(serverID: server.id)
-        if case .tokens(let tokens) = oldCredential, !tokens.refreshToken.isEmpty {
-            let _: EmptyReply = try await request("auth/logout", method: "POST", body: encode(["refresh_token": tokens.refreshToken]),
-                                                  requestClass: .auth, authenticated: false)
-        }
+        if case .tokens(let tokens) = oldCredential { try await postLogout(tokens) }
     }
     public func dashboard() async throws -> DashboardSummary {
         let snapshot = generation
@@ -270,7 +274,7 @@ public actor APIClient {
         return AuthSession(user: user, tokens: pair, refreshTokenUnavailable: reply.refreshTokenUnavailable == true || pair.refreshToken.isEmpty)
     }
     /// The only auth/logout request (D15): `{"refresh_token": …}`, or `{}` without one, with that session's Bearer access and
-    /// X-Device-ID. Sent once: no token refresh, no retry, no session-invalid report. S0-11's logout reuses it.
+    /// X-Device-ID. Sent once: no token refresh, no retry, no session-invalid report. `logout` reuses it.
     func postLogout(_ tokens: TokenPair) async throws {
         let snapshot = generation
         let body = try tokens.refreshToken.isEmpty ? Data("{}".utf8) : encode(["refresh_token": tokens.refreshToken])
@@ -484,8 +488,15 @@ public actor APIClient {
         if error.statusCode == 429, error.retryAfter == nil { return error.replacing(retryAfter: RetryAfter.rateLimitDefault) }
         return error
     }
-    /// Every APIError caused by a server reply or a refresh leaves through here; S0-11 reports session invalidation at this point.
-    func surfaced(_ error: APIError, context: ReasonCatalog.Context, generation snapshot: UUID) -> APIError { error }
+    /// Every APIError caused by a server reply or a refresh leaves through here, so this is the only place that reports an
+    /// ended session (D06): once per generation, never for a generation already cancelled.
+    func surfaced(_ error: APIError, context: ReasonCatalog.Context, generation snapshot: UUID) -> APIError {
+        guard let onSessionInvalid, snapshot == generation, reportedInvalidation != snapshot,
+              let invalidation = SessionInvalidation(error: error) else { return error }
+        reportedInvalidation = snapshot
+        onSessionInvalid(invalidation)
+        return error
+    }
     /// URL encoding lives only here, so S0-05 cache keys and real requests always agree.
     func endpointURL(_ path: String, query: [URLQueryItem]) throws -> URL {
         guard var components = URLComponents(url: try server.validatedURL(), resolvingAgainstBaseURL: false) else { throw APIError.invalidServer }

@@ -39,6 +39,12 @@ extension APIClient {
         let reply: AccessTokenList = try await request("admin/access-tokens", timeout: RequestTimeout.probe)
         return reply.items ?? []
     }
+    /// `true` when the revoked token is the one this App signs in with (60 §6.4); a read-only token may revoke itself.
+    @discardableResult
+    public func revokeAccessToken(id: Int) async throws -> Bool {
+        let reply: RevocationReply = try await request("admin/access-tokens/\(validID(id))", method: "DELETE", timeout: RequestTimeout.probe)
+        return reply.current ?? false
+    }
 }
 
 private struct AccessTokenList: Decodable, Sendable { let items: [AdminAccessToken]? }
