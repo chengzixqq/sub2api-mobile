@@ -154,13 +154,15 @@ final class AppModel {
     }
 
     /// `reprobeActiveSession` (back after five minutes) and S0-13 (after compliance and step-up) probe the connected site again.
-    /// A token scope already known survives a failed scope probe; a reply for an older session is dropped.
+    /// A token scope already known, or marked read-only meanwhile, survives a failed scope probe; a reply for an older session
+    /// is dropped. The generation is read with the client, before anything suspends, and a replaced client is never probed.
     func reloadSiteSession() async throws {
-        guard let client, let current = siteSession, let credential = await client.currentCredential() else { return }
         let generation = sessionGeneration
-        let site = try await probe(client, credential: credential, knownScope: current.accessTokenScope)
+        guard let client, let current = siteSession, let credential = await client.currentCredential() else { return }
         guard generation == sessionGeneration else { throw CancellationError() }
-        siteSession = site
+        let site = try await probe(client, credential: credential, knownScope: current.accessTokenScope)
+        guard generation == sessionGeneration, let latest = siteSession else { throw CancellationError() }
+        siteSession = site.keepingReadOnlyMark(of: latest)
     }
     /// A write of this session was answered ACCESS_TOKEN_READ_ONLY (00 §1.6 step 3; S0-13 and 00 §2.6.3 call it).
     func markAccessTokenReadOnly(generation: UUID) {

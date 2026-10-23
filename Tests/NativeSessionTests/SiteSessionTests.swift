@@ -86,6 +86,20 @@ func accessTokenScopeFailureFallsBackToWritable(tokens: HTTPResponse) async thro
     #expect(site.accessTokenScope == "read"); #expect(site.isReadOnlyToken)
 }
 
+/// reloadSiteSession: a write answered ACCESS_TOKEN_READ_ONLY while the reload was probing outlives the probe's fallback scope.
+@Test(arguments: [nil, "write"] as [String?])
+func readOnlyMarkMadeDuringReloadSurvivesFallbackScope(knownScope: String?) async throws {
+    let client = sessionClient(siteTransport(me: meJSON(authMethod: "admin_access_token")), credential: .accessToken("sat_fixture"))
+    let reloaded = try await SiteSession.establish(client: client, knownScope: knownScope)
+    let latest = try await SiteSession.establish(client: client, knownScope: knownScope)
+    #expect(reloaded.keepingReadOnlyMark(of: latest.markingReadOnly()).isReadOnlyToken)
+    #expect(reloaded.keepingReadOnlyMark(of: latest).accessTokenScope == knownScope)
+    let reported = try await SiteSession.establish(client: sessionClient(
+        siteTransport(me: meJSON(authMethod: "admin_access_token"), tokens: sessionOK(tokensJSON([(current: true, scope: "admin")]))),
+        credential: .accessToken("sat_fixture")))
+    #expect(reported.keepingReadOnlyMark(of: latest.markingReadOnly()).accessTokenScope == "admin")
+}
+
 @Test func complianceRequiredSkipsTokenProbe() async throws {
     let transport = siteTransport(me: meJSON(authMethod: "admin_access_token", complianceRequired: true),
                                   tokens: sessionOK(tokensJSON([(current: true, scope: "read")])))

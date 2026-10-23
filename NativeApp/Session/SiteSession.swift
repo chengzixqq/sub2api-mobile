@@ -49,6 +49,10 @@ struct SiteSession: Sendable {
         marked.accessTokenScope = "read"
         return marked
     }
+    /// A reload result keeps a read-only mark `latest` received while it was probing; a token's scope never changes.
+    func keepingReadOnlyMark(of latest: SiteSession) -> SiteSession {
+        latest.isReadOnlyToken && !isReadOnlyToken ? markingReadOnly() : self
+    }
 
     /// `/admin/me` (with the old-server fallback), the administrator check (1.11), the `sat_` scope (60 §0.3) and the server zone
     /// (00 §6.3), all through `client`, which also takes the zone. A failed scope probe keeps `knownScope` (nil on first
