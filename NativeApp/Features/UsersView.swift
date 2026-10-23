@@ -185,6 +185,7 @@ struct UserDetailView: View {
         .navigationTitle(user.username ?? "用户 #\(user.id)")
         .task { await reload() }
         .refreshable { await reload() }
+        .onChange(of: model.foregroundRevision) { _, _ in Task { await reload() } }
         .confirmationDialog(user.status == "active" ? "禁用用户？" : "启用用户？", isPresented: $confirmStatus, titleVisibility: .visible) {
             Button("确认操作", role: .destructive) { Task { await changeStatus() } }
         } message: { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)（#\(user.id)）") }

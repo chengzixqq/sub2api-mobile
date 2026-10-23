@@ -3,18 +3,22 @@ import SwiftUI
 @main
 struct Sub2MobileApp: App {
     @State private var model = AppModel()
+    /// Read in the App, the phase covers all windows: one iPad window going to the background leaves the shared client
+    /// running while another is still active.
+    @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(model)
                 .task { await model.restore() }
         }
+        // The only scene-phase handler in the App (D18).
+        .onChange(of: scenePhase) { _, phase in model.sceneDidChange(to: AppActivity(phase)) }
     }
 }
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
         @Bindable var model = model
         Group {
@@ -31,8 +35,6 @@ struct RootView: View {
         .alert("操作未完成", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("知道了", role: .cancel) { model.errorMessage = nil }
         } message: { Text(model.errorMessage ?? "") }
-        // The only scene-phase handler in the App (D18).
-        .onChange(of: scenePhase) { _, phase in model.sceneDidChange(to: AppActivity(phase)) }
     }
 }
 

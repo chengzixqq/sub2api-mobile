@@ -95,8 +95,31 @@ private let adminKey = Credential.adminKey("fixture-key")
                 TeardownRecorder(tokens: [token(5, current: true)], revokeError: APIError.server(status: 404, reason: "ACCESS_TOKEN_NOT_FOUND"))]
     for api in apis {
         let report = await SiteTeardown(credential: accessToken, mode: .removeSite, pushDeviceIDs: []).run(using: api)
-        #expect(report.notes.isEmpty)
+        #expect(report.accessTokenRevoked == true); #expect(report.notes.isEmpty)
     }
+}
+
+/// These end the session, yet the token itself stays valid: its owner disabled, a workspace stopped, a 401 from a proxy.
+@Test func aTokenTheServerStillHoldsKeepsTheNote() async {
+    let apis = [TeardownRecorder(tokensError: APIError.server(status: 401, reason: "USER_INACTIVE")),
+                TeardownRecorder(tokensError: APIError.server(status: 401, envelope: nil)),
+                TeardownRecorder(tokens: [token(5, current: true)], revokeError: APIError.server(status: 403, reason: "WORKSPACE_DISABLED"))]
+    for api in apis {
+        let report = await SiteTeardown(credential: accessToken, mode: .removeSite, pushDeviceIDs: []).run(using: api)
+        #expect(report.accessTokenRevoked == false); #expect(report.notes == ["令牌未能吊销，可用 API 吊销"])
+    }
+}
+
+/// A site deleted after its credential was gone (signed out, cleared, unreadable) sends nothing; what the confirmation
+/// promised is reported as not done.
+@Test func removingASiteWithoutACredentialReportsWhatWasNotSent() {
+    let report = SiteTeardown.unsentReport(mode: .removeSite, authentication: .accessToken, pushDeviceIDs: [12])
+    #expect(report?.failedPushDeviceIDs == [12]); #expect(report?.accessTokenRevoked == false)
+    #expect(report?.notes == ["推送设备未能从站点移除，可在 Web 删除", "令牌未能吊销，可用 API 吊销"])
+    #expect(SiteTeardown.unsentReport(mode: .removeSite, authentication: .password, pushDeviceIDs: [12])?.notes == ["推送设备未能从站点移除，可在 Web 删除"])
+    #expect(SiteTeardown.unsentReport(mode: .removeSite, authentication: .adminKey, pushDeviceIDs: []) == nil)
+    #expect(SiteTeardown.unsentReport(mode: .removeSite, authentication: .password, pushDeviceIDs: []) == nil)
+    #expect(SiteTeardown.unsentReport(mode: .signOut, authentication: .accessToken, pushDeviceIDs: [12]) == nil)
 }
 
 @Test func removingAdminKeyAndAccountSites() async {

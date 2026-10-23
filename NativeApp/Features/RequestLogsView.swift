@@ -347,6 +347,7 @@ private struct RequestErrorDetailView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("错误详情").task { await reload() }.refreshable { await reload() }
+            .onChange(of: model.foregroundRevision) { _, _ in retryTask = Task { await reload() } }
             .onDisappear { ticket = UUID(); retryTask?.cancel(); retryTask = nil; loading = false }
     }
     private func reload() async {
@@ -373,13 +374,16 @@ private struct LogAccountDestination: View {
             if let account { AccountDetailView(initial: account) }
             else if let error { FailureView(message: error) }
             else { ProgressView("正在读取账号…") }
-        }.task {
-            guard let session else { return }
-            do {
-                let result = model.isUITesting ? UpstreamAccount(id: id, name: "演示账号", platform: "openai", type: "apikey") : try await session.client.account(id: id)
-                guard session.generation == model.sessionGeneration, !Task.isCancelled else { return }; account = result
-            } catch { if session.generation == model.sessionGeneration, !(error is CancellationError) { self.error = error.localizedDescription } }
-        }
+        }.task { await load() }
+        // A read the background stopped left nothing to show; the loaded detail page refreshes itself.
+        .onChange(of: model.foregroundRevision) { _, _ in if account == nil { Task { await load() } } }
+    }
+    private func load() async {
+        guard let session else { return }
+        do {
+            let result = model.isUITesting ? UpstreamAccount(id: id, name: "演示账号", platform: "openai", type: "apikey") : try await session.client.account(id: id)
+            guard session.generation == model.sessionGeneration, !Task.isCancelled else { return }; account = result
+        } catch { if session.generation == model.sessionGeneration, !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 }
 

@@ -221,6 +221,7 @@ private struct GroupDetailView: View {
         .task { await refresh() }
         .task { await refreshCapacity() }
         .refreshable { await refresh(); await refreshCapacity() }
+        .onChange(of: model.foregroundRevision) { _, _ in Task { await refresh(); await refreshCapacity() } }
         .sheet(item: $editor, onDismiss: { Task { await refresh() } }) { GroupEditorView(target: $0).environment(workspace) }
         .confirmationDialog(confirmAction?.title ?? "确认操作", isPresented: Binding(get: { confirmAction != nil }, set: { if !$0 { confirmAction = nil } }), titleVisibility: .visible) {
             if let action = confirmAction { Button("确认发送", role: .destructive) { Task { await perform(action) } } }

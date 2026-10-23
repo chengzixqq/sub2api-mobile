@@ -49,6 +49,16 @@ struct SiteTeardown: Sendable {
     private var signsOutOnServer: Bool { if case .tokens = credential { true } else { false } }
     private var revokesAccessToken: Bool { if mode == .removeSite, case .accessToken = credential { true } else { false } }
 
+    /// Deleting a site whose credential is already gone (signed out, cleared, or unreadable) sends nothing, so what the
+    /// confirmation promised is reported as not done (60 §3.4). nil when nothing was due.
+    static func unsentReport(mode: Mode, authentication: AuthenticationKind, pushDeviceIDs: [Int]) -> TeardownReport? {
+        guard mode == .removeSite else { return nil }
+        var report = TeardownReport(failedPushDeviceIDs: pushDeviceIDs)
+        if !pushDeviceIDs.isEmpty { report.notes.append(pushNotRemovedNote) }
+        if authentication == .accessToken { report.accessTokenRevoked = false; report.notes.append(tokenNotRevokedNote) }
+        return report.notes.isEmpty ? nil : report
+    }
+
     /// Cancelled when the deadline passes; unfinished steps count as failed.
     func run(using api: some SiteTeardownAPI, within deadline: Duration = Self.deadline) async -> TeardownReport {
         let work = Task { await perform(using: api) }
@@ -81,13 +91,14 @@ struct SiteTeardown: Sendable {
         catch let error as APIError where error.category == .notFound || error.category == .unsupported { return true }
         catch { Self.record(error, step: "DELETE admin/push/devices/:id"); return false }
     }
-    /// The token this App uses is the `current` one; a token the server already rejects needs no revoking.
+    /// The token this App uses is the `current` one. Only a rejected credential (INVALID_ADMIN_KEY, ACCESS_TOKEN_EXPIRED) or
+    /// a token already gone needs no revoking; other session-ending replies (owner disabled, a proxy's 401) leave it valid.
     private func revokeCurrentToken(using api: some SiteTeardownAPI) async -> Bool {
         do {
             guard let current = try await api.accessTokens().first(where: \.current) else { return false }
             _ = try await api.revokeAccessToken(id: current.id)
             return true
-        } catch let error as APIError where error.category == .notFound || SessionInvalidation(error: error) != nil {
+        } catch let error as APIError where error.category == .notFound || error.action == .clearCredential {
             return true
         } catch {
             Self.record(error, step: "DELETE admin/access-tokens/:id")

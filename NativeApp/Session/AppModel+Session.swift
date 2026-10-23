@@ -10,7 +10,8 @@ extension AppModel {
     /// Pages without their own scene handling reload when this changes (D18).
     var foregroundRevision: Int { lifecycle.foregroundRevision }
 
-    /// The only scene-phase entry (RootView); S0-12 and S0-13 dispatch their foreground work from here too.
+    /// The only scene-phase entry (Sub2MobileApp, all windows together); S0-12 and S0-13 dispatch their foreground work
+    /// from here too.
     func sceneDidChange(to activity: AppActivity) {
         switch lifecycle.transition(to: activity, now: Date(), lastProbe: siteSession?.probedAt) {
         case .none: return
@@ -34,12 +35,13 @@ extension AppModel {
         defer { isSigningOut = false }
         guard let ended = await endActiveSession(cancelsConnection: true, then: .savedSites) else { return }
         let pushIDs = pushRecords.teardownCandidates(serverID: ended.profile.id)
-        guard let report = await teardown(ended, mode: .signOut, pushDeviceIDs: pushIDs) else { return }
+        guard let report = await teardown(ended, of: ended.profile, mode: .signOut, pushDeviceIDs: pushIDs) else { return }
         pushRecords.apply(report, serverID: ended.profile.id)
     }
 
     /// 00 §1.1, 60 §3.4, D19: erased like signing out, the credential and device ID deleted, then the server steps with the
-    /// erased copies (a `sat_` site revokes its token). Returns the report; nil when no request was due.
+    /// erased copies (a `sat_` site revokes its token). Returns the report; nil when nothing was due. A site without a
+    /// credential left reports the revocation and push removal it could not send.
     @discardableResult
     func remove(_ profile: ServerProfile) async -> TeardownReport? {
         guard !isSigningOut else { return nil }
@@ -54,7 +56,7 @@ extension AppModel {
         let pushIDs = pushRecords.teardownCandidates(serverID: profile.id)
         pushRecords.removeAll(serverID: profile.id)
         do { try await credentials.remove(serverID: profile.id) } catch { report(error) }
-        guard let ended, let result = await teardown(ended, mode: .removeSite, pushDeviceIDs: pushIDs) else { return nil }
+        guard let result = await teardown(ended, of: profile, mode: .removeSite, pushDeviceIDs: pushIDs) else { return nil }
         // Until S0-15's receipt the notes use the root alert.
         if !result.notes.isEmpty { errorMessage = "已删除站点 · " + result.notes.joined(separator: "；") }
         return result
@@ -117,10 +119,13 @@ extension AppModel {
               let deviceID = try? await credentials.deviceID(serverID: profile.id) else { return nil }
         return EndedSession(profile: profile, credential: credential, deviceID: deviceID)
     }
-    /// The server half, through a client without store or callback (D13) and within SiteTeardown.deadline. Fixture sites
-    /// are not reachable.
-    private func teardown(_ ended: EndedSession, mode: SiteTeardown.Mode, pushDeviceIDs: [Int]) async -> TeardownReport? {
-        guard !isUITesting, let credential = ended.credential else { return nil }
+    /// The server half, through a client without store or callback (D13) and within SiteTeardown.deadline. Without a
+    /// credential nothing is sent and a deleted site reports what was not done. Fixture sites are not reachable.
+    private func teardown(_ ended: EndedSession?, of profile: ServerProfile, mode: SiteTeardown.Mode, pushDeviceIDs: [Int]) async -> TeardownReport? {
+        guard !isUITesting else { return nil }
+        guard let ended, let credential = ended.credential else {
+            return SiteTeardown.unsentReport(mode: mode, authentication: profile.authentication, pushDeviceIDs: pushDeviceIDs)
+        }
         let teardown = SiteTeardown(credential: credential, mode: mode, pushDeviceIDs: pushDeviceIDs)
         guard teardown.hasNetworkSteps else { return nil }
         return await teardown.run(using: APIClient(server: ended.profile, credential: credential, deviceID: ended.deviceID))

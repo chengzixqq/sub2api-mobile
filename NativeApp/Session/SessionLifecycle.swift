@@ -1,6 +1,6 @@
 import Foundation
 
-/// The scene phase as AppModel sees it; RootView maps SwiftUI's `ScenePhase` onto it (D18).
+/// The scene phase of the whole App as AppModel sees it; Sub2MobileApp maps SwiftUI's `ScenePhase` onto it (D18).
 enum AppActivity: Sendable { case active, inactive, background }
 
 /// 00 §4.6, §9.5: only `.background` suspends. Coming back to `.active` from there resumes, bumps the revision that pages
