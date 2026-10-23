@@ -17,6 +17,7 @@ extension AppModel {
         case .suspend: forwardToClient { await $0.suspend() }
         case .resume(let reprobe):
             forwardToClient { await $0.resume() }
+            reloadUnreadablePendingRecords()
             if reprobe { Task { await reprobeActiveSession() } }
         }
     }
@@ -99,8 +100,9 @@ extension AppModel {
     func openSiteLogin(_ profile: ServerProfile, notice: String?) {
         loginPrompt = LoginPrompt(profile: profile, notice: notice, reusesSiteID: !hasPendingRecords(serverID: profile.id))
     }
-    /// Records awaiting reconciliation keep the site id from being reused (D17); S0-12 adds the other two kinds.
-    func hasPendingRecords(serverID: UUID) -> Bool { pendingBalances.contains { $0.serverID == serverID } }
+    /// Money records of any kind awaiting reconciliation keep the site id from being reused (D17); so does a records file
+    /// that cannot be read yet, which may hold some.
+    func hasPendingRecords(serverID: UUID) -> Bool { pendingMoney.mayHaveRecords(serverID: serverID) }
 
     /// Suspend and resume reach the client in the order the scene changed.
     private func forwardToClient(_ action: @escaping @Sendable (APIClient) async -> Void) {

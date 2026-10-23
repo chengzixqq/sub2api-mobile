@@ -30,7 +30,8 @@ final class AppModel {
     private(set) var client: APIClient?
     /// Published together with `client` (D13); nil while no site is connected.
     private(set) var siteSession: SiteSession?
-    private(set) var pendingBalances: [PendingBalanceOperation] = []
+    /// Money writes awaiting a result (00 §2.5.5); read and changed through AppModel+Pending.swift.
+    private(set) var pendingMoney = PendingMoneyLedger()
     var errorMessage: String?
     var isRestoring = true
     /// Set while signing out or deleting the connected site (AppModel+Session.swift).
@@ -50,8 +51,7 @@ final class AppModel {
     @ObservationIgnored private var savedActiveID: UUID?
     /// Deleted sites that still have records awaiting reconciliation (AppModel+Session.swift adds to it).
     @ObservationIgnored var profileArchive: [UUID: ServerProfile] = [:]
-    private let pendingFileURL: URL?
-    @ObservationIgnored private var pendingPersistenceAvailable = true
+    private let pendingFiles: PendingMoneyFiles
     /// Scene state (D18); changed only by `sceneDidChange(to:)` in AppModel+Session.swift.
     var lifecycle = SessionLifecycle()
     /// Keeps suspend and resume reaching the client in order (AppModel+Session.swift).
@@ -69,16 +69,13 @@ final class AppModel {
         let defaults = isUITesting ? UserDefaults(suiteName: "com.chengzixqq.sub2mobile.uitesting")! : .standard
         self.defaults = defaults
         pushRecords = PushDeviceRecords(defaults: defaults)
-        pendingFileURL = isUITesting ? nil : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("Sub2Mobile", isDirectory: true).appendingPathComponent("pending-balances.json")
+        pendingFiles = isUITesting ? .memoryOnly : .applicationSupport()
         if isUITesting { defaults.removePersistentDomain(forName: "com.chengzixqq.sub2mobile.uitesting") }
         if let data = defaults.data(forKey: "profiles") { profiles = ServerProfile.storedList(from: data) }
         if let data = defaults.data(forKey: "profileArchive") { profileArchive = ServerProfile.storedArchive(from: data) }
         if let raw = defaults.string(forKey: "activeProfile") { savedActiveID = UUID(uuidString: raw) }
-        if let pendingFileURL, FileManager.default.fileExists(atPath: pendingFileURL.path) {
-            do { pendingBalances = try JSONDecoder().decode([PendingBalanceOperation].self, from: Data(contentsOf: pendingFileURL)) }
-            catch { pendingPersistenceAvailable = false; errorMessage = "未决余额记录无法读取。请保留应用数据并检查设备存储；已暂停新的余额操作。" }
-        }
+        pendingMoney = PendingMoneyLedger.load(from: pendingFiles)
+        if !pendingMoney.unreadable.isEmpty { errorMessage = pendingMoney.unreadableMessages.joined(separator: "\n") }
     }
 
     func restore() async {
@@ -239,26 +236,9 @@ final class AppModel {
         return EndedSession(profile: profile, credential: credential, deviceID: old.deviceID)
     }
 
-    /// The only way to obtain a sendable money write: its record is saved first, and a failed save sends nothing (00 §0 rule 4).
-    /// S0-12 adds the redeem-batch and compensation overloads.
-    func persisted(_ operation: PendingBalanceOperation) throws -> PersistedMoneyWrite<PendingBalanceOperation> {
-        try PersistedMoneyWrite(operation) { try remember($0) }
-    }
-
-    /// Adds a record, or replaces the one with the same id (for example to save the action id before the result is known).
-    func remember(_ operation: PendingBalanceOperation) throws {
-        guard pendingPersistenceAvailable else { throw AppFailure("未决余额记录无法读取，已阻止新请求。请保留应用数据并检查设备存储。") }
-        let old = pendingBalances
-        if let index = pendingBalances.firstIndex(where: { $0.id == operation.id }) { pendingBalances[index] = operation }
-        else { pendingBalances.append(operation) }
-        do { try persistPending() }
-        catch { pendingBalances = old; throw error }
-    }
-
-    func resolve(_ operation: PendingBalanceOperation) throws {
-        let old = pendingBalances
-        pendingBalances.removeAll { $0.id == operation.id }
-        do { try persistPending() } catch { pendingBalances = old; throw error }
+    /// The only writer of `pendingMoney`: the ledger saves its file first and is replaced only when that worked.
+    func updatePendingMoney(_ change: (PendingMoneyLedger, PendingMoneyFiles) throws -> PendingMoneyLedger) rethrows {
+        pendingMoney = try change(pendingMoney, pendingFiles)
     }
 
     func report(_ error: Error) {
@@ -438,11 +418,6 @@ final class AppModel {
         defaults.set(try? JSONEncoder().encode(profiles), forKey: "profiles")
         defaults.set(savedActiveID?.uuidString, forKey: "activeProfile")
         defaults.set(try? JSONEncoder().encode(profileArchive), forKey: "profileArchive")
-    }
-    private func persistPending() throws {
-        guard let pendingFileURL else { return }
-        try FileManager.default.createDirectory(at: pendingFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(pendingBalances).write(to: pendingFileURL, options: [.atomic, .completeFileProtection])
     }
 }
 

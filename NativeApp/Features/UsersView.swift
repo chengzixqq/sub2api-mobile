@@ -495,7 +495,7 @@ struct BalanceView: View {
                                 Text("\(operationName(item.operation)) \(DisplayFormat.moneyExact(item.amount))").font(.headline)
                                 Text("操作编号：\(item.id.uuidString)").font(.caption).textSelection(.enabled)
                                 if !item.notes.isEmpty { Text(item.notes).font(.caption) }
-                                Button("确认并重试原请求") { prepared = item; confirm = true }.frame(minHeight: 44)
+                                retryControl(for: item)
                             }.padding(.vertical, 4)
                         }
                     }.disabled(busy)
@@ -530,6 +530,16 @@ struct BalanceView: View {
     private func operationName(_ value: BalanceOperation) -> String {
         switch value { case .add: "增加"; case .subtract: "减少"; case .set: "设置为" }
     }
+    /// D17, 30 §3.4: only the administrator who sent it retries the same number; a record of an older version has no sender.
+    @ViewBuilder private func retryControl(for item: PendingBalanceOperation) -> some View {
+        let permission = model.retryPermission(for: item)
+        if permission == .otherActor {
+            Text("这笔由其他管理员发起，只能由同一管理员重试").font(.caption).foregroundStyle(.secondary)
+        } else {
+            if permission == .allowedActorUnknown { Text("无法确认发起人").font(.caption).foregroundStyle(.secondary) }
+            Button("确认并重试原请求") { prepared = item; confirm = true }.frame(minHeight: 44)
+        }
+    }
     private func prepare() {
         let raw = amount.trimmingCharacters(in: .whitespacesAndNewlines)
         guard raw.range(of: "^[0-9]+([.][0-9]+)?$", options: .regularExpression) != nil,
@@ -538,14 +548,14 @@ struct BalanceView: View {
             message = "请输入有效的非负十进制金额。"; return
         }
         let candidate = PendingBalanceOperation(serverID: serverID, userID: user.id, amount: decimal, operation: operation, notes: notes,
-                                                userDisplayName: user.displayName, userEmail: user.email)
+                                                actorUserID: model.siteSession?.me.user?.id, userDisplayName: user.displayName, userEmail: user.email)
         do { try candidate.validate() }
         catch { message = error.localizedDescription; return }
         prepared = candidate
         confirm = true; message = nil
     }
     private func send(_ item: PendingBalanceOperation) async {
-        guard !busy, item.serverID == model.activeProfile?.id else { return }
+        guard !busy, item.serverID == model.activeProfile?.id, model.retryPermission(for: item) != .otherActor else { return }
         busy = true; defer { busy = false; sending = nil }
         let generation = session?.generation ?? UUID()
         guard generation == model.sessionGeneration else { return }
