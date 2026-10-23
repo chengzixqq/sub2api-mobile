@@ -183,7 +183,7 @@
 | 区块 429 倒计时文案与重试按钮 | S0-09 的 LoadState 已在 429 后按 retry_after（最长 300 秒）暂停该区块请求并提供“请求过于频繁，N 秒后自动重试”（`BlockRefresh.throttleMessage`），现有页面还没显示它：仍显示目录文案“请求过于频繁，请 N 秒后再试”（等待期内清空或切换范围的 reset() 也保留这条文案），等待期内点“重试”没有反应；没开自动刷新的页面（如账号今日统计）等待结束后不会自动重发，要手动重试。阶段 1 的区块小视图接入时显示倒计时文案、在等待期内禁用重试，并在等待结束时自动重发 |
 | 登录设备名 | 00 §1.2 的 `client.device_name` 首版照规格发 `UIDevice.current.name`；iOS 16 起没有 `com.apple.developer.device-information.user-assigned-device-name` 权限时只返回“iPhone”这类机型名，“登录设备”列表里所有手机同名。待定：申请该权限，或改为“机型 + 用户自定义名称”（S0-10） |
 | 重装后的 Keychain 孤儿条目 | Keychain 条目在删除 App 后通常保留，重装后站点列表（UserDefaults）清空、站点 UUID 变化，旧的 `<UUID>` 与 `<UUID>.device` 条目不再被引用（凭据本来也有此问题）。不含可用会话，S0-10 未清理；如需清理，可在首次启动且站点列表为空时按 service 清空 |
-| 有待核对记录的站点重新登录会多出一个同名站点 | S0-11 按 D17：站点还有待核对的资金记录时，从该站点登录页重新登录会新建站点 id，旧站点（凭据已清）留在列表里，记录继续挂在旧 id 上。S0-15 / S0-16 重写设置页与登录页时决定是否提示“旧站点仅供核对”或合并显示 |
+| 有待核对记录的站点重新登录会多出一个同名站点 | S0-11 按 D17：站点还有待核对的资金记录时，从该站点登录页重新登录会新建站点 id，旧站点（凭据已清）留在列表里，记录继续挂在旧 id 上。S0-15 重写设置页时没有处理（设置页只列站点，不区分凭据已清的旧站点），留给 S0-16 重写登录页时决定是否提示“旧站点仅供核对”或合并显示 |
 | 让其他设备下线可能连本机一起下线 | 后端对部署前签发、令牌里没有 sid 的旧会话，keep_current=true 仍会撤销全部会话，两种结果只有 message 不同。S0-11 的 revokeOtherSessions 不返回结果，本机若被撤销靠下一次 401 TOKEN_REVOKED 回到登录页；阶段 6 登录设备页操作后重载列表即可触发 |
 | 推送登记要等待该站点的收尾结束 | S0-11 删除站点的服务端收尾（最长 20 秒）可能在用户马上用同一地址重新登录后才 DELETE 推送设备；阶段 6 的 PushCoordinator 注册前应等待该站点的收尾任务结束，避免刚登记的同 id 设备被删 |
 | UI 测试期间模拟器后台进程暴涨 | S0-11 的三次 gate 中 Mac 负载多次冲到 100–600：模拟器克隆里 PosterBoard / *Poster 扩展与 SetStoreUpdateService 成批启动（按 Home 回桌面时也会触发），单个用例耗时到 5–10 分钟，计时类用例因此偶发失败。S0-19 诊断基线时一并看是否要在模拟器里关掉墙纸 / 海报扩展或降低并发 |
@@ -196,9 +196,14 @@
 | 后端文档补两个 reason | step-up 接口在用户关闭 TOTP 后返回 400 TOTP_NOT_SETUP，合规确认语句不一致返回 400 ADMIN_COMPLIANCE_INVALID_PHRASE，sub2 docs/API_ERROR_CODES.md 都没有；App 已分别按“未开 TOTP”与“确认语句不一致，请逐字输入”处理，请后端补进文档 |
 | 合规 / 二次验证通过后的回执 | S0-13 通过后只在原页面显示“…已通过，请重新确认后发送”，没有“合规确认已完成”这类回执；S0-14 的回执（ReceiptCenter）建好后补上 |
 | 读区块的“完成合规确认”入口 | 用户点“稍后”后，同一会话的后台读请求不再自动弹合规，区块只显示“需要先完成管理员合规确认”；阶段 1 重写概览错误块时加按钮调用 AppModel.presentCompliance()（用户发起，会再次弹出） |
-| 覆盖层窗口的外观与读屏 | S0-13 的全局 sheet 在覆盖层 UIWindow 里，创建时复制主窗口的 overrideUserInterfaceStyle；S0-15 加 App 内外观设置后要在切换时同步这个窗口；VoiceOver 焦点进入与离开覆盖层窗口需要真机核对 |
+| 覆盖层窗口的外观与读屏 | S0-13 的全局 sheet 在覆盖层 UIWindow 里，S0-15 起每次弹出时按 App 的外观设置取 overrideUserInterfaceStyle（不再复制主窗口）；VoiceOver 焦点进入与离开覆盖层窗口需要真机核对 |
 | 读类 POST 的安全重发 | S0-13 的钩子只对 RequestClass.isRead 的请求在验证通过后自动重发；reveal（POST admin/api-keys/:id/reveal）等语义是读的 POST 在阶段 3 / 6 实现时要显式声明请求类别，或发送前先调用 ensureStepUp（30 §7 本来就先主动判断） |
 | 站点标题菜单与大标题 | S0-14 在 iOS 27 模拟器上实测：大标题与 `.toolbarTitleDisplayMode(.inlineLarge)` 都打不开 `.toolbarTitleMenu`（标题只是静态文字），所以概览与账号 Tab 的标题改为 inline 显示（系统画下拉箭头，点开就是站点菜单）。10 §0.7-5 要的是“大标题就是站点菜单”，需 iOS 26 / 27 实机确认；要恢复大标题时只改 `NativeApp/Views/SiteMenu.swift` 的 `siteTitleMenu()`（例如 iOS 26 的 `ToolbarItem(placement: .largeTitle)` 放一个以站点名为标签的 `Menu`） |
 | 搜索 Tab 在实机上的样子 | S0-14 在 iOS 27 模拟器上：`Tab(role: .search)` 显示为 Tab 栏里的第五项（没有分离成独立玻璃按钮），选中时不自动弹键盘，搜索框在导航栏抽屉里，与 60 §1.1 一致。U40 要求 iOS 26 / 27 实机各验一次 |
-| 路由参数在旧页面上不生效 | S0-14 把路由映射到现有页面时，现有页面不支持的参数没有传：`.logs` 的 user / model / modelSource、`.analytics` 的 range / focus / metric（目录进统计仍从“今天”开始，40 §1.1 要近 7 天）、`.groups` 的 segment、`.account` 的 focus、`.settings` 的 focus（“站点与凭据”不滚到站点分区，S0-15 改）。各阶段换新页面时生效；`.groupBatch` 的 items 等阶段 5 定义结果类型再加 |
+| 路由参数在旧页面上不生效 | S0-14 把路由映射到现有页面时，现有页面不支持的参数没有传：`.logs` 的 user / model / modelSource、`.analytics` 的 range / focus / metric（目录进统计仍从“今天”开始，40 §1.1 要近 7 天）、`.groups` 的 segment、`.account` 的 focus（`.settings` 的 focus 已由 S0-15 接上）。各阶段换新页面时生效；`.groupBatch` 的 items 等阶段 5 定义结果类型再加 |
 | 跨 Tab 跳转撤不掉视图式推入的页面 | `AppRouter.select` 只清空目标 Tab 的 path；现有页面用 `NavigationLink { 目标 }` 推入的页面不在 path 里，会留在栈上。阶段 0 只有目录“告警事件”切到监控 Tab，监控 Tab 没有这类页面；概览、账号重写时改用 `NavigationLink(value: AppRoute)` |
+| Face ID 金额门槛 sheet 的键盘 | S0-15 的门槛 sheet 用大字显示 + 系统 numberPad（D22），S0-18 只把逐键过滤换成 KeypadInput；是否换成阶段 3 KeypadSheet 的大数字键盘界面，阶段 3 做用户余额键盘时一并决定（标识 settings.threshold.field / settings.threshold.save 不变） |
+| 站点行的身份邮箱 | 00 §1.1 要求站点行显示登录方式徽章和身份邮箱，Admin Key 站点加“以 <email> 身份操作（第一个管理员）”；admin/me 快照只在内存、只有当前站点有，S0-15 的站点行只显示徽章，邮箱与 Admin Key 说明放在“当前站点”分区。要不要按站点缓存 me 快照、在每个站点行都显示邮箱，待定 |
+| 外观切回“跟随系统”的实机核对 | RootView 用 `.preferredColorScheme(nil / .light / .dark)`；SwiftUI 在深色与跟随系统之间来回切换时有“切回 nil 不还原”的已知问题。模拟器 UI 测试只核对了选中状态，需实机确认，必要时改为直接设置窗口的 overrideUserInterfaceStyle |
+| 通用删除确认还没有做 | 60 §0.4：Face ID 关闭时要输入完整名称（兑换码末 4 位，不分大小写）才能删除，打开时按钮写“用 Face ID 删除”。S0-15 只提供 BiometricGate.deleteConfirmation / deleteNameMatches，并给现有删除分组接上验证；现有删除确认框仍是旧样式，由首个重写删除流程的阶段做通用组件 |
+| “站点与凭据”的滚动位置 | iOS 27 模拟器上 List 的 ScrollViewReader 只按 .top / .center 定位：.top 会把“站点”分区标题藏到导航栏下面（列表延伸到导航栏后），所以 S0-15 把第一个站点行滚到居中，上方仍露出安全、通知分区。实机看效果后再定是否改用其他滚动方式 |
