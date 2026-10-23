@@ -190,3 +190,9 @@
 | 资金写待核对的界面与回前台自动核对 | S0-12 只建了三类本机记录、AppModel.reconcile 与 R03 门控（moneyWriteGate）、重试权限；概览“待处理”、设置页三类分区、用户详情与兑换码横幅、核对结果页，以及回到前台对本站点记录自动核对一次（30 §3.6、60 §19.4 第 9 步），分别由 S0-15、阶段 1 / 3 / 6 接上。现有余额页仍是旧界面，不调用 moneyWriteGate |
 | 余额核对的阶段 3 部分 | BalanceReconciliation 只做 00 §2.5.5 的精确复核（D25）。30 §3.4 的候选匹配、多条候选、X-Request-ID 回显检查与按站点保存 requestIDUnreliable、旧记录（无 createdAt / 邮箱）按用户 ID 查询，在阶段 3 同一文件扩展 |
 | 待核对文件锁屏读不出 | completeFileProtection 文件在设备锁定时启动（预热）读不出，会被标为不可读并暂停该类资金写、启动时弹提示；S0-12 在回到前台时重读一次，但启动时那条提示仍会出现。真机验证后决定是否改成 completeUntilFirstUserAuthentication 或延后提示 |
+| 合规确认页的文案与版式 | S0-13 的全局合规页没有设计稿，标题、说明、按钮与读区块失败文案“需要先完成管理员合规确认”都是自拟；用户看过模拟器截图（Mac 上 ui.xcresult 的 compliance-sheet 附件）后再定，可能要补设计稿 |
+| 后端文档补两个 reason | step-up 接口在用户关闭 TOTP 后返回 400 TOTP_NOT_SETUP，合规确认语句不一致返回 400 ADMIN_COMPLIANCE_INVALID_PHRASE，sub2 docs/API_ERROR_CODES.md 都没有；App 已分别按“未开 TOTP”与“确认语句不一致，请逐字输入”处理，请后端补进文档 |
+| 合规 / 二次验证通过后的回执 | S0-13 通过后只在原页面显示“…已通过，请重新确认后发送”，没有“合规确认已完成”这类回执；S0-14 的回执（ReceiptCenter）建好后补上 |
+| 读区块的“完成合规确认”入口 | 用户点“稍后”后，同一会话的后台读请求不再自动弹合规，区块只显示“需要先完成管理员合规确认”；阶段 1 重写概览错误块时加按钮调用 AppModel.presentCompliance()（用户发起，会再次弹出） |
+| 覆盖层窗口的外观与读屏 | S0-13 的全局 sheet 在覆盖层 UIWindow 里，创建时复制主窗口的 overrideUserInterfaceStyle；S0-15 加 App 内外观设置后要在切换时同步这个窗口；VoiceOver 焦点进入与离开覆盖层窗口需要真机核对 |
+| 读类 POST 的安全重发 | S0-13 的钩子只对 RequestClass.isRead 的请求在验证通过后自动重发；reveal（POST admin/api-keys/:id/reveal）等语义是读的 POST 在阶段 3 / 6 实现时要显式声明请求类别，或发送前先调用 ensureStepUp（30 §7 本来就先主动判断） |
