@@ -199,3 +199,16 @@ func userWritesCarryIdempotencyKeyOnlyWithCapability(capable: Bool) async throws
     #expect(sent[1].value(forHTTPHeaderField: "Idempotency-Key") == (capable ? edit.key : nil))
     #expect(sent[0].value(forHTTPHeaderField: "X-Request-ID") == create.key && sent[1].value(forHTTPHeaderField: "X-Request-ID") == edit.key)
 }
+
+/// 60 §3.4: the editor checks Face ID against the initial balance the operation carries, not the form.
+@Test func createOperationKeepsTheInitialBalanceForTheFaceIDGate() throws {
+    let server = UUID(), identity = UUID()
+    let funded = try PendingUserCreateOperation(serverID: server, identity: identity,
+                                                request: UserCreateRequest(email: "new@example.com", password: "fixture-password", balance: 150),
+                                                sendsIdempotencyKey: true)
+    #expect(funded.initialBalance == 150)
+    let empty = try PendingUserCreateOperation(serverID: server, identity: identity,
+                                               request: UserCreateRequest(email: "new@example.com", password: "fixture-password"),
+                                               sendsIdempotencyKey: true)
+    #expect(empty.initialBalance == nil)
+}

@@ -27,6 +27,14 @@ enum DemoData {
     static let complianceStatus = AdminComplianceStatus(required: true, version: "2026-06", documentPathZH: "docs/legal/admin-compliance.zh.md",
                                                         documentURLZH: "https://example.invalid/admin-compliance.zh.md",
                                                         ackPhraseZH: "我已阅读、理解并同意 Sub2API 部署与运营合规承诺")
+    /// The simulator never shows the system prompt: checks pass unless `-ui-biometric-deny`, and `-ui-biometric-unavailable`
+    /// stands for a phone without Face ID or a lock screen code. `-ui-faceid-on` starts with the switch on.
+    @MainActor static func biometricAuthenticator(_ preferences: AppPreferences) -> FixedBiometricAuthenticator {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-ui-faceid-on") { preferences.storeFaceIDRequirement(true) }
+        return FixedBiometricAuthenticator(isAvailable: !arguments.contains("-ui-biometric-unavailable"),
+                                           succeeds: !arguments.contains("-ui-biometric-deny"))
+    }
     /// Access tokens write unless `-ui-readonly-token` is passed (kept for S0-13 and S0-19).
     static func siteSession(credential: Credential) -> SiteSession {
         let method = AdminAuthMethod.resolved(reported: nil, credential: credential) ?? .jwt

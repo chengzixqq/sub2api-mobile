@@ -261,6 +261,8 @@ struct AccountsView: View {
     }
     private func executeBatch(_ operation: AccountBatchConfirmation) async {
         guard !batchRunning, operation.generation == model.sessionGeneration, let client = session?.client else { return }
+        // 60 §3.4: verified after the confirmation; a failed or cancelled check sends nothing.
+        guard await model.biometricGate.authorize(.batch), !batchRunning, operation.generation == model.sessionGeneration else { return }
         cancelReads()
         batchRunning = true; batchOutcomes = []; batchSite = operation.site; error = nil
         defer { batchRunning = false }

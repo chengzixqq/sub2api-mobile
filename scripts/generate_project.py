@@ -100,7 +100,7 @@ def generate():
   <ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
 </Scheme>
 ''', encoding="utf-8")
-    info = {"CFBundleDisplayName": "Sub2 Mobile", "LSRequiresIPhoneOS": True, "ITSAppUsesNonExemptEncryption": False, "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"], "UISupportedInterfaceOrientations~ipad": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]}
+    info = {"CFBundleDisplayName": "Sub2 Mobile", "LSRequiresIPhoneOS": True, "ITSAppUsesNonExemptEncryption": False, "NSFaceIDUsageDescription": "用于确认删除、批量操作、更换账号凭据和超过门槛的资金操作", "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"], "UISupportedInterfaceOrientations~ipad": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]}
     with (ROOT / "NativeApp/Resources/Info.plist").open("wb") as stream:
         plistlib.dump(info, stream)
     print(f"Generated {project_dir} ({len(objects)} objects)")

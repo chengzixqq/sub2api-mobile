@@ -36,6 +36,9 @@ final class AppModel {
     let securityPrompts = SecurityPromptCenter()
     /// The one receipt (10 §0.7-6); app-level, so a switch's receipt outlives the rebuilt tabs.
     let receipts = ReceiptCenter(announce: { AccessibilityNotification.Announcement($0).post() })
+    /// This phone's settings (60 §3.2) and the Face ID coverage list applied to them (60 §3.4); kept across sites.
+    let preferences: AppPreferences
+    let biometricGate: BiometricGate
     var errorMessage: String?
     var isRestoring = true
     /// Set while signing out or deleting the connected site (AppModel+Session.swift).
@@ -71,10 +74,14 @@ final class AppModel {
         self.isUITesting = isUITesting
         credentials = KeychainCredentialStore(memoryOnly: isUITesting)
         let defaults = isUITesting ? UserDefaults(suiteName: "com.chengzixqq.sub2mobile.uitesting")! : .standard
+        if isUITesting { defaults.removePersistentDomain(forName: "com.chengzixqq.sub2mobile.uitesting") }
         self.defaults = defaults
         pushRecords = PushDeviceRecords(defaults: defaults)
         pendingFiles = isUITesting ? .memoryOnly : .applicationSupport()
-        if isUITesting { defaults.removePersistentDomain(forName: "com.chengzixqq.sub2mobile.uitesting") }
+        let preferences = AppPreferences(defaults: defaults)
+        self.preferences = preferences
+        let authenticator: any BiometricAuthenticating = if isUITesting { DemoData.biometricAuthenticator(preferences) } else { SystemBiometricAuthenticator() }
+        biometricGate = BiometricGate(preferences: preferences, authenticator: authenticator)
         if let data = defaults.data(forKey: "profiles") { profiles = ServerProfile.storedList(from: data) }
         if let data = defaults.data(forKey: "profileArchive") { profileArchive = ServerProfile.storedArchive(from: data) }
         if let raw = defaults.string(forKey: "activeProfile") { savedActiveID = UUID(uuidString: raw) }

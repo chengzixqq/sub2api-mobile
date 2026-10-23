@@ -25,6 +25,8 @@ import UIKit
 
     private func present(_ prompt: SecurityPromptCenter.Prompt, model: AppModel) {
         guard let window = overlayWindow(), let root = window.rootViewController else { shownID = nil; return }
+        // The overlay is a window of its own, so the App's appearance setting (60 §3.4) is applied here too.
+        window.overrideUserInterfaceStyle = model.preferences.appearance.userInterfaceStyle
         let sheet = prompt.kind == .compliance ? AnyView(ComplianceSheet(prompt: prompt)) : AnyView(StepUpSheet(prompt: prompt))
         let controller = UIHostingController(rootView: sheet.environment(model))
         // Only the sheet's own buttons answer the prompt.
@@ -46,7 +48,6 @@ import UIKit
         let window = UIWindow(windowScene: scene)
         window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.normal.rawValue + 1)
         window.backgroundColor = .clear
-        window.overrideUserInterfaceStyle = scene.keyWindow?.overrideUserInterfaceStyle ?? .unspecified
         let root = UIViewController()
         root.view.backgroundColor = .clear
         window.rootViewController = root
@@ -58,6 +59,16 @@ import UIKit
         window?.isHidden = true
         window = nil
         previousKeyWindow?.makeKey()
+    }
+}
+
+private extension AppPreferences.Appearance {
+    var userInterfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .system: .unspecified
+        case .light: .light
+        case .dark: .dark
+        }
     }
 }
 

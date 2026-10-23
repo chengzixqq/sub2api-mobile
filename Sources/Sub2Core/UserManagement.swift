@@ -74,11 +74,13 @@ public struct PendingUserCreateOperation: Identifiable, Sendable, CustomDebugStr
     public let email: String
     public let sendsIdempotencyKey: Bool
     public let body: Data
+    /// What the Face ID threshold is compared with before sending (60 §3.4).
+    public let initialBalance: Decimal?
     /// X-Request-ID, and the Idempotency-Key when one is sent.
     public var key: String { id.uuidString.lowercased() }
     public var debugDescription: String { "PendingUserCreateOperation(<redacted>)" }
     public init(id: UUID = UUID(), serverID: UUID, identity: UUID, request: UserCreateRequest, sendsIdempotencyKey: Bool) throws {
-        self.id = id; self.serverID = serverID; self.identity = identity; email = request.email
+        self.id = id; self.serverID = serverID; self.identity = identity; email = request.email; initialBalance = request.balance
         self.sendsIdempotencyKey = sendsIdempotencyKey
         body = try request.requestBody()
     }

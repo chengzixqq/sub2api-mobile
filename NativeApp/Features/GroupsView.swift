@@ -272,6 +272,10 @@ private struct GroupDetailView: View {
     }
     private func perform(_ action: GroupDetailAction) async {
         guard !busy, uncertainAction == nil, let context = session, context.generation == model.sessionGeneration else { return }
+        // 60 §3.4: a delete is verified after its confirmation; a failed or cancelled check sends nothing.
+        if action == .delete {
+            guard await model.biometricGate.authorize(.delete), !busy, context.generation == model.sessionGeneration else { return }
+        }
         busy = true; readTicket = UUID(); error = nil; defer { busy = false }
         do {
             let identity = await context.client.userWriteIdentity()

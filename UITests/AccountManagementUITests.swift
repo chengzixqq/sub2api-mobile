@@ -67,9 +67,28 @@ final class AccountManagementUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "未发送服务器写入")).firstMatch.exists)
         capture("account-batch-object-results")
     }
-    @MainActor private func launchAndLogin() {
+    /// 60 §3.4: with Face ID required, a failed check after “确认执行” sends nothing and shows no results.
+    @MainActor func testFaceIDDenialCancelsBatchAfterConfirmation() {
+        launchAndLogin(arguments: ["-ui-faceid-on", "-ui-biometric-deny"])
+        defer { capture("account-batch-faceid-denied") }
+        app.tabBars.buttons["账号"].tap()
+        XCTAssertTrue(app.buttons["account.1"].waitForExistence(timeout: 10))
+        app.buttons["accounts.select"].tap()
+        app.buttons["选择已加载账号"].tap()
+        let menuTitle = element("accounts.batch-actions").staticTexts["批量操作"].firstMatch
+        XCTAssertTrue(menuTitle.waitForExistence(timeout: 5), app.debugDescription)
+        menuTitle.tap()
+        let pause = element("accounts.batch.pause")
+        XCTAssertTrue(pause.waitForExistence(timeout: 5), app.debugDescription)
+        pause.tap()
+        XCTAssertTrue(app.buttons["确认执行"].waitForExistence(timeout: 5))
+        app.buttons["确认执行"].tap()
+        XCTAssertFalse(app.navigationBars["批量操作结果"].waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertTrue(app.buttons["accounts.select"].exists)
+    }
+    @MainActor private func launchAndLogin(arguments: [String] = []) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
         XCTAssertTrue(app.textFields["login.name"].waitForExistence(timeout: 10))
         enter("账号管理验收", in: app.textFields["login.name"])
         enter("https://account-management.example.invalid", in: app.textFields["login.url"])

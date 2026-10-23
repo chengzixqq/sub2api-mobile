@@ -422,6 +422,10 @@ private struct UserEditorView: View {
         busy = true; defer { busy = false }
         // A locked form sends again a request that may have run (00 §2.5.4).
         let retrying = uncertain
+        // 60 §3.4: an initial balance above the threshold is verified after the confirmation; a failed check sends nothing.
+        if case .create(let operation) = prepared, let balance = operation.initialBalance {
+            guard await model.biometricGate.authorize(.initialBalance(balance)), isCurrent else { return }
+        }
         do {
             switch prepared {
             case .create(let operation): _ = try await model.createUser(operation)
@@ -567,6 +571,9 @@ struct BalanceView: View {
         busy = true; defer { busy = false; sending = nil }
         let generation = session?.generation ?? UUID()
         guard generation == model.sessionGeneration else { return }
+        // 60 §3.4, D26: verified after the confirmation and before the record is saved, against how far the balance moves.
+        let gated = GatedAction.balanceAdjustment(item.operation, amount: item.amount, currentBalance: user.balance)
+        guard await model.biometricGate.authorize(gated), generation == model.sessionGeneration, !Task.isCancelled else { return }
         // A saved record was sent before and may have run (00 §2.5.4).
         let retrying = model.pendingBalances.contains { $0.id == item.id }
         var submitted = false

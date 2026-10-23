@@ -38,6 +38,18 @@ struct RootView: View {
             Button("知道了", role: .cancel) { model.errorMessage = nil }
         } message: { Text(model.errorMessage ?? "") }
         .onChange(of: model.securityPrompts.active, initial: true) { _, prompt in securityPresenter.sync(prompt, model: model) }
+        // 60 §3.4: the appearance setting applies at once, to every page and sheet of the window.
+        .preferredColorScheme(model.preferences.appearance.colorScheme)
+    }
+}
+
+fileprivate extension AppPreferences.Appearance {
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
     }
 }
 
