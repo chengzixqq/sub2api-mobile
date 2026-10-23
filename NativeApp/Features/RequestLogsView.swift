@@ -6,7 +6,7 @@ struct RequestLogsView: View {
     @Environment(\.sessionContext) private var session
     @State private var filter: RequestLogFilter
     @State private var rollingLastDay = true
-    @State private var mode = LogMode.requests
+    @State private var mode: LogMode
     @State private var records: [UsageRequestRecord] = []
     @State private var errors: [RequestErrorRecord] = []
     @State private var page = 0
@@ -20,8 +20,9 @@ struct RequestLogsView: View {
     @State private var revision = UUID()
     @State private var ticket = UUID()
     @State private var pendingTask: Task<Void, Never>?
-    init(accountID: Int? = nil, groupID: Int? = nil) {
+    init(accountID: Int? = nil, groupID: Int? = nil, scope: LogScope = .usage) {
         _filter = State(initialValue: RequestLogFilter(accountID: accountID, groupID: groupID))
+        _mode = State(initialValue: LogMode(scope))
     }
     private var queryKey: String { mode.rawValue + revision.uuidString }
     private var effectiveFilter: RequestLogFilter { mode == .upstream ? filter.upstreamErrorFilter() : filter }
@@ -174,6 +175,13 @@ private enum LogMode: String, CaseIterable, Identifiable {
     var id: Self { self }
     var title: String { switch self { case .requests: "请求记录"; case .failures: "失败请求"; case .upstream: "上游错误" } }
     var errorKind: ErrorLogKind { self == .upstream ? .upstream : .request }
+    init(_ scope: LogScope) {
+        switch scope {
+        case .usage: self = .requests
+        case .errors: self = .failures
+        case .upstream: self = .upstream
+        }
+    }
 }
 
 private struct RequestLogFilterEditor: View {
@@ -296,7 +304,7 @@ private struct UsageRequestDetailView: View {
             Section("关联对象") {
                 LabeledValue(label: "用户", value: record.userEmail ?? "#\(record.userID)")
                 LabeledValue(label: "API Key ID", value: String(record.apiKeyID))
-                NavigationLink("查看账号 \(record.accountName ?? "#\(record.accountID)")") { LogAccountDestination(id: record.accountID) }
+                NavigationLink("查看账号 \(record.accountName ?? "#\(record.accountID)")") { AccountDestination(id: record.accountID) }
                 if let id = record.groupID { LabeledValue(label: "分组", value: record.groupName ?? "#\(id)") }
                 NavigationLink("该账号全部请求记录") { RequestLogsView(accountID: record.accountID) }
             }
@@ -332,7 +340,7 @@ private struct RequestErrorDetailView: View {
                 if let upstream = record.upstreamModel, !upstream.isEmpty { LabeledValue(label: "上游模型", value: upstream) }
                 LabeledValue(label: "请求 ID", value: record.requestID).textSelection(.enabled)
                 if let id = record.userID { LabeledValue(label: "用户 ID", value: String(id)) }
-                if let id = record.accountID, id > 0 { NavigationLink("查看账号 \(record.accountName ?? "#\(id)")") { LogAccountDestination(id: id) } }
+                if let id = record.accountID, id > 0 { NavigationLink("查看账号 \(record.accountName ?? "#\(id)")") { AccountDestination(id: id) } }
                 if let id = record.groupID { LabeledValue(label: "分组", value: record.groupName ?? "#\(id)") }
             }
             Section("延迟") {
@@ -360,30 +368,6 @@ private struct RequestErrorDetailView: View {
             let result = try await (model.isUITesting ? LogFixtures.errorDetail() : session.client.errorRecord(id: record.id, kind: kind))
             guard ticket == id, generation == model.sessionGeneration, !Task.isCancelled else { return }; record = result
         } catch { if ticket == id, generation == model.sessionGeneration, !(error is CancellationError), !Task.isCancelled { self.error = error.localizedDescription } }
-    }
-}
-
-private struct LogAccountDestination: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.sessionContext) private var session
-    @State private var account: UpstreamAccount?
-    @State private var error: String?
-    let id: Int
-    var body: some View {
-        Group {
-            if let account { AccountDetailView(initial: account) }
-            else if let error { FailureView(message: error) }
-            else { ProgressView("正在读取账号…") }
-        }.task { await load() }
-        // A read the background stopped left nothing to show; the loaded detail page refreshes itself.
-        .onChange(of: model.foregroundRevision) { _, _ in if account == nil { Task { await load() } } }
-    }
-    private func load() async {
-        guard let session else { return }
-        do {
-            let result = model.isUITesting ? UpstreamAccount(id: id, name: "演示账号", platform: "openai", type: "apikey") : try await session.client.account(id: id)
-            guard session.generation == model.sessionGeneration, !Task.isCancelled else { return }; account = result
-        } catch { if session.generation == model.sessionGeneration, !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 }
 

@@ -55,9 +55,7 @@ final class RequestLogsUITests: XCTestCase {
         enter("admin@example.invalid", field: app.textFields["login.email"])
         enter("fixture-password", field: app.secureTextFields["login.password"])
         let submit = app.buttons["login.submit"]; reveal(submit); submit.tap()
-        XCTAssertTrue(app.tabBars.buttons["管理"].waitForExistence(timeout: 10), app.debugDescription)
-        app.tabBars.buttons["管理"].tap()
-        let logs = app.buttons["management.logs"]; XCTAssertTrue(logs.waitForExistence(timeout: 5), app.debugDescription); logs.tap()
+        app.openSearchItem("search.item.usage")
     }
     @MainActor private func enter(_ text: String, field: XCUIElement) { reveal(field); field.tap(); field.typeText(text) }
     @MainActor private func element(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier].firstMatch }

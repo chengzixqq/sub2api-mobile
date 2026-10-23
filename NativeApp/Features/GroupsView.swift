@@ -142,6 +142,19 @@ struct GroupsView: View {
     }
 }
 
+/// `.group(id:)` until 50 §2 rewrites the detail page; kept in this file for the file-private workspace and detail.
+struct GroupDestination: View {
+    @Environment(AppModel.self) private var model
+    @State private var workspace = GroupWorkspace()
+    let id: Int
+
+    var body: some View {
+        LoadingDestination(loadingText: "正在读取分组…") { session in
+            try await workspace.get(id, context: session, fixture: model.isUITesting)
+        } content: { GroupDetailView(initial: $0).environment(workspace) }
+    }
+}
+
 private struct GroupDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(GroupWorkspace.self) private var workspace

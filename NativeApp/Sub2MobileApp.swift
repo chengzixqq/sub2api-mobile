@@ -51,32 +51,31 @@ extension AppActivity {
     }
 }
 
+/// 10 §0.7 (U14): four tabs, “概览 · 账号 · 用户 · 监控”, and the separate search tab, each with its own stack. Rebuilt with
+/// every session, so a new site starts on 概览 with empty stacks (00 §1.1).
 struct MainTabs: View {
-    var body: some View {
-        TabView {
-            NavigationStack { DashboardView() }.tabItem { Label("概览", systemImage: "chart.bar.xaxis") }.accessibilityIdentifier("tab.dashboard")
-            NavigationStack { AccountsView() }.tabItem { Label("账号", systemImage: "server.rack") }.accessibilityIdentifier("tab.accounts")
-            NavigationStack { UsersView() }.tabItem { Label("用户", systemImage: "person.2") }.accessibilityIdentifier("tab.users")
-            NavigationStack { ManagementView() }.tabItem { Label("管理", systemImage: "square.grid.2x2") }.accessibilityIdentifier("tab.management")
-            NavigationStack { SettingsView() }.tabItem { Label("设置", systemImage: "gearshape") }.accessibilityIdentifier("tab.settings")
-        }
-        .tint(.indigo)
-    }
-}
+    @State private var router = AppRouter()
 
-struct ManagementView: View {
     var body: some View {
-        List {
-            Section("排查与分析") {
-                NavigationLink { RequestLogsView() } label: { Label("请求记录与错误日志", systemImage: "list.bullet.rectangle") }
-                    .accessibilityIdentifier("management.logs")
-                NavigationLink { AnalyticsView() } label: { Label("统计分析", systemImage: "chart.xyaxis.line") }
-                    .accessibilityIdentifier("management.analytics")
+        TabView(selection: $router.selectedTab) {
+            Tab(MainTab.today.title, systemImage: MainTab.today.systemImage, value: MainTab.today) { stack(.today) { DashboardView() } }
+            Tab(MainTab.accounts.title, systemImage: MainTab.accounts.systemImage, value: MainTab.accounts) { stack(.accounts) { AccountsView() } }
+            Tab(MainTab.users.title, systemImage: MainTab.users.systemImage, value: MainTab.users) { stack(.users) { UsersView() } }
+            Tab(MainTab.monitor.title, systemImage: MainTab.monitor.systemImage, value: MainTab.monitor) { stack(.monitor) { MonitorView() } }
+            Tab(MainTab.search.title, systemImage: MainTab.search.systemImage, value: MainTab.search, role: .search) {
+                stack(.search) { SearchHomeView() }
             }
-            Section("资源管理") {
-                NavigationLink { GroupsView() } label: { Label("分组管理", systemImage: "folder.badge.gearshape") }
-                    .accessibilityIdentifier("management.groups")
-            }
-        }.navigationTitle("管理")
+        }
+        .tabViewSearchActivation(.automatic)
+        .tint(Palette.accent)
+        .sheet(item: $router.presentedSheet) { SheetDestination(sheet: $0) }
+        .environment(router)
+    }
+
+    private func stack(_ tab: MainTab, @ViewBuilder root: () -> some View) -> some View {
+        let content = root()
+        return NavigationStack(path: Binding(get: { router.path(for: tab) }, set: { router.setPath($0, for: tab) })) {
+            content.navigationDestination(for: AppRoute.self) { RouteDestination(route: $0) }
+        }
     }
 }

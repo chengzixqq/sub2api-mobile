@@ -52,7 +52,7 @@ final class AccountListCustomizationUITests: XCTestCase {
         finishEditor()
         assertFields(groups: false, concurrency: false)
 
-        app.tabBars.buttons["设置"].tap()
+        app.openSitesSettings()
         app.buttons["settings.add"].tap()
         // The same HTTPS origin with a new login must receive its own defaults.
         login(name: "字段管理员 B", email: "b@example.com")
@@ -387,7 +387,7 @@ final class AccountListCustomizationUITests: XCTestCase {
     }
 
     @MainActor private func switchIdentity(_ name: String) {
-        app.tabBars.buttons["设置"].tap()
+        app.openSitesSettings()
         let button = app.buttons["settings.site.\(name)"]
         reveal(button, towardBottom: false)
         button.tap()

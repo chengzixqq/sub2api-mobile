@@ -67,10 +67,7 @@ final class GroupsUITests: XCTestCase {
         set("admin@example.com", field: "login.email")
         set("fixture-password", field: "login.password")
         reveal(app.buttons["login.submit"]); app.buttons["login.submit"].tap()
-        XCTAssertTrue(app.tabBars.buttons["管理"].waitForExistence(timeout: 10), app.debugDescription)
-        app.tabBars.buttons["管理"].tap()
-        XCTAssertTrue(app.buttons["management.groups"].waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["management.groups"].tap()
+        app.openSearchItem("search.item.groups")
         XCTAssertTrue(app.buttons["group.10"].waitForExistence(timeout: 10), app.debugDescription)
     }
     @MainActor private func confirmEditor() {

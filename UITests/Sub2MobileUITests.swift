@@ -387,10 +387,10 @@ final class Sub2MobileUITests: XCTestCase {
     @MainActor func testAddAndSwitchStations() {
         launch()
         login(name: "站点 A", url: "https://a.example.com")
-        app.tabBars.buttons["设置"].tap()
+        app.openSitesSettings()
         app.buttons["settings.add"].tap()
         login(name: "站点 B", url: "https://b.example.com")
-        app.tabBars.buttons["设置"].tap()
+        app.openSitesSettings()
         XCTAssertTrue(app.buttons["settings.site.站点 A"].waitForExistence(timeout: 10))
         app.buttons["settings.site.站点 A"].tap()
         app.tabBars.buttons["概览"].tap()
@@ -400,10 +400,10 @@ final class Sub2MobileUITests: XCTestCase {
     @MainActor func testSameStationKeepsNewLoginAsSeparateIdentity() {
         launch()
         login(name: "管理员 A", url: "https://same.example.com")
-        app.tabBars.buttons["设置"].tap()
+        app.openSitesSettings()
         app.buttons["settings.add"].tap()
         login(name: "管理员 B", url: "https://same.example.com")
-        app.tabBars.buttons["设置"].tap()
+        app.openSitesSettings()
         XCTAssertTrue(app.buttons["settings.site.管理员 A"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["settings.site.管理员 B"].exists)
     }
@@ -411,7 +411,7 @@ final class Sub2MobileUITests: XCTestCase {
     @MainActor func testLogoutErasesCredentialInsteadOfRestoringSession() {
         launch()
         login(name: "站点 A", url: "https://a.example.com")
-        app.tabBars.buttons["设置"].tap()
+        app.openSitesSettings()
         app.buttons["settings.logout"].tap()
         app.buttons["退出并清除凭据"].tap()
         XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 10))
@@ -428,7 +428,7 @@ final class Sub2MobileUITests: XCTestCase {
         enter("fixture-password", in: app.secureTextFields["login.password"])
         submitLogin()
         XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["设置"].tap()
+        app.openSitesSettings()
         XCTAssertTrue(app.buttons["settings.site.站点 A"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.buttons.matching(identifier: "settings.site.站点 A").count, 1)
     }
@@ -436,7 +436,7 @@ final class Sub2MobileUITests: XCTestCase {
     @MainActor func testRemovingActiveStationReturnsToLoginWithoutIt() {
         launch()
         login(name: "站点 A", url: "https://a.example.com")
-        app.tabBars.buttons["设置"].tap()
+        app.openSitesSettings()
         XCTAssertTrue(app.buttons["settings.site.more.站点 A"].waitForExistence(timeout: 10))
         app.buttons["settings.site.more.站点 A"].tap()
         XCTAssertTrue(app.buttons["删除站点和凭据"].waitForExistence(timeout: 5))

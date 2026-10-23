@@ -1,5 +1,10 @@
 import Foundation
 
+/// `model_source` of the model statistics and usage records (40 §0.1, §1.8; backend usagestats.ModelSource*).
+public enum ModelSource: String, CaseIterable, Hashable, Sendable {
+    case requested, upstream, mapping
+}
+
 /// Every analysis section carries exactly the same inclusive-start/exclusive-end range.
 public struct AnalyticsQuery: Hashable, Sendable {
     public var start: Date
