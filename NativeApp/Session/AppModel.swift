@@ -34,6 +34,8 @@ final class AppModel {
     private(set) var pendingMoney = PendingMoneyLedger()
     /// The global compliance and step-up sheet (AppModel+Security.swift); reset whenever the session changes.
     let securityPrompts = SecurityPromptCenter()
+    /// The one receipt (10 §0.7-6); app-level, so a switch's receipt outlives the rebuilt tabs.
+    let receipts = ReceiptCenter(announce: { AccessibilityNotification.Announcement($0).post() })
     var errorMessage: String?
     var isRestoring = true
     /// Set while signing out or deleting the connected site (AppModel+Session.swift).
@@ -230,6 +232,7 @@ final class AppModel {
         let old = client, lease = activeLease
         if cancelsConnection { cancelConnection() }
         securityPrompts.reset()
+        receipts.clear()
         sessionGeneration = UUID()
         client = nil; siteSession = nil; activeProfile = nil; activeLease = nil; savedActiveID = nil
         if case .siteLogin(let notice) = exit { openSiteLogin(profile, notice: notice) }

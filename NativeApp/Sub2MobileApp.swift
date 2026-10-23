@@ -58,8 +58,8 @@ struct MainTabs: View {
 
     var body: some View {
         TabView(selection: $router.selectedTab) {
-            Tab(MainTab.today.title, systemImage: MainTab.today.systemImage, value: MainTab.today) { stack(.today) { DashboardView() } }
-            Tab(MainTab.accounts.title, systemImage: MainTab.accounts.systemImage, value: MainTab.accounts) { stack(.accounts) { AccountsView() } }
+            Tab(MainTab.today.title, systemImage: MainTab.today.systemImage, value: MainTab.today) { stack(.today) { DashboardView().siteTitleMenu() } }
+            Tab(MainTab.accounts.title, systemImage: MainTab.accounts.systemImage, value: MainTab.accounts) { stack(.accounts) { AccountsView().siteTitleMenu() } }
             Tab(MainTab.users.title, systemImage: MainTab.users.systemImage, value: MainTab.users) { stack(.users) { UsersView() } }
             Tab(MainTab.monitor.title, systemImage: MainTab.monitor.systemImage, value: MainTab.monitor) { stack(.monitor) { MonitorView() } }
             Tab(MainTab.search.title, systemImage: MainTab.search.systemImage, value: MainTab.search, role: .search) {
@@ -77,5 +77,6 @@ struct MainTabs: View {
         return NavigationStack(path: Binding(get: { router.path(for: tab) }, set: { router.setPath($0, for: tab) })) {
             content.navigationDestination(for: AppRoute.self) { RouteDestination(route: $0) }
         }
+        .overlay(alignment: .bottom) { ReceiptOverlay() }
     }
 }

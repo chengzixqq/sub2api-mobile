@@ -48,15 +48,7 @@ struct StatusBanner<Accessory: View>: View {
         }
         .padding(EdgeInsets(top: 12, leading: StatusCapsuleMetrics.contentLeadingInset, bottom: 12, trailing: 12))
         .background(tone.wash, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(alignment: .leading) {
-            if tone.drawsRail {
-                Capsule().fill(tone.base)
-                    .frame(width: StatusCapsuleMetrics.width)
-                    .padding(.vertical, StatusCapsuleMetrics.verticalInset)
-                    .padding(.leading, StatusCapsuleMetrics.leadingInset)
-                    .accessibilityHidden(true)
-            }
-        }
+        .statusCapsule(tone: tone)
     }
 }
 

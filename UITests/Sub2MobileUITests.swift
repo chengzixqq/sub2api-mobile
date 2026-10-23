@@ -393,6 +393,10 @@ final class Sub2MobileUITests: XCTestCase {
         app.openSitesSettings()
         XCTAssertTrue(app.buttons["settings.site.站点 A"].waitForExistence(timeout: 10))
         app.buttons["settings.site.站点 A"].tap()
+        // 10 §0.7-5: the switch ends with a receipt that outlives the rebuilt tabs.
+        let receipt = app.staticTexts["receipt.text"]
+        XCTAssertTrue(receipt.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertEqual(receipt.label, "已切换到 站点 A")
         app.tabBars.buttons["概览"].tap()
         XCTAssertTrue(app.navigationBars["站点 A"].waitForExistence(timeout: 10))
     }

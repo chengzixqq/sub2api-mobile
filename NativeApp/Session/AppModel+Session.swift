@@ -74,6 +74,8 @@ extension AppModel {
                 return
             }
             try await connect(profile: profile, credential: credential, attempt: attempt)
+            // The site menu and the settings page both switch here (10 §0.7-5).
+            receipts.show(.switched(to: profile.name))
         } catch { await connectionFailed(error, profile: profile) }
     }
     /// A switch or restore the server refused for good: the connected site ends like any invalidated session, another site

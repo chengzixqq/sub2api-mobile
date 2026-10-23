@@ -1,6 +1,7 @@
 import XCTest
 
-/// S0-14: the four tabs and the search tab (10 §0.7, U14), the search directory (60 §1) and the monitor placeholder.
+/// S0-14: the four tabs and the search tab (10 §0.7, U14), the search directory (60 §1), the monitor placeholder, and
+/// the site menu with its switch receipt (10 §0.7-5, §0.7-6).
 final class AppNavigationUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
 
@@ -88,15 +89,75 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(app.buttons["search.item.usage"].waitForExistence(timeout: 5), app.debugDescription)
     }
 
+    @MainActor func testSiteMenuSwitchesStationWithReceipt() {
+        launchAndLogin(name: "站点 A", url: "https://a.example.invalid")
+        defer { diagnostics("site-menu-switch-final") }
+        app.openSitesSettings()
+        app.buttons["settings.add"].tap()
+        fillLogin(name: "站点 B", url: "https://b.example.invalid")
+        openSiteMenu(title: "站点 B")
+        for label in ["站点 A", "站点 B", "添加站点…", "站点与凭据"] {
+            XCTAssertTrue(menuItem(label).waitForExistence(timeout: 5), app.debugDescription)
+        }
+        // The current site is checked; the host is read after the name.
+        XCTAssertTrue(menuItem("站点 B").isSelected, app.debugDescription)
+        XCTAssertFalse(menuItem("站点 A").isSelected)
+        XCTAssertTrue(menuItem("站点 A").label.contains("a.example.invalid"), menuItem("站点 A").label)
+        diagnostics("site-menu")
+        menuItem("站点 A").tap()
+        let receipt = app.staticTexts["receipt.text"]
+        XCTAssertTrue(receipt.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertEqual(receipt.label, "已切换到 站点 A")
+        diagnostics("site-switch-receipt")
+        XCTAssertTrue(app.navigationBars["站点 A"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.tabBars.buttons["概览"].isSelected)
+        app.tabBars.buttons["账号"].tap()
+        openSiteMenu(title: "上游账号")
+        XCTAssertTrue(menuItem("站点 B").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(menuItem("站点 A").isSelected, app.debugDescription)
+    }
+
+    @MainActor func testSiteMenuOpensSitesSettingsAndAddSite() {
+        launchAndLogin(name: "菜单站点", url: "https://menu.example.invalid")
+        defer { diagnostics("site-menu-entries-final") }
+        openSiteMenu(title: "菜单站点")
+        let settings = menuItem("站点与凭据")
+        XCTAssertTrue(settings.waitForExistence(timeout: 5), app.debugDescription)
+        settings.tap()
+        // Pushed onto 概览's own stack (10 §0.7-2).
+        XCTAssertTrue(app.buttons["settings.add"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.tabBars.buttons["概览"].isSelected)
+        goBack()
+        openSiteMenu(title: "菜单站点")
+        let add = menuItem("添加站点…")
+        XCTAssertTrue(add.waitForExistence(timeout: 5), app.debugDescription)
+        add.tap()
+        XCTAssertTrue(app.textFields["login.url"].waitForExistence(timeout: 5), app.debugDescription)
+    }
+
     @MainActor private func launchAndLogin(name: String, url: String) {
         continueAfterFailure = false
         app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launch()
+        fillLogin(name: name, url: url)
+    }
+    @MainActor private func fillLogin(name: String, url: String) {
+        XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(name, in: "login.name")
         enter(url, in: "login.url")
         enter("admin@example.com", in: "login.email")
         enter("fixture-password", in: "login.password")
         let submit = app.buttons["login.submit"]; reveal(submit); submit.tap()
         XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+    /// The navigation title is the site menu (`toolbarTitleMenu`, 10 §0.7-5); it shows as a button in the bar.
+    @MainActor private func openSiteMenu(title: String) {
+        let button = app.navigationBars[title].buttons[title]
+        XCTAssertTrue(button.waitForExistence(timeout: 10), app.debugDescription)
+        button.tap()
+    }
+    /// System menu items carry no identifier; a site reads “name, host”. Rows elsewhere with the same text have one.
+    @MainActor private func menuItem(_ label: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == '' AND (label == %@ OR label BEGINSWITH %@)", label, label + ",")).firstMatch
     }
     @MainActor private func assertLogsMode(_ title: String) {
         let mode = app.segmentedControls["logs.mode"]
