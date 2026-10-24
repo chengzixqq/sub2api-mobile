@@ -1,0 +1,40 @@
+{
+  "runtime": "React/ReactDOM 18.3.1 UMD + @babel/standalone 7.26.9 (precompiled)",
+  "pages": [
+    {
+      "key": "a-inbox",
+      "title": "A · 收件箱（游标）",
+      "file": "a-inbox.html",
+      "bytes": 285779,
+      "sha256": "c92a86f44caabd90c573f278c719ba81a49b40e0dd4b2cf1be39127174b0dc26"
+    },
+    {
+      "key": "b-dashboard",
+      "title": "B · 卡片仪表盘",
+      "file": "b-dashboard.html",
+      "bytes": 309517,
+      "sha256": "ed45cd1a6efdf9b5326f23aa9a927e9a7e2f910b0802a558af312fe576f3c846"
+    },
+    {
+      "key": "c-workbench",
+      "title": "C · 表格工作台",
+      "file": "c-workbench.html",
+      "bytes": 298424,
+      "sha256": "c4d18fb90e61a62b53e62960a7ae8431fa4da95b98844cbca156b7e3ef62f1ba"
+    },
+    {
+      "key": "style-ledger",
+      "title": "风格稿 · 核簿",
+      "file": "style-ledger.html",
+      "bytes": 286885,
+      "sha256": "1d806a0c9ebc4c69172a0461b4e7ebfa7e351b6ec698ea1c221a53ed6b6daf2d"
+    },
+    {
+      "key": "style-signal",
+      "title": "风格稿 · 暗舱",
+      "file": "style-signal.html",
+      "bytes": 286691,
+      "sha256": "7d0d97e58e4354add5477cf6fec95ded6681836dce660643b2639eea476061e7"
+    }
+  ]
+}

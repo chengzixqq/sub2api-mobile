@@ -1,0 +1,46 @@
+/* 游标 Vernier palette: graphite + one signal cyan. Colour only — every layout shares it; type and shape stay per layout. */
+.page-vernier.page-light { --page-bg: #E4E8EA; --page-ink: #14181B; --page-dim: #4A545A; --page-line: #C5CCD0; }
+.page-vernier.page-dark { --page-bg: #050708; --page-ink: #E7EBED; --page-dim: #A8B1B7; --page-line: #2B3237; }
+
+.pal-vernier.light {
+  --canvas: #F1F3F4; --surface: #FFFFFF; --sunken: #EBEEF0; --track: #EBEEF0;
+  --hairline: #D8DDE0; --rule-strong: #7F898F;
+  --ink1: #14181B; --ink2: #4A545A; --ink3: #5E686F;
+  --accent: #0B6E85; --accent-fill: #0B6E85; --on-accent: #FFFFFF; --accent-wash: #E2F1F4;
+  --ok: #288F48; --ok-ink: #1B7339; --ok-wash: #E5F2E9;
+  --caution: #B87D00; --caution-ink: #875200; --caution-wash: #F6EFE0;
+  --critical: #B42318; --critical-ink: #A61D15; --critical-wash: #F6E5E3;
+  --neutral: #7D878D; --neutral-ink: #596369; --neutral-wash: #EFF1F1;
+  --model: #8559E0; --model-ink: #6A3DC2; --model-wash: #F0EBFB;
+  --money-actual: #14181B; --money-cost: #14181B; --money-standard: #14181B;
+  --lg-actual: #288F48; --lg-cost: #CF5F17; --lg-standard: #7D878D;
+  --cap-normal: #4A545A;
+  --chart-main: #14181B; --chart-area: transparent; --chart-compare: #7F898F; --chart-bar: #7F898F; --chart-bar-now: #14181B;
+  --chip-bg: #EBEEF0; --chip-on-bg: #E2F1F4; --chip-on-ink: #0B6E85; --chip-on-edge: #0B6E85;
+  --seg-on-bg: #FFFFFF; --btn-bg: #EBEEF0; --btn-ink: #14181B;
+  --nav-bg: #F1F3F4; --list-bg: #FFFFFF; --list-head-bg: #F1F3F4; --sheet-bg: #F1F3F4;
+  --glass-bg: rgba(250,251,251,.72); --glass-edge: rgba(255,255,255,.7); --glass-shadow: 0 6px 24px rgba(15,25,30,.12), inset 0 1px 0 rgba(255,255,255,.8);
+  --tab-ink: #14181B; --tab-on: #0B6E85; --tab-on-bg: rgba(11,110,133,.10); --tab-fade: rgba(241,243,244,.0);
+  --hover: rgba(20,24,27,.06); --hover-row: rgba(20,24,27,.03);
+}
+.pal-vernier.dark {
+  --canvas: #0B0E10; --surface: #15191C; --sunken: #1E2327; --track: #1E2327;
+  --hairline: #2B3237; --rule-strong: #606A71;
+  --ink1: #E7EBED; --ink2: #A8B1B7; --ink3: #8B959C;
+  --accent: #52CBE6; --accent-fill: #127A91; --on-accent: #FFFFFF; --accent-wash: #203940;
+  --ok: #45BE68; --ok-ink: #5BCF7E; --ok-wash: #1E372A;
+  --caution: #F0B93C; --caution-ink: #F5C04F; --caution-wash: #3C3622;
+  --critical: #E5483D; --critical-ink: #FF7468; --critical-wash: #3A2122;
+  --neutral: #6E7980; --neutral-ink: #9CA6AC; --neutral-wash: #252A2E;
+  --model: #9C7CF2; --model-ink: #BBA0FF; --model-wash: #2D2B43;
+  --money-actual: #E7EBED; --money-cost: #E7EBED; --money-standard: #E7EBED;
+  --lg-actual: #45BE68; --lg-cost: #EB8840; --lg-standard: #6E7980;
+  --cap-normal: #A8B1B7;
+  --chart-main: #E7EBED; --chart-area: transparent; --chart-compare: #606A71; --chart-bar: #606A71; --chart-bar-now: #E7EBED;
+  --chip-bg: #1E2327; --chip-on-bg: #203940; --chip-on-ink: #52CBE6; --chip-on-edge: #52CBE6;
+  --seg-on-bg: #2B3237; --btn-bg: #1E2327; --btn-ink: #E7EBED;
+  --nav-bg: #0B0E10; --list-bg: #15191C; --list-head-bg: #0B0E10; --sheet-bg: #15191C;
+  --glass-bg: rgba(38,44,48,.66); --glass-edge: rgba(255,255,255,.10); --glass-shadow: 0 8px 28px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08);
+  --tab-ink: #E7EBED; --tab-on: #52CBE6; --tab-on-bg: rgba(82,203,230,.12); --tab-fade: rgba(11,14,16,0);
+  --hover: rgba(255,255,255,.07); --hover-row: rgba(255,255,255,.03);
+}

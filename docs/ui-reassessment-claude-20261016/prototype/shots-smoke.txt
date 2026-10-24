@@ -1,0 +1,2 @@
+smoke-light|light|large|
+smoke-dark|dark|extra-extra-large|

@@ -1,0 +1,9 @@
+{
+  "xcode": "27.1",
+  "xcodeBuild": "27A9275",
+  "releaseSource": "https://developer.apple.com/news/releases/",
+  "swiftCompiler": "6.4",
+  "swiftLanguageMode": "6",
+  "minimumIOS": "26.0",
+  "bundleIdentifier": "com.chengzixqq.sub2mobile"
+}

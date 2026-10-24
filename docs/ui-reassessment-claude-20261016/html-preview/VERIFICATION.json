@@ -1,0 +1,172 @@
+{
+  "browser": "Chrome (headless, playwright-core 1.56)",
+  "scope": "HTML layout previews only; not SwiftUI, not device",
+  "report": {
+    "a-inbox-light": {
+      "results": [
+        {
+          "check": "今日 → 点错误账号进入详情 → 返回",
+          "ok": true
+        },
+        {
+          "check": "账号 → 选择 2 个 → 批量停止调度 → 撤销",
+          "ok": true
+        },
+        {
+          "check": "详情 → 恢复状态 → 确认 → 回执",
+          "ok": true
+        },
+        {
+          "check": "充值 → 确认写明对象与金额 → 入账",
+          "ok": true
+        },
+        {
+          "check": "记录 → 移除账号筛选 → 选择器重选",
+          "ok": true
+        }
+      ],
+      "errors": []
+    },
+    "a-inbox-dark": {
+      "results": [
+        {
+          "check": "今日 → 点错误账号进入详情 → 返回",
+          "ok": true
+        },
+        {
+          "check": "账号 → 选择 2 个 → 批量停止调度 → 撤销",
+          "ok": true
+        },
+        {
+          "check": "详情 → 恢复状态 → 确认 → 回执",
+          "ok": true
+        },
+        {
+          "check": "充值 → 确认写明对象与金额 → 入账",
+          "ok": true
+        },
+        {
+          "check": "记录 → 移除账号筛选 → 选择器重选",
+          "ok": true
+        }
+      ],
+      "errors": []
+    },
+    "b-dashboard-light": {
+      "results": [
+        {
+          "check": "摘要 → 编辑 → 移除营收卡 → 添加回来",
+          "ok": true
+        },
+        {
+          "check": "摘要 → 需要处理叠卡 → 列表 → 恢复",
+          "ok": true
+        },
+        {
+          "check": "账号 → 点“错误”磁贴筛选 → 进入磁贴详情",
+          "ok": true
+        },
+        {
+          "check": "详情 → 调度磁贴停止 → 撤销",
+          "ok": true
+        },
+        {
+          "check": "数字键盘 → 输入 20 → 充值确认 → 入账",
+          "ok": true
+        },
+        {
+          "check": "浏览 → 错误请求 → 点柱子筛时段",
+          "ok": true
+        }
+      ],
+      "errors": []
+    },
+    "b-dashboard-dark": {
+      "results": [
+        {
+          "check": "摘要 → 编辑 → 移除营收卡 → 添加回来",
+          "ok": true
+        },
+        {
+          "check": "摘要 → 需要处理叠卡 → 列表 → 恢复",
+          "ok": true
+        },
+        {
+          "check": "账号 → 点“错误”磁贴筛选 → 进入磁贴详情",
+          "ok": true
+        },
+        {
+          "check": "详情 → 调度磁贴停止 → 撤销",
+          "ok": true
+        },
+        {
+          "check": "数字键盘 → 输入 20 → 充值确认 → 入账",
+          "ok": true
+        },
+        {
+          "check": "浏览 → 错误请求 → 点柱子筛时段",
+          "ok": true
+        }
+      ],
+      "errors": []
+    },
+    "c-workbench-light": {
+      "results": [
+        {
+          "check": "工作台 → 需处理账号视图 → 移除条件",
+          "ok": true
+        },
+        {
+          "check": "账号表 → 点“今日”表头排序 → 选择 2 行 → 批量停 → 撤销",
+          "ok": true
+        },
+        {
+          "check": "账号表 → 列 → 关闭“平台”列",
+          "ok": true
+        },
+        {
+          "check": "检查器 → 下一条 → 上一条",
+          "ok": true
+        },
+        {
+          "check": "调整余额 → 提交 → 确认 → 入账",
+          "ok": true
+        },
+        {
+          "check": "记录 → 来源菜单切到上游错误 → 移除账号条件",
+          "ok": true
+        }
+      ],
+      "errors": []
+    },
+    "c-workbench-dark": {
+      "results": [
+        {
+          "check": "工作台 → 需处理账号视图 → 移除条件",
+          "ok": true
+        },
+        {
+          "check": "账号表 → 点“今日”表头排序 → 选择 2 行 → 批量停 → 撤销",
+          "ok": true
+        },
+        {
+          "check": "账号表 → 列 → 关闭“平台”列",
+          "ok": true
+        },
+        {
+          "check": "检查器 → 下一条 → 上一条",
+          "ok": true
+        },
+        {
+          "check": "调整余额 → 提交 → 确认 → 入账",
+          "ok": true
+        },
+        {
+          "check": "记录 → 来源菜单切到上游错误 → 移除账号条件",
+          "ok": true
+        }
+      ],
+      "errors": []
+    }
+  }
+}

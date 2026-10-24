@@ -1,0 +1,386 @@
+[
+ {
+  "judge": "operator",
+  "scores": [
+   {
+    "proposal": "triage",
+    "task_efficiency": 9,
+    "first_screen_value": 9,
+    "cognitive_load": 6,
+    "native_feasibility": 7,
+    "future_extensibility": 8,
+    "migration_risk": 5,
+    "root_cause_fix": 9,
+    "rationale": "（cognitive_load 分越高表示心理负担越轻，下同）站在值班管理员的角度看，这是唯一一个让我在夜里打开 App 就能看到“哪个账号、什么原因、几点恢复”的方案：救火 0 次点击可见，1 次点击处置；“测试成功后后端自动恢复”这一点已对照 account_handler.go:1341 核实，是很有价值的发现。规则表 T1“分组无可用账号”直接对应用户投诉“请求失败”时最真实的影响面，另外两个方案都没有这一条。账本条固定在首行，早晚看营收不会被问题队列挤出首屏。队列导航 ⌃⌄、“读不到不等于没有”、ConfirmPolicy 中“影响他人升一档”都直接降低误操作。R1–R6 都有防复发机制（文案 lint、词典快照比对、UITest 只断言词典词），数据依赖逐条带 file:line 核实，是三份里最不容易虚构能力的。扣分项有四个。一是心理负担：13 条规则、逐账号的红色卡片、T1 与 T3–T6 重叠、本机“稍后隐藏”、Tab 徽标常亮，限流常态化的站点容易出现告警疲劳。二是迁移风险：TriageStore 每轮约 10 个请求、两档轮询，P0 数据补齐前收件箱无法成立。三是原生可行性：TriageCard 在 List 行里同时放整卡点击、内联按钮、双向滑动和上下文菜单，手势冲突需要小心实现。四是 `.searchTabSelection` 一点开就弹键盘，会盖住日志所在的目录（文档自己列为 V1 风险）。"
+   },
+   {
+    "proposal": "entity",
+    "task_efficiency": 6,
+    "first_screen_value": 6,
+    "cognitive_load": 5,
+    "native_feasibility": 5,
+    "future_extensibility": 9,
+    "migration_risk": 3,
+    "root_cause_fix": 7,
+    "rationale": "对象图（EntityRef + 统一对象页 + 动作注册表）的长期扩展性最好，vendor、普通用户、多窗口、拖放都能顺着走，所以扩展性给最高分。全局搜索意图识别、待核对写操作作为对象、计数诚实（只有首页时显示“20+”）、标识符编码状态，都是值得借用的好点子。但从我的值班视角看，它更像架构师的方案，不是值班员的方案。① 首页收件箱排在 KPI 之前且条数不封顶，7 条问题就能把营收挤出首屏。② 恢复动词分成清除限流、恢复状态、解除、清除错误四个，对应 4–5 个接口，而 recover-state 已经全部覆盖，凌晨要先想清楚该点哪个。③ 对象页骨架用 ScrollView + LazyVStack，首页靠“嵌入不滚动的 List”才能拿到滑动；在最低 iOS 26 上，swipeActions 只在 List 里生效，“动作随对象走”这个核心承诺在对象页的预览行里兑现不了。④ “确认告警”是一级动作，但后端事件状态只有 firing、resolved、manual_resolved（02 §3.8），属于虚构能力。⑤ 滑动方向写反：把 trailing 写成“右滑”；§4.8 写用户行“右滑充值、左滑退款”，§5.1 又写成右滑退款、左滑充值，资金操作的滑动方向自相矛盾，误操作风险高。⑥ EntityStore、ActionHost、SearchIntent、DraftStore、PinStore 等新抽象数量最多，阶段 0–1 做完也拿不出能救火的屏，迁移风险最高。"
+   },
+   {
+    "proposal": "native",
+    "task_efficiency": 7,
+    "first_screen_value": 8,
+    "cognitive_load": 8,
+    "native_feasibility": 9,
+    "future_extensibility": 7,
+    "migration_risk": 8,
+    "root_cause_fix": 8,
+    "rationale": "内容容器按“指标 / 集合 / 单对象 / 录入”映射到 Apple 自家数据类 App，摘要卡、邮件式三行行、查找式英雄状态卡、Form 只用于录入，对 R1 的根治最彻底，原生可行性和迁移风险也最好。理由是：集合全部用 List；“需要处理”只用 `dashboard/stats` 的聚合计数，请求少，口径也诚实；账号状态卡的计数取 `status=…&page_size=1&lite=true` 的 total，与列表同源；文中还声明已核实 lite 列表带限时字段。心理负担最轻：恢复只有一个动词，聚合项不刷屏，有固定行解剖，加 UndoManager，文案白名单只留 3 句。附录 A 的视觉身份（Sub2 青、五种色调、平台不着色、大数用圆体）也是三份里唯一完整的。短板集中在我最在意的半夜场景。① 摘要只说“3 个账号受限”，不说是哪个账号、什么原因，也没有“分组无可用账号”这条规则，必须再 push 一层才能判断。② 账号 Tab 根页是 4–5 张计数卡，首屏看不到任何账号行，浏览和批量要多走一层（T1-c 6 步），每次进入还要发 4–5 个计数请求。③ 详情页调度用 Toggle 即时写入；用户行的后缘滑动放“禁用/启用”，与充值同一行，误触代价偏高。④ 二次验证改用带输入框的 alert，验证码自动填充和就地报错都不如在 sheet 内就地展开稳。"
+   }
+  ],
+  "recommended_backbone": "triage。理由：评判时按值班管理员的权重来，“任务效率”和“首屏有效信息”优先，其次是误操作和心理负担。三份方案的信息架构其实高度趋同：都是 4 个 Tab 加搜索 Tab，日志放进搜索目录，切站放在导航层，确认分级，状态体系也一致。真正的结构差异在首页和账号 Tab 根页，而 triage 的“账本条固定首行 + 逐对象收件箱（T1 分组无可用账号排最前）+ 内联处置 + 队列导航”是唯一满足“1 分钟内判断哪个上游账号限流并止血”的结构，救火 0 次点击可见、1 次点击处置。它的数据依赖逐条核实到 file:line，包括 recover-state 统一覆盖、告警没有 ack、resolved 参数、测试成功自动恢复，虚构能力的风险最低。native 的七项总分略高（54 比 53），优势在原生可行性、迁移风险和心理负担，这些都可以作为“容器、视觉、降负担策略”嫁接进来，代价很小；反过来，把 triage 的逐对象收件箱嫁接进 native 的 ScrollView 摘要，需要改掉它的首页容器。entity 的扩展性最好，但迁移风险和原生可行性都垫底，不适合作为本轮主干，只取它的搜索、对象行和动作注册表思路。主干落地时要同时修复 triage 自身的两个问题：轮询负载和告警疲劳（见 fatal_flaws）。",
+  "grafts": [
+   {
+    "from": "native",
+    "idea": "内容容器映射与视觉身份：摘要卡（标题 + 更新时间 + ›，首行写结论句）、邮件式固定三行行（不再提供自定义字段）、英雄状态卡用该状态色调约 12% 的底色、Form 只用于录入；附录 A 的 Sub2 青强调色、五种色调（positive/caution/critical/neutral/special）、平台不着色、大数用圆体、金额用中性色加正负号",
+    "why": "triage 只约束语义色，没有视觉方案。native 这套直接对应 R1 的根治，而且全部是系统动态色，深色、增强对比度和 Dynamic Type 不需要另外设计"
+   },
+   {
+    "from": "native",
+    "idea": "收件箱分两层取数：第一层用 `dashboard/stats` 的 error/ratelimit/overload 聚合计数（一次请求，口径诚实），只有某类计数大于 0 时才拉该类对象清单；账号 Tab 顶部用一行紧凑计数（`status=…&page_size=1&lite=true` 取 total，与列表同源），兼作快速筛选",
+    "why": "把 triage 每轮约 10 个请求的轮询压到一两个请求；运维监控关闭时也有可靠的兜底。计数和列表同源，可以避免 RN 端那种“计数是错的”"
+   },
+   {
+    "from": "native",
+    "idea": "搜索 Tab 用 `.automatic` 激活（浏览优先，点搜索框才弹键盘），日志、分组、统计、告警在 iPad 侧栏用 TabSection 直接列出",
+    "why": "修掉 triage 自己承认的 V1 风险：`.searchTabSelection` 会弹出键盘盖住目录，而目录正是日志唯一的非对象入口"
+   },
+   {
+    "from": "native",
+    "idea": "撤销同时注册到 UndoManager（摇一摇、iPad ⌘Z）；只有收到服务端确认才给成功触觉；toast 被按住时暂停计时",
+    "why": "几乎不需要额外代码，就能降低误操作的心理负担，避免“假成功”"
+   },
+   {
+    "from": "native",
+    "idea": "Apple Cash 式金额页的细节：没有默认金额、“全部退款”一键填入、充值后余额实时预览；用户 Tab 保留本机按站点记录的“最近处理”",
+    "why": "triage 的快捷金额可以保留，但不能有默认值（RN 的教训 04 §2.5#9）；充值常客 4 步就能完成"
+   },
+   {
+    "from": "entity",
+    "idea": "统一 ObjectRow 加 EntityActionCatalog（kind × 状态条件 → 动词、级别、摆放位置）：同一账号出现在收件箱、搜索结果、分组成员、日志关联里时，滑动和长按的动作完全一致，级别也只由注册表决定",
+    "why": "把 triage 散在各屏的滑动表收敛成一张可单测的表，从结构上防止“同一对象在不同页面动作不一致”带来的误操作"
+   },
+   {
+    "from": "entity",
+    "idea": "全局搜索意图识别 SearchIntent（邮箱、请求 ID、#编号、Key 片段、文本），结果按类型分区、各自独立加载和失败，提供“按文字搜索”改判；ObjectPicker 复用同一个组件，用于日志筛选、统计范围和分组多选",
+    "why": "按请求 ID 或邮箱排障可以稳定在 2–3 步；一套组件覆盖三处选择对象的场景，彻底消灭手输 ID"
+   },
+   {
+    "from": "entity",
+    "idea": "待核对写操作作为对象（pendingOp 对象页：核对余额、用同一编号重试原请求、标记已在 Web 处理），收件箱 T11/T12、用户页横幅、站点面板都落到同一页",
+    "why": "triage 的待核对落点分散在 BalanceSheet、横幅和底部附件；统一对象页让核对闭环只有一条路径"
+   },
+   {
+    "from": "entity",
+    "idea": "accessibilityIdentifier 集中生成，并把状态编码进标识符（如 `account.12.badge.rate_limited`）；计数只有首页时显示“20+”；从行进入详情时把快照带进去，首帧就有名称和状态",
+    "why": "UITest 与中文文案彻底解耦；计数不伪精确；夜里从收件箱点进详情不会先看到白屏骨架"
+   }
+  ],
+  "fatal_flaws": [
+   {
+    "proposal": "triage",
+    "flaw": "告警疲劳与隐藏风险。规则粒度细到单个账号，T1（分组）和 T3–T6（账号）同时命中同一批账号会重复出现；Tab 徽标常亮；本机“稍后隐藏 1 小时”可能在夜里把仍在恶化的事故藏掉。对限流常态化的站点，首页会长期是红色队列，心理负担很重",
+    "fix": "T1 命中时把相关账号条目折叠为该分组卡片的子项，不再单列；“稍后”只允许用于警告和提示级，如果严重度升级或影响数增加，条目立即重新出现；限流类默认合并为一条聚合项（借用 native 的聚合写法），只有错误和过载逐个列出"
+   },
+   {
+    "proposal": "triage",
+    "flaw": "收件箱的数据成本与可用性前置条件过重：两档轮询每轮约 10 个请求，T3/T5/T6 各取 page_size=50；13 条规则全部依赖 P0 数据补齐，阶段 1 之前首页无法成立。TriageCard 在 List 行内同时承载整卡点击、两个内联按钮、双向滑动和上下文菜单；“恢复状态”是 L1 且不可撤销，滚动时误触有风险",
+    "fix": "第一层改用 dashboard/stats 聚合计数，只有计数大于 0 时才拉清单，并按可见性和退避调整轮询间隔；卡片上只放一个内联主按钮，其余动作进 ⋯；整卡点击用 Button 加 router，内联按钮用 `.bordered` 并保证 44pt 间距，避免 NavigationLink 吞掉点击"
+   },
+   {
+    "proposal": "entity",
+    "flaw": "对象页和首页的骨架用 ScrollView + LazyVStack，却承诺“动作随对象走”（预览行和收件箱都能滑动、长按）。在最低 iOS 26 上，swipeActions 只在 List 中生效，`swipeActionsContainer()` 要到 iOS 27；首页靠嵌入不滚动的固定高度 List 来实现，与 05 §6.3 的警告直接冲突",
+    "fix": "对象页改为 List(.insetGrouped) 加自定义首个 Section 作摘要头（triage 和 native 都是这样做的）；首页整体改用 List；`swipeActionsContainer()` 只作为 `#available(iOS 27)` 的渐进增强"
+   },
+   {
+    "proposal": "entity",
+    "flaw": "虚构能力且动作语义混乱：告警行内和对象页都有一级动作“确认”，但后端事件状态只有 firing、resolved、manual_resolved，没有 ack；账号恢复拆成清除限流、恢复状态、解除、清除错误四个动词，对应 4–5 个接口；滑动方向把 trailing 写成右滑，§4.8 与 §5.1 对用户行“充值/退款”的滑动方向互相矛盾",
+    "fix": "告警动作改为“手动解决”（`PUT alert-events/:id/status` manual_resolved）和“静默…”；账号恢复统一为 recover-state 的“恢复状态”，clear-rate-limit 等只留在 ⋯ 菜单或不暴露；滑动统一为“前缘（右滑）= 恢复或主要业务动作，后缘（左滑）= 调度或次要动作”，并由 ActionCatalog 单测锁定"
+   },
+   {
+    "proposal": "entity",
+    "flaw": "迁移风险过高：阶段 0–1 要先建成 EntityRef/Route、EntityStore（LRU 500 加跨页同步）、EntityActionCatalog、SearchIntent、ActionHost、DraftStore、PinStore 等一整套抽象，才能出第一个可救火的屏，回归空窗最长；首页收件箱排在 KPI 之前且不封顶，营收可能被挤出首屏",
+    "fix": "先在具体类型上交付救火链和资金链，EntityRef 只作为 Route 的载荷，EntityStore 推迟到对象页稳定之后再引入；首页固定账本条为第一行（triage 做法），收件箱默认最多显示 5 条，其余合并为“另有 N 项 ›”"
+   },
+   {
+    "proposal": "native",
+    "flaw": "首屏救火信息过粗：摘要的“需要处理”只有聚合计数（如“3 个账号受限”），不说是哪个账号、什么原因，也没有“分组无可用账号”规则，而这正是用户投诉“请求失败”时真正的影响面；账号 Tab 根页是计数卡网格，首屏没有任何账号行",
+    "fix": "在聚合行下直接列出前 3 个对象名和原因摘要，并加入 triage 的 T1（`ops/account-availability` 中 `available_count == 0 && total_accounts > 0`）；摘要容器改为 List，以支持单对象条目的滑动处置；账号 Tab 根页把计数卡压成顶部一行紧凑计数，下面直接接“需处理优先”的列表"
+   },
+   {
+    "proposal": "native",
+    "flaw": "误操作与验证路径偏弱：详情页调度用 Toggle 即时写入；用户行后缘滑动直接放“禁用/启用”，和充值在同一行；二次验证用带输入框的 alert，验证码自动填充、粘贴和就地报错都不可靠，失败后需要重新走确认",
+    "fix": "禁用用户只放在长按菜单的分隔线之后（L1 确认），滑动只放打开充值/退款 sheet 这类不写入的动作；Toggle 保留，但等待期间显示进行中并支持撤销；在 sheet 内的流程统一改用就地展开的 StepUpInline（triage §4.9），alert 只用于不在 sheet 中的场景"
+   }
+  ]
+ },
+ {
+  "judge": "engineer",
+  "scores": [
+   {
+    "proposal": "triage",
+    "task_efficiency": 9,
+    "first_screen_value": 9,
+    "cognitive_load": 6,
+    "native_feasibility": 8,
+    "future_extensibility": 8,
+    "migration_risk": 5,
+    "root_cause_fix": 9,
+    "rationale": "效率与首屏：今日页把逐对象的收件箱卡（对象、状态、原因、倒计时、内联“测试/恢复状态”）和固定在首行的账本条放在一起。救火 0 次点击就能看到“哪个坏了、为什么”，1–2 次点击完成处置。队列导航 ⌃⌄ 用替换栈顶实现，充值有快捷金额，日志靠 token 对象筛选，都是三案中最快的路径。根治：13 条规则逐条写明数据源、消失条件和依赖能力，把 R4 的补数据变成收件箱的准入条件；“读不到不等于没有”杜绝了假的“一切正常”；只暴露 recover-state 一个恢复动作（已核实 ratelimit_service.go RecoverAccountAfterSuccessfulTest/RecoverAccountState 覆盖 error 和全部可恢复运行态），并核实告警只有 resolved/manual_resolved、没有确认操作，没有虚构能力。可行性：全程用 List（今日 insetGrouped，列表 plain），swipe/editMode/contextMenu/accessibilityActions 都是原生；toolbarTitleMenu + navigationSubtitle 切站，iOS 26 可用。扣分点：一是 .searchTabSelection 一选中就弹键盘，挡住日志所在的目录（文中已列为 V1 验证项）；二是 SelectionActionBar 用 safeAreaBar+glass 叠在浮动 Tab 栏上方，不如 Mail 式 bottomBar 原生；三是卡片里同时有内联按钮、整卡点击、滑动和长按，命中区域需要仔细处理。认知负荷：“稍后”、“最近恢复”、队列箭头、T1 和 T3–T6 指向同一批账号造成的重复，以及徽章顺序与分诊严重度并存，概念偏多。迁移风险：新增 TriageEngine/TriageStore 两档轮询（每轮约 10 个请求），并取消了自动刷新开关；约 80% 的 UITest 要重写；好在 Core 先行、分阶段推进，详情页仍是 List 范式，离现状不远。"
+   },
+   {
+    "proposal": "entity",
+    "task_efficiency": 7,
+    "first_screen_value": 7,
+    "cognitive_load": 4,
+    "native_feasibility": 5,
+    "future_extensibility": 9,
+    "migration_risk": 3,
+    "root_cause_fix": 7,
+    "rationale": "扩展性最好：EntityRef/Route 是唯一的导航值，NavigationPlan 按角色和开关推导 Tab，EntityActionCatalog 按 kind×condition×role 推导动作；同一个搜索组件复用为全局搜索、ObjectPicker 和日志 token；快照首帧；待核对操作也作为对象（pendingOp）。这套结构天然支持 vendor/普通用户、深链、多窗口和拖放。可行性有硬伤：对象页 EntityPageScaffold 和首页都用 ScrollView+LazyVStack，而 swipeActions 在 iOS 26 只在 List 里生效（swipeActionsContainer 要 iOS 27，见 03 §6），所以对象页里的账号预览行做不到“动作随对象走”的滑动；首页收件箱靠嵌入 .scrollDisabled 的固定高度 List，Dynamic Type 下必然出问题；标题要靠 onScrollGeometryChange 自己控制显隐，属于反原生的 hack。语义上有失守：告警的“确认”是虚构能力（已核实 ops_alerts_handler.go 只接受 resolved/manual_resolved，状态只有 firing/resolved/manual_resolved），违反“不得虚构后端能力”；同时暴露清除限流、恢复状态、解除、清除错误四个恢复动词，而 recover-state 一个接口就能覆盖，徒增认知负担，也与 Web 不一致。认知负荷最高：置顶☆、最近、范围分段、筛选芯片加筛选 sheet 两套筛选、对象页三段、关系芯片和关系行两种关系、意图识别改判。效率：搜索两步到对象很强，但首页收件箱多为聚合条目，对象页层级也更深。迁移风险最高：所有页面换成新骨架，还要加 EntityStore（LRU 500 缓存和失效）和 ActionHost，离现有 List 代码最远。"
+   },
+   {
+    "proposal": "native",
+    "task_efficiency": 7,
+    "first_screen_value": 7,
+    "cognitive_load": 8,
+    "native_feasibility": 9,
+    "future_extensibility": 7,
+    "migration_risk": 7,
+    "root_cause_fix": 7,
+    "rationale": "原生契合度最高：按内容类型选容器（摘要卡用 ScrollView，集合用 plain List 的三行行，对象用 insetGrouped List 加英雄状态卡，Form 只用于录入），只在不需要滑动的地方用 ScrollView。选择模式和 Mail 一样隐藏 Tab 栏，用 ToolbarItemGroup(.bottomBar)。筛选统一为 token 加 searchSuggestions/searchCompletion；切站用 Menu(primaryAction:) 头像。API 都已存在，几处版本差异写了 #available 降级。数据声明经核实属实：lite 列表 dto.AccountListItem 含 rate_limit_reset_at/overload_until/temp_unschedulable_*；settings/public 含 channel_monitor_mode/site_name/site_logo。认知负荷最低，因为用的都是 Apple 自家 App 的隐喻；账号根页的计数卡取自同一筛选值的 total，计数和列表同源。弱点在一号任务：摘要里的“需要处理”只有聚合计数（“3 个账号受限 ›”），首屏看不到具体是哪个账号、什么原因，也没有内联处置；账号 Tab 又多了一层计数卡网格；待核对只给“查看最新余额”，没有像 triage 那样列出 balance-history 候选流水。二次验证改用带输入框的 alert：错误提示和重试只能靠关掉再弹，与确认对话框连弹也别扭。UndoManager 摇一摇可以在 toast 消失后撤销服务端写入，结果不可预期。.automatic 激活方式在 iOS 27.2（用户自己的手机）上会退化成内联 Tab，文中已接受这一点。迁移风险最低：阶段 0 界面不动、35 个 UITest 保持可跑，详情页沿用 List 范式，新增的抽象最少。"
+   }
+  ],
+  "recommended_backbone": "triage。它对用户确认的第一高频任务（救火）给出最直接的首屏解：逐对象、有原因、可内联处置，账本条固定在首行同时兼顾营收。R4 数据依赖逐规则绑定到收件箱，关键后端行为都经过源码核实（recover-state 统一恢复、测试成功自动恢复、告警没有确认操作）。全程基于 List，iOS 26 原生可行。主干采用 triage 的 IA 和收件箱，但要用 native 的容器纪律和交互细节给它减负：选择模式改用 bottomBar 并隐藏 Tab 栏、营收英雄卡、计数与列表同源、阶段 0 界面不动；再嫁接 entity 的动作注册表和统一搜索/选择器组件，提升一致性和扩展性。entity 不适合做主干：它的 ScrollView 骨架在 iOS 26 上直接否定了自己的核心卖点，迁移成本也最高。",
+  "grafts": [
+   {
+    "from": "native",
+    "idea": "按内容类型选容器：集合和详情一律用 List，ScrollView 只给不需要滑动的摘要卡；选择模式改为 Mail 式，用 .toolbarVisibility(.hidden, for: .tabBar) + ToolbarItemGroup(placement: .bottomBar) + 多选后的 contextMenu(forSelectionType:)",
+    "why": "triage 的 SelectionActionBar 用 safeAreaBar+.glass 叠在 iOS 26 浮动玻璃 Tab 栏上方，两层玻璃相邻，拥挤也不原生；bottomBar 是系统自带的同等能力，不需要自定义玻璃"
+   },
+   {
+    "from": "native",
+    "idea": "营收英雄卡：大数字、较昨日同时段、昨日全天、今日柱状叠昨日虚线、差额 ⓘ，收件箱不超过 2 条时替换 triage 的 1.5 行账本条，收件箱多时仍收成账本条",
+    "why": "triage 的账本条要点一下才能看到趋势，native 的卡片 0 次点击就回答“今天赚了多少、比昨天如何”，与 triage 的“账本条不被挤出首屏”护栏可以兼容"
+   },
+   {
+    "from": "native",
+    "idea": "账号状态计数统一取自 admin/accounts?status=…&page_size=1&lite=true 的 total，作为“需处理”分区标题和 FilterBar 胶囊的计数",
+    "why": "计数和列表同源，避免 dashboard/stats（可能 stats_stale）与列表数量不一致，吸取了 RN 端计数出错的教训"
+   },
+   {
+    "from": "native",
+    "idea": "直接解码 settings/public 的 channel_monitor_mode 来决定渠道页走 V1 还是 V2，代替 triage 的“试探后再降级”",
+    "why": "已核实 dto/settings.go:314/441 有这个字段；按开关推导，不用在运行期碰错误码"
+   },
+   {
+    "from": "native",
+    "idea": "阶段 0 只做 Core 和数据、界面不动，现有 35 个 UITest 继续跑；AXID 枚举放进 Sub2Core 供 UITest 链接，查询用 descendants(matching: .any)，不依赖控件类型",
+    "why": "降低 triage 约 80% UITest 重写期间的回归空窗；token 替换 TextField 之类的控件换型不会让测试整体失效"
+   },
+   {
+    "from": "entity",
+    "idea": "EntityActionCatalog：(kind, condition, role) → [ActionSpec(verb, symbol, level, placements, api)]，与 triage 的 ConfirmPolicy 合并，收件箱卡、行滑动、长按、详情问题头卡、批量条都从同一张表渲染",
+    "why": "同一账号在任何地方的动作、档位、措辞都一致；vendor 按权限档裁剪也只改这一张表，正好补上 triage 动作分散在各屏的问题"
+   },
+   {
+    "from": "entity",
+    "idea": "一个搜索组件三处复用：全局搜索、ObjectPicker（统计范围、分组多选）、日志 token 联想；配 SearchIntent.classify 识别请求 ID、邮箱、纯数字编号",
+    "why": "triage 的 GlobalSearch、ObjectSearchProvider、ObjectPicker 是三个组件，合并能减少实现量；粘贴请求 ID 直达的路径也更稳"
+   },
+   {
+    "from": "entity",
+    "idea": "EntityRef 快照首帧：行把名称和主状态带进详情页，首帧直接渲染头部，其余分区再出骨架；集合页提供 .accessibilityRotor(\"需处理账号\")",
+    "why": "消除 push 后的白屏骨架；转子让 VoiceOver 用户在长列表里直接跳到问题账号，成本很低"
+   },
+   {
+    "from": "entity",
+    "idea": "accessibilityIdentifier 编码状态码（如 account.12.badge.rate_limited），并用 lint 限制 accessibilityIdentifier 字面量只能出现在 A11yID 单文件中",
+    "why": "UITest 断言状态而不是中文文案，从结构上切断 R2 契约文案的回流"
+   },
+   {
+    "from": "entity",
+    "idea": "资金复核作为 sheet 内 push 的“复核”步骤，最终按钮用 destructive 写明金额，不再弹第二个对话框（作为附录 Q5 的备选）",
+    "why": "triage 的 sheet 加 confirmationDialog 是双重确认；复核页把站点、对象、金额、前后余额结构化展示，比只能放纯文本的 confirmationDialog 信息更完整"
+   }
+  ],
+  "fatal_flaws": [
+   {
+    "proposal": "entity",
+    "flaw": "对象页 EntityPageScaffold 和首页都基于 ScrollView+LazyVStack。iOS 26 上 swipeActions 只在 List 中生效（swipeActionsContainer 要 iOS 27），editMode 选择也依赖 List，所以“动作随对象走”在对象页预览行（分组详情的组内账号、记录预览）上做不到。首页收件箱靠嵌入固定高度、.scrollDisabled 的 List，在 Dynamic Type 和条目数变化下高度必然出错",
+    "fix": "对象页和首页改为 List(.insetGrouped)：摘要头、问题条、主操作各占一个 Section 并 .listRowBackground 透明；分段放在 Section header 或 safeAreaBar(edge: .top)；iOS 27 再用 #available 给 swipeActionsContainer 做增强。去掉 onScrollGeometryChange 驱动的标题显隐，统一用 inline 标题"
+   },
+   {
+    "proposal": "entity",
+    "flaw": "虚构后端能力：告警事件的“确认（一级）”出现在收件箱内联动作和告警对象页。已核实 ops_alerts_handler.go 的 UpdateAlertEventStatus 只接受 resolved/manual_resolved，ops_alert_models.go 的状态只有 firing/resolved/manual_resolved，后端没有确认状态，违反简报硬约束",
+    "fix": "删除“确认”。告警只保留“手动解决”（PUT alert-events/:id/status，manual_resolved，L1）和“静默…”（POST alert-silences，带时长选项，L2）；需要“已知悉”效果时，参照 triage 只做“在本机隐藏 1 小时”的本地状态，并在文案上明说"
+   },
+   {
+    "proposal": "entity",
+    "flaw": "恢复动词拆成清除限流、恢复状态、解除临时不可调度、清除错误四个，并分别接入 clear-rate-limit/clear-error/DELETE temp-unschedulable。已核实 RecoverAccountState 会清除 error 和全部可恢复运行态，Web 也只有“恢复状态”一个入口；多个动词让用户要先判断用哪个，滑动和菜单也随状态变化，增加误操作",
+    "fix": "统一成“恢复状态”（POST :id/recover-state），清除错误等细分接口不进 v1；问题条只显示一个主恢复按钮和“测试”"
+   },
+   {
+    "proposal": "native",
+    "flaw": "一号任务的首屏只有聚合信息：摘要“需要处理”只写“3 个账号受限 ›”，看不到对象名和原因，也不能内联处置；账号 Tab 根页又先放一层计数卡网格。救火时要多点一到两次才能知道坏在哪里，与 R5“异常可直达处置”的根治目标不完全一致",
+    "fix": "嫁接 triage 的逐对象收件箱：每条规则展示前 3 个对象（名称、状态词、原因首行、倒计时、内联“测试/恢复状态”），超过的合并为“查看全部”；账号根页把计数卡改为“需处理”分区标题和筛选胶囊上的计数，列表直接列出需处理账号"
+   },
+   {
+    "proposal": "native",
+    "flaw": "二次验证用带 TextField 的 alert：alert 点任何按钮都会关闭，验证码错误只能关掉重弹，无法就地报错或重发；L1/L2 confirmationDialog 后接 alert 再回到确认，链路容易乱；alert 里 oneTimeCode 自动填充和输满 6 位自动提交的行为也不可靠",
+    "fix": "改用 triage 的 StepUpInline：在当前 sheet 内就地展开或 push 验证步骤，错误显示在原位，验证通过后回到原按钮重新确认；没有 sheet 的场景（如滑动触发）先打开一个 medium 高度的小 sheet 承载验证"
+   },
+   {
+    "proposal": "native",
+    "flaw": "把服务端写入注册到 UndoManager，toast 消失后仍可摇一摇撤销，直到下一次写入。用户可能在别的页面误触撤销，反向修改一个已经不在视野里的账号调度，而撤销本身又是一次可能结果不明的远程写入",
+    "fix": "撤销只在 toast 存续期间且在发起操作的视图可见时有效；iPhone 上不注册摇一摇撤销，iPad 的 ⌘Z 只作用于当前焦点页面的最近一次操作"
+   },
+   {
+    "proposal": "triage",
+    "flaw": "轮询请求过多：今日页每轮约 10 个请求（60s/180s 两档），账号页“需处理”再并行 3 路 page_size=50 外加可用性接口，同时取消了“前台自动刷新”开关。大站点或弱网下耗电，并可能触发面板限流（文中风险表已列出，但没给出结构性解法）",
+    "fix": "先取计数再取明细：先用 dashboard/stats 计数，运维开启时再用 ops/account-availability；某个状态计数大于 0 才拉对应的 lite 列表，page_size 降到 20；数据未变化（按 updated_at 或 total 判断）时跳过明细请求；在“站点与账户”中保留低频或省电刷新偏好"
+   },
+   {
+    "proposal": "triage",
+    "flaw": "搜索 Tab 用 .tabViewSearchActivation(.searchTabSelection)，一选中就聚焦并弹出键盘，而 iPhone 上日志的家正是这个 Tab 根页的目录，键盘会挡住目录，日志可发现性受损。T1 分组无可用账号与 T3–T6 指向同一批账号时会重复出现，加剧红色疲劳",
+    "fix": "目录里的“日志”同时作为今日页运行概况的一行和收件箱 T8 的落点（文中已有其一），V1 不通过就退回 .automatic；T1 触发时把属于该分组的 T3–T6 账号条目折叠到 T1 卡内，只显示“5 个账号：3 限流、2 错误”"
+   }
+  ]
+ },
+ {
+  "judge": "product",
+  "scores": [
+   {
+    "proposal": "triage",
+    "task_efficiency": 9,
+    "first_screen_value": 9,
+    "cognitive_load": 6.5,
+    "native_feasibility": 8,
+    "future_extensibility": 8.5,
+    "migration_risk": 6,
+    "root_cause_fix": 9,
+    "rationale": "说明：cognitive_load 分越高表示认知负担越轻。救火 0–2 次点击（收件箱卡片内联“测试/恢复状态”+ ⌃⌄ 队列），充值 5 步，营收 0 步，渠道 1 步，排障 2–3 步，四个高频任务全面最优。首屏“账本条 + ≥3 条带原因和倒计时的待处理项”，信息量最大。数据层最严谨：T1–T13 每条规则都写明数据源、触发条件、消失条件和能力依赖，并标注后端行号，抽查均属实，例如告警只接受 resolved/manual_resolved、recover-state 统一恢复、sort_by=expires_at。它主动不做 ack 和“配额超限计数”，避免重蹈 RN“只看第一页”的错误。与 Web 一致性高：徽章优先级照搬 Web，严重度另行定义；StatusVocabulary 与 Web zh 语言包做快照比对。防止契约文案回流的机制最完整：禁词 lint、“。结尾且超过 20 字必须进 HelpCatalog”、rawValue 与 footnote 限制、destructive 只能经 ConfirmPolicy、ACCEPTANCE 条款逐条映射到 Core 测试名。收纳规则 7 条，并为订阅、兑换码、订单、代理、公告逐一指定宿主。ShellSpec 同时推导 Tab、目录和分诊规则，可直接延伸到 vendor 和普通用户（U1–U5）。扣分项：TriageEngine 每轮约 10 个请求，T1 与 T3–T6 有重叠，严重度和徽章是两套概念，学习成本偏高；决定 #6“测试即恢复调度”判断有误（见致命缺陷）；搜索 Tab 自动弹出键盘，会削弱目录的可发现性；日志分段名与 Web 不一致。"
+   },
+   {
+    "proposal": "entity",
+    "task_efficiency": 7,
+    "first_screen_value": 7.5,
+    "cognitive_load": 5,
+    "native_feasibility": 6,
+    "future_extensibility": 9,
+    "migration_risk": 4,
+    "root_cause_fix": 7.5,
+    "rationale": "长期结构在三案中最好：EntityRef、Route、EntityKind 统一了导航值；EntityActionCatalog 以（kind, condition, role）推导出动作、级别、位置和接口；NavigationPlan 同时推导 Tab、目录和搜索范围；EntityStore 写后回写缓存，保证列表、详情和收件箱一致。新增模块（代理、订阅、订单）只需新增一个 kind，加一张动作表。EntityPageScaffold 和 EntityCollectionView 不提供脚注参数，accessibilityIdentifier 编码状态码而不是文案，这是从结构上防止契约文案回流的最强手段。pendingOp 作为对象、ObjectPicker 一个组件三处复用，也都值得保留。扣分项：一是虚构了后端不存在的“确认（ack）告警”；二是恢复动作拆成“清除限流/解除/清除错误/恢复状态”四个动词，偏离 Web 统一的“恢复状态”，认知负担和接口面都变大；三是首页靠 ScrollView 内嵌固定高度的 List 实现滑动，对象页自绘 ScrollView 骨架，原型风险高；四是搜索每次按键扇出 4–5 路请求，纯数字还会并发 3 个单取请求；五是 Route、EntityStore、对象骨架要同时替换全部导航，迁移面最大；六是 lite 字段等多处仍写着“待验证”（实际 lite 已返回）。救火 2 步、充值 5–6 步，略逊于 triage。"
+   },
+   {
+    "proposal": "native",
+    "task_efficiency": 7.5,
+    "first_screen_value": 6.5,
+    "cognitive_load": 8.5,
+    "native_feasibility": 9,
+    "future_extensibility": 6,
+    "migration_risk": 7.5,
+    "root_cause_fix": 7,
+    "rationale": "原生可行性和学习成本最好：全部套用 Apple 自家 App 的容器（健康式摘要卡、邮件式三行行、查找式英雄卡、提醒事项式计数卡）；调度用 Toggle 加 UndoManager；二次验证用 alert，保证同一时间只有一个 sheet；站点头像使用 Menu(primaryAction:)。数据核实也较扎实：lite 列表确实带限时运行字段（dto.AccountListItem）；recover-state 返回最新账号；channel_monitor_mode 建模为 off/v1/v2；计数取 status=…&page_size=1 的 total，与列表同源，不会算错。与 Web 的命名一致性最好：错误请求、用量明细、上游错误、测试连接、刷新令牌均照搬 Web。扣分项：首屏只给聚合计数，账号 Tab 根页又多出一层计数卡，“哪个账号、什么原因、何时恢复”要再下钻；未来扩展只有 AppModule 注册表和 ShellLayout，缺少按角色裁剪的动作表，每个对象页各自手写，长期容易漂移；vendor 外壳虚构了“监控”Tab（vendor 白名单里没有 channel-monitor）；平台不着色，偏离 Web 的平台色心智（04 §4.1#10）；白名单允许“不会重复入账”这类机制句，“前台自动刷新”开关也还在，对契约回流的防护略弱；T1-a 的“2 步救火”同样存在恢复后仍暂停的问题。迁移风险最低：抽象最少，一直沿用 List。"
+   }
+  ],
+  "recommended_backbone": "triage。从产品架构角度看，它在“数据真实可得”“Web 语义一致”“防止契约文案回流”“模块收纳规则”四项上都最扎实：每条分诊规则都绑定已核实的接口，并定义了消失条件；徽章优先级照搬 Web，并与 Web zh 语言包做快照比对；文案只有三个来源，并配 lint 和 ACCEPTANCE→Core 测试映射；ShellSpec 由“角色 + 能力”推导出 Tab、目录和分诊规则，管理端、vendor 和普通用户可以共用 TodayView 骨架；未来模块都已指定宿主，目录最多三组，另加一组 Web。四个高频任务的路径也最短。建议以它的信息架构和交互规则为主干，在 Core 层嫁接 entity 的对象与动作模型（EntityRef、EntityStore、EntityActionCatalog、无脚注骨架），借此补齐长期扩展性；再嫁接 native 的 Web 命名、channel_monitor_mode 能力建模和服务端计数，修正 triage 的少数偏差。entity 的长期模型更强，但虚构了 ack，迁移风险也最高，不宜当主干；native 最顺手，但首屏救火信息不足，扩展骨架较薄。",
+  "grafts": [
+   {
+    "from": "entity",
+    "idea": "在 Sub2Core 引入 EntityActionCatalog：(kind, condition, role) → [ActionSpec(id, 动词, 符号, 确认级别, 摆放位置, 接口)]，ConfirmPolicy 的级别从这里读取；滑动、长按、详情页主操作和批量操作条都只渲染这一份表",
+    "why": "vendor 权限档（account_manage；bulk-update、batch-refresh、batch-clear-error 对 vendor 一律排除，见 vendor_routes.go:150-161）以及未来的订阅、代理、订单动作都可以靠增加数据接入，不必改视图；同时从结构上保证同一对象在任何地方出现时动作一致，避免各页面再各写一套"
+   },
+   {
+    "from": "entity",
+    "idea": "导航值统一为 EntityRef（kind + id + 快照，快照不参与 Hashable），配合按会话代际隔离的 EntityStore 写回缓存；triage 的 Route 枚举收敛为 entity/collection/records/analytics/module 五类",
+    "why": "写操作成功后，收件箱、列表、详情、关联行同步变化；从行进入详情时首帧就有名称和状态；深链和推送 payload 天然可用；新模块不会让 Route 枚举无限增长"
+   },
+   {
+    "from": "entity",
+    "idea": "骨架组件（详情页、集合页、编辑表单）不提供 footer/caption/note 参数，说明文字只能通过 HelpTip(topic:) 加入；accessibilityIdentifier 编码状态码（例如 account.12.badge.rate_limited），UITest 不断言任何中文",
+    "why": "把防止契约文案回流从“lint 拦截”升级为“结构上没有地方写”；测试和界面文案彻底解耦，以后改用词不会打断回归"
+   },
+   {
+    "from": "entity",
+    "idea": "把“待核对的写操作”（pendingOp）做成一等对象：可以被搜索，有对象页（核对、重试原请求、标记已在 Web 处理），跨站点的待核对项也统一呈现",
+    "why": "triage 的 T11、T12、PendingAccessory、站点与账户页里的待核对项是同一实体的四种呈现，统一后口径一致，也便于将来接推送深链"
+   },
+   {
+    "from": "entity",
+    "idea": "ObjectPicker 就是限定单一范围的全局搜索结果组件，同时用于全局搜索、日志 token 联想和统计分析的作用域选择",
+    "why": "一个组件、一套接口（search-users、search-api-keys、accounts?search、groups/all）、三处复用，从根上杜绝手输 ID 回流"
+   },
+   {
+    "from": "native",
+    "idea": "日志三个来源和动作的命名照搬 Web：错误请求 / 用量明细 / 上游错误、测试连接、刷新令牌；这些词纳入 StatusVocabulary 与 Web zh 语言包的快照比对",
+    "why": "triage 的“请求/失败”、entity 的“失败请求/刷新凭据”都偏离了 04 §4.1#17 的 Web 心智，在两端之间切换的管理员需要同一套词"
+   },
+   {
+    "from": "native",
+    "idea": "Capabilities 显式建模 channel_monitor_mode（off/v1/v2，字段已在 dto/settings.go 中核实）和 FlagState.unknown；连接时 3 秒超时，回落到该站点上次缓存的能力；Tab 集合只在会话建立时计算",
+    "why": "避免 triage 用“v2 读取失败再回退 v1”这种靠失败推断的方式，也避免 Tab 闪烁或出现空壳 Tab"
+   },
+   {
+    "from": "native",
+    "idea": "账号列表“需处理/全部”分段和各状态筛选的计数，统一取 GET admin/accounts?status=…&page_size=1&lite=true 返回的 total（已核实 lite 的 AccountListItem 带 rate_limit_reset_at、overload_until、temp_unschedulable_*、extra）",
+    "why": "计数与列表同源、口径精确，同时解决 entity 关于 lite 的“待验证”；也让 triage“需处理”分区中“还有 N 个”的数字有可靠来源"
+   },
+   {
+    "from": "native",
+    "idea": "可逆的 L0/L1 写入同时注册 UndoManager（摇一摇、iPad ⌘Z），toast 消失后仍可撤销，切换站点时清空撤销栈",
+    "why": "几乎零成本获得系统级撤销，和 toast 撤销互为补充，符合“可逆不打扰”的确认分级"
+   },
+   {
+    "from": "native",
+    "idea": "搜索 Tab 采用 .automatic 激活：空闲时先显示目录，点搜索框才弹出键盘；iOS 26.x 与 27.2 的外观差异集中放进 ShellCompat",
+    "why": "日志、统计、分组、告警必须完整实现但不占 Tab，目录的可发现性比选中即弹键盘更重要（triage 自己也把这一点列为验证项 V1）"
+   }
+  ],
+  "fatal_flaws": [
+   {
+    "proposal": "entity",
+    "flaw": "虚构了后端不存在的“确认（ack）告警”能力。收件箱告警规则的行内动作、告警行右滑、一级确认清单和告警对象页都提供“确认”，但 PUT ops/alert-events/:id/status 只接受 resolved 和 manual_resolved（G:/weixinProject/sub2/backend/internal/handler/admin/ops_alerts_handler.go:444-446），违反“不得虚构后端能力”这条硬约束",
+    "fix": "删除“确认”。告警动作改为三项：手动解决（L1，status=manual_resolved）、静默…（L2，POST alert-silences，提供 30 分钟 / 1 小时 / 今天结束三个 until 选项）、查看该分组的需处理账号。同时在 EntityActionCatalog 单测中断言：每个 ActionSpec 都必须映射到 02 能力盘点中存在的路由"
+   },
+   {
+    "proposal": "entity",
+    "flaw": "恢复动作被拆成清除限流、解除、清除错误、恢复状态四个动词和四个接口，偏离 Web 统一的“恢复状态”。而 recover-state 本身已经会清除错误、限流、过载、临时不可调度和模型限流，并返回最新账号（service/ratelimit_service.go:2163-2233，account_handler.go:1350-1383）。另外，“过载账号点击后进入全部并按状态排序”依赖的是服务端不存在的排序",
+    "fix": "主动作统一为“恢复状态”，调用 recover-state，用返回值直接回写 EntityStore；细粒度接口不对外暴露。过载清单只在开启运维监控时使用 ops/account-availability；未开启时只显示计数，且不可点击"
+   },
+   {
+    "proposal": "entity",
+    "flaw": "首页靠 ScrollView 内嵌固定高度、禁止滚动的 List 来获得滑动操作，对象页又是自绘的 ScrollView + LazyVStack 骨架。这种做法在 Dynamic Type 和条目数变化下很脆弱，丢掉了 List 的原生能力，下一轮在 Mac 上原型化的风险最高",
+    "fix": "首页和对象页改用 List(.insetGrouped) 加 .listSectionSpacing(.compact)，摘要头放在第一个 Section（配 listRowBackground）。EntityPageScaffold 只保留“没有脚注插槽”这一约束，不再自绘滚动容器"
+   },
+   {
+    "proposal": "triage（三案共性，triage 的决定 #6 直接建立在这个误判上）",
+    "flaw": "错误账号经“测试成功”或 recover-state 恢复后，仍然不参与调度。原因是 SetError 会同时把 schedulable 置为 false（repository/account_repo.go:1514-1520），而 ClearError 只改 status 和 error_message（:1900-1905）。triage 声称“测试一个动作就同时恢复调度”；T3 的消失条件是“status 不再是 error”，账号会因此悄悄落进 unschedulable（暂停），离开收件箱，所谓闭环并不成立。native 的 T1-a“2 步救火”、entity 的 T1c 也同样不成立",
+    "fix": "AccountCondition 新增一个派生状态“错误恢复后仍暂停”：本会话内对 error 账号执行过恢复，且 schedulable=false。收件箱的“最近恢复”里把它显示为“已恢复 · 仍暂停调度 [启用调度]”，不算已闭环。error 场景下提供组合动作“恢复并启用调度”（先 recover-state 再 schedulable，L1，调度部分可撤销）。测试 sheet 的文案改为“测试通过 · 仍暂停调度”，去掉“人为暂停”这个错误归因"
+   },
+   {
+    "proposal": "native",
+    "flaw": "未来 vendor 外壳里出现了不存在的能力：vendor 的“监控”Tab 依赖 monitorView 加渠道监控，但 vendor 白名单里没有任何 channel-monitor 或 ops 路由，monitor_view 只放行 usage 和 dashboard 的 trend、models、groups（server/middleware/vendor_routes.go:98-150）。另外，bulk-update、batch-refresh、batch-clear-error 对 vendor 一律排除，而三案的批量操作条都没有按角色裁剪",
+    "fix": "ShellLayout/NavigationPlan 推导 vendor 时，以白名单为唯一事实来源，并为三种角色加单测：vendor 没有监控 Tab；vendor 的日志只有“用量明细”一个来源；动作注册表按角色隐藏批量动作（不是置灰）"
+   },
+   {
+    "proposal": "native",
+    "flaw": "救火信息不在首屏。摘要的“需要处理”只给聚合计数（例如“3 个账号受限”），账号 Tab 根页是 4 张计数卡，具体哪个账号、什么原因、何时恢复都要再下钻一层才能看到。对用户确认的头号高频任务来说，原因和处置动作都没有出现在首屏",
+    "fix": "摘要嫁接 triage 的规则化收件箱：单个对象的条目带原因、倒计时和内联动作，同类超过 3 个再合并。账号 Tab 根页改为“需处理 N / 全部 M”分段，需处理分区直接列出账号行；计数卡降级为分段上的计数"
+   },
+   {
+    "proposal": "triage",
+    "flaw": "搜索 Tab 兼作目录，又采用 .searchTabSelection，选中 Tab 就弹出键盘、遮住目录。日志、统计、分组、告警（用户要求必须完整实现）的可发现性因此要靠原型验证 V1 来兜底。此外，日志分段名“请求/失败/上游错误”偏离 Web 的“用量明细/错误请求/上游错误”（04 §4.1#17）",
+    "fix": "搜索 Tab 改用 native 的 .automatic 激活（先看到目录，点搜索框才聚焦），iPad 侧栏的“工具”分组保持不变。日志分段名和入口名改为 Web 原词，并加入 StatusVocabulary 的快照比对"
+   }
+  ]
+ }
+]

@@ -1,0 +1,407 @@
+/* 统计分析（v-analytics）：卡片流 / 分段 / 报表式，更多图表的列表 / 单图翻页 / 目录网格。全部挂在 .lay-main 下，类名前缀 ax-。
+   颜色只用调色板变量：图表主体是石墨灰阶（实际 = 灰柱，选中 / 当前 = 墨色，标准 = 圆点线），分类最多三级灰 + 斜纹 / 描边；
+   只有错误类图表用状态色，颜色由 codeTone 决定，和状态码徽章同一条规则（429 琥珀，其余失败含 504、529 红，业务限制灰）。 */
+
+/* ---------- figures, legend, deltas ---------- */
+.lay-main .ax-fig { font-family: "SF Pro Display", "Bahnschrift", sans-serif; font-stretch: 75%; font-weight: 500; letter-spacing: -.01em; line-height: 1.05; color: var(--ink1); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lay-main .ax-fig-xl { font-size: 44px; margin-top: 4px; }
+/* second-rank figures (利润明细, RPM / TPM): one step below the billing card's 44, so the page keeps one lead number */
+.lay-main .ax-fig-l { font-size: 34px; margin-top: 3px; }
+.lay-main .ax-hero { padding-top: 2px; }
+.lay-main .ax-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 18px; }
+.lay-main .ax-hero-label { font-size: 13px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lay-main .ax-hero-sub { margin-top: 5px; font-size: 13px; color: var(--ink2); min-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-hero-sub b { color: var(--ink1); font-weight: 600; }
+.lay-main .ax-delta { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--ink2); }
+.lay-main .ax-delta .num { color: var(--ink1); font-weight: 600; }
+.lay-main .ax-arrow { display: inline-flex; color: var(--ink2); }
+.lay-main .ax-arrow.down svg { transform: rotate(180deg); }
+.lay-main .ax-legend { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink2); white-space: nowrap; flex: none; }
+.lay-main .ax-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+/* keys follow the chart marks: grey bar = actual, round-dot line = standard (home's "昨天" is a dashed line) */
+.lay-main .ax-key { display: inline-block; flex: none; vertical-align: middle; }
+.lay-main small > .ax-key { margin-right: 5px; }
+.lay-main .ax-key-bar { width: 6px; height: 10px; border-radius: 1px; background: var(--chart-bar); }
+.lay-main .ax-key-std { width: 14px; height: 2px; background: radial-gradient(circle, var(--ink2) 0 1px, transparent 1.3px) 0 50% / 4px 2px repeat-x; }
+
+/* ---------- range bar ---------- */
+.lay-main .ax-range { margin: 2px 0 12px; }
+.lay-main .ax-range-cap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 8px; margin-top: 2px; font-size: 13px; color: var(--ink2); }
+.lay-main .ax-cap-btn { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 4px 0 0; color: var(--ink2); font-size: 13px; text-align: left; min-width: 0; }
+.lay-main .ax-cap-btn > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-cap-btn svg { flex: none; color: var(--accent); }
+.lay-main .ax-cap-btn:hover { color: var(--ink1); }
+.lay-main .ax-filter-chip { height: 30px; padding: 0 10px; font-size: 13px; gap: 4px; }
+.lay-main .ax-filter-chip .mono { font-size: 12.5px; }
+
+/* menu chip + popover (SwiftUI Menu) */
+.lay-main .ax-menu-btn { height: 32px; padding: 0 10px 0 12px; gap: 4px; font-size: 14px; font-weight: 600; flex: none; }
+.lay-main .ax-menu { left: auto; transform: none; width: 220px; animation: ax-pop .18s ease-out; transform-origin: top right; }
+.lay-main .ax-menu-title { padding: 8px 12px 2px 38px; font-size: 12px; font-weight: 600; color: var(--ink2); }
+@keyframes ax-pop { from { opacity: 0; transform: scale(.94); } }
+
+/* ---------- charts ---------- */
+.lay-main .ax-chart { padding-top: 10px; }
+.lay-main .ax-plot-row { display: flex; gap: 6px; }
+.lay-main .ax-plot { position: relative; flex: 1; min-width: 0; }
+.lay-main .ax-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.lay-main .ax-grid { stroke: var(--hairline); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.lay-main .ax-base { stroke: var(--rule-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.lay-main .ax-bar { fill: var(--chart-bar); }
+.lay-main .ax-bar.on { fill: var(--chart-bar-now); }
+.lay-main .ax-std { fill: none; stroke: var(--ink2); stroke-width: 2; stroke-dasharray: .1 4; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.lay-main .ax-line { fill: none; stroke: var(--chart-main); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.lay-main .ax-area { fill: var(--ink1); opacity: .07; }
+.lay-main .ax-svg .dimmed { opacity: .3; }
+.lay-main .ax-plot-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--ink2); }
+/* one tap target over the whole plot (.chartXSelection): x picks the bucket. The slots inside a bar chart are only the hover guide. */
+.lay-main .ax-hit { position: absolute; inset: 0; width: 100%; height: 100%; display: flex; padding: 0; cursor: crosshair; }
+.lay-main .ax-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.lay-main .ax-slot { flex: 1; height: 100%; border-radius: 3px; }
+.lay-main .ax-slot:hover { background: var(--hover); }
+.lay-main .ax-gutter { position: relative; width: 36px; flex: none; }
+.lay-main .ax-gutter span { position: absolute; left: 0; transform: translateY(-50%); font-size: 12px; line-height: 14px; color: var(--ink3); white-space: nowrap; }
+.lay-main .ax-axis { position: relative; height: 16px; margin: 5px 42px 0 0; font-size: 12px; line-height: 16px; color: var(--ink3); }
+.lay-main .ax-axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.lay-main .ax-axis .ax-axis-now { color: var(--ink1); font-weight: 600; }
+/* picked point on a line chart: hairline rule + an ink dot ringed by the surface (Swift Charts RuleMark + PointMark) */
+.lay-main .ax-pick-rule { stroke: var(--ink3); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.lay-main .ax-pick-dot { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--ink1); box-shadow: 0 0 0 2px var(--surface); pointer-events: none; }
+
+/* categories: dark · mid grey · hatched · outline. k1 vs k2 ≥ 4.5:1, k2 vs surface ≥ 3:1; k3 / k4 are told apart by pattern, not lightness. */
+.lay-main .ax-k1 { fill: var(--ink1); background: var(--ink1); }
+.lay-main .ax-k2 { fill: var(--chart-bar); background: var(--chart-bar); }
+.lay-main .ax-k3 { stroke: var(--ink2); stroke-width: 1; vector-effect: non-scaling-stroke; background: repeating-linear-gradient(to bottom, var(--ink2) 0 1.4px, var(--surface) 1.4px 3px); box-shadow: inset 0 0 0 1px var(--ink2); }
+.lay-main .ax-k4 { fill: var(--surface); stroke: var(--ink2); stroke-width: 1.2; vector-effect: non-scaling-stroke; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--ink2); }
+.lay-main .ax-hatch-bg { fill: var(--surface); }
+.lay-main .ax-hatch-ln { fill: var(--ink2); }
+.lay-main .ax-k-empty { background: transparent; box-shadow: none; outline: 1.5px dashed var(--ink3); outline-offset: -1.5px; }
+/* error parts: the tone comes from codeTone (.tone-caution / .tone-critical set --tone); the red parts step down in strength */
+.lay-main .ax-epart { fill: var(--tone); background: var(--tone); }
+.lay-main .ax-epart-soft { fill: color-mix(in srgb, var(--tone) 58%, var(--surface)); background: color-mix(in srgb, var(--tone) 58%, var(--surface)); }
+.lay-main .ax-epart-faint { fill: color-mix(in srgb, var(--tone) 30%, var(--surface)); background: color-mix(in srgb, var(--tone) 30%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 58%, var(--surface)); }
+/* on a dark surface the steps mix toward ink instead, so the weaker reds get lighter rather than vanishing */
+.lay-main.dark .ax-epart-soft { fill: color-mix(in srgb, var(--tone) 62%, var(--ink1)); background: color-mix(in srgb, var(--tone) 62%, var(--ink1)); }
+.lay-main.dark .ax-epart-faint { fill: color-mix(in srgb, var(--tone) 30%, var(--ink1)); background: color-mix(in srgb, var(--tone) 30%, var(--ink1)); box-shadow: none; }
+.lay-main .ax-ebiz { fill: var(--neutral); background: var(--neutral); }
+.lay-main .ax-sq { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; }
+
+/* ---------- B-style cards (卡片流) ---------- */
+.lay-main .ax-bcard { margin: 0 16px 14px; background: var(--surface); border-radius: var(--panel-radius); box-shadow: 0 1px 2px rgba(15,25,30,.06), 0 6px 18px rgba(15,25,30,.06); overflow: hidden; }
+.lay-main.dark .ax-bcard { box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 6px 18px rgba(0,0,0,.35); }
+.lay-main .ax-bcard-head { display: flex; align-items: center; gap: 8px; min-height: 48px; padding-top: 4px; }
+.lay-main .ax-bcard-icon { width: 26px; height: 26px; border-radius: 8px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--sunken); color: var(--ink1); }
+.lay-main .ax-bcard-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 650; color: var(--ink1); white-space: nowrap; }
+.lay-main .ax-bcard-right { flex: none; display: inline-flex; align-items: center; }
+.lay-main .ax-bcard-meta { font-size: 12.5px; color: var(--ink3); white-space: nowrap; }
+.lay-main .ax-card-seg { padding-top: 2px; padding-bottom: 4px; }
+.lay-main .ax-card-note { padding-top: 4px; padding-bottom: 6px; font-size: 13px; line-height: 1.45; color: var(--ink2); }
+.lay-main .ax-card-foot { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--hairline); text-align: left; color: var(--ink1); }
+.lay-main .ax-card-foot:hover { background: var(--hover-row); }
+.lay-main .ax-card-foot-icon { display: inline-flex; color: var(--ink2); flex: none; }
+.lay-main .ax-card-foot-title { flex: none; font-size: 15.5px; font-weight: 600; }
+.lay-main .ax-card-foot em { flex: 1; min-width: 0; text-align: right; font-style: normal; font-size: 13px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-card-foot > svg { flex: none; color: var(--ink3); }
+
+.lay-main .ax-bases { margin: 14px 16px 0; padding: 12px 0 6px; border-top: 1px solid var(--hairline); }
+.lay-main .ax-bases > div { min-width: 0; }
+.lay-main .ax-bases .money-l { font-size: 21px; }
+.lay-main .ax-kv { padding-top: 4px; padding-bottom: 12px; }
+.lay-main .ax-wrap { white-space: normal; display: block; line-height: 1.45; }
+.lay-main .ax-sec .row-right.dim { font-size: 13.5px; }
+
+/* RPM / TPM card (same body in 更多图表): window segmented on top, figure + metric switch on one line, rate caption, refresh note */
+.lay-main .ax-perf-range { padding-top: 2px; padding-bottom: 10px; }
+.lay-main .ax-perf-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.lay-main .ax-perf-fig { min-width: 0; display: flex; flex-direction: column; }
+.lay-main .ax-perf-metric { flex: none; width: 128px; padding-bottom: 4px; }
+.lay-main .ax-perf-sub b { color: var(--ink1); font-weight: 600; }
+.lay-main .ax-perf-pick { color: var(--ink1); font-weight: 600; }
+.lay-main .ax-perf-pick em { font-style: normal; font-weight: 400; color: var(--ink2); }
+.lay-main .ax-perf-upd { padding-top: 0; padding-bottom: 10px; font-size: 12.5px; color: var(--ink3); }
+.lay-main .ax-perf-list { display: flex; flex-direction: column; background: var(--surface); border-radius: 12px; overflow: hidden; }
+.lay-main .ax-perf-row { width: 100%; min-height: 56px; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 6px 14px; text-align: left; }
+.lay-main .ax-perf-row + .ax-perf-row { border-top: 1px solid var(--hairline); }
+.lay-main .ax-perf-row:hover { background: var(--hover-row); }
+.lay-main .ax-perf-row small { font-size: 12.5px; color: var(--ink2); }
+.lay-main .ax-perf-row span { font-size: 15.5px; color: var(--ink2); }
+.lay-main .ax-perf-row b { color: var(--ink1); font-weight: 600; }
+
+/* compact one-line ranking (cards) */
+.lay-main .ax-lines { padding-bottom: 4px; }
+.lay-main .ax-line { width: 100%; min-height: 46px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 48px 82px; gap: 10px; align-items: center; padding: 0 16px; text-align: left; position: relative; }
+.lay-main .ax-line + .ax-line::before { content: ''; position: absolute; top: 0; left: 46px; right: 0; height: 1px; background: var(--hairline); transform: scaleY(var(--hairline-scale, .5)); }
+.lay-main .ax-line:hover { background: var(--hover-row); }
+.lay-main .ax-line-no { text-align: center; font-family: "SF Pro Display", "Bahnschrift", sans-serif; font-stretch: 75%; font-size: 16px; font-weight: 500; color: var(--ink3); }
+.lay-main .ax-line-no.top { color: var(--ink1); }
+.lay-main .ax-line-name { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-line-name.mono { font-size: 13.5px; }
+.lay-main .ax-line-bar .ax-track { display: block; flex: none; width: 100%; height: 4px; }
+.lay-main .ax-line-val { text-align: right; font-size: 15px; font-weight: 600; }
+
+/* same-dimension filter notice */
+.lay-main .ax-same { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.lay-main .ax-same-text { font-size: 14.5px; color: var(--ink2); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-same-text b { color: var(--ink1); font-weight: 600; }
+.lay-main .ax-same-text b.mono { font-size: 13.5px; }
+.lay-main .ax-same-clear { flex: none; min-height: 44px; padding: 0 2px; font-size: 15px; font-weight: 600; color: var(--accent); }
+
+/* ranking rows (full lists) */
+.lay-main .ax-rank { align-items: center; padding-top: 10px; padding-bottom: 10px; }
+.lay-main .ax-rank-no { width: 22px; flex: none; text-align: center; font-family: "SF Pro Display", "Bahnschrift", sans-serif; font-stretch: 75%; font-size: 17px; font-weight: 500; color: var(--ink3); }
+.lay-main .ax-rank-no.top { color: var(--ink1); }
+.lay-main .ax-rank-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.lay-main .ax-rank-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.lay-main .ax-rank-name { font-size: 15.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lay-main .ax-rank-name.mono { font-size: 14.5px; }
+.lay-main .ax-rank-val { flex: none; font-size: 15.5px; font-weight: 600; }
+.lay-main .ax-rank-bar { display: flex; align-items: center; gap: 8px; }
+.lay-main .ax-rank-share { flex: none; width: 44px; text-align: right; font-size: 12px; color: var(--ink2); }
+.lay-main .ax-rank-meta { font-size: 12.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-rank .row-chev { padding-top: 0; align-self: center; }
+.lay-main .ax-track { position: relative; flex: 1; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.lay-main .ax-track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--ink2); }
+.lay-main .ax-rank-head { align-items: center; padding-top: 10px; padding-bottom: 8px; }
+.lay-main .ax-list-note { padding-top: 12px; padding-bottom: 14px; font-size: 14px; color: var(--ink2); border-top: 1px solid var(--hairline); }
+
+/* ---------- tabs ---------- */
+.lay-main .ax-segbar { position: sticky; top: 0; z-index: 3; padding-top: 2px; padding-bottom: 10px; background: var(--nav-bg, var(--canvas)); }
+.lay-main .ax-range-mini { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; }
+.lay-main .ax-range-mini-cap { flex: 1; min-width: 0; font-size: 13px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-tabs-hero { padding-top: 0; }
+.lay-main .ax-tabs-hero .ax-hero-top { min-height: 32px; }
+.lay-main .ax-tabs-chart { margin-top: 8px; }
+.lay-main .ax-list-head { margin-top: 14px; }
+.lay-main .ax-more-intro { font-size: 14px; line-height: 1.5; color: var(--ink2); margin: 0 0 14px; }
+.lay-main .ax-table { margin-top: 0; }
+.lay-main .ax-trow { display: grid; grid-template-columns: 1.15fr 1fr 1fr .8fr; gap: 8px; align-items: center; min-height: 40px; padding: 0 16px; border-top: 1px solid var(--hairline); font-size: 14px; }
+.lay-main .ax-trow > span:not(:first-child) { text-align: right; }
+.lay-main .ax-trow > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-table5 .ax-trow { grid-template-columns: .8fr repeat(4, 1fr); font-size: 13.5px; }
+/* 利润明细: 时段 · 实际 · 账号成本 · 利润; the profit column carries the weight, the total row closes the sum */
+.lay-main .ax-profit-table .ax-trow { grid-template-columns: 1.08fr 1fr 1fr 1fr; }
+.lay-main .ax-profit-table .ax-thead { min-height: 32px; }
+.lay-main .ax-profit-v { font-weight: 600; color: var(--ink1); }
+.lay-main .ax-profit-table .ax-trow.on { background: var(--sunken); }
+.lay-main .ax-total { min-height: 44px; border-top: 1px solid var(--rule-strong); font-weight: 600; }
+.lay-main .ax-total > span:first-child { color: var(--ink2); font-weight: 500; }
+.lay-main .ax-thead { min-height: 32px; font-size: 12px; font-weight: 500; color: var(--ink3); }
+
+/* full ranking */
+.lay-main .ax-strip-wrap { margin-bottom: 14px; }
+.lay-main .ax-strip-cap { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; font-size: 13px; color: var(--ink2); }
+.lay-main .ax-strip-cap b { color: var(--ink1); font-weight: 600; }
+.lay-main .ax-strip { display: flex; gap: 2px; height: 12px; border-radius: 3px; overflow: hidden; }
+.lay-main .ax-strip i { display: block; height: 100%; flex: none; border-radius: 1px; }
+.lay-main .ax-strip-tall { height: 14px; margin-top: 6px; }
+.lay-main .ax-strip-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-top: 9px; font-size: 12.5px; color: var(--ink2); }
+.lay-main .ax-strip-legend span { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lay-main .ax-strip-legend em { font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lay-main .ax-strip-legend em.mono { font-size: 12px; }
+
+/* ---------- report ---------- */
+.lay-main .ax-stepper { display: flex; align-items: center; gap: 10px; margin: 2px 0 6px; }
+.lay-main .ax-step { width: 44px; height: 44px; border-radius: 22px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--surface); border: 1px solid var(--hairline); color: var(--ink1); }
+.lay-main .ax-step:disabled { opacity: .35; }
+.lay-main .ax-step:not(:disabled):hover { background: var(--hover); }
+.lay-main .ax-step-label { flex: 1; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; text-align: center; }
+.lay-main .ax-step-label b { font-size: 18px; font-weight: 650; white-space: nowrap; }
+.lay-main .ax-step-label small { font-size: 12.5px; color: var(--ink2); }
+.lay-main .ax-presets { padding-top: 4px; padding-bottom: 12px; }
+.lay-main .ax-presets .chip { height: 32px; }
+.lay-main .ax-filter-row { margin: -4px 0 12px; }
+.lay-main .ax-kpis { margin: 0 16px 16px; display: grid; grid-template-columns: 1fr 1fr; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--panel-radius); overflow: hidden; }
+.lay-main .ax-kpi { display: flex; flex-direction: column; gap: 3px; padding: 11px 14px 12px; border-bottom: 1px solid var(--hairline); min-width: 0; }
+.lay-main .ax-kpi:nth-child(odd) { border-right: 1px solid var(--hairline); }
+.lay-main .ax-kpi:nth-last-child(-n+2) { border-bottom: 0; }
+.lay-main .ax-kpi small { font-size: 12.5px; color: var(--ink2); display: flex; align-items: center; }
+.lay-main .ax-kpi .ax-fig { font-size: 27px; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-kpi-sub { font-size: 12px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-kpi-sub b { color: var(--ink1); font-weight: 600; }
+.lay-main .ax-kpi-sub .ax-delta { font-size: 12px; }
+.lay-main .ax-folds { margin: 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.lay-main .ax-fold { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--panel-radius); overflow: hidden; }
+.lay-main .ax-fold-head { width: 100%; min-height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 14px; }
+.lay-main .ax-fold-head:hover { background: var(--hover-row); }
+.lay-main .ax-fold-chev { display: inline-flex; color: var(--ink3); transition: transform .2s; }
+.lay-main .ax-fold.open .ax-fold-chev { transform: rotate(90deg); }
+.lay-main .ax-fold-title { flex: none; font-size: 16px; font-weight: 600; }
+.lay-main .ax-fold-sum { flex: 1; min-width: 0; text-align: right; font-size: 13px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-fold-body { padding: 0 14px 6px; }
+.lay-main .ax-fold-body .ax-same { padding-left: 0; padding-right: 0; border-top: 1px solid var(--hairline); }
+.lay-main .ax-fold-legend { display: flex; justify-content: flex-end; margin-top: -4px; }
+.lay-main .ax-fold-all { width: 100%; height: 44px; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 14.5px; font-weight: 600; color: var(--accent); }
+.lay-main .ax-table .ax-fold-all { border-top: 1px solid var(--hairline); }
+.lay-main .ax-rtrow { width: 100%; display: grid; grid-template-columns: 18px minmax(0, 1fr) 46px 78px 46px; gap: 6px; align-items: center; min-height: 44px; border-top: 1px solid var(--hairline); font-size: 14px; text-align: left; }
+.lay-main button.ax-rtrow:hover { background: var(--hover-row); }
+.lay-main .ax-rtrow > span:nth-child(n+3) { text-align: right; }
+.lay-main .ax-rtrow.ax-thead { min-height: 30px; border-top: 0; }
+.lay-main .ax-rt-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lay-main .ax-rt-name.mono { font-size: 13px; }
+.lay-main .ax-fold-group > small { display: block; margin: 8px 0 2px; font-size: 12.5px; font-weight: 600; color: var(--ink2); }
+.lay-main .ax-fold-group .ax-opsoff { padding-left: 0; padding-right: 0; }
+.lay-main .ax-fold-link { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--hairline); font-size: 15px; text-align: left; }
+.lay-main .ax-fold-link em { flex: 1; text-align: right; font-style: normal; font-size: 12.5px; color: var(--ink2); }
+.lay-main .ax-fold-link svg { color: var(--ink3); }
+
+/* ---------- model page ---------- */
+.lay-main .ax-model-head { padding-top: 2px; padding-bottom: 18px; }
+.lay-main .ax-model-head .mono { color: var(--ink1); }
+.lay-main .ax-pad-top { padding-top: 6px; }
+
+/* ---------- more charts: shared bodies ---------- */
+.lay-main .ax-card { margin: 0 16px 14px; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--panel-radius); overflow: hidden; padding-bottom: 6px; }
+.lay-main .ax-card.is-target { box-shadow: 0 0 0 2px var(--accent-wash); border-color: var(--accent); }
+.lay-main .ax-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-top: 13px; padding-bottom: 2px; }
+.lay-main .ax-card-title { font-size: 16.5px; font-weight: 600; }
+.lay-main .ax-card-meta { font-size: 12.5px; color: var(--ink3); white-space: nowrap; }
+.lay-main .ax-ops-note { display: flex; align-items: flex-start; gap: 6px; margin: 8px 16px 2px; padding: 8px 10px; border-radius: 10px; background: var(--sunken); font-size: 14px; line-height: 1.4; color: var(--ink1); }
+.lay-main .ax-ops-note svg { flex: none; margin-top: 2px; color: var(--ink2); }
+.lay-main .ax-page-card .ax-ops-note { margin-top: 10px; }
+.lay-main .ax-opsoff { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; }
+.lay-main .ax-opsoff-icon { width: 32px; height: 32px; border-radius: 10px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--neutral-wash); color: var(--neutral-ink); }
+.lay-main .ax-opsoff-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lay-main .ax-opsoff-text b { font-size: 15.5px; font-weight: 600; color: var(--ink1); }
+.lay-main .ax-opsoff-text span { font-size: 14px; line-height: 1.45; color: var(--ink2); }
+.lay-main .ax-body-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; font-size: 13px; color: var(--ink2); }
+.lay-main .ax-body-pick { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; color: var(--ink1); font-weight: 500; }
+.lay-main .ax-body-ctl { padding-top: 8px; padding-bottom: 6px; }
+.lay-main .ax-body-foot { padding-top: 8px; padding-bottom: 10px; font-size: 14px; line-height: 1.45; color: var(--ink2); }
+.lay-main .ax-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding-top: 8px; padding-bottom: 6px; }
+.lay-main .ax-nums span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lay-main .ax-nums small { font-size: 12px; color: var(--ink2); white-space: nowrap; }
+.lay-main .ax-nums b { font-family: "SF Pro Display", "Bahnschrift", sans-serif; font-stretch: 75%; font-size: 19px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-token-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding-top: 8px; padding-bottom: 2px; font-size: 12.5px; color: var(--ink2); }
+.lay-main .ax-token-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.lay-main .ax-token-legend b { color: var(--ink1); font-weight: 600; margin-left: 1px; }
+.lay-main .ax-lg-btns { gap: 4px 6px; }
+.lay-main .ax-lg-btn { height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 17px; font-size: 13px; color: var(--ink2); border: 1px solid transparent; }
+.lay-main .ax-lg-btn:hover { background: var(--hover); }
+.lay-main .ax-lg-btn b { color: var(--ink1); font-weight: 600; }
+.lay-main .ax-lg-btn.on { background: var(--chip-on-bg); border-color: var(--chip-on-edge); color: var(--chip-on-ink); }
+.lay-main .ax-lg-btn.on b { color: inherit; }
+.lay-main .ax-lg-btn.off { opacity: .55; }
+.lay-main .ax-multi { align-items: center; gap: 10px; padding-top: 8px; padding-bottom: 8px; }
+.lay-main .ax-multi-name { width: 100px; flex: none; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-multi-spark { flex: 1; min-width: 0; }
+.lay-main .ax-multi-spark .spark { display: block; }
+.lay-main .ax-multi-spark .spark-line { fill: none; stroke: var(--ink1); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.lay-main .ax-multi-val { width: 76px; flex: none; text-align: right; font-size: 14.5px; font-weight: 600; }
+.lay-main .ax-share-row { padding-top: 9px; padding-bottom: 9px; display: flex; flex-direction: column; gap: 5px; }
+.lay-main .ax-share-row + .ax-share-row { border-top: 1px solid var(--hairline); }
+.lay-main .ax-share-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 14.5px; }
+.lay-main .ax-share-top b { flex: none; font-weight: 600; }
+.lay-main .ax-share-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lay-main .ax-share-name.mono { font-size: 13.5px; }
+.lay-main .ax-type-row { display: grid; grid-template-columns: 10px 1fr auto 54px; gap: 10px; align-items: center; min-height: 42px; border-top: 1px solid var(--hairline); font-size: 15px; }
+.lay-main .ax-type-row b { font-weight: 600; }
+.lay-main .ax-type-row em { font-style: normal; text-align: right; font-size: 13.5px; color: var(--ink2); }
+.lay-main .ax-hist { display: flex; align-items: flex-end; gap: 6px; height: 148px; padding-top: 10px; }
+.lay-main .ax-hist-empty { align-items: center; justify-content: center; font-size: 14px; color: var(--ink2); }
+.lay-main .ax-hist-col { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.lay-main .ax-hist-bar { flex: 1; width: 100%; display: flex; align-items: flex-end; border-bottom: 1px solid var(--rule-strong); }
+.lay-main .ax-hist-bar i { display: block; width: 100%; background: var(--chart-bar); border-radius: 2px 2px 0 0; }
+.lay-main .ax-hist-n { font-size: 12px; color: var(--ink2); }
+.lay-main .ax-hist-l { font-size: 12px; color: var(--ink3); white-space: nowrap; }
+.lay-main .ax-pctl { padding-top: 4px; padding-bottom: 8px; }
+.lay-main .ax-pctl-row { display: grid; grid-template-columns: 52px repeat(4, 1fr); gap: 6px; align-items: center; min-height: 36px; border-top: 1px solid var(--hairline); font-size: 14px; }
+.lay-main .ax-pctl.wide .ax-pctl-row { grid-template-columns: 44px repeat(6, 1fr); font-size: 13.5px; }
+.lay-main .ax-pctl-row > :not(:first-child) { text-align: right; }
+.lay-main .ax-pctl-row b { font-weight: 600; }
+.lay-main .ax-pctl-row.ax-thead { border-top: 0; min-height: 28px; }
+.lay-main .ax-code-row { display: grid; grid-template-columns: 36px 1fr 44px 38px; gap: 10px; align-items: center; min-height: 40px; }
+.lay-main .ax-code-row + .ax-code-row { border-top: 1px solid var(--hairline); }
+.lay-main .ax-code-row .code { margin-left: 0; }
+.lay-main .ax-code-row b { text-align: right; font-weight: 600; font-size: 14.5px; }
+.lay-main .ax-code-row em { font-style: normal; text-align: right; font-size: 13px; color: var(--ink2); }
+.lay-main .ax-code-bar { display: flex; gap: 2px; height: 8px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.lay-main .ax-code-bar i { display: block; height: 100%; }
+.lay-main .ax-code-sla { background: var(--tone); }
+.lay-main .ax-code-biz { background: var(--neutral); }
+.lay-main .ax-speed { padding-bottom: 2px; }
+.lay-main .ax-speed-row { display: grid; grid-template-columns: minmax(0, 1.95fr) .7fr .78fr .78fr; gap: 6px; align-items: center; min-height: 40px; padding: 0 16px; border-top: 1px solid var(--hairline); font-size: 14px; }
+.lay-main .ax-speed-row.is-focus { background: var(--accent-wash); }
+.lay-main .ax-speed-row .ax-rt-name.mono { font-size: 12.5px; }
+.lay-main .ax-speed-row.ax-thead > span { white-space: nowrap; }
+.lay-main .ax-speed-row > :not(:first-child) { text-align: right; }
+.lay-main .ax-speed-row.ax-thead { border-top: 0; min-height: 30px; }
+
+/* more · list: topic jumps + range menu stay pinned while scrolling */
+.lay-main .ax-jumpbar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding-top: 2px; padding-bottom: 8px; background: var(--nav-bg, var(--canvas)); }
+.lay-main .ax-jumps { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.lay-main .ax-jumps::-webkit-scrollbar { display: none; }
+.lay-main .ax-jumps .chip { height: 32px; padding: 0 11px; font-size: 14px; gap: 5px; }
+.lay-main .ax-list-cap { margin: 0 0 2px; }
+.lay-main .ax-topic { padding-top: 4px; }
+.lay-main .ax-topic-head { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 10px; font-size: 21px; font-weight: 700; }
+.lay-main .ax-topic-head small { font-size: 12.5px; font-weight: 500; color: var(--ink3); }
+
+/* more · pager */
+.lay-main .ax-pager-head { flex: none; background: var(--nav-bg, var(--canvas)); position: relative; z-index: 4; }
+.lay-main .ax-pager-nav { display: flex; align-items: center; gap: 10px; padding-top: 2px; }
+.lay-main .ax-pager-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.lay-main .ax-pager-mid small { font-size: 12.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.lay-main .ax-pager-filter { display: flex; justify-content: center; padding-top: 8px; }
+.lay-main .ax-dots { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 10px 0 8px; }
+.lay-main .ax-dots button { width: 7px; height: 7px; border-radius: 4px; background: var(--ink3); opacity: .35; transition: width .2s, opacity .2s; }
+.lay-main .ax-dots button.ops { border-radius: 1px; }
+.lay-main .ax-dots button.on { width: 18px; opacity: 1; background: var(--ink1); }
+.lay-main .ax-pages { flex: 1; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.lay-main .ax-pages::-webkit-scrollbar { display: none; }
+.lay-main .ax-page { flex: 0 0 100%; scroll-snap-align: start; overflow-y: auto; }
+.lay-main .ax-page-card { padding-top: 6px; margin: 4px 16px 16px; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--panel-radius); overflow: hidden; padding-bottom: 6px; }
+
+/* more · catalog tiles (also used inside the cards-variant "更多图表" card) */
+.lay-main .ax-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.lay-main .ax-tiles-in { margin: 2px 0 14px; }
+.lay-main .ax-tile { position: relative; min-width: 0; min-height: 138px; display: flex; flex-direction: column; gap: 1px; padding: 12px 12px 10px; text-align: left; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--panel-radius); }
+.lay-main .ax-tiles-in .ax-tile { min-height: 126px; background: var(--canvas); border-color: transparent; }
+.lay-main .ax-tile:hover { background: color-mix(in srgb, var(--surface) 94%, var(--ink1)); }
+.lay-main .ax-tile-title { font-size: 14px; font-weight: 600; color: var(--ink1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-tile-val { margin-top: 8px; display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.lay-main .ax-tile-val .ax-fig { font-size: 25px; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-tile-val small { flex: none; font-size: 12px; font-weight: 500; color: var(--ink2); }
+.lay-main .ax-tile-label { font-size: 12px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .ax-site-tag { font-style: normal; display: inline-block; margin-right: 5px; padding: 0 5px; border-radius: 5px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--rule-strong); color: var(--ink1); font-weight: 600; }
+.lay-main .ax-tile-thumb { margin-top: auto; padding-top: 10px; }
+.lay-main .ax-thumb { display: block; width: 100%; height: 34px; }
+.lay-main .ax-thumb .ax-bar { fill: var(--chart-bar); }
+.lay-main .ax-thumb.err .ax-bar { fill: color-mix(in srgb, var(--critical) 70%, var(--surface)); }
+.lay-main .ax-thumb-h { height: 34px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.lay-main .ax-thumb-h i { display: block; height: 4px; border-radius: 1px; background: var(--chart-bar); }
+.lay-main .ax-thumb-h.err i { background: color-mix(in srgb, var(--critical) 70%, var(--surface)); }
+
+/* ---------- sheets ---------- */
+.lay-main .ax-sheet { display: flex; flex-direction: column; gap: 14px; }
+.lay-main .ax-sheet .chips { padding: 0; }
+.lay-main .ax-date-form { background: var(--surface); border-radius: 12px; overflow: hidden; }
+.lay-main .ax-date-row { width: 100%; min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 14px; text-align: left; }
+.lay-main .ax-date-row + .ax-date-row, .lay-main .ax-cal + .ax-date-row { border-top: 1px solid var(--hairline); }
+.lay-main .ax-date-row:hover { background: var(--hover-row); }
+.lay-main .ax-date-k { font-size: 16px; color: var(--ink1); }
+.lay-main .ax-date-v { display: inline-flex; align-items: baseline; gap: 6px; height: 34px; padding: 0 11px; border-radius: 8px; background: var(--chip-bg); font-size: 15px; font-weight: 600; line-height: 34px; color: var(--ink1); }
+.lay-main .ax-date-v small { font-size: 12.5px; font-weight: 500; color: var(--ink2); }
+.lay-main .ax-date-row.on .ax-date-v { color: var(--accent); }
+.lay-main .ax-cal { padding: 4px 10px 10px; border-top: 1px solid var(--hairline); }
+.lay-main .ax-cal-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 2px 6px; }
+.lay-main .ax-cal-head b { font-size: 16px; font-weight: 650; }
+.lay-main .ax-cal-nav { display: inline-flex; }
+.lay-main .ax-cal-nav button { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); border-radius: 22px; }
+.lay-main .ax-cal-nav button:disabled { color: var(--ink3); opacity: .4; }
+.lay-main .ax-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.lay-main .ax-cal-w { text-align: center; font-size: 12px; font-weight: 600; color: var(--ink3); padding: 2px 0 4px; }
+.lay-main .ax-cal-d { height: 44px; border-radius: 22px; font-size: 17px; color: var(--ink1); display: flex; align-items: center; justify-content: center; }
+.lay-main .ax-cal-d:disabled { color: var(--ink3); opacity: .45; }
+.lay-main .ax-cal-d.today { color: var(--accent); font-weight: 600; }
+.lay-main .ax-cal-d.edge { background: var(--accent-fill); color: var(--on-accent); border-radius: 22px; font-weight: 600; }
+.lay-main .ax-sheet-note { font-size: 14px; line-height: 1.5; color: var(--ink2); }
+.lay-main .ax-picks { display: flex; flex-direction: column; }
+.lay-main .ax-pick { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--hairline); font-size: 16px; text-align: left; }
+.lay-main .ax-pick .mono { font-size: 14.5px; }
+.lay-main .ax-pick small { margin-left: auto; font-size: 13px; color: var(--ink2); }
+.lay-main .ax-pick-tag { font-style: normal; flex: none; padding: 1px 6px; border-radius: 6px; font-size: 12px; font-weight: 600; background: var(--neutral-wash); color: var(--neutral-ink); }
+.lay-main .ax-pick.is-current { color: var(--accent); font-weight: 600; }
+.lay-main .ax-dir-group > small { display: block; margin: 4px 0 2px; font-size: 12.5px; font-weight: 600; color: var(--ink2); }
+.lay-main .ax-dir-group .ax-opsoff { padding-left: 0; padding-right: 0; }
+.lay-main .ax-bcard .ax-ops-note { margin-bottom: 10px; }
+.lay-main .ax-perf-filter { margin: 2px 0 10px; }
