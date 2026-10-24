@@ -104,20 +104,7 @@ final class AppModel {
         } catch { await connectionFailed(error, profile: profile) }
     }
 
-    static func validatedURL(_ raw: String) throws -> URL {
-        guard var components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-              components.scheme?.lowercased() == "https", let host = components.host, !host.isEmpty,
-              components.user == nil, components.password == nil,
-              components.query == nil, components.fragment == nil,
-              components.path.isEmpty || components.path == "/" else {
-            throw AppFailure("请输入完整 HTTPS 站点地址，例如 https://sub2.example.com；不支持路径、账号或查询参数。")
-        }
-        components.scheme = "https"
-        components.host = host.lowercased()
-        components.path = ""
-        guard let url = components.url else { throw AppFailure("站点地址无效。") }
-        return url
-    }
+    static func validatedURL(_ raw: String) throws -> URL { try ServerProfile.normalizedURL(raw) }
 
     func beginConnection() -> UUID {
         cancelConnection()

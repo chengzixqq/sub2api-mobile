@@ -2,12 +2,6 @@ import SwiftUI
 import WebKit
 import Sub2Core
 
-struct CaptchaRequest: Identifiable {
-    let id = UUID()
-    let server: ServerProfile
-    let provider: String
-}
-
 struct CaptchaView: View {
     let request: CaptchaRequest
     let completion: (Result<CaptchaProof, Error>) -> Void

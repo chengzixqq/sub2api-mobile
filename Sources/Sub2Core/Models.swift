@@ -25,6 +25,19 @@ public struct ServerProfile: Identifiable, Codable, Hashable, Sendable {
     }
 }
 extension ServerProfile {
+    /// A typed site address as 00 §1.1 accepts it: `https://host[:port]`, host lowercased, nothing after it.
+    public static func normalizedURL(_ raw: String) throws -> URL {
+        let invalid = APIError(kind: .validation, message: "请输入完整 HTTPS 站点地址，例如 https://sub2.example.com；不支持路径、账号或查询参数。")
+        guard var components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              components.scheme?.lowercased() == "https", let host = components.host, !host.isEmpty,
+              components.user == nil, components.password == nil, components.query == nil, components.fragment == nil,
+              components.path.isEmpty || components.path == "/" else { throw invalid }
+        components.scheme = "https"
+        components.host = host.lowercased()
+        components.path = ""
+        guard let url = components.url else { throw invalid }
+        return url
+    }
     /// Saved profiles are read one by one: an unreadable entry is skipped instead of emptying the list,
     /// which would then be written back over the good entries.
     public static func storedList(from data: Data) -> [ServerProfile] {

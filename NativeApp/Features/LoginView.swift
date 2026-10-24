@@ -188,7 +188,7 @@ struct LoginView: View {
                             guard ["turnstile", "tencent", "aliyun"].contains(settings.captchaProvider ?? "") else {
                                 throw AppFailure("此站点的验证码暂不支持原生验证，请使用 Web 后台。")
                             }
-                            captcha = CaptchaRequest(server: profile, provider: settings.captchaProvider!)
+                            captcha = CaptchaRequest(server: profile, provider: settings.captchaProvider!, path: CaptchaBridge.defaultPath, showsFallbackHint: false)
                             return
                         }
                         let result = try await candidate.login(email: email, password: password, proof: proof, deviceName: model.deviceName,

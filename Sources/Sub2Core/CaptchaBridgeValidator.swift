@@ -6,7 +6,7 @@ public enum CaptchaBridgeResult: Sendable { case proof(CaptchaProof), cancelled 
 public enum CaptchaBridgeValidator {
     public static func parse(_ data: Data, nonce: UUID, provider: String) throws -> CaptchaBridgeResult {
         do {
-            guard data.count <= 65_536, ["turnstile", "tencent", "aliyun"].contains(provider),
+            guard data.count <= 65_536, CaptchaBridge.providers.contains(provider),
                   let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw invalidMessage }
             // Codable deliberately avoids NSNumber's Bool/Int bridging: true cannot be accepted as version 1.
             let header = try JSONDecoder().decode(Header.self, from: data)
