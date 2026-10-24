@@ -14,8 +14,48 @@ public struct AccountProxy: Codable, Sendable, Equatable {
 
 public struct AccountExtra: Codable, Sendable {
     public let upstreamBillingProbe: AccountBillingProbe?
-    public init(upstreamBillingProbe: AccountBillingProbe? = nil) { self.upstreamBillingProbe = upstreamBillingProbe }
-    enum CodingKeys: String, CodingKey { case upstreamBillingProbe = "upstream_billing_probe" }
+    /// `extra.model_rate_limits` as sent; read it through `modelRateLimits`.
+    public let modelRateLimitEntries: [String: ModelRateLimitEntry]?
+    /// One model scope; anything but an object reads as an entry without a time.
+    public struct ModelRateLimitEntry: Codable, Sendable, Equatable {
+        public let rateLimitResetAt: String?
+        public init(rateLimitResetAt: String? = nil) { self.rateLimitResetAt = rateLimitResetAt }
+        enum CodingKeys: String, CodingKey { case rateLimitResetAt = "rate_limit_reset_at" }
+        public init(from decoder: any Decoder) throws {
+            rateLimitResetAt = try? decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(String.self, forKey: .rateLimitResetAt)
+        }
+    }
+    /// Entries with a readable reset time, by model name; not filtered by `now` (AccountDisplayState keeps the active ones).
+    public var modelRateLimits: [AccountModelRateLimit] {
+        let parser = TimestampParser()
+        return (modelRateLimitEntries ?? [:]).compactMap { model, entry in
+            parser.date(entry.rateLimitResetAt).map { AccountModelRateLimit(model: model, resetAt: $0) }
+        }.sorted { $0.model < $1.model }
+    }
+    public init(upstreamBillingProbe: AccountBillingProbe? = nil, modelRateLimitEntries: [String: ModelRateLimitEntry]? = nil) {
+        self.upstreamBillingProbe = upstreamBillingProbe; self.modelRateLimitEntries = modelRateLimitEntries
+    }
+    enum CodingKeys: String, CodingKey { case upstreamBillingProbe = "upstream_billing_probe", modelRateLimitEntries = "model_rate_limits" }
+    /// A malformed `model_rate_limits` is dropped on its own; it must not fail the whole account list.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        upstreamBillingProbe = try c.decodeIfPresent(AccountBillingProbe.self, forKey: .upstreamBillingProbe)
+        modelRateLimitEntries = try? c.decodeIfPresent([String: ModelRateLimitEntry].self, forKey: .modelRateLimitEntries)
+    }
+}
+
+/// C10 `token_status`, for OAuth and Setup Token accounts; times stay raw strings until displayed.
+public struct AccountTokenStatus: Codable, Sendable, Equatable {
+    public let expiresAt: String?
+    public let lifetimeSeconds: Int64?
+    public let refreshedAt: String?
+    public let autoRefresh: Bool?
+    public init(expiresAt: String? = nil, lifetimeSeconds: Int64? = nil, refreshedAt: String? = nil, autoRefresh: Bool? = nil) {
+        self.expiresAt = expiresAt; self.lifetimeSeconds = lifetimeSeconds; self.refreshedAt = refreshedAt; self.autoRefresh = autoRefresh
+    }
+    enum CodingKeys: String, CodingKey {
+        case expiresAt = "expires_at", lifetimeSeconds = "lifetime_seconds", refreshedAt = "refreshed_at", autoRefresh = "auto_refresh"
+    }
 }
 
 public struct AccountSchedulerScore: Codable, Sendable {
@@ -62,7 +102,8 @@ public struct AccountBillingProbe: Codable, Sendable {
 }
 
 public enum AccountFieldPresentation {
-    public static func value(_ field: AccountListField, account: UpstreamAccount, today: AccountTodayStats? = nil) -> String {
+    /// `now` is the site's ServerClock time (20 §0.6).
+    public static func value(_ field: AccountListField, account: UpstreamAccount, today: AccountTodayStats? = nil, now: Date) -> String {
         switch field {
         case .platform: account.platform
         case .authenticationType: account.type
@@ -76,8 +117,7 @@ public enum AccountFieldPresentation {
         case .baseRPM: number(account.baseRPM)
         case .priority: number(account.priority)
         case .rateMultiplier: account.rateMultiplier.map { decimal($0) + "×" } ?? DisplayFormat.missing
-        case .status:
-            switch account.status { case "active": "正常"; case "inactive": "已禁用"; case "error": "异常"; default: account.status }
+        case .status: status(account, now: now)
         case .schedulable: account.schedulable ? "参与调度" : "暂停调度"
         case .expiresAt: ListFieldPresentation.timestamp(seconds: account.expiresAt)
         case .lastUsedAt: ListFieldPresentation.timestamp(account.lastUsedAt)
@@ -100,10 +140,16 @@ public enum AccountFieldPresentation {
             else if let score = account.schedulerScore { schedulerScore(score, grouped: false) }
             else { DisplayFormat.missing }
         case .upstreamBilling:
-            if let probe = account.extra?.upstreamBillingProbe, let multiplier = probe.historicalMultiplier() {
+            if let probe = account.extra?.upstreamBillingProbe, let multiplier = probe.historicalMultiplier(at: now) {
                 "上次探测 \(decimal(multiplier))×（\(ListFieldPresentation.timestamp(probe.data?.observedAt))）"
             } else { DisplayFormat.missing }
         }
+    }
+
+    /// 20 §0.2 status word; an expired auto-pause reads “暂停 · 已过期”.
+    public static func status(_ account: UpstreamAccount, now: Date) -> String {
+        let display = AccountDisplayState(account, now: now)
+        return display.note.map { "\(display.label) · \($0)" } ?? display.label
     }
 
     public static func capacity(_ account: UpstreamAccount) -> String {

@@ -5,6 +5,8 @@ import FoundationNetworking
 import Testing
 @testable import Sub2Core
 
+private let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+
 private let accountBase = #"{"id":9,"name":"账号","platform":"anthropic","type":"oauth","status":"active","schedulable":true,"concurrency":8,"base_rpm":120}"#
 private func runtimeAccount(_ fields: String = "") throws -> UpstreamAccount {
     let raw = fields.isEmpty ? accountBase : String(accountBase.dropLast()) + "," + fields + "}"
@@ -15,13 +17,13 @@ private func runtimeAccount(_ fields: String = "") throws -> UpstreamAccount {
     let old = try runtimeAccount()
     #expect(old.concurrency == 8 && old.baseRPM == 120)
     #expect(old.currentConcurrency == nil && old.probeConcurrency == nil && old.currentRPM == nil)
-    #expect(AccountFieldPresentation.value(.concurrency, account: old) == "—")
-    #expect(AccountFieldPresentation.value(.rpm, account: old) == "—")
-    #expect(AccountFieldPresentation.value(.baseRPM, account: old) == "120")
+    #expect(AccountFieldPresentation.value(.concurrency, account: old, now: fixedNow) == "—")
+    #expect(AccountFieldPresentation.value(.rpm, account: old, now: fixedNow) == "—")
+    #expect(AccountFieldPresentation.value(.baseRPM, account: old, now: fixedNow) == "120")
     #expect(AccountFieldPresentation.capacity(old).contains("并发 — / 8"))
     let zero = try runtimeAccount(#""current_concurrency":0,"probe_concurrency":0,"current_rpm":0"#)
-    #expect(AccountFieldPresentation.value(.concurrency, account: zero) == "0")
-    #expect(AccountFieldPresentation.value(.rpm, account: zero) == "0")
+    #expect(AccountFieldPresentation.value(.concurrency, account: zero, now: fixedNow) == "0")
+    #expect(AccountFieldPresentation.value(.rpm, account: zero, now: fixedNow) == "0")
     let busy = try runtimeAccount(#""current_concurrency":3,"probe_concurrency":1,"current_rpm":47"#)
     #expect(busy.currentConcurrency == 3 && busy.probeConcurrency == 1 && busy.currentRPM == 47)
     let roundTrip = try JSONDecoder().decode(UpstreamAccount.self, from: JSONEncoder().encode(busy))
@@ -42,9 +44,9 @@ private func runtimeAccount(_ fields: String = "") throws -> UpstreamAccount {
     #expect(display.contains("日配额 $0.00 / $10.00"))
     #expect(display.contains("周配额 — / $70.00"))
     #expect(display.contains("总配额 $12.35 / $1,000.00"))
-    #expect(AccountFieldPresentation.value(.window, account: account) != "—")
-    #expect(AccountFieldPresentation.value(.usage, account: account) == "$12.35")
-    #expect(AccountFieldPresentation.value(.usage, account: try runtimeAccount()) == "—")
+    #expect(AccountFieldPresentation.value(.window, account: account, now: fixedNow) != "—")
+    #expect(AccountFieldPresentation.value(.usage, account: account, now: fixedNow) == "$12.35")
+    #expect(AccountFieldPresentation.value(.usage, account: try runtimeAccount(), now: fixedNow) == "—")
     var zero = account; zero.concurrency = 0
     #expect(AccountFieldPresentation.capacity(zero).contains("并发 3 / 0"))
     #expect(!AccountFieldPresentation.capacity(zero).contains("不限制"))
@@ -52,7 +54,7 @@ private func runtimeAccount(_ fields: String = "") throws -> UpstreamAccount {
 
 @Test func safeAccountMetadataDoesNotRetainProxyOrProbeSecretsAndExpiredBillingIsUnavailable() throws {
     let account = try runtimeAccount(#""proxy":{"id":2,"name":"线路 A","status":"active","host":"secret-host","username":"secret-user","password":"secret-password"},"extra":{"private_token":"secret-token","upstream_billing_probe":{"status":"ok","fresh_until":"2026-10-15T02:00:00Z","last_error":"secret-error","data":{"effective_rate_multiplier":"1.234567890123456789","observed_at":"2026-10-15T00:00:00Z"}}}"#)
-    #expect(AccountFieldPresentation.value(.proxy, account: account) == "线路 A（#2）")
+    #expect(AccountFieldPresentation.value(.proxy, account: account, now: fixedNow) == "线路 A（#2）")
     let probe = try #require(account.extra?.upstreamBillingProbe)
     let beforeExpiry = Date(timeIntervalSince1970: 1_792_026_000)
     #expect(probe.historicalMultiplier(at: beforeExpiry) == Decimal(string: "1.234567890123456789"))
@@ -79,13 +81,13 @@ private func runtimeAccount(_ fields: String = "") throws -> UpstreamAccount {
     #expect(stats.cost == Decimal(string: "4.56789123"))
     #expect(stats.standardCost == Decimal(string: "10.00000001"))
     #expect(stats.userCost == Decimal(string: "12.34567890123456789"))
-    #expect(AccountFieldPresentation.value(.todayStats, account: try runtimeAccount(), today: stats).contains("扣费 $12.35"))
-    #expect(AccountFieldPresentation.value(.todayStats, account: try runtimeAccount(), today: stats).contains("成本 $4.57"))
-    #expect(AccountFieldPresentation.value(.todayStats, account: try runtimeAccount(), today: stats).hasPrefix("请求 128 · Tokens 123.5K"))
+    #expect(AccountFieldPresentation.value(.todayStats, account: try runtimeAccount(), today: stats, now: fixedNow).contains("扣费 $12.35"))
+    #expect(AccountFieldPresentation.value(.todayStats, account: try runtimeAccount(), today: stats, now: fixedNow).contains("成本 $4.57"))
+    #expect(AccountFieldPresentation.value(.todayStats, account: try runtimeAccount(), today: stats, now: fixedNow).hasPrefix("请求 128 · Tokens 123.5K"))
     for fields in ["", #","user_cost":null,"standard_cost":null"#, #","actual_cost":88,"account_cost":99"#] {
         let missing = try JSONDecoder().decode(AccountTodayStats.self, from: Data((#"{"requests":1,"tokens":2,"cost":4.56"# + fields + "}").utf8))
         #expect(missing.cost == Decimal(string: "4.56") && missing.userCost == nil && missing.standardCost == nil)
-        #expect(AccountFieldPresentation.value(.todayStats, account: try runtimeAccount(), today: missing).contains("扣费 —"))
+        #expect(AccountFieldPresentation.value(.todayStats, account: try runtimeAccount(), today: missing, now: fixedNow).contains("扣费 —"))
     }
 }
 
@@ -129,11 +131,11 @@ private actor AccountRuntimeTransport: HTTPTransport {
 @Test func schedulerScoresStaySeparateFromLoadFactorAndRequireExplicitOptIn() async throws {
     let account = try runtimeAccount(#""load_factor":3,"scheduler_scores":[{"group_id":null,"base_score":1.25,"sticky_score":2.5,"sticky_score_infinity":false,"sticky_weighted_enabled":true},{"group_id":7,"group_name":"分组 A","base_score":4,"sticky_score":0,"sticky_score_infinity":true,"sticky_weighted_enabled":false}]"#)
     #expect(account.loadFactor == 3 && account.schedulerScores?.first?.groupID == nil)
-    let score = AccountFieldPresentation.value(.schedulerScore, account: account)
+    let score = AccountFieldPresentation.value(.schedulerScore, account: account, now: fixedNow)
     #expect(score.contains("未分组：基础分 1.25 / 粘性分 2.5"))
     #expect(score.contains("分组 A：基础分 4 / 粘性分 ∞"))
-    #expect(AccountFieldPresentation.value(.loadFactor, account: account) == "3")
-    #expect(AccountFieldPresentation.value(.schedulerScore, account: try runtimeAccount()) == "—")
+    #expect(AccountFieldPresentation.value(.loadFactor, account: account, now: fixedNow) == "3")
+    #expect(AccountFieldPresentation.value(.schedulerScore, account: try runtimeAccount(), now: fixedNow) == "—")
     let transport = AccountRuntimeTransport()
     let site = ServerProfile(name: "账号测试", baseURL: URL(string: "https://accounts.example.invalid")!, authentication: .adminKey)
     let client = APIClient(server: site, credential: .adminKey("fixture"), transport: transport)

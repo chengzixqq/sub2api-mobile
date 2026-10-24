@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import Sub2Core
 
+private let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+
 @Test func dashboardRPMAvailabilitySurvivesWireRoundtrip() throws {
     let wire = #"{"today_requests":10,"today_tokens":20,"today_cost":1,"total_users":2,"total_accounts":3,"error_accounts":0,"rpm":0,"rpm_available":false,"tpm":100}"#
     let stats = try JSONDecoder().decode(DashboardStats.self, from: Data(wire.utf8))
@@ -32,7 +34,7 @@ import Testing
 @Test func accountRollingRPMIsNeverUsedAsTheSchedulingCounter() throws {
     let data = Data(#"{"id":1,"name":"Fixture","platform":"anthropic","type":"oauth","status":"active","schedulable":true,"current_rpm":107,"scheduling_rpm":4,"base_rpm":60}"#.utf8)
     var account = try JSONDecoder().decode(UpstreamAccount.self, from: data)
-    #expect(AccountFieldPresentation.value(.rpm, account: account) == "107")
+    #expect(AccountFieldPresentation.value(.rpm, account: account, now: fixedNow) == "107")
     #expect(AccountFieldPresentation.capacity(account).contains("调度 RPM 4 / 60（自然分钟）"))
     account.schedulingRPM = nil
     #expect(AccountFieldPresentation.capacity(account).contains("调度 RPM — / 60"))

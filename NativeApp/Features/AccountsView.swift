@@ -193,11 +193,12 @@ struct AccountsView: View {
         }
     }
     private func accountRow(_ account: UpstreamAccount) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let now = session?.client.serverClock.now() ?? Date()
+        return VStack(alignment: .leading, spacing: 6) {
             Text(account.name).font(.headline)
             ListFieldFlow {
                 ForEach(fieldSelection.visibleFields, id: \.rawValue) { field in
-                    Text("\(field.title)：\(AccountFieldPresentation.value(field, account: account, today: todayStats.value?[account.id]))")
+                    Text("\(field.title)：\(AccountFieldPresentation.value(field, account: account, today: todayStats.value?[account.id], now: now))")
                         .font(.caption).foregroundStyle(field == .schedulable && account.schedulable ? .green : .secondary)
                         .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("account.\(account.id).field.\(field.rawValue)")
                 }
@@ -415,27 +416,28 @@ struct AccountDetailView: View {
         // Match the task's captured ID even if onAppear changes visibility
         // before SwiftUI starts an earlier inactive task.
         let shouldPoll = polling
+        let now = session?.client.serverClock.now() ?? Date()
         List {
             Section("账号") {
                 LabeledValue(label: "名称", value: account.name)
                 LabeledValue(label: "平台", value: account.platform)
                 LabeledValue(label: "类型", value: account.type)
-                LabeledValue(label: "状态", value: account.status)
+                LabeledValue(label: "状态", value: AccountFieldPresentation.status(account, now: now))
                 LabeledValue(label: "调度", value: account.schedulable ? "已启用" : "已暂停")
                 if let message = account.errorMessage, !message.isEmpty { Text("上游返回异常，可在下方请求记录与错误日志中查看。").foregroundStyle(.red) }
             }
             Section("容量与实时占用") {
-                LabeledValue(label: "容量", value: AccountFieldPresentation.value(.capacity, account: account))
+                LabeledValue(label: "容量", value: AccountFieldPresentation.value(.capacity, account: account, now: now))
                     .accessibilityIdentifier("account.detail.capacity")
-                LabeledValue(label: "在用并发", value: AccountFieldPresentation.value(.concurrency, account: account))
+                LabeledValue(label: "在用并发", value: AccountFieldPresentation.value(.concurrency, account: account, now: now))
                     .accessibilityIdentifier("account.detail.concurrency")
                 if let probe = account.probeConcurrency {
                     LabeledValue(label: "探测并发", value: String(probe))
                 }
-                LabeledValue(label: "在用 RPM", value: AccountFieldPresentation.value(.rpm, account: account))
+                LabeledValue(label: "在用 RPM", value: AccountFieldPresentation.value(.rpm, account: account, now: now))
                     .accessibilityIdentifier("account.detail.rpm")
                 Text("在用 RPM 为最近 60 秒成功请求数。").font(.caption).foregroundStyle(.secondary)
-                LabeledValue(label: "基础 RPM 限额", value: AccountFieldPresentation.value(.baseRPM, account: account))
+                LabeledValue(label: "基础 RPM 限额", value: AccountFieldPresentation.value(.baseRPM, account: account, now: now))
                 if account.currentRPM == nil {
                     Text("站点未返回此账号的在用 RPM，可能暂时无法读取运行统计；未提供时不以配置限额或零代替。")
                         .font(.caption).foregroundStyle(.secondary)

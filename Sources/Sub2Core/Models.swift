@@ -47,7 +47,8 @@ extension ServerProfile {
         ((try? JSONDecoder().decode([UUID: Lossy<ServerProfile>].self, from: data)) ?? [:]).compactMapValues(\.value)
     }
 }
-private struct Lossy<Value: Decodable>: Decodable {
+/// One element of a list read element by element: an unreadable one becomes nil instead of failing the list.
+struct Lossy<Value: Decodable>: Decodable {
     let value: Value?
     init(from decoder: any Decoder) throws { value = try? Value(from: decoder) }
 }
@@ -256,13 +257,29 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
     public var schedulerScores: [AccountSchedulerScore]?
     public var groupIDs: [Int]
     public var groups: [Group]
+    // C02 structured error (`accounts.structured_error`); timestamps stay raw strings like `lastUsedAt`.
+    public var errorAt: String?
+    public var errorStatusCode: Int?
+    public var errorKind: String?
+    public var errorSummary: String?
+    /// C15: false means `current_concurrency` is a 0 placeholder, not an observed value.
+    public var concurrencyAvailable: Bool?
+    // 20 §0.2 inputs.
+    public var rateLimitResetAt: String?
+    public var overloadUntil: String?
+    public var tempUnschedulableUntil: String?
+    /// Raw `TempUnschedState` JSON or upstream text; parsed by AccountDisplayState, never shown.
+    public var tempUnschedulableReason: String?
+    public var autoPauseOnExpired: Bool?
+    /// C10 (`accounts.token_status`).
+    public var tokenStatus: AccountTokenStatus?
     public struct Group: Identifiable, Codable, Sendable, Equatable {
         public let id: Int
         public let name: String
         public init(id: Int, name: String) { self.id = id; self.name = name }
     }
     private struct GroupBinding: Decodable { let group: Group? }
-    public init(id: Int, name: String, platform: String, type: String, status: String = "active", schedulable: Bool = true, errorMessage: String? = nil, concurrency: Int? = nil, priority: Int? = nil, rateMultiplier: Decimal? = nil, notes: String? = nil, lastUsedAt: String? = nil, expiresAt: Int64? = nil, createdAt: String? = nil, baseRPM: Int? = nil, quotaUsed: Decimal? = nil, groupIDs: [Int] = [], groups: [Group] = [], currentConcurrency: Int? = nil, probeConcurrency: Int? = nil, currentRPM: Int? = nil, quotaLimit: Decimal? = nil, quotaDailyLimit: Decimal? = nil, quotaDailyUsed: Decimal? = nil, quotaWeeklyLimit: Decimal? = nil, quotaWeeklyUsed: Decimal? = nil, windowCostLimit: Decimal? = nil, currentWindowCost: Decimal? = nil, activeSessions: Int? = nil, maxSessions: Int? = nil, sessionWindowStart: String? = nil, sessionWindowEnd: String? = nil, sessionWindowStatus: String? = nil, loadFactor: Int? = nil, proxy: AccountProxy? = nil, extra: AccountExtra? = nil, schedulerScore: AccountSchedulerScore? = nil, schedulerScores: [AccountSchedulerScore]? = nil, schedulingRPM: Int? = nil) {
+    public init(id: Int, name: String, platform: String, type: String, status: String = "active", schedulable: Bool = true, errorMessage: String? = nil, concurrency: Int? = nil, priority: Int? = nil, rateMultiplier: Decimal? = nil, notes: String? = nil, lastUsedAt: String? = nil, expiresAt: Int64? = nil, createdAt: String? = nil, baseRPM: Int? = nil, quotaUsed: Decimal? = nil, groupIDs: [Int] = [], groups: [Group] = [], currentConcurrency: Int? = nil, probeConcurrency: Int? = nil, currentRPM: Int? = nil, quotaLimit: Decimal? = nil, quotaDailyLimit: Decimal? = nil, quotaDailyUsed: Decimal? = nil, quotaWeeklyLimit: Decimal? = nil, quotaWeeklyUsed: Decimal? = nil, windowCostLimit: Decimal? = nil, currentWindowCost: Decimal? = nil, activeSessions: Int? = nil, maxSessions: Int? = nil, sessionWindowStart: String? = nil, sessionWindowEnd: String? = nil, sessionWindowStatus: String? = nil, loadFactor: Int? = nil, proxy: AccountProxy? = nil, extra: AccountExtra? = nil, schedulerScore: AccountSchedulerScore? = nil, schedulerScores: [AccountSchedulerScore]? = nil, schedulingRPM: Int? = nil, errorAt: String? = nil, errorStatusCode: Int? = nil, errorKind: String? = nil, errorSummary: String? = nil, concurrencyAvailable: Bool? = nil, rateLimitResetAt: String? = nil, overloadUntil: String? = nil, tempUnschedulableUntil: String? = nil, tempUnschedulableReason: String? = nil, autoPauseOnExpired: Bool? = nil, tokenStatus: AccountTokenStatus? = nil) {
         self.id = id; self.name = name; self.platform = platform; self.type = type; self.status = status
         self.schedulable = schedulable; self.errorMessage = errorMessage; self.concurrency = concurrency
         self.priority = priority; self.rateMultiplier = rateMultiplier; self.notes = notes; self.lastUsedAt = lastUsedAt
@@ -277,6 +294,10 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
         self.sessionWindowStart = sessionWindowStart; self.sessionWindowEnd = sessionWindowEnd; self.sessionWindowStatus = sessionWindowStatus
         self.loadFactor = loadFactor; self.proxy = proxy; self.extra = extra
         self.schedulerScore = schedulerScore; self.schedulerScores = schedulerScores
+        self.errorAt = errorAt; self.errorStatusCode = errorStatusCode; self.errorKind = errorKind; self.errorSummary = errorSummary
+        self.concurrencyAvailable = concurrencyAvailable; self.rateLimitResetAt = rateLimitResetAt; self.overloadUntil = overloadUntil
+        self.tempUnschedulableUntil = tempUnschedulableUntil; self.tempUnschedulableReason = tempUnschedulableReason
+        self.autoPauseOnExpired = autoPauseOnExpired; self.tokenStatus = tokenStatus
     }
     enum CodingKeys: String, CodingKey {
         case id, name, platform, type, status, schedulable, concurrency, priority, notes, groups
@@ -292,6 +313,10 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
         case sessionWindowStart = "session_window_start", sessionWindowEnd = "session_window_end", sessionWindowStatus = "session_window_status"
         case loadFactor = "load_factor", proxy, extra
         case schedulerScore = "scheduler_score", schedulerScores = "scheduler_scores"
+        case errorAt = "error_at", errorStatusCode = "error_status_code", errorKind = "error_kind", errorSummary = "error_summary"
+        case concurrencyAvailable = "concurrency_available", rateLimitResetAt = "rate_limit_reset_at", overloadUntil = "overload_until"
+        case tempUnschedulableUntil = "temp_unschedulable_until", tempUnschedulableReason = "temp_unschedulable_reason"
+        case autoPauseOnExpired = "auto_pause_on_expired", tokenStatus = "token_status"
     }
     private enum RelationshipKeys: String, CodingKey { case accountGroups = "account_groups" }
     public init(from decoder: any Decoder) throws {
@@ -322,6 +347,15 @@ public struct UpstreamAccount: Identifiable, Codable, Sendable {
         expiresAt = try c.decodeIfPresent(Int64.self, forKey: .expiresAt); createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
         baseRPM = try c.decodeIfPresent(Int.self, forKey: .baseRPM)
         groupIDs = try c.decodeIfPresent([Int].self, forKey: .groupIDs) ?? []
+        errorAt = try c.decodeIfPresent(String.self, forKey: .errorAt); errorStatusCode = try c.decodeIfPresent(Int.self, forKey: .errorStatusCode)
+        errorKind = try c.decodeIfPresent(String.self, forKey: .errorKind); errorSummary = try c.decodeIfPresent(String.self, forKey: .errorSummary)
+        concurrencyAvailable = try c.decodeIfPresent(Bool.self, forKey: .concurrencyAvailable)
+        rateLimitResetAt = try c.decodeIfPresent(String.self, forKey: .rateLimitResetAt)
+        overloadUntil = try c.decodeIfPresent(String.self, forKey: .overloadUntil)
+        tempUnschedulableUntil = try c.decodeIfPresent(String.self, forKey: .tempUnschedulableUntil)
+        tempUnschedulableReason = try c.decodeIfPresent(String.self, forKey: .tempUnschedulableReason)
+        autoPauseOnExpired = try c.decodeIfPresent(Bool.self, forKey: .autoPauseOnExpired)
+        tokenStatus = try c.decodeIfPresent(AccountTokenStatus.self, forKey: .tokenStatus)
         let direct = try c.decodeIfPresent([Group?].self, forKey: .groups)?.compactMap { $0 } ?? []
         let relationships = try decoder.container(keyedBy: RelationshipKeys.self)
         let bindings = try relationships.decodeIfPresent([GroupBinding].self, forKey: .accountGroups) ?? []
