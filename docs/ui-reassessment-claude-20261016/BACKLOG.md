@@ -211,3 +211,5 @@
 | 第 4 种验证码提供方 | 桥页校验器（CaptchaBridgeValidator / CaptchaBridge.providers）只接受 turnstile / tencent / aliyun；后端新增提供方时 App 会停止登录并提示“站点的验证方式暂不支持，请改用 Web 登录或管理访问令牌”。后端扩展时同步扩展校验器与 00 §1.5 的字段映射 |
 | 桥页“未部署”的检测 | 站点没部署 /mobile/verify 时通常由 SPA 回退返回 200 的前端页面，WKWebView 不报加载失败，只能靠提示条（mobile_verify_path 为空时）与 180 秒超时兜底；如后端能让未知路径返回 404 或桥页加一个探测接口，可改为直接提示“站点未部署手机验证页” |
 | 登录页、两步验证与协议 sheet 的设计稿 | 60 §4 没有对应设计稿，S0-16 的版式（三行单选、徽章色调、脚注说明、底部两步验证 sheet、协议弹窗）与两步验证 / 冷却按钮文案为自拟，待用户看模拟器截图确认 |
+| status-summary 的 accounts[] 缺 auto_pause_on_expired 与 C02 字段 | 后端 AccountStatusItem 没有 auto_pause_on_expired，也没有 error_summary / error_kind / error_status_code / error_at。S0-17 现在按服务端 state == paused 推断“暂停 · 已过期”（10 秒缓存期间刚到期的账号可能短暂显示“正常”）；错误原因要另调 accounts?status=error 按 id 对齐（10 §1.2）。请后端补齐，补齐后去掉这两条退路 |
+| status-summary 分组 shortage 的数值单位 | 后端按来源区分：default 的 threshold / current 是 0–1 比例，规则 group_available_ratio 的 current 是 0–100 百分数，group_available_accounts 是个数；20 §10.1 没写。S0-17 保留原始数值与 source / metricType，阶段 1 / 阶段 5 显示时按来源分支格式化 |
