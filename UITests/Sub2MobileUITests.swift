@@ -637,7 +637,10 @@ final class Sub2MobileUITests: XCTestCase {
     }
 
     @MainActor private func submitLogin() {
-        XCTAssertTrue(app.navigationBars["Sub2 Mobile"].waitForExistence(timeout: 10))
+        // The root page and the 添加站点 sheet have different titles (60 §4.1), and a form scrolled to its top may not have
+        // created the button's row yet: any login field shows the page is there.
+        let page = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "login.")).firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 10))
         // The login form dismisses its keyboard when scrolling. Keep the drag
         // above the keyboard so it scrolls the form rather than typing a key.
         if app.keyboards.firstMatch.exists { scroll(towardBottom: true) }

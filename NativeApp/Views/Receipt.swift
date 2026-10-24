@@ -12,6 +12,8 @@ struct ReceiptOverlay: View {
             if let receipt = model.receipts.current {
                 ReceiptBar(receipt: receipt) { model.receipts.performAction() }
                     .id(receipt.id)
+                    // Without a button it is only read: taps reach the page under it (S0-16 shows one after every login).
+                    .allowsHitTesting(receipt.action != nil)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }

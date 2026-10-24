@@ -91,6 +91,8 @@ final class LoginController {
     var isReLogin: Bool { prompt != nil }
     var hasProof: Bool { proof != nil }
     func cooldownRemaining(at now: Date) -> Int { LoginCooldown.remainingSeconds(until: cooldownUntil, now: now) }
+    /// The page's timer: the button stops counting once the wait is over.
+    func cooldownElapsed() { if cooldownRemaining(at: environment.now()) == 0 { cooldownUntil = nil } }
 
     func addressDidChange() {
         endTwoFactor()
@@ -230,7 +232,7 @@ final class LoginController {
     private func loadSettings(_ attempt: Attempt, run: UUID) async throws -> PublicSettings? {
         let settings: PublicSettings
         do { settings = try await step(.site, run: run) { try await attempt.gateway.publicSettings() } }
-        catch let halt as Halt where method.usesKey && halt.failure != nil && halt.failure?.action != .stop { return nil }
+        catch let halt as Halt where method.usesKey && halt.failure != nil && halt.failure != LoginFailure.notSub2Site { return nil }
         site = settings
         guard LoginSite.isSub2(settings) else { throw Halt(stop: LoginCopy.notSub2Site, stage: .site) }
         return settings

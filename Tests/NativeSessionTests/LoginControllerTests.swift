@@ -293,7 +293,11 @@ private actor StubLoginGateway: LoginGateway {
     harness.now = harness.now.addingTimeInterval(4.5)
     await controller.submit()
     #expect(await gateway.settingsCalls == calls); #expect(await gateway.logins.count == 1)
+    controller.cooldownElapsed()
+    #expect(controller.cooldownUntil != nil)
     harness.now = harness.now.addingTimeInterval(0.5)
+    controller.cooldownElapsed()
+    #expect(controller.cooldownUntil == nil)
     await controller.submit()
     #expect(await gateway.logins.count == 2); #expect(harness.connects.count == 1)
 }

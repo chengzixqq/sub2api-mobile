@@ -141,11 +141,12 @@ public enum CaptchaLoadFailure {
 }
 
 /// `login_agreement_*`, gated the way Web's `applyLoginAgreementSettings` does: on, and at least one titled document.
-public struct LoginAgreement: Equatable, Sendable {
+public struct LoginAgreement: Equatable, Identifiable, Sendable {
     public enum Mode: Equatable, Sendable { case checkbox, modal }
     public let mode: Mode
     public let documents: [LoginAgreementDocument]
     public let revision: String
+    public var id: String { revision }
 
     public init?(_ settings: PublicSettings) {
         let documents = settings.loginAgreementDocuments.filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

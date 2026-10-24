@@ -6,7 +6,8 @@ enum DemoData {
     /// The only server zone in UI fixtures (D30); trend buckets and the AdminMe fixture use it.
     static let serverTimeZone = ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00")!
     /// The password login's fixture session; it never expires, so nothing is refreshed.
-    static let passwordCredential = Credential.tokens(TokenPair(accessToken: "ui-test-access", refreshToken: "ui-test-refresh", expiresAt: .distantFuture))
+    static let passwordTokens = TokenPair(accessToken: "ui-test-access", refreshToken: "ui-test-refresh", expiresAt: .distantFuture)
+    static let passwordCredential = Credential.tokens(passwordTokens)
     /// Every capability, compliance accepted and step-up off, so all gated entries show (D30 zone). S0-13's launch
     /// arguments require compliance (`-ui-compliance-required`) or turn step-up on with TOTP (`-ui-step-up-required`) or
     /// without it (`-ui-step-up-no-totp`).
@@ -110,5 +111,53 @@ enum DemoData {
     static func users(page: Int, search: String, status: String?) -> Page<AdminUser> {
         let matches = allUsers.filter { (search.isEmpty || $0.email.localizedCaseInsensitiveContains(search)) && (status == nil || status == $0.status) }
         return Page(items: Array(matches.dropFirst(max(0, page - 1)).prefix(1)), total: matches.count, page: page, pageSize: 1, pages: matches.count)
+    }
+}
+
+/// The login page's `-ui-testing` site (60 §4). `settings/public` needs no captcha and names the site “Sub2 演示站” unless
+/// `-ui-login-captcha` (turnstile, no packaged page), `-ui-login-captcha-conflict`, `-ui-login-agreement-checkbox`,
+/// `-ui-login-agreement-modal`, `-ui-login-backend-mode` or `-ui-login-no-site-name` say otherwise. The email prefixes 2fa@,
+/// wrong@, busy@ and disabled@ pick the answer; the second factor takes 123456, refuses 000000 and expires on 999999.
+struct DemoLoginGateway: LoginGateway {
+    private let arguments: [String]
+    init(arguments: [String] = ProcessInfo.processInfo.arguments) { self.arguments = arguments }
+
+    func publicSettings() async throws -> PublicSettings {
+        var fields: [String: Any] = ["version": "ui-fixture", "site_name": arguments.contains("-ui-login-no-site-name") ? "" : "Sub2 演示站",
+                                     "captcha_provider": "", "mobile_verify_path": "/mobile/verify",
+                                     "backend_mode_enabled": arguments.contains("-ui-login-backend-mode")]
+        if arguments.contains("-ui-login-captcha") { fields["captcha_provider"] = "turnstile"; fields["mobile_verify_path"] = "" }
+        if arguments.contains("-ui-login-captcha-conflict") { fields["captcha_provider"] = "conflict" }
+        let checkbox = arguments.contains("-ui-login-agreement-checkbox")
+        if checkbox || arguments.contains("-ui-login-agreement-modal") {
+            fields["login_agreement_enabled"] = true
+            fields["login_agreement_mode"] = checkbox ? "checkbox" : "modal"
+            fields["login_agreement_revision"] = "ui-r1"
+            fields["login_agreement_documents"] = [["id": "terms", "title": "服务条款", "content_md": "**欢迎使用**\n\n请遵守站点规则。"]]
+        }
+        return try JSONDecoder().decode(PublicSettings.self, from: JSONSerialization.data(withJSONObject: fields))
+    }
+    func login(email: String, password: String, proof: CaptchaProof?, deviceName: String, declaresCaptchaProvider: Bool) async throws -> LoginResult {
+        let name = email.lowercased()
+        if name.hasPrefix("2fa@") { return .twoFactor(TwoFactorChallenge(tempToken: "ui-temp", maskedEmail: "2***@example.com")) }
+        if name.hasPrefix("wrong@") { throw Self.failure(401, "INVALID_CREDENTIALS") }
+        if name.hasPrefix("busy@") { throw Self.failure(429, "RATE_LIMITED", retryAfter: 3) }
+        if name.hasPrefix("disabled@") { throw Self.failure(403, "USER_NOT_ACTIVE") }
+        if arguments.contains("-ui-login-captcha"), proof == nil { throw Self.failure(400, "TURNSTILE_VERIFICATION_FAILED") }
+        return .authenticated(Self.session)
+    }
+    func completeTOTP(tempToken: String, code: String) async throws -> AuthSession {
+        switch code {
+        case "123456": return Self.session
+        case "999999": throw Self.failure(400, "TOTP_LOGIN_SESSION_EXPIRED", context: .twoFactor)
+        default: throw Self.failure(400, "TOTP_INVALID_CODE", context: .twoFactor)
+        }
+    }
+    func cancelAll() async {}
+
+    private static let session = AuthSession(user: AdminUser(id: 1, email: "admin@example.com", username: "管理员", role: "admin"),
+                                             tokens: DemoData.passwordTokens)
+    private static func failure(_ status: Int, _ reason: String, context: ReasonCatalog.Context = .login, retryAfter: Int? = nil) -> APIError {
+        APIError.server(status: status, envelope: ErrorEnvelope(reason: reason, retryAfter: retryAfter), context: context, retryAfter: retryAfter)
     }
 }
