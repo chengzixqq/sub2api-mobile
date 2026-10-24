@@ -64,6 +64,11 @@ enum GatedAction: Sendable, Equatable {
         case .set: .balanceAdjustment(currentBalance.map { abs($0 - amount) })
         }
     }
+    /// What the next set in the same sheet is measured from. A replayed or recovered result is the first run's and may be
+    /// stale, so the balance counts as unknown.
+    static func balanceAfter(_ outcome: WriteOutcome<AdminUser>) -> Decimal? {
+        outcome.replayed || outcome.recovered ? nil : outcome.value.balance
+    }
 
     /// The line under the system prompt.
     var defaultReason: String {

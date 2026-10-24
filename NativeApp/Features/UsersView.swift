@@ -482,6 +482,9 @@ struct BalanceView: View {
     @State private var prepared: PendingBalanceOperation?
     @State private var busy = false
     @State private var sending: Task<Void, Never>?
+    /// D26: a set is measured from the balance the sheet opened with, then from what each write here or a reload left.
+    @State private var currentBalance: Decimal?
+    init(user: AdminUser) { self.user = user; _currentBalance = State(initialValue: user.balance) }
     private var pending: [PendingBalanceOperation] { model.pendingBalances.filter { $0.userID == user.id && $0.serverID == model.activeProfile?.id } }
     var body: some View {
         NavigationStack {
@@ -524,6 +527,7 @@ struct BalanceView: View {
             .navigationTitle("调整余额")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) } }
             .interactiveDismissDisabled(busy)
+            .onChange(of: user.balance) { _, balance in currentBalance = balance }
             .confirmationDialog("确认调整余额？", isPresented: $confirm, titleVisibility: .visible) {
                 Button("确认发送", role: .destructive) { if let prepared { let item = confirmed(prepared); sending = Task { await send(item) } } }
             } message: {
@@ -572,7 +576,7 @@ struct BalanceView: View {
         let generation = session?.generation ?? UUID()
         guard generation == model.sessionGeneration else { return }
         // 60 §3.4, D26: verified after the confirmation and before the record is saved, against how far the balance moves.
-        let gated = GatedAction.balanceAdjustment(item.operation, amount: item.amount, currentBalance: user.balance)
+        let gated = GatedAction.balanceAdjustment(item.operation, amount: item.amount, currentBalance: currentBalance)
         guard await model.biometricGate.authorize(gated), generation == model.sessionGeneration, !Task.isCancelled else { return }
         // A saved record was sent before and may have run (00 §2.5.4).
         let retrying = model.pendingBalances.contains { $0.id == item.id }
@@ -583,6 +587,7 @@ struct BalanceView: View {
             let write = try model.persisted(item)
             submitted = true
             let outcome = try await client.updateBalance(write, onEvent: actionIDSaver(for: item))
+            currentBalance = GatedAction.balanceAfter(outcome)
             // Resolve the exact server-bound operation even if the user has switched sites.
             try model.resolve(item)
             guard generation == model.sessionGeneration else { return }

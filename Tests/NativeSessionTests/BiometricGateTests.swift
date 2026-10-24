@@ -71,6 +71,21 @@ private let cents = Decimal(string: "100.01")!
     #expect(GatedAction.balanceAdjustment(.set, amount: 20, currentBalance: nil) == .balanceAdjustment(nil))
 }
 
+@MainActor @Test func aSetLaterInTheSameSheetIsMeasuredFromWhatTheLastWriteLeft() {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let gate = makeGate(enabled: true, in: scratch)
+    // Opened at $10, 增加 $500 succeeded with $510: 设置为 0 now refunds $510, not the $10 the sheet opened with.
+    let user = AdminUser(id: 7, email: "user@example.com", balance: 510)
+    let after = GatedAction.balanceAfter(WriteOutcome(value: user))
+    #expect(after == 510)
+    #expect(gate.needsVerification(.balanceAdjustment(.set, amount: 0, currentBalance: after)))
+    #expect(gate.needsVerification(.balanceAdjustment(.set, amount: 500, currentBalance: after)) == false)
+    // A replayed or recovered result is the first run's and may be stale: unknown, so checked whenever the switch is on.
+    #expect(GatedAction.balanceAfter(WriteOutcome(value: user, replayed: true)) == nil)
+    #expect(GatedAction.balanceAfter(WriteOutcome(value: user, recovered: true)) == nil)
+    #expect(gate.needsVerification(.balanceAdjustment(.set, amount: 505, currentBalance: nil)))
+}
+
 @MainActor @Test func turningOnNeedsAnAvailablePhoneAndASuccessfulCheck() async {
     let scratch = ScratchDefaults(); defer { scratch.remove() }
     let unavailable = RecordingAuthenticator(isAvailable: false)
