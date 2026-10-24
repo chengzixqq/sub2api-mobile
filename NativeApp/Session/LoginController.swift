@@ -158,11 +158,12 @@ final class LoginController {
 
     /// 00 §1.4 step 3: six digits submit themselves once.
     func codeDidChange() async {
+        // During a 429 the sheet locks the field and keeps the notice; anything typed meanwhile is dropped, not held back.
+        guard cooldownRemaining(at: environment.now()) == 0 else { if !code.isEmpty { code = "" }; return }
         let clean = OneTimeCode.sanitize(code)
         if clean != code { code = clean }
         if !clean.isEmpty { twoFactorNotice = nil }
-        guard OneTimeCode.isComplete(clean), let challenge, let attempt, let profile = signingProfile, !isBusy,
-              cooldownRemaining(at: environment.now()) == 0 else { return }
+        guard OneTimeCode.isComplete(clean), let challenge, let attempt, let profile = signingProfile, !isBusy else { return }
         isBusy = true; defer { isBusy = false }
         let run = self.run
         do {

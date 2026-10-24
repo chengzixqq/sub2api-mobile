@@ -1,7 +1,8 @@
 import SwiftUI
 import Sub2Core
 
-/// 00 §1.4 step 3: the bottom sheet of the password login. Six digits submit themselves; a swipe down is 取消.
+/// 00 §1.4 step 3: the bottom sheet of the password login. Six digits submit themselves; a swipe down is 取消. During a 429
+/// the field is locked and counts down (00 §2.7.2), the login page's timer ends the wait.
 struct LoginTwoFactorSheet: View {
     @Bindable var controller: LoginController
     @FocusState private var focused: Bool
@@ -17,13 +18,12 @@ struct LoginTwoFactorSheet: View {
                     .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(controller.twoFactorNotice == nil ? Palette.hairline : Tone.critical.base))
-                    .focused($focused).disabled(controller.isBusy)
+                    .focused($focused).disabled(controller.isBusy || isCoolingDown)
                     .accessibilityLabel("6 位验证码").accessibilityIdentifier("login.totp")
                 if let notice = controller.twoFactorNotice {
                     Text(notice).font(.footnote).foregroundStyle(Palette.criticalInk).accessibilityIdentifier("login.totp.error")
-                } else {
-                    Text("填满 6 位自动提交").font(.footnote).foregroundStyle(Palette.ink3)
                 }
+                footnote
                 if controller.isBusy { ProgressView().frame(maxWidth: .infinity) }
             }
             .padding(20)
@@ -39,7 +39,24 @@ struct LoginTwoFactorSheet: View {
         }
         .presentationDetents([.medium])
         .onChange(of: controller.code) { Task { await controller.codeDidChange() } }
+        .onChange(of: isCoolingDown) { if !isCoolingDown { focused = true } }
         .onAppear { focused = true }
+    }
+
+    private var isCoolingDown: Bool { controller.cooldownUntil != nil }
+
+    @ViewBuilder private var footnote: some View {
+        if isCoolingDown {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remaining = controller.cooldownRemaining(at: context.date)
+                if remaining > 0 {
+                    Text(LoginCopy.cooldownButton(remaining)).font(.footnote).foregroundStyle(Palette.ink3)
+                        .accessibilityIdentifier("login.totp.cooldown")
+                }
+            }
+        } else if controller.twoFactorNotice == nil {
+            Text("填满 6 位自动提交").font(.footnote).foregroundStyle(Palette.ink3)
+        }
     }
 
     private var instruction: String {

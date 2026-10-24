@@ -302,6 +302,36 @@ private actor StubLoginGateway: LoginGateway {
     #expect(await gateway.logins.count == 2); #expect(harness.connects.count == 1)
 }
 
+@MainActor @Test func twoFactorRateLimitKeepsTheWaitOnScreenAndDropsCodesTypedMeanwhile() async throws {
+    let challenge = LoginResult.twoFactor(TwoFactorChallenge(tempToken: "temporary"))
+    let gateway = StubLoginGateway(logins: [.success(challenge)],
+                                   totp: [.failure(loginError(429, "RATE_LIMITED", context: .twoFactor, retryAfter: 20)), .success(issued)])
+    let harness = LoginHarness(gateway: gateway)
+    let controller = harness.controller!
+    harness.fillPassword()
+    await controller.submit()
+    controller.code = "123456"
+    await controller.codeDidChange()
+    #expect(controller.challenge != nil); #expect(controller.code == "")
+    #expect(controller.cooldownUntil == harness.now.addingTimeInterval(20))
+    #expect(controller.twoFactorNotice == "登录过于频繁，请 20 秒后再试")
+
+    harness.now = harness.now.addingTimeInterval(5)
+    controller.code = "654321"
+    await controller.codeDidChange()
+    #expect(await gateway.codes == ["123456"])
+    #expect(controller.code == "")
+    #expect(controller.twoFactorNotice == "登录过于频繁，请 20 秒后再试")
+
+    harness.now = harness.now.addingTimeInterval(15)
+    controller.cooldownElapsed()
+    #expect(controller.cooldownUntil == nil)
+    controller.code = "654321"
+    await controller.codeDidChange()
+    #expect(await gateway.codes == ["123456", "654321"])
+    #expect(controller.challenge == nil); #expect(harness.announced == ["admin@example.com"])
+}
+
 @MainActor @Test func networkErrorIsShownButNeverRetried() async throws {
     let gateway = StubLoginGateway(settings: [.success(captchaSettings("turnstile"))], logins: [.failure(URLError(.notConnectedToInternet))])
     let harness = LoginHarness(gateway: gateway)

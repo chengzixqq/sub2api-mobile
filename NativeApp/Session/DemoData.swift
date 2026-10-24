@@ -117,7 +117,8 @@ enum DemoData {
 /// The login page's `-ui-testing` site (60 §4). `settings/public` needs no captcha and names the site “Sub2 演示站” unless
 /// `-ui-login-captcha` (turnstile, no packaged page), `-ui-login-captcha-conflict`, `-ui-login-agreement-checkbox`,
 /// `-ui-login-agreement-modal`, `-ui-login-backend-mode` or `-ui-login-no-site-name` say otherwise. The email prefixes 2fa@,
-/// wrong@, busy@ and disabled@ pick the answer; the second factor takes 123456, refuses 000000 and expires on 999999.
+/// wrong@, busy@ and disabled@ pick the answer; the second factor takes 123456, refuses 000000, expires on 999999 and is
+/// rate limited for 5 seconds on 429429.
 struct DemoLoginGateway: LoginGateway {
     private let arguments: [String]
     init(arguments: [String] = ProcessInfo.processInfo.arguments) { self.arguments = arguments }
@@ -150,6 +151,7 @@ struct DemoLoginGateway: LoginGateway {
         switch code {
         case "123456": return Self.session
         case "999999": throw Self.failure(400, "TOTP_LOGIN_SESSION_EXPIRED", context: .twoFactor)
+        case "429429": throw Self.failure(429, "RATE_LIMITED", context: .twoFactor, retryAfter: 5)
         default: throw Self.failure(400, "TOTP_INVALID_CODE", context: .twoFactor)
         }
     }

@@ -74,6 +74,28 @@ final class LoginUITests: XCTestCase {
         XCTAssertFalse(app.tabBars.buttons["概览"].exists)
     }
 
+    @MainActor func testTwoFactorRateLimitLocksTheFieldAndCountsDown() {
+        launch()
+        fillSite(name: "两步限流")
+        fillPassword(email: "2fa@example.com")
+        submit()
+        let field = app.textFields["login.totp"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), app.debugDescription)
+        enter("429429", in: field)
+        let error = app.staticTexts["login.totp.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(error.label, "登录过于频繁，请 5 秒后再试")
+        let countdown = app.staticTexts["login.totp.cooldown"]
+        XCTAssertTrue(countdown.waitForExistence(timeout: 2), app.debugDescription)
+        XCTAssertTrue(countdown.label.hasSuffix("秒后重试"), countdown.label)
+        XCTAssertFalse(field.isEnabled)
+        let restored = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: field)
+        wait(for: [restored], timeout: 10)
+        XCTAssertFalse(countdown.exists)
+        enter("123456", in: field)
+        assertConnected()
+    }
+
     @MainActor func testAgreementCheckboxGatesLogin() {
         launch(["-ui-login-agreement-checkbox"])
         fillSite(name: "条款勾选")
