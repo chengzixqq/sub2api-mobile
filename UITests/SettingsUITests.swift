@@ -90,9 +90,12 @@ final class SettingsUITests: XCTestCase {
         app.openSearchItem("search.item.interface")
         openThresholdSheet()
         let save = app.buttons["settings.threshold.save"]
+        let field = app.textFields["settings.threshold.field"]
         XCTAssertTrue(save.isEnabled)
-        for (typed, enabled) in [("0", false), ("100001", false), ("1", true), ("100000", true)] {
+        // D22 keypad rule: the key that would pass 100,000 is refused, so "100001" stops at "10000".
+        for (typed, shown, enabled) in [("0", "0", false), ("100001", "10000", true), ("1", "1", true), ("100000", "100000", true)] {
             replaceThreshold(with: typed)
+            XCTAssertEqual(field.value as? String, shown, typed)
             XCTAssertEqual(save.isEnabled, enabled, typed)
         }
         diagnostics("settings-threshold-sheet")
