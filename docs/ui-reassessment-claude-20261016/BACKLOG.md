@@ -213,3 +213,6 @@
 | 登录页、两步验证与协议 sheet 的设计稿 | 60 §4 没有对应设计稿，S0-16 的版式（三行单选、徽章色调、脚注说明、底部两步验证 sheet、协议弹窗）与两步验证 / 冷却按钮文案为自拟，待用户看模拟器截图确认 |
 | status-summary 的 accounts[] 缺 auto_pause_on_expired 与 C02 字段 | 后端 AccountStatusItem 没有 auto_pause_on_expired，也没有 error_summary / error_kind / error_status_code / error_at。S0-17 现在按服务端 state == paused 推断“暂停 · 已过期”（10 秒缓存期间刚到期的账号可能短暂显示“正常”）；错误原因要另调 accounts?status=error 按 id 对齐（10 §1.2）。请后端补齐，补齐后去掉这两条退路 |
 | status-summary 分组 shortage 的数值单位 | 后端按来源区分：default 的 threshold / current 是 0–1 比例，规则 group_available_ratio 的 current 是 0–100 百分数，group_available_accounts 是个数；20 §10.1 没写。S0-17 保留原始数值与 source / metricType，阶段 1 / 阶段 5 显示时按来源分支格式化 |
+| 告警百分数的位数 | 告警百分数按 00 §6.2 为 1 位小数（5.0%），10 §6.3 示例写作 5%；如需改只改 AlertPresentation 的格式调用一处（D21，S0-18） |
+| 告警规则缺失时的英文说明 | 规则已删且没有快照（rule 为 null）时，规则文案按 10 §6.3 显示后端 description 原文，它是英文（如 “error_rate > 5.00 (current 5.20) over last 5m (overall)”）；是否改为中文概述（指标名 + 阈值），待用户决定（S0-18） |
+| 旧服务端事件缺 group_name | 10 §6.3 说“另拉 groups/all 拼”，S0-18 的 AlertPresentation.scopeText 只用事件自带的 group_name，没有时写“分组 · #12”；阶段 1 可先用分组目录补进 AlertEvent 再显示 |
