@@ -168,7 +168,7 @@
 | 简化模式（C 表格工作台风格） | 双风格应用的第二种模式，主模式定稿并实现后再设计；共享数据、筛选、选中对象与动作 |
 | 利润亏损的固定演示状态 | 设计稿演示数据里没有亏损时段，负值柱只临时渲染验证过 |
 | 设计稿冒烟工具读取 expect 字段自动断言文案 | 现在文案只靠截图人工核对 |
-| 验证码桥页导航回调签名不匹配 | Xcode 27.1 编译 `NativeApp/Features/CaptchaView.swift:91` 报 “`webView(_:decidePolicyFor:decisionHandler:)` nearly matches optional requirement”（S0-03 之前就有，不是新增）。签名不匹配时 WebKit 不会调用它，顶层跨域导航拦截可能已失效；建议 S0-16 重写 CaptchaView 时按新 SDK 修正签名并补测试，或由 S0-19 收口 |
+| 验证码桥页导航回调签名不匹配 | Xcode 27.1 编译 `NativeApp/Features/CaptchaView.swift:91` 报 “`webView(_:decidePolicyFor:decisionHandler:)` nearly matches optional requirement”（S0-03 之前就有，不是新增）。签名不匹配时 WebKit 不会调用它，顶层跨域导航拦截可能已失效；建议 S0-16 重写 CaptchaView 时按新 SDK 修正签名并补测试，或由 S0-19 收口。**S0-16 已处理**：改用 async 版 `webView(_:decidePolicyFor:) async -> WKNavigationActionPolicy`，警告消除；UI 测试用夹具代替 WKWebView，顶层跨域导航拦截还没在真机或测试环境验证，联调时确认 |
 | 超过 800 行的设计稿文件拆分 | v-account-new、v-account-edit、v-user-edit、v-analytics、v-groups 等 |
 | 监控告警详情里“阈值 5% · 近 5 分钟”的窗口说明 | 这是告警规则自己的窗口，目前保留；如需全应用都不写窗口再去掉 |
 | 长超时读请求超时后的自动重试 | S0-04 按 00 §2.4 对所有读请求的超时自动重试 2 次，统计聚合（45 秒）与 dashboard/stats（90 秒）最坏约 4.5 分钟才报错、同一重查询最多跑 3 遍；阶段 1 / U54 在生产量级实测后决定是否对这两类不再重试超时，或改用 count_mode=deferred 缩短 |
@@ -207,3 +207,7 @@
 | 外观切回“跟随系统”的实机核对 | RootView 用 `.preferredColorScheme(nil / .light / .dark)`；SwiftUI 在深色与跟随系统之间来回切换时有“切回 nil 不还原”的已知问题。模拟器 UI 测试只核对了选中状态，需实机确认，必要时改为直接设置窗口的 overrideUserInterfaceStyle |
 | 通用删除确认还没有做 | 60 §0.4：Face ID 关闭时要输入完整名称（兑换码末 4 位，不分大小写）才能删除，打开时按钮写“用 Face ID 删除”。S0-15 只提供 BiometricGate.deleteConfirmation / deleteNameMatches，并给现有删除分组接上验证；现有删除确认框仍是旧样式，由首个重写删除流程的阶段做通用组件 |
 | “站点与凭据”的滚动位置 | iOS 27 模拟器上 List 的 ScrollViewReader 只按 .top / .center 定位：.top 会把“站点”分区标题藏到导航栏下面（列表延伸到导航栏后），所以 S0-15 把第一个站点行滚到居中，上方仍露出安全、通知分区。实机看效果后再定是否改用其他滚动方式 |
+| 登录协议同意是否按 revision 持久化 | Web 把同意记录按 `login_agreement_revision` 存在 localStorage，再次登录不再询问；S0-16 的 App 只在当前登录页内记住同意（登录很少发生，没新增存储键），modal 模式每次打开登录页提交时都会再问。需要时加一个按站点地址 + revision 的本机记录 |
+| 第 4 种验证码提供方 | 桥页校验器（CaptchaBridgeValidator / CaptchaBridge.providers）只接受 turnstile / tencent / aliyun；后端新增提供方时 App 会停止登录并提示“站点的验证方式暂不支持，请改用 Web 登录或管理访问令牌”。后端扩展时同步扩展校验器与 00 §1.5 的字段映射 |
+| 桥页“未部署”的检测 | 站点没部署 /mobile/verify 时通常由 SPA 回退返回 200 的前端页面，WKWebView 不报加载失败，只能靠提示条（mobile_verify_path 为空时）与 180 秒超时兜底；如后端能让未知路径返回 404 或桥页加一个探测接口，可改为直接提示“站点未部署手机验证页” |
+| 登录页、两步验证与协议 sheet 的设计稿 | 60 §4 没有对应设计稿，S0-16 的版式（三行单选、徽章色调、脚注说明、底部两步验证 sheet、协议弹窗）与两步验证 / 冷却按钮文案为自拟，待用户看模拟器截图确认 |
