@@ -1,10 +1,16 @@
-# 部署前必读：原生 iOS 管理端后端适配（3bcd2577d → 70116315d）
+# 部署前必读：生产 e5ab7e4f4 → main a4aa1f619（原生 App 后端适配 + 官方 v0.2.18）
 
 ## 1. 范围
 
-本文覆盖 sub2 仓库 `main` 分支从基线 `3bcd2577d`（2026-10-18）到当前 HEAD `70116315d`（2026-10-22）之间的 130 个提交，也就是“原生 iOS 管理端后端适配清单”的实现：A 认证与会话、B 仪表盘、C 账号、D 运维监控、E 用户与 Key、F 分组、G 兑换码与资金、H 代理 / 幂等 / 公告，以及 A11 出站推送。
+这次上生产的版本是 sub2 `main` 的 `a4aa1f619`（版本号 0.2.18），生产当前是 `e5ab7e4f4`。两者之间有三部分：
 
-信息来源：进度表备注（51 条）、迁移 247–257 原文、`git diff 3bcd2577d..HEAD -- deploy/` 与 `backend/internal/config/config.go`，以及部分提交说明和源码核对。这里只写部署相关的内容，App 侧的接口细节以 sub2 `docs/API_ERROR_CODES.md` 为准。
+1. `e5ab7e4f4 → 3bcd2577d`：2 个提交，只加了 App 验证码桥页（前端 `MobileVerifyView` 与前端路由），只改了前端、文档和 `.gitignore`，不涉及后端、迁移和配置。
+2. `3bcd2577d → 5905b30a9`：“原生 iOS 管理端后端适配清单”的 131 个提交：A 认证与会话、B 仪表盘、C 账号、D 运维监控、E 用户与 Key、F 分组、G 兑换码与资金、H 代理 / 幂等 / 公告、A11 出站推送，最后一个提交是镜像入口脚本权限修正。**第 2–7 节写的主要是这一部分。**
+3. 合入官方 v0.2.18（合并提交 `6f2db67bf`，B1–B11 由你拍板）以及审查后的 5 个修正提交，到 `a4aa1f619`。**这一部分单独写在第 8 节**，部署前必做的事已经并入第 2 节（2.13–2.17）。
+
+测试环境验证（2026-10-25，Codex 在 `/opt/sub2test`）：用 `a4aa1f619` 构建的镜像（`deploy/Dockerfile`，Go 1.27.3）跑了三条路径，都通过：现有测试库原地升级、从 `e5ab7e4f4` 带造的数据升级、全新安装。每条路径 25 项接口检查和 10 项断言全部通过，321 个迁移校验和一致，数据行数与内容保留，生产全程未受影响。单个迁移的耗时没有测出来（测试数据很小，日志也没有迁移起止标记），生产上的耗时按第 2.2 节估。
+
+信息来源：进度表备注、迁移原文、`git diff` 中 `deploy/` 与 `backend/internal/config/config.go` 的变化、提交说明与源码核对、官方 v0.2.16→v0.2.18 的提交记录、v0.2.18 审查结论。这里只写部署相关的内容，App 侧的接口细节以 sub2 `docs/API_ERROR_CODES.md` 为准。
 
 大部分改动只是加字段或加路由，老调用方不受影响。下面列的是需要你动手、需要你拍板，或者 Web / 脚本能感知到的变化。
 
@@ -14,24 +20,32 @@
 
 按重要性排序。每条都写了“不处理会怎样”和“怎么处理”。
 
-### 2.1 `deploy/upgrade-compose.sh` 会拒绝这次升级（必须）
+### 2.1 升级步骤：先预检，再起绿色实例，迁移跑完再切流（必须）
 
-- **不处理会怎样**：脚本会先用候选镜像对线上库执行 `migration-preflight --require-no-pending`。这次有 11 个待执行迁移（247–257），预检必然失败，脚本输出 `Migration preflight failed; the running service was not changed` 后退出。从脚本里的 `schema_gate: require_no_pending` 看，它是为“不带新迁移的升级”设计的；它的自动回滚也只换回旧镜像，不会撤销数据库改动（`deploy/README.md` 原文写明了这一点）。
-- **怎么处理**：这次改为手工升级。
-  1. 先用新镜像做一次不带 `--require-no-pending` 的预检，确认只有 pending、没有 missing / extra / checksum 不符：
-     `SUB2API_IMAGE=<新镜像> docker compose run --rm --no-deps -T --entrypoint /app/migration-preflight sub2api`
-     期望 pending 正好是 247–257 这 11 个。
-  2. 备份 PostgreSQL（pg_dump）、Redis（RDB）和 data 目录。
-  3. 改 `.env` 里的 `SUB2API_IMAGE`，然后执行 `docker compose up -d sub2api`。迁移会在启动时自动执行，见 2.2。
+生产是自建蓝绿部署（当前在跑的是 `linapi-sub2api-rolling-rpm-60s-20261015-green`），不用 `deploy/upgrade-compose.sh`。这个脚本会对线上库执行 `migration-preflight --require-no-pending`，而这次有 12 个待执行迁移，它一定会拒绝。
+
+1. **构建镜像**：用 `a4aa1f619` 的源码执行 `docker build -f deploy/Dockerfile`。构建阶段用的是 `golang:1.27.3-alpine`；如果构建机缓存了旧的 builder 镜像，先拉新的。
+2. **备份**：PostgreSQL（pg_dump）、Redis（RDB）和 data 目录。迁移没有 Down 段，出问题只能从备份恢复数据库。
+3. **预检**：用新镜像对生产库跑一次**不带** `--require-no-pending` 的 `/app/migration-preflight`（连接参数与生产实例相同，`--entrypoint /app/migration-preflight`）。期望结果与测试环境一致：
+   ```
+   status=PASS require_no_pending=false embedded=321 applied=309 pending=12 out_of_order_pending=0 missing=0 extra=0 checksum_mismatches=0
+   ```
+   pending 依次是 `246_enable_gemini_image_generation_groups.sql`、`247_restore_ops_alert_silences.sql` 到 `257_push_notifications.sql`。只要出现 missing、extra 或 checksum 不一致，就停下，不要继续。`applied` 的数字以实际为准。
+4. **执行部署前 SQL**：第 2.3（延迟告警规则）、2.13（记下关着生图的分组）、2.14（易支付商品名、退款中的订单）、2.15（gpt-5.5 映射）。
+5. **启动新实例**：新容器启动时先跑迁移，跑完才对外服务（有 advisory lock，同一时间只有一个实例在迁移）。迁移期间旧实例照常服务：这些迁移除了官方 246 那一条改生图开关的 UPDATE，都只是加表、加可空列或带默认值的列、加索引，旧代码在新结构上能正常运行（已核对：旧代码对这些表都是按列名读写，`config_version` 有默认值）。但第 2.2 节列的几个迁移在执行期间会阻塞对应表，**包括 `users` 表的写入（余额扣费会排队）**，所以要挑低峰时段。迁移执行器没有设 `lock_timeout`。
+6. **验证新实例**：健康检查通过后，按第 6 节逐项验证。迁移完成后至少等 5 分钟再切流：两个版本共用 Redis 里的 API Key 认证缓存（TTL 300 秒），这段时间新实例可能读到迁移前的生图开关。之后按你平时的方式切流、排空旧实例。
+7. **回滚**：切回旧实例即可，数据库不用回滚。注意事项见第 7 节。
 
 ### 2.2 迁移在启动时执行，部分迁移会阻塞写入，需要挑低峰时段（必须）
 
-- **不处理会怎样**：进程启动时先跑迁移，跑完才对外服务（`repository/ent.go`，超时 10 分钟；有 advisory lock，多实例同时启动时只有一个在跑）。每个 .sql 文件在单独的事务里整份执行，锁要等这个文件提交后才释放。248、249、256、257 用的是普通 `CREATE INDEX`（没有 CONCURRENTLY），建索引期间会阻塞对应表的写入。其中 257 会锁住 `accounts`（网关运行时写得很频繁）和 `ops_alert_events`；248 会锁住 `redeem_codes`（兑换、生成码、余额 / 并发调整都要写这张表）。
+- **不处理会怎样**：进程启动时先跑迁移，跑完才对外服务（`repository/ent.go`，超时 10 分钟；有 advisory lock，多实例同时启动时只有一个在跑）。官方 246 是对 `groups` 表的一条带条件的 UPDATE，只锁命中的几行，瞬间完成（会触发分组的认证缓存失效触发器，因为只改了生图开关，触发器直接返回，没有副作用）。每个 .sql 文件在单独的事务里整份执行，锁要等这个文件提交后才释放。248、249、256、257 用的是普通 `CREATE INDEX`（没有 CONCURRENTLY），建索引期间会阻塞对应表的写入。其中：
+  - **257** 一开始建 `push_devices` 时就对 `users` 加了外键锁（SHARE ROW EXCLUSIVE），一直持有到整个文件提交，也就是要等后面 `accounts`、`ops_alert_events` 上的索引建完。这段时间 `users` 不能写入，**网关每次请求的余额扣费都会排队**；`accounts`（网关运行时写得很频繁）和 `ops_alert_events` 也不能写入。
+  - **248、256** 先 `ALTER TABLE ... ADD COLUMN`（拿 ACCESS EXCLUSIVE 锁），再在同一个事务里建索引，所以建索引期间 `redeem_codes`、`admin_user_adjustments` 的**读和写都会被挡住**。`redeem_codes` 在兑换、生成码、余额 / 并发调整时都要用。
 - **怎么处理**：先看几张表的规模：
   ```sql
   SELECT relname, n_live_tup, pg_size_pretty(pg_total_relation_size(relid)) AS size
   FROM pg_stat_user_tables
-  WHERE relname IN ('redeem_codes', 'admin_user_adjustments', 'accounts', 'ops_alert_events');
+  WHERE relname IN ('users', 'redeem_codes', 'admin_user_adjustments', 'accounts', 'ops_alert_events', 'account_test_runs');
   ```
   表都不大的话直接部署。表很大的话，可以在部署前手工用 `CREATE INDEX CONCURRENTLY IF NOT EXISTS` 建好同名索引（必要时先 `ADD COLUMN IF NOT EXISTS` 把新列加上）。迁移文件里写的都是 `IF NOT EXISTS`，遇到已有的同名对象会直接跳过。索引名和定义见第 3 节。
 
@@ -121,11 +135,75 @@
 - `deploy/Dockerfile` 用 `-tags embed` 把前端打进二进制，用镜像部署不需要额外操作。
 - 如果前端是单独部署的：必须重新构建前端，才能用上 D07 规则编辑器的新选项、D09 运维监控卡片和 C19 编辑深链。此外 `/api/v1/settings/public` 的 `mobile_verify_path` 会一直是空字符串，App 拿不到验证码桥页地址；`/admin/me` 也不会下发 `web.accounts_edit_deep_link`。
 
+### 2.13 官方迁移 246 会打开 gemini / antigravity 分组的生图开关，而且不可撤销（必须先记录）
+
+- **会怎样**：`246_enable_gemini_image_generation_groups.sql` 把所有 platform 为 `gemini` 或 `antigravity`、`allow_image_generation = false` 的分组改成 `true`。同时，“允许当前分组生图”这个开关从 v0.2.18 起也管 Gemini 系入口（`/v1/messages`、`/v1/chat/completions`、`/v1/responses`、`/v1beta`）；新建 gemini / antigravity 分组一律默认开启，建分组时传 false 也不生效，要关只能事后编辑。你在 B10 选择了接受官方这个行为。
+- **生产上原来是什么情况**：生产版本 `e5ab7e4f4` 里，这个开关只对 OpenAI / Grok 入口起作用，Gemini / Antigravity 的入口根本不检查它（在 gemini / antigravity 分组上只影响批量生图资格）。所以生产上那些 `false` 的 gemini / antigravity 分组，本来就能正常生图，这个 `false` 多半只是旧版本建分组时的默认值。迁移改成 `true` 后，实际生图行为不变。
+- **怎么处理**：部署前先查出现在是 `false` 的分组，记下 ID。上线后**不是“关回去恢复原状”**：只有从现在起确实想禁止 Gemini 生图的分组才需要关；关掉之后，这个分组的 Gemini 生图请求会返回 400，这是新增的限制。
+  ```sql
+  SELECT id, name, platform FROM groups
+  WHERE deleted_at IS NULL AND platform IN ('gemini', 'antigravity') AND allow_image_generation = false
+  ORDER BY id;
+  ```
+- **composite 分组**：迁移不会改 composite 分组。composite 分组的这个开关默认是关的，并且同时管 OpenAI 生图。升级后，没开生图的 composite 分组如果收到 Gemini 生图请求，会直接返回 400（升级前能出图）。如果为了恢复 Gemini 生图打开这个开关，这个分组的 OpenAI 生图也会一起放开。先看看有哪些：
+  ```sql
+  SELECT id, name FROM groups
+  WHERE deleted_at IS NULL AND platform = 'composite' AND allow_image_generation = false
+  ORDER BY id;
+  ```
+
+### 2.14 支付与退款：上线前查两处配置和数据（必须）
+
+- **易支付商品名不能含 `&` 或 `=`**（B9 选②，这次升级没有行为变化）：这条规则生产版本已经在执行（定制提交 `a077aa233` 引入），B9 选②就是保留它；官方原版反而不限制商品名。规则是 EasyPay 旧版（legacy）参与签名的非空参数（包括商品名 name）不能含 `&`、`=` 或控制字符，并强制 MD5、拒绝重复参数。建单时就会校验，所以商品名含这些字符时，用户**下单会直接失败**。商品名来自套餐的 `product_name`（为空时是 `Sub2API Subscription <套餐名>`），再加上后台设置的商品名前缀 / 后缀。作为检查项查一下：
+  ```sql
+  SELECT id, name, product_name FROM subscription_plans
+  WHERE product_name ~ '[&=]' OR name ~ '[&=]';
+  SELECT key, value FROM settings
+  WHERE key IN ('PRODUCT_NAME_PREFIX', 'PRODUCT_NAME_SUFFIX') AND value ~ '[&=]';
+  ```
+  两条都应该查不到结果。查到了说明这些套餐现在就下不了单，在后台改掉即可，和这次升级无关。
+- **处在“退款中”（`REFUND_PENDING`）的订单**（B8 选③）：这是部署前**必须先查、查到了就要先处理**的一项。
+  - v0.2.18 起，`PrepareRefund` / `ExecuteRefund` 不再接受 `REFUND_PENDING` 状态的订单，这类订单只能在管理端用“查询退款”收尾。
+  - **生产遗留的支付宝退款订单在新版里没有收尾办法**：生产版本记下的支付宝退款号是支付宝交易号或 `<订单号>-refund`，新版查询退款要求前缀是 `<订单号>-refund-`，所以这些订单点“查询退款”一律返回 `REFUND_QUERY_UNSUPPORTED`。新版也没有人工收尾的接口，订单会一直卡在 `REFUND_PENDING`。
+  - 卡住的订单还会让对应的支付实例**无法停用、删除，也改不了受保护的配置**（返回 `PENDING_ORDERS`）。
+  - 部署前先查：
+    ```sql
+    SELECT id, out_trade_no, payment_type, provider_key, refund_amount, refund_requested_at
+    FROM payment_orders WHERE status = 'REFUND_PENDING' ORDER BY id;
+    ```
+  - **查到了怎么办**：最好在升级前，用当前版本对这些订单执行“查询退款”收尾。收尾不了的（特别是支付宝），先到支付宝后台核对退款是否到账，再请开发者给出收尾 SQL（改订单状态，并按旧版本的口径补扣余额或订阅天数），不要重发退款。查不到就没有这个问题。
+- **上线后**：用一笔测试订单走一遍 EasyPay 下单、回调和对账（第 6 节第 13 项）。
+
+### 2.15 GPT-5.5 已从 ChatGPT 账号退役，相关映射要先改（需要检查）
+
+- **会怎样**：OpenAI 在 2026-10-15（北京时间）把 GPT-5.5 从 ChatGPT 登录的 Codex 下线了。v0.2.18 起，OpenAI OAuth / SetupToken 账号不再调度 gpt-5.5，公开模型列表也会把它过滤掉；`gateway.openai_compact_model: gpt-5.5` 对 ChatGPT 账号不再生效。API Key 账号不受影响。已存的设置都不会被自动改写。
+- **怎么处理**：排查分组和账号的模型映射、客户端默认模型、定时任务里有没有指向 gpt-5.5、又只能落到 OAuth 账号的情况，按 sub2 `docs/OPENAI_GPT55_RETIREMENT.md` 换成上游实际可用的模型。账号的模型映射存在 `accounts.credentials` 的 `model_mapping` 里，可以这样粗查：
+  ```sql
+  SELECT id, name, platform, type FROM accounts
+  WHERE deleted_at IS NULL AND platform = 'openai' AND type IN ('oauth', 'setup-token')
+    AND credentials::text LIKE '%gpt-5.5%';
+  ```
+  分组上的默认映射模型也可能指向 gpt-5.5：
+  ```sql
+  SELECT id, name, platform FROM groups
+  WHERE deleted_at IS NULL
+    AND (default_mapped_model LIKE '%gpt-5.5%' OR messages_dispatch_model_config::text LIKE '%gpt-5.5%');
+  ```
+
+### 2.16 composite 分组里的重叠映射会直接返回 400（需要检查）
+
+- **会怎样**：composite 分组中，如果 OpenAI 网关族的 OAuth / setup-token 账号（包括 Grok OAuth）和另一个平台的任意账号同时显式映射同一个模型，而按模型名兜底又落在 OpenAI 网关，v0.2.18 起这类请求直接返回 400（WebSocket 入口是直接关闭连接），提示配置显式路由。以前会把 ChatGPT token 误发到 Anthropic，上游 401 后逐个把账号打成临时不可调度。
+- **怎么处理**：上线前检查 composite 分组里有没有这种重叠映射，有的话配置显式路由（见 sub2 `docs/COMPOSITE_GROUPS.md`）。上线后观察这类分组有没有 400。
+
+### 2.17 新配置项 `gateway.min_output_tokens` 不能小于 16（需确认配置）
+
+- 控制 Chat Completions / Anthropic 请求转成 Responses 时 `max_output_tokens` 的下限，默认 128（以前写死 128）。配置里设了小于 16 的值时，启动校验会直接失败（`gateway.min_output_tokens must be at least 16`）。没设这一项的不用管。
+
 ---
 
 ## 3. 数据库迁移
 
-迁移执行器按文件名顺序处理 `backend/migrations/*.sql`。每个文件在一个事务里整份执行（只有 `_notx.sql` 是逐条执行的，这次没有这类文件）。执行器只记录 `schema_migrations(filename, checksum, applied_at)`。这 11 个新迁移都**没有 Down 段**，所以“回滚”只能手工写 SQL。
+迁移执行器按文件名顺序处理 `backend/migrations/*.sql`。每个文件在一个事务里整份执行（只有 `_notx.sql` 是逐条执行的，这次没有这类文件）。执行器只记录 `schema_migrations(filename, checksum, applied_at)`。这次生产要执行 12 个迁移：下表的 247–257，加上官方 v0.2.18 的 `246_enable_gemini_image_generation_groups.sql`（见第 2.13 节）。官方 246 和生产已经执行过的 `246_dashboard_hourly_invalidation.sql` 同号，两个文件并存，按文件名排在后面，所以在生产上是正常的待执行项，不是乱序。这些迁移都**没有 Down 段**，所以“回滚”只能手工写 SQL；官方 246 改过的生图开关也无法自动还原，只能按第 2.13 节记下的 ID 手工改回。
 
 | 编号 | 文件名 | 内容 | 是否加锁或耗时 | 可否回滚 |
 |---|---|---|---|---|
@@ -139,7 +217,7 @@
 | 254 | `254_add_scheduled_test_result_upstream_status.sql` | `scheduled_test_results` 加 `upstream_status_code INT NULL`，不回填 | 瞬间完成 | 仅加列可保留 |
 | 255 | `255_account_test_runs.sql` | 新表 `account_test_runs`（异步测试和手动测试的结果），4 个索引，其中一个是“每个账号最多一条 running”的部分唯一索引；外键关联 `accounts`，ON DELETE CASCADE | 新表，瞬间完成；建外键时会对 `accounts` 短暂加锁 | 可保留；要删除需手工 SQL：`DROP TABLE account_test_runs;`（257 在这张表上建的索引会一起删掉） |
 | 256 | `256_admin_user_adjustments_redeem_code_id.sql` | `admin_user_adjustments` 加 `redeem_code_id BIGINT`，并建部分唯一索引；没有外键，不回填，不动 append-only 触发器 | 加列瞬间完成；唯一索引需要扫描全表，期间这张表不能写入 | 仅加列可保留；append-only 触发器会不会拦截 DROP COLUMN 待核实（依据：迁移注释只说“不碰触发器”），建议保留 |
-| 257 | `257_push_notifications.sql` | 新表 `push_devices`、`push_deliveries` 及各自的索引；另外在三张现有表上建部分索引：`idx_ops_alert_events_resolved_at`、`idx_accounts_error_at`、`idx_account_test_runs_finished_at` | 新表瞬间完成；三个部分索引都不是 CONCURRENTLY 建的，需要扫描全表，期间 `accounts`、`ops_alert_events` 不能写入，而且整个文件是一个事务，锁要到文件提交才释放 | 可保留；要删除需手工 SQL：`DROP TABLE push_deliveries, push_devices; DROP INDEX IF EXISTS idx_ops_alert_events_resolved_at, idx_accounts_error_at, idx_account_test_runs_finished_at;` |
+| 257 | `257_push_notifications.sql` | 新表 `push_devices`、`push_deliveries` 及各自的索引；另外在三张现有表上建部分索引：`idx_ops_alert_events_resolved_at`、`idx_accounts_error_at`、`idx_account_test_runs_finished_at` | 新表瞬间完成；三个部分索引都不是 CONCURRENTLY 建的，需要扫描全表，期间 `accounts`、`ops_alert_events` 不能写入；`push_devices` 的外键还会让 `users` 从文件开头起就不能写入（余额扣费排队）；整个文件是一个事务，锁要到文件提交才释放 | 可保留；要删除需手工 SQL：`DROP TABLE push_deliveries, push_devices; DROP INDEX IF EXISTS idx_ops_alert_events_resolved_at, idx_accounts_error_at, idx_account_test_runs_finished_at;` |
 
 注意：
 - 如果手工执行了上表里的回滚 SQL，必须同时执行 `DELETE FROM schema_migrations WHERE filename = '<文件名>';`。否则下次升级时执行器认为这个迁移已经跑过，会跳过它，新代码就会因为缺表或缺列报错。
@@ -159,6 +237,7 @@
 | `security.push_targets.allow_private_hosts`（新增） | `SECURITY_PUSH_TARGETS_ALLOW_PRIVATE_HOSTS`（compose 已透传） | false | 允许本机、局域网、链路本地地址作为推送目标 | 用局域网自建 ntfy / Bark 的 |
 | `security.push_targets.allow_insecure_http`（新增） | `SECURITY_PUSH_TARGETS_ALLOW_INSECURE_HTTP`（compose 已透传） | false | 允许 `http://` 推送目标（明文传输） | 推送目标是 http 地址的 |
 | `totp.encryption_key`（键没变，新增了用途） | `TOTP_ENCRYPTION_KEY`（compose 已透传） | 空（每次启动随机生成） | 除了 2FA，现在还用来加密 APNs p8 私钥和推送设备凭据；不固定就无法保存 p8 | 要用推送的必须固定（见 2.5） |
+| `gateway.min_output_tokens`（新增，v0.2.18） | `GATEWAY_MIN_OUTPUT_TOKENS`（compose 没有透传） | 128 | Chat Completions / Anthropic 请求转成 Responses 时 `max_output_tokens` 的下限；小于 16 时启动失败 | 设过小于 16 的值的（见 2.17） |
 | `idempotency.observe_only`（默认值没变，只改了注释） | compose 和 `.env.example` 里都没有 | true | 设为 false 时，强制幂等接口不带 key 会返回 400；本次把 Web 不带 key 的 11 个接口和用户新建 API Key 改成了可选幂等，false 时这些接口照常执行 | 设成 false 的站点不用改配置，只是行为变好了（见第 5 节） |
 
 `docker-compose.yml` 和 `docker-compose.local.yml` 只新增了两个 `SECURITY_PUSH_TARGETS_*` 变量。`.env.example` 改了 `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` 的示例值（0 改为 60），并新增了两个推送开关。`config.example.yaml` 新增了 `security.push_targets` 段，修改了 `observe_only` 的注释和 `access_token_expire_minutes` 的示例值。
@@ -307,11 +386,11 @@
 以下用 `$SITE` 表示站点地址，`$ADMIN_KEY` 表示 Admin API Key。
 
 1. **迁移是否全部执行**：
-   `SELECT filename, applied_at FROM schema_migrations WHERE filename >= '247' AND filename < '258' ORDER BY filename;`
-   期望返回 11 行，从 247 到 257。
+   `SELECT filename, applied_at FROM schema_migrations WHERE filename >= '246' AND filename < '258' ORDER BY filename;`
+   期望返回 13 行：两个 246（`246_dashboard_hourly_invalidation.sql` 是以前执行的，`246_enable_gemini_image_generation_groups.sql` 是这次执行的），以及 247 到 257。
 2. **版本和能力清单**：
    `curl -s -H "x-api-key: $ADMIN_KEY" "$SITE/api/v1/admin/me"`
-   期望 `data.server.version` 是新版本，`data.server.capabilities` 里包含 `ops.alert_latency_metrics`、`users.balance_ledger`、`push.notifications`。
+   期望 `data.server.version` 是 `0.2.18`，`data.server.capabilities` 里包含 `ops.alert_latency_metrics`、`users.balance_ledger`、`push.notifications`。Web 后台的版本徽章不应该提示“有更新 v0.2.18”；如果提示了，**不要点在线更新**，它会把容器里的定制程序换成官方原版。
 3. **延迟告警没有刷屏**：部署 15 分钟后执行
    `SELECT count(*) FROM ops_alert_events e JOIN ops_alert_rules r ON r.id = e.rule_id WHERE e.status = 'firing' AND r.metric_type IN ('p95_latency_ms','p99_latency_ms');`
    结果应该符合你在 2.3 里的选择：选了停用的应为 0。
@@ -322,6 +401,10 @@
 8. **Claude OAuth 和 Setup Token**：在 Web 上各完整走一遍（新建账号或重新授权都可以）。素材里明确说新增的 `#state` 校验还没有在真实账号上验证过。
 9. **兑换码**：`GET /api/v1/admin/redeem-codes/stats` 返回的 `by_status` 不再是全 0；在 Web 上尝试删除一张已经用过的码，应返回 409。
 10. **推送**（如果要用）：`GET /api/v1/admin/push/config` 返回 `encryption_key_configured: true`；对一台已登记的设备调用 `POST /api/v1/admin/push/devices/:id/test`，手机能收到推送；登记局域网目标时不再报 `INVALID_PUSH_TARGET`。
+11. **生图开关**：按第 2.13 节记下的分组 ID，确认现在都是开启的。只有确实想从现在起禁止 Gemini 生图的分组才去关（关了会返回 400，这是新增的限制）。
+12. **计费抽查**：上线后看几笔这几类请求的扣费：Grok 4.7 Fast（价格约为原来的 2 倍）、Antigravity 的 `claude-{opus,sonnet}-5-5-{high,medium,low}`（改按 5.5 基础价，比原来低）、客户端中途断开的流式请求（现在按已收集的真实用量计费，原来可能记 0）、Gemini 生图失败的请求（不应按张扣费）。
+13. **支付**：用一笔测试订单走一遍 EasyPay 下单、回调、到账和对账。新版本运行期间产生的退款中订单，可以在管理端执行“查询退款”收尾；生产遗留的支付宝退款中订单会返回 `REFUND_QUERY_UNSUPPORTED`，按第 2.14 节处理。
+14. **OpenAI 网关**：观察 `server_is_overloaded` 和 403 的比例（出站默认 Codex 身份从 codex-tui 改成了 codex_cli_rs，上游风控指纹会变），以及 composite 分组有没有新出现的 400（第 2.16 节）。
 
 ---
 
@@ -329,8 +412,8 @@
 
 ### 7.1 只回滚二进制就可以的部分
 
-- 所有迁移都只是加表、加可空列或带默认值的列、加索引。旧二进制读不到这些新列也能正常运行，新表留在库里不影响它。
-- 执行器只遍历二进制自带的迁移文件，库里多出的 247–257 记录不影响旧版本启动（`migrations_runner.go` 只按文件逐个查 `schema_migrations`）。但是旧版本自带的 `migration-preflight` 会把这些记录报成 extra 并判定失败。如果你的流程里会跑预检（比如 `upgrade-compose.sh`），回滚时要跳过预检。
+- 除官方 246 那条改生图开关的 UPDATE 外，所有迁移都只是加表、加可空列或带默认值的列、加索引。旧二进制读不到这些新列也能正常运行，新表留在库里不影响它；被打开的生图开关对旧版本的 Gemini 入口本来就不起作用。
+- 执行器只遍历二进制自带的迁移文件，库里多出的官方 246 和 247–257 记录不影响旧版本启动（`migrations_runner.go` 只按文件逐个查 `schema_migrations`）。但是旧版本自带的 `migration-preflight` 会把这些记录报成 extra 并判定失败。如果你的流程里会跑预检（比如 `upgrade-compose.sh`），回滚时要跳过预检。
 - 镜像里内嵌了前端，回滚镜像时前端会一起回到旧版。
 - 再次升级时，已经记录过的迁移会被跳过；不要修改这些 .sql 文件。
 
@@ -351,3 +434,44 @@
 8. **异步测试**：回滚时还处于 running 的 `account_test_runs` 记录，再次升级后超过 180 秒会被标记为 interrupted。
 9. **幂等记录**：新版写入的指纹和旧版不同（PUT users 去掉了密码，PUT groups 加了 video_model_prices）。在 24 小时 TTL 内用同一个 key 重发可能返回 409，换一个新 key 即可。
 10. **手工回滚了迁移**：参照第 3 节执行 SQL，并同时删除 `schema_migrations` 里对应的记录。否则再次升级时不会重建这些表和列，新代码会报错。
+11. **v0.2.18 的部分**：回到旧版后，官方 246 打开的生图开关不会关回去；v0.2.18 的计费、支付、网关修复一起失效。
+12. **新版本运行期间进入“退款中”的订单（回滚时风险最大的一项）**：新版本对非 V2 渠道（支付宝、Stripe、微信、Airwallex 等，EasyPay V2 除外）的退款，进入 `REFUND_PENDING` 时就已经扣掉了余额或订阅天数，并在审计里记了 `deductionHeld`。旧版本不认识这个字段：
+    - 在旧版本上点“查询退款”，成功时会**再扣一次**，失败时**不会归还**已扣的部分；
+    - 在旧版本上点“退款”，会重新扣减并重新向支付渠道发起退款。
+
+    所以：**回滚前**先在新版本上对这些订单执行“查询退款”尽量收尾；回滚后还剩下的，**不要在旧版本上点“查询退款”或“退款”**，只能人工核对后处理。回滚前用这条查：
+    ```sql
+    SELECT id, out_trade_no, payment_type, provider_key, refund_amount, refund_requested_at
+    FROM payment_orders WHERE status = 'REFUND_PENDING' ORDER BY id;
+    ```
+
+---
+
+## 8. 官方 v0.2.18 带来的变化
+
+来自官方 v0.2.16→v0.2.18 的 56 个提交、你对 B1–B11 的选择，以及审查后的 5 个修正。需要部署前动手的已经写在第 2.13–2.17 节，这里是完整清单，供部署后核对。完整背景见 sub2 `docs/upgrade-v0218.md`（含“审查修正”一节）。
+
+- 新迁移 246_enable_gemini_image_generation_groups.sql 会把所有 platform 为 gemini 或 antigravity、且 allow_image_generation=false 的存量分组改成 true。这条迁移不可逆，没有 Down 段。上线前先在生产库查出这些分组 ID 记下来；需要禁止生图的，上线后在后台逐个改回 false。
+- 官方 246 和我们自己的 246_dashboard_hourly_invalidation.sql 同号，两个文件并存，按文件名字典序 dashboard 先跑。生产 e5ab7e4f4 只执行到定制 246，升级后会依次补跑官方 246 和 247–257，共 12 条 pending；测试库已经跑到 257 的，会把官方 246 当乱序补跑（out_of_order_pending=1）。
+- deploy/upgrade-compose.sh 固定带 --require-no-pending，这次升级 pending 一定不为 0，预检程序以退出码 2 失败，脚本随后退出、不改动运行中的服务。要按第 2.1 节先手动运行 /app/migration-preflight（不带 --require-no-pending），确认 status=PASS、missing=0、checksum_mismatches=0，再启动新版本完成迁移。
+- 上线前先备份生产库。原有 309 个已执行的 SQL 文件内容没变；新增的官方 246 和 247–257 会在生产上第一次执行。测试环境验证用的是造的数据，生产上的迁移耗时按第 2.2 节估。
+- 新配置项 gateway.min_output_tokens 默认 128，小于 16 时启动校验直接失败（报 'gateway.min_output_tokens must be at least 16'）。它控制 Chat Completions / Anthropic 请求转成 Responses 时 max_output_tokens 的下限，原来写死 128。生产 config.yaml 或环境变量里如果设了这个值，要确认不小于 16。
+- Go 工具链升到 1.27.3（go.mod 也是 go 1.27.3），三个 Dockerfile 的构建镜像都已改成 golang:1.27.3-alpine。根 Dockerfile 的 Node 固定为 node:24.19.0-alpine（deploy/Dockerfile 仍是 node:24-alpine，运行镜像 alpine:3.20）；生产如用自建或缓存的 builder 镜像，要先拉新版本。
+- VERSION 文件改为 0.2.18（官方 tag 里还是 0.2.17，审查时改掉了），上线后核对后台显示的版本号。
+- 前端依赖：dompurify 升到 ^3.4.17，pnpm overrides 新增 follow-redirects>=1.16.1，pnpm-lock.yaml 已同步更新。构建要用 frozen lockfile，避免装出别的版本。
+- 计费：Grok 4.7 Fast（含 grok-4.7-build-fast）改按官方 Fast 价卡计费，<200k 每百万 token 输入 $4 / 缓存读 $1 / 输出 $12，≥200k 为 $6 / $1.5 / $18，大约是原来的 2 倍；新增 gemini-4-argon 及其 cyber-permissive 变体的价格；Antigravity 的 claude-{opus,sonnet}-5-5-{high,medium,low} 改按 5.5 基础价计费，不再高收 1.25–3 倍。上线后核对这几类模型的扣费。
+- 计费：Anthropic 账号的 chat/responses 兼容流和 Gemini 流式请求，客户端中途断开后会继续把上游读完，按已收集的真实用量计费（原来可能记 0）。上游没正常收尾时返回 error 帧或 response.failed，并按已观测到的用量入账。上线后核对这类请求的扣费。
+- 计费（B4 选①）：Gemini 兼容入口失败结算保留真实 usage 和图片数。已切号且 ForceCacheBilling=true、按 token 计价时，可能比官方方案扣得多（差额是缓存读取的单价差）。Antigravity 原生 Gemini 出错时，图片数取已实际回吐的张数，不再按模型名猜一张。
+- 账号配额：Vertex service_account 账号也支持总 / 日 / 周配额，设了上限后会累加用量、用满停止调度、跨阈值发通知；管理端账号 DTO 会多出 quota_* 可选字段（App 契约已加回归测试）。账号配额累加 SQL 改成按已设置的维度选择语句，结果和原来一致。
+- 生图开关：分组的“允许当前分组生图”开关现在也管 Gemini 系入口（/v1/messages、/v1/chat/completions、/v1/responses、/v1beta）。未开启时返回 400，不换号也不处罚账号。新建 gemini/antigravity 分组一律默认开启，创建时传 false 也不生效，要关只能事后编辑。composite 分组迁移时不回填，未开启的 composite 分组升级后 Gemini 生图会直接 400。 生产版本里这个开关对 Gemini 入口不起作用，所以迁移打开存量 gemini / antigravity 分组的开关后，实际行为不变（见第 2.13 节）。
+- 支付（B7 选③）：webhook 验签通过后，用同一个 provider 实例最多查单一次再履约；EasyPay / 彩虹易支付查单参数同时放在 URL query 和表单里，兼容 PHP 返回字符串数字，但仍严格校验成功码和 pid / out_trade_no / trade_no。上线后建议用测试订单走一遍 EasyPay 回调和对账。
+- 支付（B9 选②）：保留定制版已有的严格校验（生产版本已经在执行，这次没有行为变化）：EasyPay legacy 参与签名的非空参数（包括商品名 name）含 &、= 或控制字符时，建单直接失败、回调拒绝验签，并强制 MD5、拒绝重复参数。官方原版不限制商品名。见第 2.14 节。
+- 支付：订单类型改为白名单，只接受 balance / subscription，其他值建单时返回 INVALID_ORDER_TYPE；已支付但类型不支持的订单标记为 FAILED 并写审计。
+- 退款（B8 选③）：非 V2 渠道（支付宝、Stripe、微信、Airwallex 等）的普通退款进入 REFUND_PENDING 时就先扣余额或订阅天数，之后只查询不重发，渠道回报失败时在同一事务内归还；查询报错仍保持 pending；支付宝查不到退款记录要等 10 分钟宽限期后才判失败。生产遗留的支付宝退款中订单没有可查询的退款号，会返回 REFUND_QUERY_UNSUPPORTED，需要人工核对，不能重发。EasyPay V2 仍走原有的 immutable intent 流程。见第 2.14 节、第 7.2 节第 12 项。
+- 上线前在生产库查一下当前处于 REFUND_PENDING 的订单。旧格式的 pending 审计按原逻辑处理，但 PrepareRefund / ExecuteRefund 不再接受 REFUND_PENDING 状态的订单，只能通过管理端“查询退款”来收尾。
+- OpenAI 网关：出站默认 Codex 身份从 codex-tui 改成 codex_cli_rs，已配对的 TUI originator 和 UA 会被归一成 CLI 身份；后台“Codex UA”留空时拼出的是 CLI UA。上游风控指纹会变，上线后观察 server_is_overloaded 和 403 的比例。
+- OpenAI 网关：GPT-5.5 已经从 ChatGPT Codex 退役，OAuth / SetupToken 账号不再调度 gpt-5.5，公开模型列表也会过滤掉；gateway.openai_compact_model=gpt-5.5 对 ChatGPT 账号不再生效。上线前排查有哪些分组和账号的映射、客户端默认值指向 gpt-5.5（参考 docs/OPENAI_GPT55_RETIREMENT.md）。
+- 网关路由：composite 分组里，OpenAI OAuth 账号和其他 API Key 账号同时显式映射同一个模型时，现在直接返回 400，要求配置显式路由（原来会把 ChatGPT token 误发到 Anthropic）。上线前检查 composite 分组有没有这种重叠映射。
+- 网关：OpenAI API Key 账号可以通过 extra.web_search_emulation 开启 /v1/messages 的 web_search 模拟，OAuth 账号排除在外；Anthropic 协议账号的 base URL 改为优先读取 Anthropic 协议专用 base_url，配了多协议 base_url 的 API Key 账号上线后要复核出站地址。
+- 限流 / 账号状态：Cloudflare 1010 的 403 对所有平台都不再处罚账号；Vertex 共享容量不足（RESOURCE_EXHAUSTED、不带明细）的 429 不再冷却账号，改为同号 1/2/4/8 秒退避重试；Vertex SA 换 token 返回 400 invalid_grant 且 account not found 时，账号会被置为 error 并停止调度。
+- 调度（B2 选①）：调度快照解码结果常驻进程内存，最长复用 10 秒。滚动发布时，旧版本实例写入不会推进 revision，新实例最多可能延迟 10 秒才看到账号变化，这是已接受的边界。异步生图转存的下载不再访问内网、回环、私网地址，响应不是图片时任务直接失败。
