@@ -248,10 +248,8 @@ final class AccountListCustomizationUITests: XCTestCase {
     @MainActor private func setField(_ name: String, enabled: Bool) {
         let toggle = app.switches["list-fields.accounts.\(name)"]
         reveal(toggle)
+        toggle.waitUntilSettled()
         let expected = enabled ? "1" : "0"
-        print("LIST_FIELD_BEFORE \(name) expected=\(expected) value=\(String(describing: toggle.value)) frame=\(toggle.frame)")
-        print(app.debugDescription)
-        diagnostics("account-field-\(name)-before-\(expected)")
         if (toggle.value as? String == "1") != enabled {
             // Target the trailing switch track explicitly. A Toggle's AX bounds
             // can also include its title, whose midpoint need not toggle it.
@@ -260,10 +258,8 @@ final class AccountListCustomizationUITests: XCTestCase {
         }
         let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
         let result = XCTWaiter.wait(for: [changed], timeout: 3)
-        print("LIST_FIELD_AFTER \(name) expected=\(expected) value=\(String(describing: toggle.value)) frame=\(toggle.frame)")
-        print(app.debugDescription)
-        // Keep evidence before a failed assertion; XCTest can stop before defer.
-        diagnostics("account-field-\(name)-after-\(expected)")
+        // Evidence only for a failure (XCTest can stop before defer): every full snapshot costs seconds on a busy Mac.
+        if result != .completed { diagnostics("account-field-\(name)-after-\(expected)") }
         XCTAssertEqual(result, .completed, "The rendered field switch did not change value.")
         XCTAssertEqual(toggle.value as? String, expected)
     }
@@ -325,6 +321,7 @@ final class AccountListCustomizationUITests: XCTestCase {
         for _ in 0..<60 {
             let up = app.buttons["list-fields.accounts.\(name).up"]
             reveal(up, towardBottom: false)
+            up.waitUntilSettled()
             if !up.isEnabled { return }
             // A reordered row may keep its AX element while moving behind the
             // sheet's navigation bar. isHittable alone can still accept it.
@@ -339,7 +336,6 @@ final class AccountListCustomizationUITests: XCTestCase {
                 continue
             }
             let frame = up.frame
-            print("LIST_FIELD_MOVE \(name) frame=\(frame)")
             // XCTest's element tap used a stale synthesized hit point after
             // repeated reorders. Use the observed, visible control center.
             app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(

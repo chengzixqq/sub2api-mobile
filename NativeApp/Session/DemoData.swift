@@ -66,6 +66,12 @@ enum DemoData {
         return SiteSession(me: adminMe(authMethod: method), credential: credential, accessTokenScope: scope,
                            serverTimeZone: serverTimeZone, clockOffset: 0, probedAt: Date())
     }
+    /// `-ui-switch-rejected` (S0-19): switching sites is refused with a permission error that keeps the session, so the root
+    /// alert shows it with its details.
+    static var switchRefusal: APIError? {
+        guard ProcessInfo.processInfo.arguments.contains("-ui-switch-rejected") else { return nil }
+        return APIError.server(status: 403, envelope: ErrorEnvelope(reason: "FORBIDDEN"), requestID: "ui-fixture-request-id")
+    }
     static let dashboard = DashboardSummary(
         stats: DashboardStats(
             todayRequests: 128, todayTokens: 1_234_567, todayCost: Decimal(string: "99.99")!,

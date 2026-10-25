@@ -148,10 +148,8 @@ final class UserManagementUITests: XCTestCase {
     @MainActor private func setField(_ name: String, enabled: Bool, towardBottom: Bool = true) {
         let toggle = app.switches["list-fields.users.\(name)"]
         reveal(toggle, towardBottom: towardBottom)
+        toggle.waitUntilSettled()
         let expected = enabled ? "1" : "0"
-        print("USER_LIST_FIELD_BEFORE \(name) expected=\(expected) value=\(String(describing: toggle.value)) frame=\(toggle.frame)")
-        print(app.debugDescription)
-        diagnostics("user-field-\(name)-before-\(expected)")
         if (toggle.value as? String == "1") != enabled {
             // The switch's AX bounds include its title; tap the trailing track.
             toggle.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
@@ -159,9 +157,7 @@ final class UserManagementUITests: XCTestCase {
         }
         let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
         let result = XCTWaiter.wait(for: [changed], timeout: 3)
-        print("USER_LIST_FIELD_AFTER \(name) expected=\(expected) value=\(String(describing: toggle.value)) frame=\(toggle.frame)")
-        print(app.debugDescription)
-        diagnostics("user-field-\(name)-after-\(expected)")
+        if result != .completed { diagnostics("user-field-\(name)-after-\(expected)") }
         XCTAssertEqual(result, .completed, "The rendered user field switch did not change value.")
         XCTAssertEqual(toggle.value as? String, expected)
     }

@@ -120,7 +120,10 @@ struct PerformanceTrendView: View {
         guard let selectedDate else { return nil }
         return value.points.min { abs($0.date.timeIntervalSince(selectedDate)) < abs($1.date.timeIntervalSince(selectedDate)) }
     }
-    private func dateLabel(_ date: Date) -> String { DashboardPresentation.trendAxisLabel(date, hourly: true) }
+    /// Buckets read in the server's zone (00 §6.3); the phone's only while no site session is known.
+    private func dateLabel(_ date: Date) -> String {
+        DashboardPresentation.trendAxisLabel(date, hourly: true, timeZone: (session?.site.serverTimeZone ?? .device).timeZone)
+    }
     private func rateLabel(_ value: PerformanceTrend, _ point: PerformanceTrend.Point) -> String {
         metric.format(value.rate(point, metric: metric))
     }

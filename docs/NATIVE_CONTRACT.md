@@ -42,7 +42,7 @@ actor APIClient {
   func publicSettings() async throws -> PublicSettings
   func login(email: String, password: String, proof: CaptchaProof? = nil) async throws -> LoginResult
   func completeTOTP(tempToken: String, code: String) async throws -> AuthSession
-  func verifyAdministrator() async throws
+  func me() async throws -> AdminMe  // 阶段 0 替换 verifyAdministrator()；旧服务端退路见 FINAL-SPEC 00 §1.9
   func currentCredential() -> Credential?
   func logout() async throws
   func cancelAll() async

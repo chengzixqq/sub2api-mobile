@@ -62,3 +62,18 @@ extension XCUIApplication {
             .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: end)))
     }
 }
+
+extension XCUIElement {
+    /// A scroll drag leaves the list decelerating, and a tap then only stops the scroll (S0-19: the switch and reorder
+    /// taps that “did not change value”). Returns once two frame reads 0.15 s apart agree, at most after `timeout`.
+    @MainActor func waitUntilSettled(timeout: TimeInterval = 2) {
+        var previous = frame
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+            let current = frame
+            if current == previous { return }
+            previous = current
+        }
+    }
+}

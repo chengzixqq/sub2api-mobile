@@ -78,6 +78,7 @@ extension AppModel {
                 if isCurrent(attempt) { openSiteLogin(profile, notice: Self.credentialClearedNotice) }
                 return
             }
+            if isUITesting, let refusal = DemoData.switchRefusal { throw refusal }
             try await connect(profile: profile, credential: credential, attempt: attempt)
             // The site menu and the settings page both switch here (10 §0.7-5).
             receipts.show(.switched(to: profile.name))

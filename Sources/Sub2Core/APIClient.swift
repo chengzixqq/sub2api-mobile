@@ -478,7 +478,7 @@ public actor APIClient {
     }
     /// The only call into `transport.data(for:)`: registered for cancelAll, late replies fenced by the generation (and a
     /// read's by the suspend epoch), transport errors thrown unchanged for classification. Hooks: S0-07 Date header,
-    /// S0-11 suspend, S0-19 request log.
+    /// S0-11 suspend, S0-19 request log (one line per attempt; cancelled attempts are not logged).
     func transmit(_ request: URLRequest, generation snapshot: UUID, requestClass: RequestClass) async throws -> HTTPResponse {
         try check(snapshot)
         let transport = transport
@@ -490,6 +490,7 @@ public actor APIClient {
             let response = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             // Error replies and 304 carry a Date too; a reply after cancelAll still came from this site.
             serverClock.recordDateHeader(response.header("Date"), receivedAt: serverClock.localNow())
+            RequestLog.record(request, response: response)
             try check(snapshot)
             if requestClass.isRead && started != epoch { throw CancellationError() }
             return response
@@ -497,6 +498,7 @@ public actor APIClient {
             if snapshot != generation || Task.isCancelled || error is CancellationError || (requestClass.isRead && started != epoch) {
                 throw CancellationError()
             }
+            RequestLog.record(request, response: nil)
             throw error
         }
     }
@@ -626,10 +628,15 @@ public actor APIClient {
         do {
             let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             serverClock.recordDateHeader(result.headers.headerValue("Date"), receivedAt: serverClock.localNow())
+            RequestLog.record(request, response: HTTPResponse(statusCode: result.statusCode, headers: result.headers, data: Data()))
             do { try check(snapshot) } catch { result.cancel(); throw error }
             return result
         } catch is CancellationError { throw CancellationError() }
-        catch { if snapshot != generation || Task.isCancelled { throw CancellationError() }; throw APIError.transport(error) }
+        catch {
+            if snapshot != generation || Task.isCancelled { throw CancellationError() }
+            RequestLog.record(request, response: nil)
+            throw APIError.transport(error)
+        }
     }
 
     /// Non-2xx and 2xx with a non-zero code become catalog errors; a success body is parsed exactly once.

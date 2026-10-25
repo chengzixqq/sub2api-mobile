@@ -1,6 +1,6 @@
 # 首版接口适配边界
 
-源码核对基线：自用 Sub2API `e5ab7e4f4c136a8faf40fd06694ab0a6bf6f6925`。新增模块的具体能力、独立日志筛选边界和滚动 RPM 见 [管理模块契约](ADMIN_MODULES.md)。以下路径均以 `/api/v1` 为前缀。传输使用显式 snake_case CodingKeys、`{code,data,reason}` 响应 envelope。Admin Key 使用 `x-api-key`，邮箱会话使用 Bearer；禁止自动跨源重定向和共享 Cookie。
+源码核对基线：自用 Sub2API `e5ab7e4f4c136a8faf40fd06694ab0a6bf6f6925`；原生 App 阶段 0 起按 sub2 `main` `70116315d` 之后核对（本文其余部分留到阶段 4 按 FINAL-SPEC 统一更新）。新增模块的具体能力、独立日志筛选边界和滚动 RPM 见 [管理模块契约](ADMIN_MODULES.md)。以下路径均以 `/api/v1` 为前缀。传输使用显式 snake_case CodingKeys、`{code,data,reason}` 响应 envelope。Admin Key 与 `sat_` 管理访问令牌使用 `x-api-key`，邮箱会话使用 Bearer；禁止自动跨源重定向和共享 Cookie。
 
 | 能力 | 方法和路径 |
 | --- | --- |
@@ -10,7 +10,7 @@
 | 二次验证 | POST `/user/totp/step-up` |
 | 概览 / 小时趋势 | GET `/admin/dashboard/stats`、`/admin/dashboard/trend` |
 | 费用兼容快照 | GET `/admin/dashboard/snapshot-v2`，只开启 `include_stats`，禁用所有趋势和模型/分组统计 |
-| Admin Key 权限探针 | GET `/admin/dashboard/realtime`（仅验证权限，不使用占位指标） |
+| 连接探针 | GET `/admin/me`（三种登录方式通用；旧服务端退路见 FINAL-SPEC 00 §1.9） |
 | 运行监控 | GET `/admin/ops/dashboard/overview`；性能另用 GET `/admin/ops/dashboard/throughput-trend`（默认近 1 小时按需加载） |
 | 账号列表 / 详情 / 今日统计 | GET `/admin/accounts`、`/admin/accounts/:id`、`/admin/accounts/:id/today-stats`；POST `/admin/accounts/today-stats/batch` |
 | 调度 / 刷新 / 测试 | POST `/admin/accounts/:id/schedulable`、`/refresh`、`/test` |
@@ -23,7 +23,7 @@
 
 概览进入前台时，基础统计、小时趋势和运行监控立即发起独立请求，单次等待预算分别为 90 秒、45 秒、15 秒；各分区在自己的请求结束后间隔 30 秒刷新，慢分区不阻塞其他分区。下拉刷新并发更新这三个分区，必要时另行请求费用快照；各分区按钮仍可单独刷新或重试，同一分区的在途趋势、监控请求不重复启动。趋势使用“昨日以来”的小时数据，而非首屏默认查询 7 天历史。每个分区独立处理失败、重试和最后更新时间，刷新失败保留该分区已成功的数据；切站、离开页面或进入后台取消请求和轮询，迟到结果不能写入新会话或覆盖更新的加载结果。
 
-Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 `/admin/dashboard/realtime` 验证权限；当前后端该接口的指标为占位值，绝不用于显示。当前源码没有 stats lite 模式；添加 `mode=lite` 或 `lite=true` 不会减少计算。`snapshot-v2` 的 `include_stats=true` 会刷新统计，不能当成轻量替代。
+连接时读 `/admin/me` 验证权限并取得能力集合；只有比合规功能还旧的站点才退回 `/admin/dashboard/realtime` 验证权限，其指标为占位值，绝不用于显示。当前源码没有 stats lite 模式；添加 `mode=lite` 或 `lite=true` 不会减少计算。`snapshot-v2` 的 `include_stats=true` 会刷新统计，不能当成轻量替代。
 
 概览实际费用表示用户扣费，上游成本表示账号成本；今日和累计分别使用各自字段。基础统计返回 `total_requests`、`total_actual_cost`，当前后端 `/stats` handler 遗漏今日和累计账号成本，客户端独立补取只含 stats 的 snapshot-v2。今日或累计任一费用字段缺失时，仅在该周期快照提供同次响应的完整实际/成本对时整体替换；快照失败或不完整时保留基础统计已知值，缺失项显示不可用，不跨响应拼接成完整对，也不用标准计费或零值代替。费用快照附独立更新时间；视图重绘时判定超过 90 秒为过期，该判断并非严格计时失效。卡片金额使用 `compactCost(Decimal?)`：Decimal 全程舍入，固定两位，>=1000 最高使用 K，例如 `$45.08K`、`$3872.50K`；Tokens 继续使用 K/M/B，原始数值不变。 snapshot-v2 使用 45 秒客户端预算，服务器共享计算预算仍为 30 秒；费用请求不会阻塞基础统计。服务端今日边界由服务器决定，snapshot 请求日期/手机时区不能改变该统计日。
 
@@ -43,7 +43,7 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 金额用 Decimal 解码，写入为精确十进制字符串。余额原请求保留 `serverID`、`userID`、金额、操作、备注和 UUID。结果不明时仅允许复用原请求；站点身份不匹配会阻断请求。幂等有效期及最终状态以服务端为准，超出服务端记录保留期后应先通过 Web 对账。
 
-会话失效、权限不足、验证码、TOTP/step-up、会话绑定不匹配和 `ADMIN_COMPLIANCE_ACK_REQUIRED` 分别显示中文原因。合规确认在 Web 完成；Admin Key 不能完成需要邮箱会话的 step-up。刷新采用 actor 内共享任务；只对明确令牌过期的安全 GET 自动重试，管理写入需用户重新确认。
+会话失效、权限不足、验证码、TOTP/step-up、会话绑定不匹配和 `ADMIN_COMPLIANCE_ACK_REQUIRED` 分别显示中文原因。合规确认与二次验证在 App 内的全局 sheet 完成；Admin Key 与管理访问令牌不能完成需要邮箱会话的 step-up。刷新采用 actor 内共享任务；`TOKEN_EXPIRED` 对所有方法刷新后用同一请求重发一次，写入在合规或二次验证通过后需用户重新确认。
 
 第二阶段再选定明确的官方版本执行兼容测试。新增其他后端支持应在 Sub2Core 适配层处理，不在各页面分散猜测字段。
 
@@ -59,7 +59,7 @@ Admin Key 激活连接只通过受相同管理员认证和合规守卫保护的 
 
 确认框绑定创建/编辑时的站点、地址、用户和会话身份，迟到结果不能更新新身份。并发变更使用固定 UUID 的 `Idempotency-Key` 和冻结原始正文；结果不明锁定表单，只允许手动确认重试同一请求，不自动重放。创建及不含并发的编辑当前后端不提供幂等重试，结果不明时须先核对列表/Web。二次验证完成仍需重新确认；Admin Key 禁止敏感操作或 TOTP 未启用时明确提示。关闭未决表单会警告原始请求只在内存中，关闭后不能自动恢复。
 
-用户响应兼容字段：`notes`、`rpm_limit`、`current_concurrency`、`created_at`、`updated_at`、`last_used_at`、`last_active_at` 均可缺失/null；`last_login_at` 当前 DTO 不下发，不从活跃时间推断登录。创建和更新的角色只允许 `admin` / `user` / `vendor`；并发/RPM 接受非负整数，0 为不限制。创建不支持幂等，PUT 仅在提供 `concurrency` 时启用后端可选幂等；余额使用原有独立金额幂等协议。
+用户响应兼容字段：`notes`、`rpm_limit`、`current_concurrency`、`created_at`、`updated_at`、`last_used_at`、`last_active_at` 均可缺失/null；`last_login_at` 当前 DTO 不下发，不从活跃时间推断登录。创建和更新的角色只允许 `admin` / `user` / `vendor`；并发/RPM 接受非负整数，0 为不限制。站点有 `admin.idempotent_writes` 时新建与编辑都带 Idempotency-Key；没有时创建不带，PUT 仅在提供 `concurrency` 时带；余额使用原有独立金额幂等协议。
 
 ## 账号容量、在用指标与金额
 

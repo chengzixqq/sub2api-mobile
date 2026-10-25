@@ -18,7 +18,8 @@ public enum DashboardPresentation {
         return date
     }
 
-    public static func trendAxisLabel(_ date: Date, hourly: Bool, timeZone: TimeZone = .current) -> String {
+    /// The zone is the server's (00 §6.3); callers pass it, there is no phone-zone default.
+    public static func trendAxisLabel(_ date: Date, hourly: Bool, timeZone: TimeZone) -> String {
         dateFormatter(timeZone: timeZone, format: hourly ? "M/d HH:mm" : "M/d").string(from: date)
     }
 

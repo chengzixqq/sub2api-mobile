@@ -39,7 +39,11 @@ final class AppModel {
     /// This phone's settings (60 §3.2) and the Face ID coverage list applied to them (60 §3.4); kept across sites.
     let preferences: AppPreferences
     let biometricGate: BiometricGate
-    var errorMessage: String?
+    var errorMessage: String? {
+        didSet { if errorMessage != errorDetails?.message { errorDetails = nil } }
+    }
+    /// The “详情” of the error now in the root alert (00 §3.4); set only by `report`, dropped with the message it belongs to.
+    private(set) var errorDetails: ErrorDetails?
     var isRestoring = true
     /// Set while signing out or deleting the connected site (AppModel+Session.swift).
     var isSigningOut = false
@@ -103,8 +107,6 @@ final class AppModel {
             try await connect(profile: profile, credential: credential)
         } catch { await connectionFailed(error, profile: profile) }
     }
-
-    static func validatedURL(_ raw: String) throws -> URL { try ServerProfile.normalizedURL(raw) }
 
     func beginConnection() -> UUID {
         cancelConnection()
@@ -251,7 +253,9 @@ final class AppModel {
 
     func report(_ error: Error) {
         guard !(error is CancellationError) else { return }
+        let details = ErrorDetails(error)
         errorMessage = error.localizedDescription
+        errorDetails = details
     }
 
     func profileForRecord(serverID: UUID) -> ServerProfile? { profiles.first { $0.id == serverID } ?? profileArchive[serverID] }

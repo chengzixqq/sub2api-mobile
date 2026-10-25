@@ -196,15 +196,14 @@ final class Sub2MobileUITests: XCTestCase {
 
         let zoomIn = app.buttons["dashboard.trend.zoom-in"]
         reveal(zoomIn)
+        zoomIn.waitUntilSettled()
         let initialZoom = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch.label
         let visibleRange = app.descendants(matching: .any)["dashboard.trend.visible-range"].firstMatch
         let anchoredStart = visibleRange.label.components(separatedBy: " — ").first
         for step in 0..<4 {
             if !zoomIn.isEnabled { break }
             let beforeZoom = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch.label
-            if step == 0 { print("POLISH_ZOOM_IN_BEFORE \(Date().timeIntervalSince1970)") }
             zoomIn.tap()
-            if step == 0 { print("POLISH_ZOOM_IN_AFTER \(Date().timeIntervalSince1970)") }
             let zoomLabel = app.descendants(matching: .any)["dashboard.trend.zoom-level"].firstMatch
             let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", beforeZoom), object: zoomLabel)
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, app.debugDescription)
@@ -223,6 +222,7 @@ final class Sub2MobileUITests: XCTestCase {
         dashboardDiagnostics(named: "dashboard-trend-max-zoom-actual-consumption")
 
         reveal(visibleRange)
+        chart.waitUntilSettled()
         let beforeScroll = visibleRange.label
         chart.swipeLeft()
         let advanced = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", beforeScroll), object: visibleRange)
@@ -604,7 +604,7 @@ final class Sub2MobileUITests: XCTestCase {
         for attempt in 0...8 {
             if element.exists && element.isHittable && navigationBar.exists && tabBar.exists {
                 let frame = element.frame
-                if frame.minY >= navigationBar.frame.maxY + 4 && frame.maxY <= tabBar.frame.minY { return }
+                if frame.minY >= navigationBar.frame.maxY + 4 && frame.maxY <= tabBar.frame.minY { element.waitUntilSettled(); return }
             }
             if attempt < 8 { scroll(towardBottom: false) }
         }

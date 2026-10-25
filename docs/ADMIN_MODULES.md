@@ -1,10 +1,10 @@
 # 管理模块与滚动 RPM（2026-10-16）
 
-本次沿用 `codex/native-ios-rebuild` 的同一套原生源码；后端接口参考共享源码 `e5ab7e4f4c136a8faf40fd06694ab0a6bf6f6925`。不更改后端、不部署服务器。以下描述功能与契约；构建和真机结果以 `ACCEPTANCE.md` 的最新记录及交付 manifest 为准。
+本次沿用 `codex/native-ios-rebuild` 的同一套原生源码；后端接口参考共享源码 `e5ab7e4f4c136a8faf40fd06694ab0a6bf6f6925`；原生 App 阶段 0 起按 sub2 `main` `70116315d` 之后核对。不更改后端、不部署服务器。以下描述功能与契约；构建和真机结果以 `ACCEPTANCE.md` 的最新记录及交付 manifest 为准。
 
 ## 入口与范围
 
-底部新增“管理”，包含请求与错误日志、统计分析、分组管理。概览右上角可以打开统计分析；账号和分组详情可跳转到对应范围的日志、分析及账号列表。
+请求与错误日志、统计分析、分组管理从搜索 Tab 的目录进入（阶段 0 起不再有底部“管理”）。概览右上角可以打开统计分析；账号和分组详情可跳转到对应范围的日志、分析及账号列表。
 
 请求记录读取 `GET /admin/usage`，使用 `count_mode=deferred`、时间倒序、按需分页。`total`/`pages` 可以为 null，按 `has_more` 判断是否继续；不要求大站点先执行全量计数。时间、用户、账号、分组、API Key、模型、请求 ID 等过滤由后端执行。实际扣费读取 `actual_cost`；上游成本读取 `(account_stats_cost ?? total_cost) × (account_rate_multiplier ?? 1)`，保留 Decimal 和缺失值。详情展示请求 ID、Token 分解、费用、时延及关联账号，不读取请求/响应正文。
 
