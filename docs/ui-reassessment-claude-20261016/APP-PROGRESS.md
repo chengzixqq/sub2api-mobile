@@ -24,6 +24,80 @@
 | S0-16 | 登录页：三种登录方式、验证码桥页、两步验证与错误表 | ✅ | `8d8e4bb` `b096977` | 按 D28 拆两次提交。16a：Sub2Core 的 LoginFlow（LoginMethod、CaptchaRequirement、CaptchaBridge、CaptchaRequest 移入 Sub2Core、CaptchaOutcome、CaptchaLoadFailure、LoginAgreement、LoginSite、LoginCooldown、LoginCopy）与 LoginFailure（只决定动作，文案取 ReasonCatalog 的 .login / .twoFactor，D32），ServerProfile.normalizedURL 从 AppModel.validatedURL 平移，LoginController（NativeSessionSupport 编译，23 个单测）。16b：LoginView 重写为薄视图，新增两步验证底部 sheet、登录协议勾选行 / 弹窗 / 正文 sheet，CaptchaView 改造，DemoLoginGateway 夹具，LoginUITests 14 个用例。与规格不同的取舍：① 规格没给“不是 Sub2 站点”的文案，定为“该地址不是 Sub2 站点，请检查站点地址”，三种方式都先拉 settings/public（00 §1.1 第 ① 步）；Key 方式只有非 JSON 404 或没有 version 才停，暂时性失败跳过 site_name 回退继续 connect（D32），密码方式拉不到就停止。② 验证码冲突统一用 00 §1.4 表的文案（不用 §1.5 的“站点验证码配置冲突”）；未知提供方停止并提示“站点的验证方式暂不支持，请改用 Web 登录或管理访问令牌”（桥页校验器只认三种）。③ 桥页“未部署”实际检测不到（SPA 回退返回 200），加载失败按 CaptchaLoadFailure 分类：-999 与 WebKit 102 忽略、网络类“无法连接站点”、其余临时失败与主框架 HTTP ≥ 400“站点未部署手机验证页，请改用 Web 或关闭验证码”；超时文案“安全验证已超时，请重新开始”。④ mobile_verify_path 是服务端值，经净化（以单个 / 开头、只含字母数字 /_.-、无 // 与 ..）后才用，不合法时用 /mobile/verify 并显示提示条；URL 只带 nonce。CaptchaRequest 移入 Sub2Core（改动总表写在 CaptchaView.swift），为了让 LoginController 能在 macOS 单测。⑤ 登录协议文案照抄 Web 的 zh i18n（“我已阅读并同意《…》”“登录条款”“拒绝 / 同意并继续”“请先阅读并同意最新条款后再登录”），modal 按规格在点登录后弹出，同意只在本页有效、不按 revision 持久化（BACKLOG）；协议只用于账号和密码方式。⑥ 两步验证 sheet 文案自拟：标题“两步验证”、正文“{掩码邮箱} · 输入身份验证器里的 6 位验证码”、脚注“填满 6 位自动提交”；TOTP_TOO_MANY_ATTEMPTS 关闭 sheet 并在表单显示文案，不进入冷却；2FA 阶段的 RATE_LIMITED 进入冷却。冷却按钮“N 秒后重试”。⑦ 403 FORBIDDEN（令牌主人已不是管理员）显示“当前版本仅支持管理员账号”；401 USER_INACTIVE 在登录页显示“该账号已被禁用”，INVALID_ADMIN_KEY 用 00 §1.6 的长文案（会话中途失效仍按 3.2，S0-11）。⑧ 选了“管理访问令牌”却粘贴非 sat_ 值时，凭据按前缀当 Admin Key，提交时把显示的方式同步修正（与服务端一致）。⑨ CAPTCHA_PROVIDER_MISMATCH 重新拉公开设置、以最新设置为准；验证失败与 MISMATCH 每次提交最多自动重开一次桥页；网络错误与 5xx 不自动重试，证明一律只用一次。⑩ CaptchaView 的导航决策改用 async 版委托方法，消除 Xcode 27.1 的 decidePolicyFor 签名不匹配警告（BACKLOG 原有条目已处理，见该行）；新增 decidePolicyFor navigationResponse。⑪ 回执没有按钮时不拦截点击（ReceiptOverlay 加 allowsHitTesting），登录后的回执不再挡住标签栏。⑫ 标题：根视图“Sub2 Mobile”，sheet 为“添加站点”，有 prompt 时为“重新登录”。未做：refresh_token_unavailable 横幅（R18，阶段 1 概览）；README 登录方式描述与 AppModel.validatedURL 包装的清理（S0-19）。UI 测试已运行：16a gate 59/59 通过；16b gate 73/73 通过（含新增 LoginUITests 14 个），无 flaky。审查修正：两步验证收到 429 RATE_LIMITED 后，sheet 的输入框在冷却期间禁用并每秒显示“N 秒后重试”，冷却期间输入的验证码直接丢弃且不清除提示，冷却结束后输入框重新可用并获得焦点；新增单元测试与 LoginUITests 用例。 |
 | S0-17 | 跨章纯函数：账号显示状态 AccountDisplayState 与状态汇总模型 | ✅ | `5626ec3` | 新增 AccountDisplayState.swift（AccountStateInput 两个入口：账号 DTO 与 status-summary 项；严格按后端 D02 顺序 1–8、Go 的比较方式；状态与色调复用 S0-09 的 AccountScheduleState / Tone；倒计时目标、已停止调度、到期暂停“已过期”、原因短句、凭据类错误、模型限流；now 由调用方传 ServerClock.now()，无默认值）与 AccountStatusSummary.swift（计数、平台、分组与 shortage、账号项、汇总，全部宽松解码、坏行只丢该行；同一模型也解码 dashboard/home 的 availability；R19 唯一的 accountStatusSummary(platform:groupID:includeAccounts:)，groupID 非正数本地拒绝，不发 default_min_ratio，不进 ConditionalCache）。UpstreamAccount 按可缺失补 C02 / C10 / C15 与 D02 输入字段（时间存原始字符串）；AccountExtra 宽松解码 model_rate_limits；新增 AccountTokenStatus（只解码，显示归阶段 2）。与规格不同的取舍：① 任务范围写的 accounts_truncated 在 status-summary 里不存在（只在 availability 里），而漏写的 platforms[] 存在，两者都解码、缺失为默认值；② status-summary 项没有 auto_pause_on_expired，缺失时第 7 行只在第 1–6 行都不成立且服务端 state == paused 时成立；③ TempUnschedState 的 status_code 为 0 视为没有状态码，主体写“临时不可调度”，规则后缀照加；④ 凭据类错误正则大小写不敏感，只在 error_kind 与 error_status_code 都没有时使用；⑤ 00 §5 的“error_message 首行截断 80 字”按 R12 作废，任何情况都不显示 error_message，汇总项也不解码它；⑥ AccountFieldPresentation.value 的 now 改为必填（签名变化）。可见变化：账号列表“状态”字段与详情“状态”行改为 00 §8.1 状态词（“已禁用”→“停用”、“异常”→“错误”、disabled 与未知值→“停用”、active 但暂停调度→“暂停”、限时窗口内“过载中 / 限流中 / 临时不可调度”、到期自动暂停“暂停 · 已过期”；详情原来显示原始枚举）。gate 全过：单元测试 509 + 138；UI 测试 73 个全部通过，其中 Sub2MobileUITests.testPerformanceTrendFourthTabShowsRealRatesAndNewestDetails 重跑一次后通过（概览性能趋势页，与本条无关）。 |
 | S0-18 | 跨章纯函数：Key 状态、金额键盘输入、告警文案 | ✅ | `315216a` | 新增 UserKeys.swift（AdminAPIKeyStatus：effective_status 为四个已知值时直接用，缺失 / 空串 / 不认识的值按后端 EffectiveStatusAt 顺序本地推导；状态词、徽章含简易模式“· 仍可调用”并计入活跃、色调用 S0-09 的 Tone 且不随模式变化、分区头“3 个 · 活跃 2”）、KeypadInput.swift（KeypadKey 与 pad；apply(_:to:maxDigits:maxFractionDigits:maximum:) 照设计稿 press() / vmoKeypadNext，maximum 为可选参数；value(of:) 直接解析 Decimal；retype 供系统文本框逐字符按键）、OpsAlerts.swift（AlertEvent / AlertEventRule / AlertSilenceRef，只有 id 必填，silenceSupported 记录 silence 键，时间用 S0-07 的 optionalTimestamp，replacingRule）与 AlertPresentation.swift（18 行指标目录、数值、阈值、运算符、标题、范围、规则 / 条件、不受支持、状态词与徽章、首页说明行、since、静默行、色调调 Tone.alert；全部走 DisplayFormat，没有新增格式函数）。D22：Face ID 金额门槛 sheet 的逐键过滤改用 KeypadInput.retype（6 位、0 位小数、上限 100000），parseThreshold 只在保存时校验；可见变化：输入“100001”原来显示 100001 且不能保存，现在第 6 位被拒绝、停在“10000”，SettingsUITests 同步断言显示值。与规格不同的取舍：① 告警百分数按 D21 为 1 位小数（10 §6.3 示例写作 5%）；② since 用 relativeTime 加动词，没有“1 小时前”一档（“今天 08:29 恢复”）；③ 手动解决没有解决人时“昨天 22:10 · 已手动解决”；④ 缺 group_name 时范围写“分组 · #12”；⑤ 不认识的 effective_status 视为缺失；⑥ 50 §6.3“简易模式徽章隐藏”按 R13 以 30 §7.3 为准；⑦ 键盘允许“0.5”、禁止“05”；⑧ 规则缺失时规则文案是后端英文 description 原文。未做：Key DTO 扩充、Key 卡片与 BalanceKeypadSheet（阶段 3），告警 APIClient 方法与页面（阶段 1），兑换码面额键盘（阶段 6）。gate 全过：单元测试 549 + 139；UI 测试 74 个全部通过、没有重跑。 |
+| S0-19 | 阶段 0 完成度核查与补测 | ✅ | `45f95a5` | 缺口补齐：错误“详情”（复用 S0-02 的 diagnostics，加 UTC“时间”行；ErrorDetails 只认 APIError，report 保存、文字被换掉时丢弃；alert 多“详情”按钮，打开“错误详情”sheet，复制只放本机剪贴板；ErrorDetailsDisclosure 留给阶段 1–6 的区块错误态）；RequestLog 挂在 transmit / openStream，每次尝试一行（方法、路径模板、状态、错误体里的 reason、X-Request-ID，按服务端 64 字节规则清洗，取消的尝试不记）；CapabilityGateTests 从旧服务端空能力集合串到 Idempotency-Key 与 since_id（D24 的页面接线 S0-10 已做，只核对）；-ui-switch-rejected 夹具与 AppShellUITests（令牌读写 / 只读、Admin Key 第一个管理员说明、切站失败详情与“当前站点不变”）。清理：AppModel.validatedURL 包装（S0-16 留下）、trendAxisLabel 的手机时区默认值（性能趋势改按服务器时区）、UI 测试里的调试 print；其余清单项 grep 为 0（见下方小结）。README 与 NATIVE_CONTRACT / API_COMPATIBILITY / ADMIN_MODULES 只改被阶段 0 推翻的句子。与规格不同：时间行用 UTC Z（D29 二选一）；日志的 reason 只取错误响应体。UI 测试基线 7 个用例诊断为测试时序问题（见小结），修测试后连同全部用例在 gate 里 76 / 76 通过、没有重跑。gate：单元测试 557 + 143，编译无新增 warning，UI 76 / 76 |
+
+## 阶段 0 小结（S0-19）
+
+### 完成项
+
+| 条目 | 提交（功能 · 审查修正） |
+|---|---|
+| S0-01 工具链 Xcode 27.1、最低 iOS 26 | `777623b` |
+| S0-02 错误信封、reason 总表、APIError | `145f9de` |
+| S0-03 AdminMe、capability 常量、模型放宽 | `46acec7` |
+| S0-04 请求层（请求头、设备 ID、续期重发、自动重试、429、超时） | `8bbffb6` |
+| S0-05 ConditionalCache（ETag / 304） | `353e913` |
+| S0-06 幂等写、WriteOutcome、PendingMoneyWrite、金额编码 | `270212b` · `025ecad` |
+| S0-07 服务器时间、时间编码、since_id 增量 | `6aae86d` · `2cfa217` |
+| S0-08 DisplayFormat | `776ecb9` |
+| S0-09 Palette / Tone、BlockState / LoadState | `516f5a3` · `6d4a64d` |
+| S0-10 deviceID、凭据迁移、登录请求体、me() 连接、SiteSession | `7690208` |
+| S0-11 退出与删除站点、切站、前后台、会话失效 | `9b2091d` `68010bf` `e8f4c38` · `c3ea406` |
+| S0-12 资金写待核对三类记录 | `9d5e5f0` · `b7e8d40` |
+| S0-13 全局合规确认与二次验证 sheet | `938af4f` `2eb1b53` · `9758e41` |
+| S0-14 应用骨架（Tab、路由、搜索目录、站点菜单、回执、状态轨） | `70e1e4a` `11fd203` |
+| S0-15 设置页、AppPreferences、Face ID | `8b36009` `a58e6a9` · `c8a0f1f` |
+| S0-16 登录页（三种方式、验证码桥页、两步验证） | `8d8e4bb` `b096977` · `d310677` |
+| S0-17 AccountDisplayState 与状态汇总 | `5626ec3` |
+| S0-18 Key 状态、KeypadInput、告警文案 | `315216a` |
+| S0-19 阶段 0 收口 | `45f95a5` |
+
+完成标志（FINAL-SPEC 实现顺序 · 阶段 0 第 5 条）：00 §9.8 的测试都已在单元测试里（下表）；三种方式登录、切站点、退出、四个 Tab 与搜索 Tab 可导航都有 UI 测试，在 S0-19 的 gate 里全部通过。
+
+### 00 §9.8 测试对照
+
+| 清单项 | 测试文件 · 用例 |
+|---|---|
+| ErrorEnvelope 六个样例 | ErrorEnvelopeTests：decodesHandlerEnvelopeWithIntegerCode、decodesMiddlewareEnvelopeWithStringCode、decodesComplianceLockedBody（423）、decodesLoginRateLimitWithTopLevelRetryAfter、nonJSONBodiesYieldNoEnvelope（纯文本 404 与 HTML 502）；APIErrorMappingTests：nonJSON404IsUnsupportedButJSON404IsNotFound、htmlBadGatewayIsTemporaryWithoutReason |
+| ReasonCatalog 每一类、401 / 404 USER_NOT_FOUND、未知组合兜底 | ReasonCatalogTests：catalogRowsMatchSpec（3.2 全表，25 个类别都有行）、userNotFoundDependsOnStatus、unknownCombinationsFallBackByHTTPStatus、knownReasonUnderOtherStatusUsesFallback；404 OPS_DISABLED → featureDisabled 在 APIErrorMappingTests.legacyServerFactoryKeepsWorking |
+| 刷新：写请求同 key 重发、429 / 503 / 网络错误保留会话、REFRESH_TOKEN_REUSED 清会话 | RequestLayerTests.expiredTokenResendsEveryMethodOnceWithIdenticalBytes；KeyedWriteExecutorTests.expiredTokenDuringKeyedWriteResendsSameKeyAndBytes；TokenRefreshTests.transientRefreshFailureKeepsSessionAndBacksOff、refreshRejectionEndsSessionWithoutFurtherNetwork |
+| 幂等写：字节一致、IN_PROGRESS 30 秒转待核对、KEY_CONFLICT 换 key、Recovered 按成功、落盘失败不发、旧记录解码、set 0 标题 | KeyedWriteExecutorTests：keyedWriteRetriesTransportFailuresWithSameKeyAndBytes、inProgressHonoursRetryAfterAndStopsAfterThirtySeconds、keyProblemsRequireReconfirmationWithoutRetry、recoveredReplayedAndDegradedResponsesCountAsSuccess；IdempotentWriteTests：persistFailureNeverProducesSendableWrite、legacyPendingBalanceRecordDecodesWithoutNewFields、pendingLineTitlesFollowOperationAndR02；PendingMoneyLedgerTests.unwritableDirectoryRejectsRememberAndKeepsLedger |
+| DisplayFormat 6.2 每一行 | DisplayFormatTests 23 个用例（含 rpmKeepsOneDecimalOnlyBelowTen、ratioPercentMultipliesByHundredWithOneDecimal、三种 duration、zeroIsNotMissing） |
+| 金额编码 | IdempotentWriteTests：balanceBodyIsDecimalStringWithoutExponent、compensationBodyEncodesValueAsJSONNumber、createUserInitialBalanceIsJSONNumber；RedeemCodesTests.generateSpecEncodesSortedKeysAndJSONNumber（generate 与 create-and-redeem 的方法级请求测试在阶段 6 建方法时补） |
+| IncrementalList 乱序、去重、has_more | IncrementalListTests：outOfOrderCommitDoesNotLoseRows、mergeDeduplicatesNewerWinsAndSortsByIDDescending、hasMoreAbandonsIncrementForFirstPageReload |
+| 时间：无 +08:00、趋势桶按服务器时区、Unix 秒 | ServerTimeTests：timeQueryNeverContainsPlusOffset、dashboardTrendParsesBucketsInResponseOrRequestZone、unixSecondsAndLenientContainerDecoding |
+| 能力：没有 capability 时不发新参数 | CapabilityGateTests（S0-19）：legacyServerReportsNoCapabilityAndSendsNoNewParameters、userWritesCarryIdempotencyKeyOnlyWithTheCapability、incrementalReadsSendSinceIDOnlyWithTheCapability；另有 KeyedWriteExecutorTests.userWritesSendKeyOnlyWhenOperationAllows、IncrementalListTests.missingCapabilityUsesTimeWindowFallback |
+
+完成标志的 UI 测试：三种方式登录 → LoginUITests.testPasswordLoginShowsConnectedReceipt、testLoginMethodNotesAndSatPasteSwitchesToAccessToken、testAdminKeyLogin；认证方式文案 → SettingsUITests.testCurrentSiteShowsIdentitySignInAndEntries（密码）与 AppShellUITests（令牌读写 / 只读、Admin Key）；切站点 → AppNavigationUITests.testSiteMenuSwitchesStationWithReceipt、Sub2MobileUITests.testAddAndSwitchStations；退出 → Sub2MobileUITests.testLogoutErasesCredentialInsteadOfRestoringSession；四个 Tab 与搜索 Tab → AppNavigationUITests.testFourTabsAndSearchTabReplaceManagementAndSettings、testSearchDirectoryOpensExistingPagesAndPlaceholders、testAlertEventsSelectsMonitorAlertsSegment；错误详情 → AppShellUITests.testSignInMethodsAreLabelledAndARefusedSwitchOffersDetails。
+
+### 核查结果（00 §9.1–§9.7、改动总表阶段 0 行、R01–R20、D15 定型表）
+
+- 清理清单 grep 为 0：verifyAdministrator、DashboardPresentation 的 compactNumber / cost / compactCost / money / duration / rpmValue、全局 money(_:)、StepUpView、needsStepUp、ManagementView、management.*、tab.settings / tab.management、DashboardLoadState、独立的“不可用”字面量（只剩“站点暂时不可用”“服务不可用”等句子）、has("…") 字面量、Sources 与 NativeApp 里的 print / NSLog（UI 测试里的调试 print 由本条删除；Tests 里三个历史回归用例的 print 是 docs/ACCEPTANCE.md 引用的受控输出，保留）、Sources 里的 +08:00（只剩 ServerTime 的注释）。
+- APIError.Kind.twoFactor 按 D29 保留，只用于 TOTP_* 与本地 6 位校验；423 归 .compliance、STEP_UP_* 归 .stepUp（APIErrorMappingTests.lockedIsComplianceAndNeverStepUp）。
+- dashboard/realtime 只在 me() 的最后一级退路（admin/compliance 也是非 JSON 404 时）。TimeZone.current 只剩 ServerTimeZone.device、UsageAnalytics 的 AnalyticsQuery 默认值与 RequestLogs 的 usage timezone（后两处见未做项）。
+- D15 重名：RetryAfter、ReasonCatalog.Context、Tone、AdminAccessToken、AdminComplianceStatus / complianceStatus() / acceptCompliance、requestClock / serverClock、Credential.fromAPIKey、AuthPresentation、PendingMoneyWriteLine、postLogout、DisplayFormat.decimal、accountStatusSummary、userAdjustments、KeychainCredentialStore.remove / eraseCredential 都只有一个定义；StatusTone、AccessTokenItem、ComplianceStatus、ReasonContext、pastedKey、removeSite（方法）、redeemBatchRow、compensationRow、loginKindBadge、queryTimestamp、writeTimeout 均不存在。SiteSession.authMethodLabel 只是转发 AuthPresentation.methodLabel，不是另一套文案。
+- D13 装配点：NativeApp 里 `APIClient(` 只在 ClientWiring.makeClient、AppModel.connect 的候选 client、LoginView 的登录网关、AppModel+Session 的收尾 client 四处；ClientWiringTests.activeClientInheritsCandidateCacheIdentityClockAndSiteZone 守住装配。D02 的 deviceID 必填与 internal 测试构造已在 S0-10 完成。
+- D11：AppModel.swift 442 行；AppModel+Pending / +Security / +Session 都在 Package.swift 的 exclude 里。全部 Swift 文件都不超过 800 行（最大 APIClient.swift 716 行）。NSFaceIDUsageDescription 在 generate_project.py。
+- D27 静态核查（scratch 脚本，按 UITests 里引用的 accessibilityIdentifier 在 NativeApp 字面量与插值模板里查）：218 个标识全部能找到；management.*、tab.settings 不再出现，tabBars.buttons["设置"] / ["管理"] 只在断言“不存在”的地方出现。
+- 00 §9.1 新增方法：me、sessions、revokeSession、revokeOtherSessions、complianceStatus、acceptCompliance、accessTokens、revokeAccessToken、deletePushDevice 已有；registerPushDevice、updatePushSubscription、testPushDevice、pushConfig 与 PushCoordinator 按实现顺序归阶段 6。
+
+### 未做项及原因
+
+- **待核对门控跨站点 id（资金安全，阶段 3 必做、不能跳过）**：同一地址重新登录后，新站点 id 可能对同一用户重复发起充值 / 退款；修法需要“用当前身份核对旧站点 id 的记录”的界面，留到阶段 3 余额核对页（BACKLOG 同名行）。
+- **余额重试后的执行宽限**：“用同一编号重试”不更新 createdAt，刚重试就核对会误判为未执行；阶段 3 实现核对框里的重试时给记录加“最近一次发送时间”（BACKLOG 同名行）。
+- TimeZone.current 的两处退路：UsageAnalytics.swift 的 AnalyticsQuery 默认时区、RequestLogs.swift 的 usage timezone，阶段 4 重写统计与日志时改为服务器时区。现有页面里“更新于 HH:MM:SS”等按手机时区格式化的时间同样随页面重写改用 DisplayFormat（BACKLOG）。
+- 推送接口与 PushCoordinator → 阶段 6；各页面区块错误态接入 ErrorDetailsDisclosure → 阶段 1–6；redeem-codes/generate 与 create-and-redeem 的方法级请求测试 → 阶段 6。
+- 需要实机验证的：iOS 27 搜索 Tab 形态（U40）、大标题下的站点标题菜单、Face ID 真实弹窗、ETag 304 经 URLSession 原样返回（均已在 BACKLOG）。
+
+### UI 测试运行情况
+
+S0-19 的 gate（3 台模拟器并行、失败重跑一次）：76 个用例全部通过、没有重跑，包括新增的 AppShellUITests 2 个。此前单独运行 AccountListCustomizationUITests、UserManagementUITests、Sub2MobileUITests 三个类，30 / 30 也全部通过。
+
+基线 7 个不稳定用例的诊断（失败信息取自 Mac 上 base-ui.xcresult 与 ui-base.xcresult）：
+- 失败点只有两类：① 列表字段开关“The rendered field switch did not change value”与字段上移“Field did not move after tapping its visible center”；② 谓词等待超时，而失败信息里的标签已经包含期望值（如“在用 RPM：37”“扣费、$0.31”）。趋势缩放用例同样是第 210 行放大、第 233 行回滑的 5 秒等待超时。
+- ① 是测试问题：reveal 的拖动结束时列表还在减速，紧接着的点按只让滚动停下，开关与排序按钮没有收到点击（ListFieldEditor 的 Toggle 与上下移按钮在 S0-14 之后没有改过）。② 是负载问题：setField 每次前后各取一次全量截图、界面树并 print(app.debugDescription)，一次字段编辑就有十几次完整无障碍快照，Mac 负载高时单次快照会停顿十几秒（S0-07 已证实），等待窗口被吃掉。
+- 修法只改测试：UITestNavigation 新增 XCUIElement.waitUntilSettled()（两次读到相同 frame 才继续，最多 2 秒），用在账号 / 用户字段开关、字段上移与趋势缩放、滑动之前；删掉每次开关前后的截图、界面树与 print，只在等待失败时保存证据。没有加长任何超时。
+- 不是 App 在 iOS 27 上的缺陷，没有改 App。账号列表与用户列表的字段编辑会在阶段 2 / 3 随页面重写（20 §1.7、30 §1.7 去掉“显示字段”），这些用例届时整体替换。
 
 ## UI 测试基线（改动前，`efcb8c1`）
 
