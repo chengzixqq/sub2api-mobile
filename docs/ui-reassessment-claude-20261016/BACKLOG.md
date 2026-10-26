@@ -233,6 +233,10 @@
 | 首页 accounts_truncated 时错误 / 过载行可能不全 | 后端最多列 100 个异常账号，按账号 id 顺序，上限对 error / overloaded / rate_limited / temp_unschedulable 四种状态合计生效。截断时错误行和过载行也可能漏掉；S1-04 只在受限行改用 totals 数字并加“等”，平静判定看 totals，不受影响。需要时加“另有 N 个异常账号”行，或请后端把 error / overloaded 排在前面 |
 | 本机待核对文件读不出时的平静判定 | HomePresentation.isCalm 只看读得出的待核对记录。PendingMoneyLedger 某类文件读不出时，不阻止平静布局（设置页和全局提示已经显示读不出的通知）。如需更保守，再给 isCalm 加一个 hasUnreadablePending 参数 |
 | 首页待处理行图标 | S1-04 暂定的 SF Symbol：告警 bell.fill、另有 bell.badge、错误 xmark.octagon.fill、过载 flame.fill、受限 hourglass、分组 square.stack.3d.up.fill、资金待核对 doc.text.magnifyingglass（设计稿 docCheck）、重试 arrow.clockwise。S1-10 视图落地时对照设计稿 v-today.jsx 核对 |
+| 首页夹具与账号 Tab 演示数据不一致 | LiveOpsFixtures 的 calm / calm-limited 首页没有错误账号，账号 Tab 仍是 AccountDemoStore 的状态；“可用不足”只列企业专线（真实后端按默认规则还会标 GLM 组、MiniMax 组）；夹具的 status-summary 不按平台 / 分组过滤，alert-events 不按 time_range 过滤。S1-18 核对时注明，后续条目需要时在各自变体里补 |
+| 告警乐观更新与在途刷新竞争 | markResolved / applySilence 不取消在途的 firing 刷新，迟到的旧列表可能把已解决事件带回；靠 S1-06 写成功后立即重拉校正（D06） |
+| 告警计数读取失败不单独标记 | alert-events/counts 失败时 LiveOpsStore 保留上次计数（并发的列表请求会报失败）；S1-13 若要在监控分段计数旁显示“更新失败”，需要另给计数加状态 |
+| LiveOpsFixtures.swift 体量 | 本条约 300 行；S1-06…S1-17 继续扩充时按主题拆到 LiveOpsFixtures+Monitor.swift 等新文件（Session 目录新文件自动进入 NativeSessionSupport，只需重新生成工程），避免超过 800 行 |
 
 ### App 与设计 · 阶段 2
 
