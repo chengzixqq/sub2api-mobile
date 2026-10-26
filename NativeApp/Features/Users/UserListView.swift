@@ -71,11 +71,13 @@ struct UsersView: View {
         do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
         await list.search(text)
     }
+    /// Checks again on waking: a refresh that ended during the sleep (the first load, entering the tab, the foreground, a pull)
+    /// or a new failure moved the next one (30 §1.6, 00 §4.6).
     private func poll(_ list: UserListModel) async {
         guard shouldPoll else { return }
         while !Task.isCancelled {
             do { try await Task.sleep(for: .seconds(max(1, list.nextAutoRefreshDelay(now: Date())))) } catch { return }
-            await list.refresh()
+            if list.nextAutoRefreshDelay(now: Date()) <= 0 { await list.refresh() }
         }
     }
     /// Entering the tab reads again; coming back from a pushed page does not (30 §1.6).

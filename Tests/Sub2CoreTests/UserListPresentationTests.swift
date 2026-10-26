@@ -154,11 +154,21 @@ private func pending(_ userID: Int, _ operation: BalanceOperation, _ amount: Dec
 @Test func snapshotMergingFirstPageKeepsLaterPages() {
     let loaded = UserListSnapshot(firstPage: page(Array(1...20), page: 1, total: 26, pages: 2))
         .appending(page(Array(21...26), page: 2, total: 26, pages: 2))
+    // User 27 at the top pushes 20 into the page already read; it stays, or it would be gone until the query changes.
     let merged = loaded.mergingFirstPage(page([27] + Array(1...19), page: 1, total: 27, pages: 2))
-    #expect(merged.rows.map(\.id) == [27] + Array(1...19) + Array(21...26))
+    #expect(merged.rows.map(\.id) == [27] + Array(1...26))
     #expect(merged.total == 27)
     #expect(merged.page == 2)
     #expect(merged.firstPageCount == 20)
+    #expect(!merged.hasMore)
+    let again = merged.mergingFirstPage(page([28, 27] + Array(1...18), page: 1, total: 28, pages: 2))
+    #expect(again.rows.map(\.id) == [28, 27] + Array(1...26))
+    // A row before the new page's last known row was left out by the server (deleted, no longer matching): it goes.
+    let deleted = loaded.mergingFirstPage(page(Array(2...21), page: 1, total: 25, pages: 2))
+    #expect(deleted.rows.map(\.id) == Array(2...26))
+    #expect(deleted.firstPageCount == 20)
+    let both = loaded.mergingFirstPage(page([27] + Array(1...4) + Array(6...20), page: 1, total: 26, pages: 2))
+    #expect(both.rows.map(\.id) == [27] + Array(1...4) + Array(6...26))
     let fresh = UserListSnapshot(firstPage: page([1, 2], page: 1, total: 2, pages: 1)).mergingFirstPage(page([3, 1], page: 1, total: 2, pages: 1))
     #expect(fresh.rows.map(\.id) == [3, 1])
 }
