@@ -226,6 +226,8 @@
 |---|---|
 | 缺失值“—”的读屏 | 替换 App 与设计表中“缺失值“—”的读屏”原行：默认读“无数据”（S1-00 定）。Sources/Sub2Core/DisplayFormat.swift 的 DisplayFormat.missingSpoken 与 DisplayFormat.spoken(_:) 只做整值替换；各页重写时 accessibilityValue 套用，尚未重写的旧页面仍读显示文字。 |
 | APP-PROGRESS 中的旧 UI 用例名 | APP-PROGRESS.md 第 73 行“完成标志的 UI 测试”还写着 AppNavigationUITests.testFourTabsAndSearchTabReplaceManagementAndSettings 和 testSearchDirectoryOpensExistingPagesAndPlaceholders。S1-00 已把它们拆成 testTabBarAndTodayTab、testAccountsTabShowsAccounts、testUsersTabShowsUsers、testMonitorTabShowsSegments、testSearchTabShowsDirectory 与 7 个 testSearchDirectory*；Sub2MobileUITests.testLoginDashboardAccountPaginationAndDetails 已拆成 testLoginShowsDashboard 与 testAccountPaginationAndDetails。集成者写入进度行时可顺带更新这些名字。 |
+| 首页被拒时区的记忆 | dashboardHome 每次调用都先带 timezone，被 400 INVALID_TIMEZONE 拒绝后再去掉重发，不记住结果。若 S1-05 实测某站点频繁出现，由 LiveOpsStore 记住被拒的时区，改传不带 timezone 的请求（需要再加一个重载）。 |
+| 下拉刷新 nocache 的 ETag 键 | nocache=1 的请求与普通轮询是两个 ConditionalCache 键，第一次下拉刷新拿完整响应体，普通轮询的条目也不会因下拉刷新而更新。目前接受；若要让两者共用，需要在 S0-05 的缓存键规则里对 nocache 特判。 |
 
 ### App 与设计 · 阶段 2
 
