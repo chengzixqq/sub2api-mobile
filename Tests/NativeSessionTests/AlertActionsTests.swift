@@ -455,12 +455,29 @@ func writeFailureLeavesLocalStateAndShowsReason(index: Int) async {
     try await source.deleteAlertSilence(id: created.id)
     try await source.deleteAlertSilence(id: created.id)
     #expect(try await source.alertEvent(id: LiveOpsFixtureIDs.alertA).silence == nil)
-    let one = try await source.alertEvents(status: nil, timeRange: nil, limit: 0, before: nil, groupID: nil, platform: nil)
-    #expect(one.count == 1)
     let closed = FixtureLiveOpsSource(options: .init(opsDisabled: true), base: now)
     var refused: APIError?
     do { try await closed.setAlertEventStatus(id: LiveOpsFixtureIDs.alertA, status: AlertEvent.manualResolved) } catch { refused = error as? APIError }
     #expect(refused?.statusCode == 404 && refused?.reason == "OPS_DISABLED")
+}
+
+@Test func fixtureAlertListAppliesTimeRangeFromSessionStart() async throws {
+    let source = FixtureLiveOpsSource(options: .init(), base: now)
+    func ids(_ range: String?, status: String? = nil, limit: Int = 50) async throws -> [Int] {
+        try await source.alertEvents(status: status, timeRange: range, limit: limit, before: nil, groupID: nil, platform: nil).map(\.id)
+    }
+    // #41 now − 12m, #40 now − 26m, #37 now − 82m, #35 yesterday 21:52 (11h49m before 09:41).
+    let everything = [41, 40, 37, 35]
+    #expect(try await ids(nil) == everything)
+    #expect(try await ids("24h") == everything)
+    #expect(try await ids("unknown") == everything)
+    #expect(try await ids("6h") == [41, 40, 37])
+    #expect(try await ids("1h") == [41, 40])
+    #expect(try await ids("5m").isEmpty)
+    #expect(try await ids("1h", status: "firing") == [41, 40])
+    #expect(try await ids("6h", status: "resolved") == [37])
+    #expect(try await ids(nil, limit: 0) == [41])
+    #expect(try await ids(nil, limit: 900) == everything)
 }
 
 @Test func alertFixtureArgumentsParse() {

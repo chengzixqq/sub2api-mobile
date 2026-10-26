@@ -88,9 +88,10 @@ private func refusedAsOpsDisabled(_ call: () async throws -> Void) async -> Bool
     var missing: APIError?
     do { _ = try await source.alertEvent(id: 999) } catch { missing = error as? APIError }
     #expect(missing?.statusCode == 404 && missing?.reason == "OPS_ALERT_EVENT_NOT_FOUND")
-    let all = try await source.alertEvents(status: nil, timeRange: "24h", limit: 50, before: nil, groupID: nil, platform: nil)
+    // 7d: #35 fired yesterday at 21:52 and leaves the 24 hour window late in the day (S1-06 applies time_range).
+    let all = try await source.alertEvents(status: nil, timeRange: "7d", limit: 50, before: nil, groupID: nil, platform: nil)
     #expect(all.map(\.id) == [41, 40, 37, 35] && all.filter { !$0.isFiring }.map(\.status) == ["resolved", AlertEvent.manualResolved])
-    let older = try await source.alertEvents(status: nil, timeRange: "24h", limit: 50, before: all[1].cursor, groupID: nil, platform: nil)
+    let older = try await source.alertEvents(status: nil, timeRange: "7d", limit: 50, before: all[1].cursor, groupID: nil, platform: nil)
     #expect(older.map(\.id) == [37, 35])
     #expect(try await source.alertEventCounts() == AlertCounts(firing: 2, bySeverity: ["P1": 1, "P2": 1]))
 }

@@ -24,12 +24,19 @@ struct FixtureAlertBook: Sendable {
         self.writesFail = writesFail
     }
 
-    /// Filtered like the server, newest first, `limit` held to 1…500. `time_range` is not applied: S1-05's #35 fired yesterday
-    /// at 21:52, which a 24 hour window would drop late in the day.
-    func list(status: String?, limit: Int, before: AlertEventCursor?, groupID: Int?, platform: String?) -> [AlertEvent] {
+    /// The server's `time_range` values (handler/admin/ops_handler.go); any other non-empty value is 24 hours there too.
+    static let timeRanges: [String: TimeInterval] = ["5m": 300, "30m": 1_800, "1h": 3_600, "6h": 21_600, "24h": 86_400, "7d": 604_800,
+                                                     "30d": 2_592_000]
+
+    /// Filtered like the server (S1D1-04), newest first, `limit` held to 1…500. A `timeRange` keeps `fired_at` in
+    /// [now − range, now); S1-05's #35 fired yesterday at 21:52, so it leaves the 24 hour list after 21:52.
+    func events(status: String?, timeRange: String?, limit: Int, before: AlertEventCursor?, groupID: Int?, platform: String?,
+                now: Date) -> [AlertEvent] {
         let wanted = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let window = Self.window(timeRange, now: now)
         let matches = events.filter { event in
             Self.matches(event, status: wanted?.isEmpty == false ? wanted : nil, groupID: groupID, platform: platform, before: before)
+                && window.map { range in event.firedAt.map(range.contains) ?? false } ?? true
         }
         let range = AlertEvent.listLimit
         return Array(LiveOpsFixtures.newestFirst(matches).prefix(min(max(limit, range.lowerBound), range.upperBound)))
@@ -84,6 +91,10 @@ struct FixtureAlertBook: Sendable {
             guard event.silenceSupported, event.ruleID == scope.ruleID, event.platform == scope.platform, event.groupID == scope.groupID else { return event }
             return event.withSilence(latest?.ref)
         }
+    }
+    private static func window(_ timeRange: String?, now: Date) -> Range<Date>? {
+        guard let key = timeRange?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else { return nil }
+        return now.addingTimeInterval(-(timeRanges[key] ?? 86_400))..<now
     }
     private static func sameScope(_ lhs: AlertSilence, _ rhs: AlertSilence) -> Bool {
         lhs.ruleID == rhs.ruleID && lhs.platform == rhs.platform && lhs.groupID == rhs.groupID

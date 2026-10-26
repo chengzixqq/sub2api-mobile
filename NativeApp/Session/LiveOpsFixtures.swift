@@ -233,7 +233,7 @@ enum LiveOpsFixtures {
 
 /// `-ui-testing`'s LiveOpsSource. The alert events are its state (FixtureAlertBook), so S1-06's writes change what is read next;
 /// `homeCalls` is for fixtures that change after a pull to refresh (S1-11). Gated reads and the alert writes answer 404
-/// OPS_DISABLED under `-ui-ops-disabled`.
+/// OPS_DISABLED under `-ui-ops-disabled`. `time_range` counts back from `base`, the session's start.
 actor FixtureLiveOpsSource: LiveOpsSource {
     let options: LiveOpsFixtures.Options
     let base: Date
@@ -275,7 +275,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     func alertEvents(status: String?, timeRange: String?, limit: Int, before: AlertEventCursor?, groupID: Int?,
                      platform: String?) throws -> [AlertEvent] {
         try requireOps()
-        return book.list(status: status, limit: limit, before: before, groupID: groupID, platform: platform)
+        return book.events(status: status, timeRange: timeRange, limit: limit, before: before, groupID: groupID, platform: platform, now: base)
     }
     func alertEventCounts() throws -> AlertCounts {
         try requireOps()
