@@ -149,3 +149,36 @@ func otherBadRequestsAreNotResent(status: Int, reason: String?) async throws {
     #expect(rates.rpm == 46.2 && rates.tpm == 240_000 && rates.errorRate == 0.0086 && rates.startTime == ServerTime.parseTimestamp("2026-10-23T01:59:05Z"))
     #expect(LiveRatesWindow.allCases.map(\.rawValue) == ["1m", "5m", "15m"])
 }
+
+// S1-05: the error accounts' structured fields (10 §1.2 附加请求), read through R19's one account list query.
+
+private let errorAccountsPage = #"{"items":[{"id":7,"name":"OpenAI-备用-A","platform":"openai","type":"apikey","status":"error","schedulable":false,"error_message":"raw upstream text","error_at":"2026-10-23T02:03:05Z","error_status_code":401,"error_kind":"auth","error_summary":"401 凭据已失效（invalid_api_key）"},{"id":9,"name":"Kimi-01","platform":"kimi","type":"apikey","status":"error","schedulable":false}],"total":230,"page":1,"page_size":100,"pages":3}"#
+
+@Test func errorAccountsSendsErrorStatusLitePageSize100OnFirstPage() async throws {
+    let transport = ScriptedTransport { _ in okReply(errorAccountsPage) }
+    _ = try await homeClient(transport).errorAccounts()
+    let sent = await transport.requests
+    #expect(sent.count == 1 && sent[0].httpMethod == "GET" && sent[0].url?.path == "/api/v1/admin/accounts")
+    let query = sentQuery(sent.first)
+    #expect(query["page"] == "1" && query["page_size"] == "100" && query["status"] == "error" && query["lite"] == "1")
+    #expect(query["include_counts"] == nil && query["sort_by"] != "urgency")
+}
+
+@Test func errorAccountsDecodesStructuredErrorFieldsAndReturnsFirstPageItems() async throws {
+    let transport = ScriptedTransport { _ in okReply(errorAccountsPage) }
+    let accounts = try await homeClient(transport).errorAccounts()
+    #expect(accounts.map(\.id) == [7, 9])
+    #expect(await transport.requests.count == 1)
+    let first = try #require(accounts.first)
+    #expect(first.errorAt == "2026-10-23T02:03:05Z" && first.errorStatusCode == 401 && first.errorKind == "auth")
+    #expect(first.errorSummary == "401 凭据已失效（invalid_api_key）" && accounts[1].errorSummary == nil)
+}
+
+@Test func errorAccountsReusesConditionalCacheOn304() async throws {
+    let transport = revalidating(errorAccountsPage, etag: "\"a1\"")
+    let client = homeClient(transport, identity: homeOwner)
+    let first = try await client.errorAccounts()
+    let second = try await client.errorAccounts()
+    #expect(second.map(\.id) == first.map(\.id) && second.first?.errorSummary == first.first?.errorSummary)
+    #expect(await validators(transport) == [nil, "\"a1\""])
+}

@@ -367,4 +367,10 @@ extension APIClient {
     public func dashboardRates(window: LiveRatesWindow = .fiveMinutes) async throws -> LiveRates {
         try await request("admin/dashboard/rates", query: [URLQueryItem(name: "window", value: window.rawValue)], timeout: RequestTimeout.read)
     }
+
+    /// 10 §1.2 附加请求: the first 100 error accounts with `error_at` / `error_summary` / `error_kind` / `error_status_code`, which the
+    /// availability block leaves out. R19: the one account list query; a single `error` status needs no `accounts.list_query`.
+    public func errorAccounts() async throws -> [UpstreamAccount] {
+        try await managedAccounts(page: 1, query: AccountListQuery(statuses: [.error], pageSize: 100)).items
+    }
 }
