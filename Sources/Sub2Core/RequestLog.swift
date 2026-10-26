@@ -45,14 +45,16 @@ enum RequestLog {
         return fields.map { $0 ?? "-" }.joined(separator: " ")
     }
 
-    /// Numeric and UUID segments, and the hex id after `sessions`, become `:id`; the query is dropped.
+    /// Numeric and UUID segments, the hex id after `sessions` and the request ID after `ops/requests` become `:id`; the query
+    /// is dropped.
     static func pathTemplate(_ path: String) -> String {
         var bare = path.prefix { $0 != "?" }
         if bare.hasPrefix(apiPrefix) { bare = bare.dropFirst(apiPrefix.count) }
         let segments = bare.split(separator: "/", omittingEmptySubsequences: false)
         return segments.indices.map { index in
             let afterSessions = index > 0 && segments[index - 1] == "sessions"
-            return afterSessions || isIdentifier(segments[index]) ? ":id" : String(segments[index])
+            let afterOpsRequests = index > 1 && segments[index - 2] == "ops" && segments[index - 1] == "requests"
+            return afterSessions || afterOpsRequests || isIdentifier(segments[index]) ? ":id" : String(segments[index])
         }.joined(separator: "/")
     }
 

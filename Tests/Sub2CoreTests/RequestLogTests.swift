@@ -20,7 +20,9 @@ import Testing
     ("auth/sessions", "auth/sessions"),
     ("admin/accounts/today-stats/batch", "admin/accounts/today-stats/batch"),
     ("admin/me", "admin/me"),
-    ("admin/users?search=a@b.example", "admin/users")
+    ("admin/users?search=a@b.example", "admin/users"),
+    ("admin/ops/requests/client:0a1b-x/attempts", "admin/ops/requests/:id/attempts"),
+    ("admin/ops/requests", "admin/ops/requests")
 ])
 func pathTemplateMasksIdentifiers(path: String, template: String) {
     #expect(RequestLog.pathTemplate(path) == template)
