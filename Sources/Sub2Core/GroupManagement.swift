@@ -22,14 +22,24 @@ public struct AdminGroup: Identifiable, Codable, Sendable, Equatable {
     public var updatedAt: String?
     /// `sort_order`; order groups with `displayOrder`.
     public var sortOrder: Int?
+    /// `error_account_count` / `idle_account_count` (F04): a missing key is nil, an older server whose buckets S5-02 counts
+    /// itself; a present 0 is 0.
+    public var errorAccountCount: Int?
+    public var idleAccountCount: Int?
+    /// `claude_code_only`; simple-mode replies leave it out.
+    public var claudeCodeOnly: Bool?
+    /// `fallback_group_id`; null and missing are both nil.
+    public var fallbackGroupID: Int?
 
-    public init(id: Int, name: String, description: String? = nil, platform: String = "openai", status: String = "active", rateMultiplier: Decimal? = 1, isExclusive: Bool? = false, subscriptionType: String? = "standard", dailyLimitUSD: Decimal? = nil, weeklyLimitUSD: Decimal? = nil, monthlyLimitUSD: Decimal? = nil, rpmLimit: Int? = 0, accountCount: Int? = nil, activeAccountCount: Int? = nil, rateLimitedAccountCount: Int? = nil, billingLocked: Bool? = nil, createdAt: String? = nil, updatedAt: String? = nil, sortOrder: Int? = nil) {
+    public init(id: Int, name: String, description: String? = nil, platform: String = "openai", status: String = "active", rateMultiplier: Decimal? = 1, isExclusive: Bool? = false, subscriptionType: String? = "standard", dailyLimitUSD: Decimal? = nil, weeklyLimitUSD: Decimal? = nil, monthlyLimitUSD: Decimal? = nil, rpmLimit: Int? = 0, accountCount: Int? = nil, activeAccountCount: Int? = nil, rateLimitedAccountCount: Int? = nil, billingLocked: Bool? = nil, createdAt: String? = nil, updatedAt: String? = nil, sortOrder: Int? = nil, errorAccountCount: Int? = nil, idleAccountCount: Int? = nil, claudeCodeOnly: Bool? = nil, fallbackGroupID: Int? = nil) {
         self.id = id; self.name = name; self.description = description; self.platform = platform; self.status = status
         self.rateMultiplier = rateMultiplier; self.isExclusive = isExclusive; self.subscriptionType = subscriptionType
         self.dailyLimitUSD = dailyLimitUSD; self.weeklyLimitUSD = weeklyLimitUSD; self.monthlyLimitUSD = monthlyLimitUSD
         self.rpmLimit = rpmLimit; self.accountCount = accountCount; self.activeAccountCount = activeAccountCount
         self.rateLimitedAccountCount = rateLimitedAccountCount; self.billingLocked = billingLocked
         self.createdAt = createdAt; self.updatedAt = updatedAt; self.sortOrder = sortOrder
+        self.errorAccountCount = errorAccountCount; self.idleAccountCount = idleAccountCount
+        self.claudeCodeOnly = claudeCodeOnly; self.fallbackGroupID = fallbackGroupID
     }
     enum CodingKeys: String, CodingKey {
         case id, name, description, platform, status
@@ -38,6 +48,8 @@ public struct AdminGroup: Identifiable, Codable, Sendable, Equatable {
         case rpmLimit = "rpm_limit", accountCount = "account_count", activeAccountCount = "active_account_count"
         case rateLimitedAccountCount = "rate_limited_account_count", billingLocked = "billing_locked"
         case createdAt = "created_at", updatedAt = "updated_at", sortOrder = "sort_order"
+        case errorAccountCount = "error_account_count", idleAccountCount = "idle_account_count"
+        case claudeCodeOnly = "claude_code_only", fallbackGroupID = "fallback_group_id"
     }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -53,6 +65,8 @@ public struct AdminGroup: Identifiable, Codable, Sendable, Equatable {
         billingLocked = try c.decodeIfPresent(Bool.self, forKey: .billingLocked)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt); updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
         sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder)
+        errorAccountCount = try c.decodeIfPresent(Int.self, forKey: .errorAccountCount); idleAccountCount = try c.decodeIfPresent(Int.self, forKey: .idleAccountCount)
+        claudeCodeOnly = try c.decodeIfPresent(Bool.self, forKey: .claudeCodeOnly); fallbackGroupID = try c.decodeIfPresent(Int.self, forKey: .fallbackGroupID)
     }
 }
 extension AdminGroup {
@@ -60,6 +74,11 @@ extension AdminGroup {
     /// Use as `groups.sorted(by: AdminGroup.displayOrder)`.
     public static func displayOrder(_ lhs: AdminGroup, _ rhs: AdminGroup) -> Bool {
         (lhs.sortOrder ?? 0, lhs.id) < (rhs.sortOrder ?? 0, rhs.id)
+    }
+    /// The bucket inputs in the member batch reply's shape; the omitempty counts read as 0 (00 §6.5).
+    public var counts: GroupAccountCounts {
+        GroupAccountCounts(accountCount: accountCount ?? 0, activeAccountCount: activeAccountCount ?? 0, rateLimitedAccountCount: rateLimitedAccountCount ?? 0,
+                           errorAccountCount: errorAccountCount, idleAccountCount: idleAccountCount)
     }
 }
 
@@ -72,6 +91,34 @@ public enum GroupPlatform {
         case "opencode_go": "OpenCode"; case "typesafe": "TypeSafe / Jev"; case "command_code": "Command Code"; case "cline": "Cline"
         case "composite": "组合分组"; default: value
         }
+    }
+    /// New groups only (50 §3.2): composite groups are created on the web. Same order as `values`.
+    public static let concrete = values.filter { $0 != "composite" }
+}
+
+/// The four buckets' inputs: AdminGroup.counts and the member batch reply's `counts` (same keys). Account, active and
+/// rate-limited are omitempty on the group DTO, so missing is 0 (00 §6.5); error and idle stay nil on a server without F04.
+public struct GroupAccountCounts: Codable, Sendable, Equatable {
+    public let accountCount: Int
+    public let activeAccountCount: Int
+    public let rateLimitedAccountCount: Int
+    public let errorAccountCount: Int?
+    public let idleAccountCount: Int?
+    public init(accountCount: Int = 0, activeAccountCount: Int = 0, rateLimitedAccountCount: Int = 0, errorAccountCount: Int? = nil, idleAccountCount: Int? = nil) {
+        self.accountCount = accountCount; self.activeAccountCount = activeAccountCount; self.rateLimitedAccountCount = rateLimitedAccountCount
+        self.errorAccountCount = errorAccountCount; self.idleAccountCount = idleAccountCount
+    }
+    enum CodingKeys: String, CodingKey {
+        case accountCount = "account_count", activeAccountCount = "active_account_count", rateLimitedAccountCount = "rate_limited_account_count"
+        case errorAccountCount = "error_account_count", idleAccountCount = "idle_account_count"
+    }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(accountCount: c.decodeIfPresent(Int.self, forKey: .accountCount) ?? 0,
+                      activeAccountCount: c.decodeIfPresent(Int.self, forKey: .activeAccountCount) ?? 0,
+                      rateLimitedAccountCount: c.decodeIfPresent(Int.self, forKey: .rateLimitedAccountCount) ?? 0,
+                      errorAccountCount: c.decodeIfPresent(Int.self, forKey: .errorAccountCount),
+                      idleAccountCount: c.decodeIfPresent(Int.self, forKey: .idleAccountCount))
     }
 }
 
@@ -99,7 +146,7 @@ public struct GroupCreateRequest: Encodable, Sendable {
     public var dailyLimitUSD: GroupLimitChange
     public var weeklyLimitUSD: GroupLimitChange
     public var monthlyLimitUSD: GroupLimitChange
-    public init(name: String, description: String = "", platform: String = "openai", rateMultiplier: Decimal = 1, isExclusive: Bool = false, subscriptionType: String = "standard", rpmLimit: Int = 0, dailyLimitUSD: GroupLimitChange = .unlimited, weeklyLimitUSD: GroupLimitChange = .unlimited, monthlyLimitUSD: GroupLimitChange = .unlimited) {
+    public init(name: String, description: String = "", platform: String = "anthropic", rateMultiplier: Decimal = 1, isExclusive: Bool = false, subscriptionType: String = "standard", rpmLimit: Int = 0, dailyLimitUSD: GroupLimitChange = .unlimited, weeklyLimitUSD: GroupLimitChange = .unlimited, monthlyLimitUSD: GroupLimitChange = .unlimited) {
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines); self.description = description; self.platform = platform
         self.rateMultiplier = rateMultiplier; self.isExclusive = isExclusive; self.subscriptionType = subscriptionType; self.rpmLimit = rpmLimit
         self.dailyLimitUSD = dailyLimitUSD; self.weeklyLimitUSD = weeklyLimitUSD; self.monthlyLimitUSD = monthlyLimitUSD
@@ -111,7 +158,7 @@ public struct GroupCreateRequest: Encodable, Sendable {
     }
     public func validate() throws {
         try GroupWriteValidation.name(name); try GroupWriteValidation.decimal(rateMultiplier, positive: true)
-        guard GroupPlatform.values.contains(platform) else { throw GroupWriteValidation.error("请选择受支持的分组平台。") }
+        guard GroupPlatform.concrete.contains(platform) else { throw GroupWriteValidation.error("请选择受支持的分组平台。") }
         try GroupWriteValidation.subscription(subscriptionType); try GroupWriteValidation.rpm(rpmLimit)
         try dailyLimitUSD.validate(); try weeklyLimitUSD.validate(); try monthlyLimitUSD.validate()
     }
@@ -177,11 +224,57 @@ public struct GroupCapacitySummary: Codable, Sendable, Identifiable {
         case groupID = "group_id", concurrencyUsed = "concurrency_used", concurrencyMax = "concurrency_max"
         case sessionsUsed = "sessions_used", sessionsMax = "sessions_max", rpmUsed = "rpm_used", rpmMax = "rpm_max"
     }
+    /// capacity-summary takes at most this many ids (00 §4.5).
+    static let idsPerRequest = 100
 }
 
+/// One row of `GET admin/groups/usage-summary`: the actual charge of a group.
+public struct GroupUsageSummary: Decodable, Sendable, Equatable, Identifiable {
+    public var id: Int { groupID }
+    public let groupID: Int
+    public let todayCost: Decimal?
+    public let yesterdayCost: Decimal?
+    public let totalCost: Decimal?
+    public init(groupID: Int, todayCost: Decimal?, yesterdayCost: Decimal?, totalCost: Decimal?) {
+        self.groupID = groupID; self.todayCost = todayCost; self.yesterdayCost = yesterdayCost; self.totalCost = totalCost
+    }
+    enum CodingKeys: String, CodingKey { case groupID = "group_id", todayCost = "today_cost", yesterdayCost = "yesterday_cost", totalCost = "total_cost" }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(groupID: c.decode(Int.self, forKey: .groupID), todayCost: c.optionalDecimal(.todayCost),
+                      yesterdayCost: c.optionalDecimal(.yesterdayCost), totalCost: c.optionalDecimal(.totalCost))
+    }
+}
+/// `GET admin/groups/:id/stats` (F02). total_requests is always 0 and total_cost is not shown, so neither is read.
+public struct GroupStats: Decodable, Sendable, Equatable {
+    public let totalAPIKeys: Int
+    public let activeAPIKeys: Int
+    public let subscriptionsTotal: Int
+    public let subscriptionsActive: Int
+    public init(totalAPIKeys: Int, activeAPIKeys: Int, subscriptionsTotal: Int, subscriptionsActive: Int) {
+        self.totalAPIKeys = totalAPIKeys; self.activeAPIKeys = activeAPIKeys; self.subscriptionsTotal = subscriptionsTotal; self.subscriptionsActive = subscriptionsActive
+    }
+    enum CodingKeys: String, CodingKey {
+        case totalAPIKeys = "total_api_keys", activeAPIKeys = "active_api_keys"
+        case subscriptionsTotal = "subscriptions_total", subscriptionsActive = "subscriptions_active"
+    }
+}
+/// One group's requests, tokens and account cost today (`admin/dashboard/groups`); `cost` is the standard price and is not read.
+public struct GroupTodayUsage: Sendable, Equatable {
+    public let requests: Int
+    public let totalTokens: Int
+    public let accountCost: Decimal?
+    public init(requests: Int, totalTokens: Int, accountCost: Decimal?) { self.requests = requests; self.totalTokens = totalTokens; self.accountCost = accountCost }
+    /// No row: the group had no request today, a real zero.
+    public static let zero = GroupTodayUsage(requests: 0, totalTokens: 0, accountCost: 0)
+}
+/// 50 §1.2: past 1000 groups `groupList` pages on, up to this many pages.
+enum GroupListPolicy { static let maxPages = 20 }
+
 extension APIClient {
-    public func groups(page: Int, search: String = "", platform: String? = nil, status: String? = nil) async throws -> Page<AdminGroup> {
-        try await request("admin/groups", query: pagination(page, search: search, status: status) + optionalQuery("platform", platform))
+    /// The one group list read (X26): `groupList` asks 1000 a page, global search 5.
+    public func groups(page: Int, pageSize: Int = PageSize.standard, search: String = "", platform: String? = nil, status: String? = nil) async throws -> Page<AdminGroup> {
+        try await request("admin/groups", query: pagination(page, pageSize: pageSize, search: search, status: status) + optionalQuery("platform", platform))
     }
     /// With `includeInactive` the backend reads only the literal `true` and then ignores `platform`, so the platform is applied here.
     public func allGroups(platform: String? = nil, includeInactive: Bool = false) async throws -> [AdminGroup] {
@@ -191,26 +284,85 @@ extension APIClient {
         return groups.filter { $0.platform == platform }
     }
     public func group(id: Int) async throws -> AdminGroup { try await request("admin/groups/\(validID(id))") }
-    public func groupCapacities() async throws -> [GroupCapacitySummary] { try await request("admin/groups/capacity-summary") }
-    public func createGroup(_ input: GroupCreateRequest, identity: UUID) async throws -> AdminGroup {
-        try checkGroupIdentity(identity)
-        return try await request("admin/groups", method: "POST", body: input.requestBody())
+    /// 50 §1.2: every group in the server's order (sort_order, id) and of every status, 1000 a page while fewer than `total`
+    /// have arrived, at most GroupListPolicy.maxPages pages; a repeated id keeps its first row. ETag / 304 stay inside the
+    /// conditional cache (R08), and pages of two sessions are never joined.
+    public func groupList() async throws -> [AdminGroup] {
+        let snapshot = currentGeneration()
+        var collected = [AdminGroup](), seen = Set<Int>()
+        for number in 1...GroupListPolicy.maxPages {
+            let page = try await groups(page: number, pageSize: PageSize.maximum)
+            try check(snapshot)
+            for group in page.items where seen.insert(group.id).inserted { collected.append(group) }
+            guard !page.items.isEmpty, page.total.map({ collected.count < $0 }) ?? page.hasMore else { break }
+        }
+        return collected
     }
-    public func updateGroup(id: Int, input: GroupUpdateRequest, identity: UUID) async throws -> AdminGroup {
-        try checkGroupIdentity(identity)
-        return try await request("admin/groups/\(validID(id))", method: "PUT", body: input.requestBody())
+    /// The vendor passes the site's zone; the site owner passes nil and the server uses its own (50 §1.2).
+    public func groupUsageSummary(timezone: ServerTimeZone? = nil) async throws -> [GroupUsageSummary] {
+        try await request("admin/groups/usage-summary", query: optionalQuery("timezone", timezone?.identifier), timeout: RequestTimeout.aggregate)
     }
-    public func deleteGroup(id: Int, identity: UUID) async throws {
-        try checkGroupIdentity(identity)
-        let _: GroupDeleteReply = try await request("admin/groups/\(validID(id))", method: "DELETE")
+    /// The one capacity read (R19). Ids go out positive, unique and ascending (00 §4.5). With `serverFiltered` (the caller's
+    /// groups.capacity_filter) each id is a `group_id`, at most 100 a request, split once on TOO_MANY_IDS; without it one
+    /// unfiltered request. Either way only the requested groups are kept, since an older server ignores the parameter.
+    /// A disabled group has no row.
+    public func groupCapacities(groupIDs: [Int], serverFiltered: Bool) async throws -> [GroupCapacitySummary] {
+        let requested = AccountBatchIDs.normalized(groupIDs)
+        guard !requested.isEmpty else { return [] }
+        guard serverFiltered else {
+            let wanted = Set(requested)
+            let rows: [GroupCapacitySummary] = try await request("admin/groups/capacity-summary")
+            return rows.filter { wanted.contains($0.groupID) }
+        }
+        let matched = try await readInBatches(requested, size: GroupCapacitySummary.idsPerRequest) { chunk in
+            let wanted = Set(chunk)
+            let rows: [GroupCapacitySummary] = try await request("admin/groups/capacity-summary", query: chunk.map { URLQueryItem(name: "group_id", value: String($0)) })
+            return Dictionary(rows.filter { wanted.contains($0.groupID) }.map { ($0.groupID, $0) }) { first, _ in first }
+        }
+        return requested.compactMap { matched[$0] }
     }
-    private func checkGroupIdentity(_ identity: UUID) throws {
-        try Task.checkCancellation()
-        guard identity == userWriteIdentity() else { throw CancellationError() }
+    /// F02: nil when the reply has no `subscriptions_total` (an older server's all-zero placeholder); the caller then reads
+    /// groupAPIKeyCount and activeSubscriptionCount.
+    public func groupStats(id: Int) async throws -> GroupStats? {
+        let reply: GroupStatsReply = try await request("admin/groups/\(validID(id))/stats")
+        return reply.stats
+    }
+    /// 50 §2.2 fallback, `total` only. `maskedView` is the caller's api_keys.masked_view; an older server sends plain keys,
+    /// which never reach a model.
+    public func groupAPIKeyCount(id: Int, maskedView: Bool) async throws -> Int {
+        let view = maskedView ? [URLQueryItem(name: "key_view", value: "masked")] : []
+        let reply: PageTotal = try await request("admin/groups/\(validID(id))/api-keys", query: pagination(1, pageSize: 1, search: "", status: nil) + view)
+        return reply.total
+    }
+    /// 50 §2.2 fallback: the group's active subscriptions, `total` only.
+    public func activeSubscriptionCount(groupID: Int) async throws -> Int {
+        let group = try validID(groupID)
+        let reply: PageTotal = try await request("admin/subscriptions", query: pagination(1, pageSize: 1, search: "", status: "active")
+                                                 + [URLQueryItem(name: "group_id", value: String(group))])
+        return reply.total
+    }
+    /// 50 §2.2: start_date = end_date = today on the server's calendar (00 §2.8). No row means no request today, a real zero.
+    public func groupTodayUsage(id: Int, serverTimeZone zone: ServerTimeZone? = nil) async throws -> GroupTodayUsage {
+        struct Reply: Decodable, Sendable { let groups: [AnalyticsBreakdown]? }
+        let groupID = try validID(id), now = serverClock.now()
+        let day = (zone ?? serverTimeZone()).dayQueryItems(from: now, to: now)
+        let reply: Reply = try await request("admin/dashboard/groups", query: day + [URLQueryItem(name: "group_id", value: String(groupID))],
+                                             timeout: RequestTimeout.aggregate)
+        guard let row = reply.groups?.first(where: { $0.groupID == groupID }) else { return .zero }
+        return GroupTodayUsage(requests: row.requests, totalTokens: row.tokens, accountCost: row.accountCost)
     }
 }
 
-private struct GroupDeleteReply: Decodable, Sendable { let message: String }
+/// F02 is told by the `subscriptions_total` key, not by a capability.
+private struct GroupStatsReply: Decodable, Sendable {
+    let stats: GroupStats?
+    init(from decoder: any Decoder) throws {
+        guard try decoder.container(keyedBy: GroupStats.CodingKeys.self).contains(.subscriptionsTotal) else { stats = nil; return }
+        stats = try GroupStats(from: decoder)
+    }
+}
+/// A page whose items are never decoded.
+private struct PageTotal: Decodable, Sendable { let total: Int }
 private enum GroupWriteValidation {
     static func error(_ message: String) -> APIError { APIError(kind: .validation, message: message) }
     static func name(_ value: String) throws {
