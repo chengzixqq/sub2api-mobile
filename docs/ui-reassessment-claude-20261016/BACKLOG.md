@@ -219,3 +219,33 @@
 | 错误详情的分享入口 | S0-19 的“错误详情”sheet 只有“复制详情”（本机剪贴板）；是否加“发送给站长 / 分享”，规格没有要求，等用户决定 |
 | 现有页面按手机时区显示的时间 | “更新于 HH:MM:SS”、日志与统计的起止时间、ListFields 的时间列仍用 Date.formatted（手机时区），AnalyticsQuery 的默认时区与 RequestLogs 的 usage timezone 也取 TimeZone.current；00 §6.3 要求按服务器时区。阶段 1–4 重写这些页面时改用 DisplayFormat 与 SiteSession.serverTimeZone（S0-19 只改了性能趋势的刻度） |
 | 旧服务端的站点时区退路是连接时的手机时区 | 拿不到 server_timezone 的站点（旧服务端），APIClient 与 SiteSession 存的是连接时求出的 `ServerTimeZone.device` 快照（D09），App 驻留期间手机改时区后，概览趋势等仍按旧时区发 timezone=，统计与日志页（TimeZone.current）已按新时区，要等回到前台超过 5 分钟的重新探测或重新连接才一致（S0-LOW-A 复核未改）。阶段 4 统一页面时区时，如需随手机即时变化，可把退路存成“未知”、在调用时取 .device |
+
+### App 与设计 · 阶段 1
+
+| 事项 | 说明 |
+|---|---|
+
+### App 与设计 · 阶段 2
+
+| 事项 | 说明 |
+|---|---|
+
+### App 与设计 · 阶段 3
+
+| 事项 | 说明 |
+|---|---|
+
+### App 与设计 · 阶段 4
+
+| 事项 | 说明 |
+|---|---|
+
+### App 与设计 · 阶段 5
+
+| 事项 | 说明 |
+|---|---|
+
+### App 与设计 · 阶段 6
+
+| 事项 | 说明 |
+|---|---|
