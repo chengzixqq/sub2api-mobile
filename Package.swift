@@ -19,6 +19,8 @@ let package = Package(
             // 阶段 1
             // 阶段 2
             // 阶段 3
+            "AppModel+Users.swift",
+            "DemoData+Users.swift",
             // 阶段 4
             // 阶段 5
             // 阶段 6

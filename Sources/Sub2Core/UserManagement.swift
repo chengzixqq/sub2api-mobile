@@ -2,8 +2,9 @@ import Foundation
 
 public enum AdminUserRole: String, CaseIterable, Sendable, Encodable {
     case user, vendor, admin
+    /// 30 §0.3 role words.
     public var title: String {
-        switch self { case .user: "普通用户"; case .vendor: "代运营"; case .admin: "管理员" }
+        switch self { case .user: "用户"; case .vendor: "供应商"; case .admin: "管理员" }
     }
 }
 
@@ -126,5 +127,42 @@ private enum UserWriteValidation {
     static func encode<T: Encodable>(_ value: T) throws -> Data {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(value)
+    }
+}
+
+// MARK: - 用户读写接口（S3-01 从 APIClient.swift 移来）
+
+extension APIClient {
+    /// With admin.idempotent_writes the frozen number is also the Idempotency-Key (00 §2.5.1); without it, X-Request-ID only.
+    public func createUser(_ operation: PendingUserCreateOperation, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
+        guard operation.serverID == server.id else { throw APIError.stationMismatch }
+        try check(operation.identity)
+        guard operation.sendsIdempotencyKey else { return try await performUnkeyedWrite("admin/users", method: "POST", body: operation.body, requestID: operation.key) }
+        return try await performKeyedWrite(KeyedWriteRequest(path: "admin/users", method: "POST", body: operation.body, key: operation.id), onEvent: onEvent)
+    }
+    public func updateUser(_ operation: PendingUserUpdateOperation, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
+        guard operation.serverID == server.id else { throw APIError.stationMismatch }
+        try check(operation.identity)
+        let path = "admin/users/\(try validID(operation.userID))"
+        guard operation.supportsSafeRetry else { return try await performUnkeyedWrite(path, method: "PUT", body: operation.body, requestID: operation.key) }
+        return try await performKeyedWrite(KeyedWriteRequest(path: path, method: "PUT", body: operation.body, key: operation.id), onEvent: onEvent)
+    }
+    public func userUsage(id: Int) async throws -> UserUsageSummary {
+        // The legacy /admin/users/:id/usage endpoint currently returns mock zeros in this backend.
+        // Query real monthly usage aggregates instead.
+        try await request("admin/usage/stats", query: monthRange() + [URLQueryItem(name: "user_id", value: String(validID(id)))],
+                          timeout: RequestTimeout.aggregate)
+    }
+    public func userKeys(id: Int, page: Int) async throws -> Page<UserAPIKey> {
+        try await request("admin/users/\(validID(id))/api-keys", query: pagination(page, search: "", status: nil))
+    }
+    public func setUserStatus(id: Int, status: String) async throws -> AdminUser {
+        guard ["active", "disabled"].contains(status) else { throw APIError(kind: .validation, message: "无效的用户状态。") }
+        return try await request("admin/users/\(validID(id))", method: "PUT", body: encode(["status": status]))
+    }
+    /// Takes only a record already on disk; the body comes from the record and the key and X-Request-ID are its id (00 §9.1).
+    /// One sender (R19): it is `updateBalance(_:sameAddress:onEvent:)` for this site only; S3-16 removes it.
+    public func updateBalance(_ write: PersistedMoneyWrite<PendingBalanceOperation>, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
+        try await updateBalance(write, sameAddress: [], onEvent: onEvent)
     }
 }

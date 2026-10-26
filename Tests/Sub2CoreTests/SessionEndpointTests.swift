@@ -148,7 +148,7 @@ func logoutFailureNeverReportsSessionInvalidation(step: ScriptStep) async throws
     let client = sessionClient(transport, log: log)
     async let first: Void = { _ = try? await client.user(id: 1) }()
     async let second: Void = { _ = try? await client.user(id: 2) }()
-    async let third: Void = { _ = try? await client.users(page: 1, search: "", status: nil) }()
+    async let third: Void = { _ = try? await client.users(query: UserListQuery()) }()
     _ = await (first, second, third)
     #expect(log.all.count == 1); #expect(log.all.first?.cause == .expired); #expect(log.all.first?.reason == "TOKEN_REVOKED")
     #expect(await transport.requests(path: "/auth/refresh").isEmpty)

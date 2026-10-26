@@ -227,45 +227,9 @@ public actor APIClient {
     }
 
     // MARK: - 用户
-    public func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser> {
-        try await request("admin/users", query: pagination(page, search: search, status: status))
-    }
+    // The list, writes and reads of stage 3 live in UserList.swift and UserManagement.swift (S3-01).
     public func user(id: Int) async throws -> AdminUser { try await request("admin/users/\(validID(id))") }
     public func userWriteIdentity() -> UUID { generation }
-    /// With admin.idempotent_writes the frozen number is also the Idempotency-Key (00 §2.5.1); without it, X-Request-ID only.
-    public func createUser(_ operation: PendingUserCreateOperation, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
-        guard operation.serverID == server.id else { throw APIError.stationMismatch }
-        try check(operation.identity)
-        guard operation.sendsIdempotencyKey else { return try await performUnkeyedWrite("admin/users", method: "POST", body: operation.body, requestID: operation.key) }
-        return try await performKeyedWrite(KeyedWriteRequest(path: "admin/users", method: "POST", body: operation.body, key: operation.id), onEvent: onEvent)
-    }
-    public func updateUser(_ operation: PendingUserUpdateOperation, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
-        guard operation.serverID == server.id else { throw APIError.stationMismatch }
-        try check(operation.identity)
-        let path = "admin/users/\(try validID(operation.userID))"
-        guard operation.supportsSafeRetry else { return try await performUnkeyedWrite(path, method: "PUT", body: operation.body, requestID: operation.key) }
-        return try await performKeyedWrite(KeyedWriteRequest(path: path, method: "PUT", body: operation.body, key: operation.id), onEvent: onEvent)
-    }
-    public func userUsage(id: Int) async throws -> UserUsageSummary {
-        // The legacy /admin/users/:id/usage endpoint currently returns mock zeros in this backend.
-        // Query real monthly usage aggregates instead.
-        try await request("admin/usage/stats", query: monthRange() + [URLQueryItem(name: "user_id", value: String(validID(id)))],
-                          timeout: RequestTimeout.aggregate)
-    }
-    public func userKeys(id: Int, page: Int) async throws -> Page<UserAPIKey> {
-        try await request("admin/users/\(validID(id))/api-keys", query: pagination(page, search: "", status: nil))
-    }
-    public func setUserStatus(id: Int, status: String) async throws -> AdminUser {
-        guard ["active", "disabled"].contains(status) else { throw APIError(kind: .validation, message: "无效的用户状态。") }
-        return try await request("admin/users/\(validID(id))", method: "PUT", body: encode(["status": status]))
-    }
-    /// Takes only a record already on disk; the body comes from the record and the key and X-Request-ID are its id (00 §9.1).
-    public func updateBalance(_ write: PersistedMoneyWrite<PendingBalanceOperation>, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
-        let operation = write.record
-        guard operation.serverID == server.id else { throw APIError.stationMismatch }
-        return try await performKeyedWrite(KeyedWriteRequest(path: "admin/users/\(validID(operation.userID))/balance", method: "POST",
-                                                             body: operation.requestBody(), key: operation.id), onEvent: onEvent)
-    }
 
     // MARK: - 测试连接
     public func testAccount(id: Int, model: String?) async throws -> AsyncThrowingStream<AccountTestEvent, any Error> {
@@ -698,7 +662,7 @@ public actor APIClient {
     }
     /// Day parameters follow the server's calendar and clock (00 §2.8, §6.3), never the phone's.
     private func dateRange(days: Int) -> [URLQueryItem] { serverZone.lastDaysQueryItems(days, now: serverClock.now()) }
-    private func monthRange() -> [URLQueryItem] { serverZone.monthToDateQueryItems(now: serverClock.now()) }
+    func monthRange() -> [URLQueryItem] { serverZone.monthToDateQueryItems(now: serverClock.now()) }
     func encode<T: Encodable>(_ value: T) throws -> Data { let e = JSONEncoder(); e.outputFormatting = [.sortedKeys]; return try e.encode(value) }
 }
 

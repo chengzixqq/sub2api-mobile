@@ -110,7 +110,7 @@ struct UsersView: View {
         loading = true; error = nil
         defer { if requestID == ticket { loading = false } }
         do {
-            let result = try await model.users(page: nextPage, search: search, status: status.isEmpty ? nil : status)
+            let result = try await model.users(query: UserListQuery(search: search, page: nextPage), status: status.isEmpty ? nil : status)
             guard generation == model.sessionGeneration, requestID == ticket, !Task.isCancelled else { return }
             users = replace ? result.items : users + result.items.filter { next in !users.contains { $0.id == next.id } }
             page = result.page; hasMore = result.hasMore; failedPage = nil

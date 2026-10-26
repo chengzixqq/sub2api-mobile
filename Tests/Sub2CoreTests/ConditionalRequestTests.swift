@@ -30,7 +30,7 @@ private func revalidatingTransport(_ json: String, etag: String = "\"v1\"") -> S
 private func validators(_ transport: ScriptedTransport) async -> [String?] {
     await transport.requests.filter { !isRefresh($0) }.map { sentHeader($0, "If-None-Match") }
 }
-private func usersPage(_ client: APIClient) async throws -> Page<AdminUser> { try await client.users(page: 1, search: "", status: nil) }
+private func usersPage(_ client: APIClient) async throws -> Page<AdminUser> { try await client.users(query: UserListQuery()) }
 
 @Test func usersListRevalidatesAndReturnsCachedPageOn304() async throws {
     let transport = ScriptedTransport(script: [
@@ -42,7 +42,7 @@ private func usersPage(_ client: APIClient) async throws -> Page<AdminUser> { tr
     let first = try await usersPage(client)
     let second = try await usersPage(client)
     #expect(second.items.map(\.id) == first.items.map(\.id)); #expect(second.total == 1)
-    let query = [URLQueryItem(name: "page", value: "1"), URLQueryItem(name: "page_size", value: "20")]
+    let query = try UserListQuery().queryItems()
     let response: APIResponse<Page<AdminUser>> = try await client.requestWithHeaders("admin/users", query: query)
     #expect(response.status == 304); #expect(response.value.items.first?.email == "admin@example.invalid")
     #expect(response.header("date") == "D3"); #expect(response.requestID == "r3"); #expect(response.header("etag") == "\"u1\"")
@@ -335,4 +335,22 @@ func unlistedEndpointsNeverSendIfNoneMatch(path: String) async throws {
     _ = try await client.managedAccounts(page: 2, query: query)
     let later = try #require(await transport.requests.last?.url)
     #expect(!later.absoluteString.contains("include_counts") && later.absoluteString.contains("page=2"))
+}
+
+/// R08: users(query:) gets ETag revalidation from the cache with its full query; another page is another key, and users-usage
+/// is never conditional.
+@Test func usersQueryRevalidatesTransparentlyWithFullQuery() async throws {
+    let transport = ScriptedTransport { request in
+        if request.url?.path == "/api/v1/admin/dashboard/users-usage" { return okReply(#"{"stats":{}}"#, headers: ["etag": "\"s1\""]) }
+        return sentHeader(request, "If-None-Match") == "\"u1\"" ? notModified("\"u1\"") : okReply(usersPageJSON, headers: ["etag": "\"u1\""])
+    }
+    let client = cachingClient(transport)
+    let query = UserListQuery(search: "admin", page: 1)
+    let first = try await client.users(query: query)
+    let second = try await client.users(query: query)
+    #expect(second.items.map(\.id) == first.items.map(\.id) && second.total == 1)
+    _ = try await client.users(query: UserListQuery(search: "admin", page: 2))
+    _ = try await client.usersTodayUsage(ids: [7])
+    _ = try await client.usersTodayUsage(ids: [7])
+    #expect(await validators(transport) == [nil, "\"u1\"", nil, nil, nil])
 }

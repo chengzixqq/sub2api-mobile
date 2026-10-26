@@ -310,8 +310,8 @@ private struct TimeFields: Decodable {
             : okReply(page, headers: ["etag": etag])
     }
     let client = timeClient(transport, identity: ConditionalCache.Identity(userID: 1, authMethod: "admin_api_key"))
-    _ = try await client.users(page: 1, search: "a+b@example.invalid", status: nil)
-    let cached = try await client.users(page: 1, search: "a+b@example.invalid", status: nil)
+    _ = try await client.users(query: UserListQuery(search: "a+b@example.invalid"))
+    let cached = try await client.users(query: UserListQuery(search: "a+b@example.invalid"))
     #expect(cached.items.count == 1)
     let requests = await transport.requests
     #expect(requests.map { sentHeader($0, "If-None-Match") } == [nil, etag])
