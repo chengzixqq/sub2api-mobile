@@ -130,9 +130,11 @@ public enum RequestDetailPresentation {
     public static func timing(_ usage: UsageRequestRecord) -> RequestTiming {
         timing(firstTokenMs: usage.firstTokenMs, durationMs: usage.durationMs)
     }
+    /// `record` may be the list row, which has no phase latencies; they come from the detail once it arrives.
     public static func timing(_ record: RequestErrorRecord, detail: RequestErrorDetail?) -> RequestTiming {
         timing(firstTokenMs: record.firstTokenMs, durationMs: record.durationMs,
-               phases: [detail?.authLatencyMs, detail?.routingLatencyMs, record.upstreamLatencyMs, record.responseLatencyMs])
+               phases: [detail?.authLatencyMs, detail?.routingLatencyMs, detail?.upstreamLatencyMs ?? record.upstreamLatencyMs,
+                        detail?.responseLatencyMs ?? record.responseLatencyMs])
     }
     /// Without `duration_ms` the total is the sum of the recorded phases (auth + routing + upstream + response), marked “约”.
     public static func timing(firstTokenMs: Int?, durationMs: Int?, phases: [Int?] = []) -> RequestTiming {

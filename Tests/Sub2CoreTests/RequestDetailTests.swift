@@ -312,6 +312,17 @@ func unqueryableRequestIDsAreNeverSent(id: String) async throws {
     #expect(P.timing(usage) == RequestTiming(firstToken: "0.6s", total: "1.8s", isEstimated: false, firstTokenShare: 1.0 / 3))
 }
 
+/// S4-08 draws from the list row first; list items carry no upstream / response latency, so the phase sum reads them from the detail.
+@Test func timingTakesDetailOnlyPhasesWhenDrawnFromAListRow() throws {
+    typealias P = RequestDetailPresentation
+    let json = errorJSON(fields: #","time_to_first_token_ms":800"#)
+    let detail = try decoded(RequestErrorDetail.self, json)
+    let listRow = try decoded(RequestErrorRecord.self, json.replacingOccurrences(of: #""upstream_latency_ms":3000,"response_latency_ms":158,"#, with: ""))
+    #expect(listRow.upstreamLatencyMs == nil && listRow.responseLatencyMs == nil)
+    #expect(P.timing(listRow, detail: detail) == RequestTiming(firstToken: "0.8s", total: "约 3.2s", isEstimated: true, firstTokenShare: 0.25))
+    #expect(P.timing(listRow, detail: nil) == RequestTiming(firstToken: "0.8s", total: "—", isEstimated: false, firstTokenShare: nil))
+}
+
 @Test func attemptRowsFollowTheFiveSubtitleRules() throws {
     typealias P = RequestDetailPresentation
     func attempt(_ fields: String, outcome: String = "failed") -> String { #"{"source":"upstream_error","outcome":""# + outcome + #"","# + fields + "}" }
