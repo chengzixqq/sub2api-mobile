@@ -224,6 +224,8 @@
 
 | 事项 | 说明 |
 |---|---|
+| 缺失值“—”的读屏 | 替换 App 与设计表中“缺失值“—”的读屏”原行：默认读“无数据”（S1-00 定）。Sources/Sub2Core/DisplayFormat.swift 的 DisplayFormat.missingSpoken 与 DisplayFormat.spoken(_:) 只做整值替换；各页重写时 accessibilityValue 套用，尚未重写的旧页面仍读显示文字。 |
+| APP-PROGRESS 中的旧 UI 用例名 | APP-PROGRESS.md 第 73 行“完成标志的 UI 测试”还写着 AppNavigationUITests.testFourTabsAndSearchTabReplaceManagementAndSettings 和 testSearchDirectoryOpensExistingPagesAndPlaceholders。S1-00 已把它们拆成 testTabBarAndTodayTab、testAccountsTabShowsAccounts、testUsersTabShowsUsers、testMonitorTabShowsSegments、testSearchTabShowsDirectory 与 7 个 testSearchDirectory*；Sub2MobileUITests.testLoginDashboardAccountPaginationAndDetails 已拆成 testLoginShowsDashboard 与 testAccountPaginationAndDetails。集成者写入进度行时可顺带更新这些名字。 |
 
 ### App 与设计 · 阶段 2
 

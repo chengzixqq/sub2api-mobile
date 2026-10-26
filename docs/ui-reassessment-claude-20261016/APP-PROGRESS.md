@@ -117,6 +117,7 @@ Mac 补装 Xcode 27.1 的 CoreSimulator 组件后，在 iPhone 18 Pro（iOS 27�
 
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
 |---|---|---|---|---|
+| S1-00 | 并行开工准备：热点文件按区域分区（路由映射分文件、AppModel 分阶段锚点、Package.swift exclude 每项一行、无能力夹具参数、缺失值读屏常量） | ✅ | `97038af` | 只调整结构，页面行为、文案与标识不变。新增 11 个 Destinations 区域文件（11 个 Route、6 个 Sheet 分派视图，每个 case 一行加段注释）、ComingSoonSheet（sheet 占位共用）、UITestArguments.swift（S1D1-22，-ui-without-capabilities 的唯一解析入口，有单测）；AppModel 加会话级锚点 18 个、App 级锚点 12 个；DisplayFormat.missingSpoken / spoken(_:)。UI 测试拆分：AppNavigationUITests 由 2 个用例拆成 12 个，Sub2MobileUITests 由 1 个拆成 2 个，另新增 testWithheldCapabilitiesStillOpenEveryTab，按方案多带 admin.access_tokens 以便先红后绿。git merge-file 模拟 29 组相邻分区改动，全部无冲突。check 六类 UI 测试 55/55 通过，无重跑。 |
 
 ## 阶段 2 · 账号
 
