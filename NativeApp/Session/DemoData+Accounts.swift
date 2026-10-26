@@ -20,6 +20,8 @@ extension DemoData {
         /// The account tab's first appearance takes the next argument as an intent from another tab (10 §0.7-4): “limited”,
         /// “limited:anthropic”, or “all:kimi” for a platform alone. Nothing reaches the tab while S1-10's overview rows are missing.
         static let intent = "-ui-accounts-intent"
+        /// Every account write through AppModel+Accounts answers 500 (“站点暂时不可用”); reads still work.
+        static let writeFail = "-ui-account-write-fail"
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -215,6 +217,59 @@ final class AccountDemoStore {
     func account(id: Int) -> UpstreamAccount? { accounts.first { $0.id == id } }
     func replace(_ account: UpstreamAccount) { accounts = accounts.map { $0.id == account.id ? account : $0 } }
     func remove(id: Int) { accounts = accounts.filter { $0.id != id } }
+
+    // MARK: 写（S2-06）
+
+    /// `config_version` by id (“cv-N”, from 1); PATCH and PUT move it on.
+    private var versions: [Int: Int] = [:]
+
+    /// `POST :id/schedulable`.
+    func setSchedulable(id: Int, enabled: Bool) throws -> UpstreamAccount {
+        var account = try existing(id)
+        account.schedulable = enabled
+        replace(account)
+        return account
+    }
+    /// `POST :id/recover-state`: an error goes back to active, every window and model limit is cleared; true / false set the switch.
+    func recover(id: Int, schedulable: Bool?) throws -> UpstreamAccount {
+        var account = try existing(id)
+        if account.status == "error" {
+            account.status = "active"
+            account.errorMessage = nil; account.errorSummary = nil; account.errorKind = nil; account.errorStatusCode = nil; account.errorAt = nil
+        }
+        account.rateLimitResetAt = nil; account.overloadUntil = nil; account.tempUnschedulableUntil = nil; account.tempUnschedulableReason = nil
+        if let fields = account.extra?.raw.objectValue {
+            account.extra = try? AccountExtra(raw: .object(fields.filter { $0.key != "model_rate_limits" }))
+        }
+        if let schedulable { account.schedulable = schedulable }
+        replace(account)
+        return account
+    }
+    /// `GET :id` with its ETag.
+    func versioned(id: Int) throws -> VersionedAccount { VersionedAccount(account: try existing(id), etag: etag(id)) }
+    /// `PATCH :id`, status only; If-Match must name the current version (412 ACCOUNT_VERSION_CONFLICT with current_etag).
+    func patch(id: Int, body: AccountPatchRequest, ifMatch: String) throws -> VersionedAccount {
+        _ = try existing(id)
+        guard ifMatch == etag(id) else {
+            throw APIError.server(status: 412, envelope: ErrorEnvelope(reason: AccountWriteReason.versionConflict, metadata: ["current_etag": etag(id)]))
+        }
+        let account = try fullUpdate(id: id, patch: body)
+        return VersionedAccount(account: account, etag: etag(id))
+    }
+    /// `PUT :id`, status only.
+    func fullUpdate(id: Int, patch: AccountPatchRequest) throws -> UpstreamAccount {
+        var account = try existing(id)
+        if let status = patch.status { account.status = status.rawValue }
+        versions[id] = (versions[id] ?? 1) + 1
+        replace(account)
+        return account
+    }
+
+    private func existing(_ id: Int) throws -> UpstreamAccount {
+        guard let account = account(id: id) else { throw APIError.server(status: 404, reason: AccountWriteReason.notFound) }
+        return account
+    }
+    private func etag(_ id: Int) -> String { "\"cv-\(versions[id] ?? 1)\"" }
 
     private static func byName(_ rows: [UpstreamAccount], descending: Bool) -> [UpstreamAccount] {
         let sorted = rows.sorted { ($0.name, $0.id) < ($1.name, $1.id) }

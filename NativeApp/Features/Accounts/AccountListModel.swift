@@ -150,6 +150,34 @@ final class AccountListModel {
     func setSelecting(_ selecting: Bool) { isSelecting = selecting; restartTimer() }
     func setSheetPresented(_ presented: Bool) { hasSheet = presented; restartTimer() }
 
+    /// 20 §5.6: an account a write returned or read back replaces its row at once (the platform order stays), then the list is
+    /// read again in full.
+    func applyWrite(_ account: UpstreamAccount) {
+        guard isLive else { return }
+        changeRows { rows in rows.map { $0.id == account.id ? account : $0 } }
+        Task { await reload() }
+    }
+    /// 20 §0.5: the account is gone: its row leaves at once, and the list is read again.
+    func noteMissing(id: Int) {
+        guard isLive else { return }
+        changeRows { rows in rows.filter { $0.id != id } }
+        Task { await reload() }
+    }
+    private func changeRows(_ change: ([UpstreamAccount]) -> [UpstreamAccount]) {
+        if let legacyRows {
+            let changed = change(legacyRows)
+            self.legacyRows = changed
+            list = list.updatingValue { legacySnapshot(changed, total: $0.total) }
+        } else {
+            list = list.updatingValue { snapshot in
+                var next = snapshot
+                next.rows = change(snapshot.rows)
+                return next
+            }
+        }
+        relayout()
+    }
+
     func toggleCollapsed(_ platform: String) {
         collapsed = collapsed.symmetricDifference([platform])
         if let siteID { Self.collapsedBySite[siteID] = collapsed }

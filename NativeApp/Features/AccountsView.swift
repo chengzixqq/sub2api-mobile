@@ -10,6 +10,8 @@ struct AccountsView: View {
     @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: AccountListModel?
+    /// 20 §1.4 row swipe; made with the store, whose rows it updates.
+    @State private var actions: AccountActions?
     @State private var hasActivated = false
     /// The root disappeared with an empty stack: the tab was left, so the next appearance enters it again (20 §1.6).
     @State private var leftTab = false
@@ -114,6 +116,7 @@ struct AccountsView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("account.\(entry.id)")
+        .accountScheduleSwipe(entry.account, actions: actions, now: serverNow, isReadOnly: session?.isReadOnlyToken ?? true)
         .listRowInsets(EdgeInsets())
         .listRowBackground(Palette.surface)
         .listRowSeparatorTint(Palette.hairline)
@@ -171,6 +174,9 @@ struct AccountsView: View {
         let selection = initialGroupID == nil ? takeSelection(fixture: true) : nil
         let made = AccountListModel(model: model, chip: selection?.chip ?? .all, platform: selection?.platform ?? "", groupID: initialGroupID)
         store = made
+        // 20 §5.6: a write's account replaces its row, then the list is read again.
+        actions = AccountActions(model: model, onChange: { [weak made] in made?.applyWrite($0) },
+                                 onMissing: { [weak made] in made?.noteMissing(id: $0) })
         return made
     }
     /// 10 §0.7-4: the tab's root takes the intent once. `-ui-testing` may start the session with one (DemoData.AccountFixture.intent).
