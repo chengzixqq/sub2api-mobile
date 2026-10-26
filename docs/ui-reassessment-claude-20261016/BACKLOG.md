@@ -254,6 +254,8 @@
 | 旧记录按用户 ID 查询的截断 | 旧记录的退路查询用 keyword=用户 ID 子串匹配、不带开始时间，可能超过 200 行被截断。截断且没有命中时判 notFound，不下结论；以后可以考虑翻页或加 user_id 筛选（旧服务端会忽略） |
 | 删除确认输入框禁止粘贴 | S3-00 按规格允许粘贴（SwiftUI 的 TextField 没有禁止粘贴的接口）；如果用户要禁止，需要换成 UIKit 的 UITextField 子类。待用户拍板（_decisions-S3“需要用户拍板”第 2 条，同时拍板删除确认用 sheet 而不是 alert） |
 | 敏感值复制的剪贴板类型真机验证 | SensitivePasteboard 用 UTType.plainText 作键；S3-13 首次接入时在真机把复制的 Key 粘贴到备忘录和 Safari 验证一次，不行就把键换成 UTType.utf8PlainText（只改这一处） |
+| AdminUser.balance 坏值整项解码失败 | 30 §1.3 写“余额解码失败显示 —”，但 AdminUser.balance 仍是严格的非可选 Decimal，坏值会让整个用户项解码失败。后端是 float64，实际不会出坏值；S3D1-25 已裁定不放宽。以后要放宽，得同时改 BalanceView、Face ID 门槛计算等所有调用点 |
+| users-usage 的 total_actual_cost 是近 30 天 | UserTodayUsage.totalActualCost 的口径是近 30 天，不是本月；详情页的“本月消费”仍走 usage/stats（S3-05）。另外后端给每个请求的 id 都建了条目，“响应里没有这个 id 时显示 $0.00”这条规则基本不会触发 |
 
 ### App 与设计 · 阶段 4
 
