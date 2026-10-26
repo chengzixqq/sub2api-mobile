@@ -311,3 +311,6 @@
 | 推送订阅整体 PUT 会丢掉 App 不认识的事件 | PushSubscription 解码时丢弃未知事件，整体 PUT 时，服务端以后新增的可订阅事件会被一并去掉。现在后端只有 4 个可订阅事件、未知事件 PUT 也会被拒，暂可接受；后端扩充事件时要同步扩 PushEvent。 |
 | 吊销本机令牌失败后的推送设备 | 吊销本机令牌时会先删除本站点推送设备，再发 DELETE。若 DELETE 失败，会话继续，但本机已登记的推送设备已被清空。S6-23 的重新登记要覆盖“会话进行中、登记记录被清空”这种情况，不能只在下次登录时补登。 |
 | “刷新失败 · 重试”横幅收口 | SessionsView 和 AccessTokensView 各自写了一份“刷新失败 · 重试 / 更新于 HH:mm”横幅（00 §4.6），文案常量也重复。S6-26 可以合并成一个共用组件。 |
+| 生成兑换码时订阅分组无效返回 500 无 reason | 后端 GenerateRedeemCodes 在 group_id 缺失、不存在或不是订阅类型时返回 500 且没有 reason，App 只能按结果不明保留待核对记录。App 只给可用订阅分组（isActiveSubscriptionGroup），建议后端改为 4xx 并带 reason |
+| GET /admin/redeem-codes/:id 不带 user / group | 单卡刷新、写后读回和定位都拿不到使用者与分组名，App 用 AdminRedeemCode.keepingRelations(of:) 沿用列表里的值；建议后端 GetByID 补上 WithUser / WithGroup |
+| 只读令牌的兑换码 ··· 菜单范围 | 规格 60 §8.3 写“只读令牌：只有 ··· 里的复制”，S6-03 理解为去掉写操作：保留复制、查看使用者、查看同一批这几个读操作，只去掉删除。若要严格只留复制，改 RedeemPresentation.menuItems 即可，请用户确认 |
