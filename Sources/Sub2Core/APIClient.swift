@@ -206,9 +206,6 @@ public actor APIClient {
     }
     public func account(id: Int) async throws -> UpstreamAccount { try await request("admin/accounts/\(validID(id))") }
     public func accountTodayStats(id: Int) async throws -> AccountTodayStats { try await request("admin/accounts/\(validID(id))/today-stats") }
-    public func setSchedulable(id: Int, enabled: Bool) async throws -> UpstreamAccount {
-        try await request("admin/accounts/\(validID(id))/schedulable", method: "POST", body: encode(["schedulable": enabled]))
-    }
     public func refreshAccount(id: Int) async throws {
         let _: EmptyReply = try await request("admin/accounts/\(validID(id))/refresh", method: "POST", body: Data("{}".utf8), timeout: RequestTimeout.keyedBulk)
     }

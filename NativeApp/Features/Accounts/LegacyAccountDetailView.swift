@@ -202,8 +202,10 @@ struct AccountDetailView: View {
             guard !model.isUITesting else { throw AppFailure("界面测试模式不执行服务器写操作。") }
             guard let client = session?.client else { return }
             if action == .schedule {
-                let result = try await client.setSchedulable(id: account.id, enabled: !account.schedulable)
-                guard generation == model.sessionGeneration else { return }; account = result
+                // R05: the key is made when the user confirms.
+                let key: UUID? = session?.has(.adminIdempotentWrites) == true ? UUID() : nil
+                let result = try await client.setSchedulable(id: account.id, enabled: !account.schedulable, idempotencyKey: key)
+                guard generation == model.sessionGeneration else { return }; account = result.value
             } else { try await client.refreshAccount(id: account.id); guard generation == model.sessionGeneration else { return }; await reload() }
             error = nil
         } catch {
@@ -211,6 +213,8 @@ struct AccountDetailView: View {
             self.error = error.localizedDescription
             // Cleared by the global sheet: the same operation is confirmed again (00 §2.6.2 step 4).
             if isClearedForReconfirmation(error) { self.action = action }
+            // An unknown result is read back (00 §2.4, §2.5.4).
+            else if error is KeyedWriteFailure || (error as? APIError)?.kind == .transport { await reloadAccount() }
         }
     }
 }
