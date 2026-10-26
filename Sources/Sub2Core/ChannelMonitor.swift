@@ -294,7 +294,7 @@ public enum ChannelPresentation {
     }
 }
 
-private extension KeyedDecodingContainer {
-    /// Missing, null or of another type is nil.
+extension KeyedDecodingContainer {
+    /// Missing, null or of another type is nil. Shared with OpsMonitoring.swift.
     func lenientValue<Value: Decodable>(_ key: Key) -> Value? { try? decodeIfPresent(Value.self, forKey: key) }
 }
