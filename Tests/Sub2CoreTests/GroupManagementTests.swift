@@ -50,16 +50,6 @@ private func groupClient(_ transport: GroupTransport) -> APIClient {
     #expect(!input.matches(observed))
 }
 
-@Test func invalidGroupWritesFailBeforeSending() async throws {
-    let transport = GroupTransport(); let client = groupClient(transport); let identity = await client.userWriteIdentity()
-    let invalid = [GroupCreateRequest(name: " "), GroupCreateRequest(name: "valid", rateMultiplier: 0), GroupCreateRequest(name: "valid", platform: "unknown"), GroupCreateRequest(name: "valid", platform: "composite"), GroupCreateRequest(name: "valid", rpmLimit: -1), GroupCreateRequest(name: "valid", dailyLimitUSD: .amount(-1))]
-    for input in invalid { await #expect(throws: APIError.self) { try await client.createGroup(input, identity: identity) } }
-    #expect(throws: APIError.self) { try GroupUpdateRequest().validate() }
-    #expect(throws: APIError.self) { try GroupUpdateRequest(status: "disabled").validate() }
-    #expect(throws: APIError.self) { try GroupUpdateRequest(rateMultiplier: Decimal.nan).validate() }
-    #expect(await transport.requests().isEmpty)
-}
-
 @Test func groupPaginationFiltersAndActiveSelectorUseRealRoutes() async throws {
     let transport = GroupTransport { request in
         let data: String
@@ -81,28 +71,14 @@ private func groupClient(_ transport: GroupTransport) -> APIClient {
     #expect(requests[1].url?.query == "platform=anthropic")
 }
 
-@Test func groupWritesUseOneRequestAndRejectStaleIdentity() async throws {
-    let transport = GroupTransport { _ in throw URLError(.timedOut) }
-    let client = groupClient(transport); let identity = await client.userWriteIdentity()
-    await #expect(throws: APIError.self) { try await client.createGroup(GroupCreateRequest(name: "new"), identity: identity) }
-    await #expect(throws: APIError.self) { try await client.updateGroup(id: 10, input: GroupUpdateRequest(status: "inactive"), identity: identity) }
-    await #expect(throws: APIError.self) { try await client.deleteGroup(id: 10, identity: identity) }
-    let sent = await transport.requests()
-    #expect(sent.map(\.httpMethod) == ["POST", "PUT", "DELETE"])
-    #expect(sent.allSatisfy { $0.value(forHTTPHeaderField: "Idempotency-Key") == nil })
-    await client.cancelAll()
-    await #expect(throws: CancellationError.self) { try await client.updateGroup(id: 10, input: GroupUpdateRequest(name: "stale"), identity: identity) }
-    await #expect(throws: CancellationError.self) { try await client.createGroup(GroupCreateRequest(name: "stale"), identity: identity) }
-    #expect(await transport.requests().count == 3)
-}
-
 @Test func groupDeletionAndCapacityUseRealResponseShapes() async throws {
     let transport = GroupTransport { request in
         let data = request.httpMethod == "DELETE" ? #"{"message":"Group deleted successfully"}"# : #"[{"group_id":10,"concurrency_used":4,"concurrency_max":20,"sessions_used":null,"sessions_max":0,"rpm_used":8,"rpm_max":60}]"#
         return HTTPResponse(statusCode: 200, data: Data("{\"code\":0,\"data\":\(data)}".utf8))
     }
     let client = groupClient(transport); let identity = await client.userWriteIdentity()
-    try await client.deleteGroup(id: 10, identity: identity)
+    let operation = try GroupWriteOperation.delete(groupID: 10, serverID: client.server.id, identity: identity, sendsIdempotencyKey: false)
+    #expect(try await client.deleteGroup(operation).value == .deleted)
     let capacity = try #require(try await client.groupCapacities(groupIDs: [10], serverFiltered: false).first)
     #expect(capacity.concurrencyUsed == 4 && capacity.sessionsUsed == nil && capacity.rpmUsed == 8)
     #expect(await transport.requests().last?.url?.path == "/api/v1/admin/groups/capacity-summary")
@@ -357,4 +333,175 @@ private func tooManyIDs(max: String) -> HTTPResponse {
     #expect(try #require(await thrownAPIError { _ = try await client.groupAPIKeyCount(id: 0, maskedView: true) }).kind == .validation)
     #expect(try #require(await thrownAPIError { _ = try await client.activeSubscriptionCount(groupID: 0) }).kind == .validation)
     #expect(await transport.requests.count == 3)
+}
+
+// MARK: - S5-01 写：带编号的分组写操作
+
+private func groupOperation(_ kind: String, client: APIClient, keyed: Bool) async throws -> GroupWriteOperation {
+    let serverID = client.server.id, identity = await client.userWriteIdentity()
+    switch kind {
+    case "create": return try .create(GroupCreateRequest(name: "新分组"), serverID: serverID, identity: identity, sendsIdempotencyKey: keyed)
+    case "update": return try .update(groupID: 10, GroupUpdateRequest(status: "inactive"), serverID: serverID, identity: identity, sendsIdempotencyKey: keyed)
+    default: return try .delete(groupID: 10, serverID: serverID, identity: identity, sendsIdempotencyKey: keyed)
+    }
+}
+private func sendGroupWrite(_ operation: GroupWriteOperation, client: APIClient) async throws {
+    switch operation.kind {
+    case .create: _ = try await client.createGroup(operation)
+    case .update: _ = try await client.updateGroup(operation)
+    case .delete: _ = try await client.deleteGroup(operation)
+    case .duplicate: _ = try await client.duplicateGroup(operation)
+    }
+}
+private func groupKeyedFailure(_ operation: () async throws -> Void) async -> KeyedWriteFailure? {
+    do { try await operation(); return nil } catch { return error as? KeyedWriteFailure }
+}
+private let groupDeletedJSON = #"{"message":"Group deleted successfully"}"#
+
+@Test func groupWritesRejectOtherStationWrongKindAndInvalidInputBeforeSending() async throws {
+    let transport = ScriptedTransport { _ in okReply(groupDTO) }
+    let client = groupScriptedClient(transport)
+    let serverID = client.server.id, identity = await client.userWriteIdentity()
+    let elsewhere = try GroupWriteOperation.update(groupID: 10, GroupUpdateRequest(status: "inactive"), serverID: UUID(), identity: identity, sendsIdempotencyKey: true)
+    #expect(await thrownAPIError { _ = try await client.updateGroup(elsewhere) } == .stationMismatch)
+    let delete = try GroupWriteOperation.delete(groupID: 10, serverID: serverID, identity: identity, sendsIdempotencyKey: false)
+    #expect(await thrownAPIError { _ = try await client.updateGroup(delete) }?.kind == .validation)
+    #expect(await thrownAPIError { _ = try await client.createGroup(delete) }?.kind == .validation)
+    let invalid = [GroupCreateRequest(name: " "), GroupCreateRequest(name: "valid", rateMultiplier: 0), GroupCreateRequest(name: "valid", platform: "unknown"),
+                   GroupCreateRequest(name: "valid", platform: "composite"), GroupCreateRequest(name: "valid", rpmLimit: -1), GroupCreateRequest(name: "valid", dailyLimitUSD: .amount(-1))]
+    for input in invalid {
+        #expect(throws: APIError.self) { try GroupWriteOperation.create(input, serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
+    }
+    for input in [GroupUpdateRequest(), GroupUpdateRequest(status: "disabled"), GroupUpdateRequest(rateMultiplier: Decimal.nan)] {
+        #expect(throws: APIError.self) { try GroupWriteOperation.update(groupID: 10, input, serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
+    }
+    for id in [0, -1] {
+        #expect(throws: APIError.self) { try GroupWriteOperation.update(groupID: id, GroupUpdateRequest(status: "inactive"), serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
+        #expect(throws: APIError.self) { try GroupWriteOperation.delete(groupID: id, serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
+        #expect(throws: APIError.self) { try GroupWriteOperation.duplicate(sourceGroupID: id, serverID: serverID, identity: identity) }
+    }
+    #expect(await transport.requests.isEmpty)
+    #expect(String(reflecting: delete) == "GroupWriteOperation(delete(groupID: 10), \(delete.key))")
+}
+
+@Test(arguments: ["create", "update", "delete"])
+func keyedGroupWritesRetryTransportFailuresWithSameKeyAndBytes(kind: String) async throws {
+    let counter = CallCounter()
+    let transport = ScriptedTransport { request in
+        switch counter.next() {
+        case 1: throw URLError(.timedOut)
+        case 2: throw URLError(.networkConnectionLost)
+        default: return okReply(request.httpMethod == "DELETE" ? groupDeletedJSON : groupDTO)
+        }
+    }
+    let recorder = SleepRecorder()
+    let client = groupScriptedClient(transport, clock: .recording(recorder))
+    let operation = try await groupOperation(kind, client: client, keyed: true)
+    switch operation.kind {
+    case .create: #expect(try await client.createGroup(operation).value.id == 10)
+    case .update: #expect(try await client.updateGroup(operation).value.id == 10)
+    default: #expect(try await client.deleteGroup(operation).value == .deleted)
+    }
+    let sent = await transport.requests
+    #expect(sent.count == 3)
+    #expect(sent.allSatisfy { $0.httpMethod == operation.method && $0.url?.path == "/api/v1/" + operation.path })
+    #expect(sent.allSatisfy { sentHeader($0, "Idempotency-Key") == operation.key && sentHeader($0, "X-Request-ID") == operation.key })
+    #expect(sent.allSatisfy { ($0.httpBody ?? Data()) == operation.body && $0.timeoutInterval == 35 })
+    #expect(await recorder.durations == [.seconds(2), .seconds(5)])
+}
+
+@Test func keyedGroupWriteBecomesUnconfirmedAfterTwoRetriesAndKeyConflictNeedsNewKey() async throws {
+    let offline = ScriptedTransport(script: [.fail(URLError(.timedOut))])
+    let client = groupScriptedClient(offline)
+    let operation = try await groupOperation("update", client: client, keyed: true)
+    let failure = try #require(await groupKeyedFailure { _ = try await client.updateGroup(operation) })
+    #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil) && failure.key == operation.key)
+    #expect(await offline.requests.count == 3)
+    let conflict = ScriptedTransport(script: [.reply(errorReply(409, reason: "IDEMPOTENCY_KEY_CONFLICT"))])
+    let other = groupScriptedClient(conflict)
+    let created = try await groupOperation("create", client: other, keyed: true)
+    #expect(await groupKeyedFailure { _ = try await other.createGroup(created) }?.disposition == .needsNewKey(.keyConflict))
+    #expect(await conflict.requests.count == 1)
+    let renewed = created.renewingKey()
+    #expect(renewed.id != created.id && renewed.key != created.key && renewed.body == created.body && renewed.kind == created.kind)
+    #expect(renewed.serverID == created.serverID && renewed.identity == created.identity && renewed.sendsIdempotencyKey)
+}
+
+@Test func unkeyedGroupWritesSendOnceAndRejectStaleIdentity() async throws {
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut))])
+    let client = groupScriptedClient(transport)
+    var operations = [GroupWriteOperation]()
+    for kind in ["create", "update", "delete"] {
+        let operation = try await groupOperation(kind, client: client, keyed: false)
+        #expect(await thrownAPIError { try await sendGroupWrite(operation, client: client) }?.kind == .transport)
+        operations.append(operation)
+    }
+    let sent = await transport.requests
+    #expect(sent.map(\.httpMethod) == ["POST", "PUT", "DELETE"])
+    #expect(sent.allSatisfy { sentHeader($0, "Idempotency-Key") == nil && $0.timeoutInterval == 30 })
+    #expect(sent.map { sentHeader($0, "X-Request-ID") } == operations.map(\.key))
+    await client.cancelAll()
+    await #expect(throws: CancellationError.self) { try await sendGroupWrite(operations[1], client: client) }
+    await #expect(throws: CancellationError.self) { try await sendGroupWrite(operations[0], client: client) }
+    #expect(await transport.requests.count == 3)
+}
+
+@Test func duplicateGroupAlwaysSendsKeyAndTreatsRecoveredAsSuccess() async throws {
+    let copy = #"{"id":12,"name":"标准分组 (Copy)","platform":"openai","status":"inactive"}"#
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(okReply(copy, headers: ["X-Idempotency-Recovered": "true"]))])
+    let client = groupScriptedClient(transport)
+    let identity = await client.userWriteIdentity()
+    let operation = try GroupWriteOperation.duplicate(sourceGroupID: 10, serverID: client.server.id, identity: identity)
+    #expect(operation.sendsIdempotencyKey && operation.body.isEmpty && operation.method == "POST" && operation.path == "admin/groups/10/duplicate")
+    let outcome = try await client.duplicateGroup(operation)
+    #expect(outcome.recovered && outcome.value.id == 12 && outcome.value.status == "inactive")
+    let sent = await transport.requests
+    #expect(sent.count == 2 && sent.allSatisfy { $0.url?.path == "/api/v1/admin/groups/10/duplicate" && $0.httpMethod == "POST" })
+    #expect(sent.allSatisfy { sentHeader($0, "Idempotency-Key") == operation.key && ($0.httpBody ?? Data()).isEmpty })
+}
+
+@Test(arguments: [true, false])
+func groupDeleteTreatsNotFoundAsAlreadyGone(keyed: Bool) async throws {
+    for reason in ["GROUP_NOT_FOUND", "RESOURCE_NOT_FOUND"] {
+        let transport = ScriptedTransport(script: [.reply(errorReply(404, reason: reason))])
+        let client = groupScriptedClient(transport)
+        let operation = try await groupOperation("delete", client: client, keyed: keyed)
+        #expect(try await client.deleteGroup(operation).value == .alreadyGone)
+        #expect(await transport.requests.count == 1)
+    }
+    let page = groupScriptedClient(ScriptedTransport(script: [.reply(HTTPResponse(statusCode: 404, data: Data("not found".utf8)))]))
+    let pageDelete = try await groupOperation("delete", client: page, keyed: keyed)
+    let unsupported = try #require(await thrownAPIError { _ = try await page.deleteGroup(pageDelete) })
+    #expect(unsupported.statusCode == 404 && unsupported.reason == nil)
+    let notEmpty = groupScriptedClient(ScriptedTransport(script: [.reply(errorReply(409, reason: "GROUP_NOT_EMPTY"))]))
+    let notEmptyDelete = try await groupOperation("delete", client: notEmpty, keyed: keyed)
+    #expect(await thrownAPIError { _ = try await notEmpty.deleteGroup(notEmptyDelete) }?.reason == "GROUP_NOT_EMPTY")
+}
+
+@Test func keyedDeleteRetryThatFindsTheGroupGoneIsAlreadyGone() async throws {
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(errorReply(404, reason: "GROUP_NOT_FOUND"))])
+    let client = groupScriptedClient(transport)
+    let operation = try await groupOperation("delete", client: client, keyed: true)
+    #expect(try await client.deleteGroup(operation).value == .alreadyGone)
+    let sent = await transport.requests
+    #expect(sent.count == 2 && Set(sent.map { sentHeader($0, "Idempotency-Key") }) == [operation.key])
+}
+
+@Test func groupWriteDraftCreatesOperationOnConfirmAndReusesIt() throws {
+    let serverID = UUID(), identity = UUID(), request = GroupCreateRequest(name: "草稿")
+    let body = try request.requestBody()
+    for keyed in [true, false] {
+        var draft = try GroupWriteDraft(.create(request), serverID: serverID, identity: identity, sendsIdempotencyKey: keyed)
+        #expect(draft.operation == nil)
+        let first = try draft.confirmedOperation()
+        #expect(first.kind == .create && first.body == body && first.sendsIdempotencyKey == keyed)
+        #expect(first.serverID == serverID && first.identity == identity && draft.operation == first)
+        #expect(try draft.confirmedOperation(id: UUID()) == first)
+    }
+    var update = try GroupWriteDraft(.update(groupID: 10, GroupUpdateRequest(name: "改名")), serverID: serverID, identity: identity, sendsIdempotencyKey: true)
+    #expect(try update.confirmedOperation().kind == .update(groupID: 10))
+    #expect(throws: APIError.self) { try GroupWriteDraft(.update(groupID: 0, GroupUpdateRequest(name: "改名")), serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
+    #expect(throws: APIError.self) { try GroupWriteDraft(.update(groupID: 10, GroupUpdateRequest()), serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
+    #expect(throws: APIError.self) { try GroupWriteDraft(.create(GroupCreateRequest(name: " ")), serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
+    #expect(throws: APIError.self) { try GroupWriteDraft(.create(GroupCreateRequest(name: "x", platform: "composite")), serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
 }

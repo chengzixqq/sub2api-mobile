@@ -351,25 +351,8 @@ extension APIClient {
         guard let row = reply.groups?.first(where: { $0.groupID == groupID }) else { return .zero }
         return GroupTodayUsage(requests: row.requests, totalTokens: row.tokens, accountCost: row.accountCost)
     }
-    public func createGroup(_ input: GroupCreateRequest, identity: UUID) async throws -> AdminGroup {
-        try checkGroupIdentity(identity)
-        return try await request("admin/groups", method: "POST", body: input.requestBody())
-    }
-    public func updateGroup(id: Int, input: GroupUpdateRequest, identity: UUID) async throws -> AdminGroup {
-        try checkGroupIdentity(identity)
-        return try await request("admin/groups/\(validID(id))", method: "PUT", body: input.requestBody())
-    }
-    public func deleteGroup(id: Int, identity: UUID) async throws {
-        try checkGroupIdentity(identity)
-        let _: GroupDeleteReply = try await request("admin/groups/\(validID(id))", method: "DELETE")
-    }
-    private func checkGroupIdentity(_ identity: UUID) throws {
-        try Task.checkCancellation()
-        guard identity == userWriteIdentity() else { throw CancellationError() }
-    }
 }
 
-private struct GroupDeleteReply: Decodable, Sendable { let message: String }
 /// F02 is told by the `subscriptions_total` key, not by a capability.
 private struct GroupStatsReply: Decodable, Sendable {
     let stats: GroupStats?

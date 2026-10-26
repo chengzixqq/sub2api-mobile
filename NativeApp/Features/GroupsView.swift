@@ -19,16 +19,16 @@ private final class GroupWorkspace {
         guard let group = fixtureGroups.first(where: { $0.id == id }) else { throw APIError.server(status: 404, reason: nil) }
         return group
     }
-    func create(_ input: GroupCreateRequest, identity: UUID, context: SessionContext, fixture: Bool) async throws -> AdminGroup {
-        if !fixture { let result = try await context.client.createGroup(input, identity: identity); revision += 1; return result }
+    func create(_ input: GroupCreateRequest, operation: GroupWriteOperation, context: SessionContext, fixture: Bool) async throws -> AdminGroup {
+        if !fixture { let result = try await context.client.createGroup(operation).value; revision += 1; return result }
         try input.validate()
         let row = AdminGroup(id: (fixtureGroups.map(\.id).max() ?? 11) + 1, name: input.name, description: input.description,
             platform: input.platform, rateMultiplier: input.rateMultiplier, isExclusive: input.isExclusive, subscriptionType: input.subscriptionType,
             dailyLimitUSD: value(input.dailyLimitUSD), weeklyLimitUSD: value(input.weeklyLimitUSD), monthlyLimitUSD: value(input.monthlyLimitUSD), rpmLimit: input.rpmLimit, accountCount: 0, activeAccountCount: 0)
         fixtureGroups.insert(row, at: 0); revision += 1; return row
     }
-    func update(_ id: Int, input: GroupUpdateRequest, identity: UUID, context: SessionContext, fixture: Bool) async throws -> AdminGroup {
-        if !fixture { let result = try await context.client.updateGroup(id: id, input: input, identity: identity); revision += 1; return result }
+    func update(_ id: Int, input: GroupUpdateRequest, operation: GroupWriteOperation, context: SessionContext, fixture: Bool) async throws -> AdminGroup {
+        if !fixture { let result = try await context.client.updateGroup(operation).value; revision += 1; return result }
         try input.validate(); var row = try await get(id, context: context, fixture: true)
         if let name = input.name { row.name = name }; if let description = input.description { row.description = description }
         if let rate = input.rateMultiplier { row.rateMultiplier = rate }; if let exclusive = input.isExclusive { row.isExclusive = exclusive }
@@ -39,9 +39,9 @@ private final class GroupWorkspace {
         if let index = fixtureGroups.firstIndex(where: { $0.id == id }) { fixtureGroups[index] = row }
         revision += 1; return row
     }
-    func delete(_ id: Int, identity: UUID, context: SessionContext, fixture: Bool) async throws {
-        if !fixture { try await context.client.deleteGroup(id: id, identity: identity); revision += 1; return }
-        fixtureGroups.removeAll { $0.id == id }; revision += 1
+    func delete(_ id: Int, operation: GroupWriteOperation, context: SessionContext, fixture: Bool) async throws -> GroupDeleteResult {
+        if !fixture { let result = try await context.client.deleteGroup(operation).value; revision += 1; return result }
+        fixtureGroups.removeAll { $0.id == id }; revision += 1; return .deleted
     }
     private func value(_ change: GroupLimitChange) -> Decimal? { switch change { case .unlimited: nil; case .amount(let value): value } }
 }
@@ -223,7 +223,7 @@ private struct GroupDetailView: View {
             }.disabled(busy || uncertainAction != nil)
             if uncertainAction != nil {
                 Section("结果待确认") {
-                    Text("请求不会自动重发。先读取服务器当前状态；关闭前请在本站后台核对，避免重复操作。")
+                    Text("本页不会再发送这次请求。先读取服务器当前状态；关闭前请在本站后台核对，避免重复操作。")
                     Button("读取服务器状态核对") { Task { await reconcile() } }.disabled(busy).frame(minHeight: 44)
                 }
             }
@@ -280,17 +280,23 @@ private struct GroupDetailView: View {
         do {
             let identity = await context.client.userWriteIdentity()
             guard context.generation == model.sessionGeneration, !Task.isCancelled else { return }
+            let keyed = context.has(.adminIdempotentWrites)
             switch action {
-            case .delete: try await workspace.delete(group.id, identity: identity, context: context, fixture: model.isUITesting)
+            case .delete:
+                // Deleted or already gone (50 §0.8): either way the group is no longer there.
+                let operation = try GroupWriteOperation.delete(groupID: group.id, serverID: context.serverID, identity: identity, sendsIdempotencyKey: keyed)
+                _ = try await workspace.delete(group.id, operation: operation, context: context, fixture: model.isUITesting)
             case .status(let status):
-                let result = try await workspace.update(group.id, input: GroupUpdateRequest(status: status), identity: identity, context: context, fixture: model.isUITesting)
+                let input = GroupUpdateRequest(status: status)
+                let operation = try GroupWriteOperation.update(groupID: group.id, input, serverID: context.serverID, identity: identity, sendsIdempotencyKey: keyed)
+                let result = try await workspace.update(group.id, input: input, operation: operation, context: context, fixture: model.isUITesting)
                 guard context.generation == model.sessionGeneration else { return }; group = result
             }
             guard context.generation == model.sessionGeneration else { return }
             if action == .delete { dismiss() } else { error = "分组状态已更新。" }
         } catch {
             guard context.generation == model.sessionGeneration, !(error is CancellationError) else { return }
-            self.error = error.localizedDescription
+            self.error = (error as? KeyedWriteFailure).map(groupKeyedFailureMessage) ?? error.localizedDescription
             if !groupWriteDefinitelyRejected(error) { uncertainAction = action }
         }
     }
@@ -323,11 +329,6 @@ private struct GroupEditorTarget: Identifiable {
     let siteName: String
 }
 
-private enum PreparedGroupWrite {
-    case create(GroupCreateRequest, UUID)
-    case update(GroupUpdateRequest, UUID)
-}
-
 private struct GroupEditorView: View {
     let target: GroupEditorTarget
     @Environment(AppModel.self) private var model
@@ -343,7 +344,7 @@ private struct GroupEditorView: View {
     @State private var daily = ""
     @State private var weekly = ""
     @State private var monthly = ""
-    @State private var prepared: PreparedGroupWrite?
+    @State private var prepared: GroupWriteDraft?
     @State private var confirming = false
     @State private var busy = false
     @State private var uncertain = false
@@ -447,6 +448,7 @@ private struct GroupEditorView: View {
                 parsedRPM = value
             }
             let parsedRate = rate.isEmpty && target.group?.rateMultiplier == nil ? nil : try decimal(rate, label: "计费倍率")
+            let intent: GroupWriteDraft.Intent
             if let old = target.group {
                 let input = GroupUpdateRequest(name: name == old.name ? nil : name, description: description == (old.description ?? "") ? nil : description,
                     rateMultiplier: parsedRate == old.rateMultiplier ? nil : parsedRate, isExclusive: exclusive == (old.isExclusive ?? false) ? nil : exclusive,
@@ -454,46 +456,48 @@ private struct GroupEditorView: View {
                     dailyLimitUSD: subscription == "subscription" ? try limitChange(daily, previous: old.dailyLimitUSD) : nil,
                     weeklyLimitUSD: subscription == "subscription" ? try limitChange(weekly, previous: old.weeklyLimitUSD) : nil,
                     monthlyLimitUSD: subscription == "subscription" ? try limitChange(monthly, previous: old.monthlyLimitUSD) : nil)
-                try input.validate(); prepared = .update(input, identity)
+                intent = .update(groupID: old.id, input)
             } else {
                 guard let parsedRate, let parsedRPM else { throw AppFailure("请填写计费倍率和 RPM 限额。") }
                 let input = GroupCreateRequest(name: name, description: description, platform: platform, rateMultiplier: parsedRate, isExclusive: exclusive,
                     subscriptionType: subscription, rpmLimit: parsedRPM, dailyLimitUSD: try limit(daily), weeklyLimitUSD: try limit(weekly), monthlyLimitUSD: try limit(monthly))
-                try input.validate(); prepared = .create(input, identity)
+                intent = .create(input)
             }
+            prepared = try GroupWriteDraft(intent, serverID: target.context.serverID, identity: identity,
+                                           sendsIdempotencyKey: target.context.has(.adminIdempotentWrites))
             message = nil; confirming = true
         } catch { message = error.localizedDescription }
     }
     private func send() async {
-        guard !busy, !uncertain, isCurrent, let prepared else { return }
+        guard !busy, !uncertain, isCurrent, var draft = prepared else { return }
         busy = true; defer { busy = false }
         do {
-            switch prepared {
-            case .create(let input, let identity): _ = try await workspace.create(input, identity: identity, context: target.context, fixture: model.isUITesting)
-            case .update(let input, let identity):
-                guard let id = target.group?.id else { return }
-                _ = try await workspace.update(id, input: input, identity: identity, context: target.context, fixture: model.isUITesting)
+            // Saved before sending, so an unconfirmed result keeps this number and these bytes.
+            let operation = try draft.confirmedOperation(); prepared = draft
+            switch draft.intent {
+            case .create(let input): _ = try await workspace.create(input, operation: operation, context: target.context, fixture: model.isUITesting)
+            case .update(let id, let input): _ = try await workspace.update(id, input: input, operation: operation, context: target.context, fixture: model.isUITesting)
             }
             guard isCurrent else { return }; self.prepared = nil; dismiss()
         } catch {
             guard isCurrent, !(error is CancellationError) else { return }
-            message = error.localizedDescription
-            if groupWriteDefinitelyRejected(error) { self.prepared = nil }
-            else { uncertain = true; message = "\(error.localizedDescription)\n结果待确认。原请求仅保留在本页内存中，不会自动重试。" }
+            let rejected = groupWriteDefinitelyRejected(error)
+            if rejected { self.prepared = nil } else { uncertain = true }
+            if let failure = error as? KeyedWriteFailure { message = groupKeyedFailureMessage(failure) }
+            else { message = rejected ? error.localizedDescription : "\(error.localizedDescription)\n结果待确认。原请求仅保留在本页内存中，不会自动重试。" }
         }
     }
     private func reconcile() async {
         guard !busy, uncertain, isCurrent, let prepared else { return }
         busy = true; defer { busy = false }
         do {
-            switch prepared {
-            case .update(let input, _):
-                guard let id = target.group?.id else { return }
+            switch prepared.intent {
+            case .update(let id, let input):
                 let result = try await workspace.get(id, context: target.context, fixture: model.isUITesting)
                 guard isCurrent, !Task.isCancelled else { return }
                 if input.matches(result) { message = "服务器当前字段已与本次修改一致，可关闭此页。"; uncertain = false; reconciled = true; self.prepared = nil }
                 else { message = "服务器当前字段与目标仍不一致。原请求可能仍在处理，请在本站 Web 后台核对；本页不会重发。" }
-            case .create(let input, _):
+            case .create(let input):
                 let result = try await workspace.list(context: target.context, fixture: model.isUITesting, page: 1, search: input.name, platform: input.platform, status: "")
                 guard isCurrent, !Task.isCancelled else { return }
                 let exact = result.items.filter { $0.name == input.name }.map { "#\($0.id) \($0.name)" }.joined(separator: "、")
@@ -504,6 +508,19 @@ private struct GroupEditorView: View {
 }
 
 private func groupWriteDefinitelyRejected(_ error: any Error) -> Bool {
+    if let failure = error as? KeyedWriteFailure {
+        if case .needsNewKey = failure.disposition { return true }
+        return false
+    }
     guard let failure = error as? APIError else { return false }
     return failure.kind == .validation || [400, 401, 403, 404, 422, 423, 429].contains(failure.statusCode ?? 0)
+}
+
+/// S5D1-10: these pages offer no “用同一编号重试”, so the keyed failure's own text is not shown.
+private func groupKeyedFailureMessage(_ failure: KeyedWriteFailure) -> String {
+    switch failure.disposition {
+    case .needsNewKey: "请求未执行，请重新核对并确认。\n\(failure.localizedDescription)"
+    case .unconfirmed(.storeUnavailable, _): "服务器暂时无法受理，结果待确认。请稍后读取服务器状态核对。"
+    case .unconfirmed: "结果待确认：服务器可能已执行。请先读取服务器状态核对；本页不会再发送这次请求。"
+    }
 }
