@@ -3,7 +3,8 @@ import Sub2Core
 
 /// 60 §3.3 柒 (R01, D16): balance, redeem-batch and compensation records of every site, oldest first, with the shared title
 /// and detail line after the site's name. A record of the connected site opens its check (“去核对 ›”); another site's
-/// opens that site's Web admin.
+/// opens that site's Web admin. Balance rows keep the existing “打开原站点核对” on the connected site too (沿用现有): a
+/// record another administrator sent can only be checked in Web (D17).
 struct SettingsPendingRows: View {
     @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
@@ -31,15 +32,19 @@ struct SettingsPendingRows: View {
             if record is PendingBalanceOperation {
                 Text(record.id.uuidString).font(.caption2.monospaced()).foregroundStyle(Palette.ink3).textSelection(.enabled)
             }
-            if isCurrentSite {
-                Button { open(record) } label: { Text("去核对 ›").frame(minHeight: 44).contentShape(Rectangle()) }
-                    .foregroundStyle(Palette.accent)
-                    .accessibilityIdentifier("settings.pending.check.\(record.id.uuidString)")
-            } else if let profile {
-                Link(destination: profile.baseURL) { Text("打开原站点核对").frame(minHeight: 44).contentShape(Rectangle()) }
-                    .foregroundStyle(Palette.accent)
-                    .accessibilityIdentifier("settings.pending.web.\(record.id.uuidString)")
+            // Borderless, so each control takes only its own taps inside the list row.
+            HStack(spacing: 20) {
+                if isCurrentSite {
+                    Button { open(record) } label: { Text("去核对 ›").frame(minHeight: 44).contentShape(Rectangle()) }
+                        .accessibilityIdentifier("settings.pending.check.\(record.id.uuidString)")
+                }
+                if let profile, !isCurrentSite || record is PendingBalanceOperation {
+                    Link(destination: profile.baseURL) { Text("打开原站点核对").frame(minHeight: 44).contentShape(Rectangle()) }
+                        .accessibilityIdentifier("settings.pending.web.\(record.id.uuidString)")
+                }
             }
+            .buttonStyle(.borderless)
+            .foregroundStyle(Palette.accent)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)

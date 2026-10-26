@@ -46,12 +46,17 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
 }
 
 @Test func bindingModeIsReadOnlyForABoundAccountSessionWithoutPendingCompliance() {
-    let bound = AdminMe(authMethod: .jwt, security: .init(sessionBindingEnabled: true))
+    let admin = AdminMe.User(id: 1, email: "admin@example.com", role: "admin")
+    let bound = AdminMe(authMethod: .jwt, user: admin, security: .init(sessionBindingEnabled: true))
     #expect(SettingsPresentation.readsBindingMode(me: bound, authMethod: .jwt))
     #expect(SettingsPresentation.readsBindingMode(me: bound, authMethod: .adminAPIKey) == false)
-    #expect(SettingsPresentation.readsBindingMode(me: AdminMe(authMethod: .jwt), authMethod: .jwt) == false)
-    let unaccepted = AdminMe(authMethod: .jwt, security: .init(sessionBindingEnabled: true), compliance: .init(required: true))
+    #expect(SettingsPresentation.readsBindingMode(me: AdminMe(authMethod: .jwt, user: admin), authMethod: .jwt) == false)
+    let unaccepted = AdminMe(authMethod: .jwt, user: admin, security: .init(sessionBindingEnabled: true), compliance: .init(required: true))
     #expect(SettingsPresentation.readsBindingMode(me: unaccepted, authMethod: .jwt) == false)
+    // 00 §1.2: only the admin role reads admin/settings; the server refuses a workspace vendor there (403 FORBIDDEN).
+    let vendor = AdminMe(authMethod: .jwt, user: .init(id: 2, email: "vendor@example.com", role: "vendor"),
+                         workspace: .init(id: 3, name: "工作区"), security: .init(sessionBindingEnabled: true))
+    #expect(SettingsPresentation.readsBindingMode(me: vendor, authMethod: .jwt) == false)
 }
 
 @Test func removeSiteMessageAddsTheRevocationOnlyForAccessTokens() {

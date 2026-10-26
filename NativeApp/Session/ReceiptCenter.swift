@@ -68,9 +68,10 @@ final class ReceiptCenter {
         guard current?.id == id else { return }
         clear()
     }
-    /// The button: the receipt leaves first, then its action runs.
-    func performAction() {
-        guard let receipt = current, let action = receipt.action else { return }
+    /// The button of the receipt with this id: it leaves first, then its action runs. A tap that reaches a receipt already
+    /// replaced does nothing, so the newer receipt's action never runs in its place.
+    func performAction(id: UUID) {
+        guard let receipt = current, receipt.id == id, let action = receipt.action else { return }
         clear()
         action.perform()
     }

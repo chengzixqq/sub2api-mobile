@@ -18,6 +18,14 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["settings.add"].isHittable, app.debugDescription)
         XCTAssertTrue(app.buttons["settings.site.设置站点"].exists, app.debugDescription)
         diagnostics("settings-sites")
+        // The current site's row neither reconnects nor claims a switch (00 §1.1): the page stays and no receipt says so.
+        let current = app.buttons["settings.site.设置站点"]
+        reveal(current)
+        current.tap()
+        let switched = app.staticTexts.matching(NSPredicate(format: "label == %@", "已切换到 设置站点")).firstMatch
+        XCTAssertFalse(switched.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["站点与凭据"].exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["settings.add"].exists, app.debugDescription)
     }
 
     @MainActor func testSimpleModeIsGreyedAndAppearanceIsOneChoice() {
@@ -147,7 +155,8 @@ final class SettingsUITests: XCTestCase {
     }
 
     @MainActor func testDeletingAnotherSiteKeepsTheCurrentOneWithAReceipt() {
-        launchAndLogin(name: "站点 A", url: "https://a.example.invalid")
+        // `-ui-slow-teardown` holds the server steps for two seconds, so the row in progress can be seen (D19).
+        launchAndLogin(arguments: ["-ui-slow-teardown"], name: "站点 A", url: "https://a.example.invalid")
         defer { diagnostics("settings-remove-other-final") }
         app.openSitesSettings()
         app.buttons["settings.add"].tap()
@@ -161,9 +170,13 @@ final class SettingsUITests: XCTestCase {
         // The confirmation dialog repeats the action as its destructive button.
         XCTAssertTrue(app.buttons["删除站点和凭据"].waitForExistence(timeout: 5))
         app.buttons["删除站点和凭据"].tap()
+        let removing = element("settings.site.removing.站点 A")
+        XCTAssertTrue(removing.waitForExistence(timeout: 2), app.debugDescription)
+        XCTAssertFalse(app.buttons["settings.site.站点 A"].exists, app.debugDescription)
         let receipt = app.staticTexts["receipt.text"]
-        XCTAssertTrue(receipt.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(receipt.waitForExistence(timeout: 8), app.debugDescription)
         XCTAssertEqual(receipt.label, "已删除站点")
+        XCTAssertTrue(waitUntilGone(removing), app.debugDescription)
         XCTAssertTrue(waitUntilGone(app.buttons["settings.site.站点 A"]), app.debugDescription)
         XCTAssertTrue(app.buttons["settings.site.站点 B"].exists)
         XCTAssertTrue(app.buttons["settings.site.站点 B"].value as? String == "当前", app.debugDescription)
@@ -175,6 +188,9 @@ final class SettingsUITests: XCTestCase {
         app.openSitesSettings()
         let refund = element("settings.pending.check.0A000000-0000-4000-8000-000000000001")
         reveal(refund)
+        // A balance record of the connected site keeps the existing “打开原站点核对” as well (60 §3.3 柒: 沿用现有).
+        XCTAssertTrue(element("settings.pending.web.0A000000-0000-4000-8000-000000000001").exists, app.debugDescription)
+        XCTAssertFalse(element("settings.pending.web.0A000000-0000-4000-8000-000000000002").exists, app.debugDescription)
         for title in ["退款结果待核对", "兑换码生成结果待核对"] {
             XCTAssertTrue(app.staticTexts[title].exists, title + "\n" + app.debugDescription)
         }

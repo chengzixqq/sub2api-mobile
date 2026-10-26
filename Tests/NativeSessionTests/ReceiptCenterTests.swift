@@ -90,14 +90,16 @@ private actor ManualSleeper {
     let sleeper = ManualSleeper()
     let receipts = center(sleeper)
     let calls = Calls()
-    receipts.show(Receipt(text: "已停止调度", undo: { calls.shownDuringCall.append(receipts.current != nil) }))
-    receipts.performAction()
+    let stopped = Receipt(text: "已停止调度", undo: { calls.shownDuringCall.append(receipts.current != nil) })
+    receipts.show(stopped)
+    receipts.performAction(id: stopped.id)
     #expect(calls.shownDuringCall == [false])
     #expect(receipts.current == nil)
     // Nothing shown, or nothing to do: no effect.
-    receipts.performAction()
-    receipts.show(Receipt(text: "已复制"))
-    receipts.performAction()
+    receipts.performAction(id: stopped.id)
+    let copied = Receipt(text: "已复制")
+    receipts.show(copied)
+    receipts.performAction(id: copied.id)
     #expect(receipts.current?.text == "已复制")
     #expect(calls.shownDuringCall.count == 1)
     await waitForTimers(sleeper, count: 2)
@@ -135,4 +137,24 @@ private actor ManualSleeper {
             == "已删除站点 · 令牌未能吊销，可用 API 吊销；推送设备未能从站点移除，可在 Web 删除")
     #expect(Receipt.siteRemoved(notes: ["令牌未能吊销，可用 API 吊销"]).tone == .caution)
     #expect(Receipt.siteRemoved(notes: []).tone == .ok)
+}
+
+/// S0-LOW-B: a tap reaches the button of the receipt the administrator saw; one that replaced it in the same frame keeps its
+/// action.
+@MainActor @Test func actionRunsOnlyForTheReceiptStillShown() async {
+    let sleeper = ManualSleeper()
+    let receipts = center(sleeper)
+    let calls = Calls()
+    let first = Receipt(text: "已停止调度", undo: { calls.names.append("A") })
+    let second = Receipt(text: "已删除分组", undo: { calls.names.append("B") })
+    receipts.show(first)
+    receipts.show(second)
+    receipts.performAction(id: first.id)
+    #expect(calls.names.isEmpty)
+    #expect(receipts.current?.id == second.id)
+    receipts.performAction(id: second.id)
+    #expect(calls.names == ["B"])
+    #expect(receipts.current == nil)
+    await waitForTimers(sleeper, count: 2)
+    await sleeper.wakeAll()
 }

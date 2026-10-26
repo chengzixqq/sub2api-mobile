@@ -99,6 +99,7 @@ S0-19 的 gate（3 台模拟器并行、失败重跑一次）：76 个用例全�
 - ① 是测试问题：reveal 的拖动结束时列表还在减速，紧接着的点按只让滚动停下，开关与排序按钮没有收到点击（ListFieldEditor 的 Toggle 与上下移按钮在 S0-14 之后没有改过）。② 是负载问题：setField 每次前后各取一次全量截图、界面树并 print(app.debugDescription)，一次字段编辑就有十几次完整无障碍快照，Mac 负载高时单次快照会停顿十几秒（S0-07 已证实），等待窗口被吃掉。
 - 修法只改测试：UITestNavigation 新增 XCUIElement.waitUntilSettled()（两次读到相同 frame 才继续，最多 2 秒），用在账号 / 用户字段开关、字段上移与趋势缩放、滑动之前；删掉每次开关前后的截图、界面树与 print，只在等待失败时保存证据。没有加长任何超时。
 - 不是 App 在 iOS 27 上的缺陷，没有改 App。账号列表与用户列表的字段编辑会在阶段 2 / 3 随页面重写（20 §1.7、30 §1.7 去掉“显示字段”），这些用例届时整体替换。
+- 更正（S0-LOW-B 复核）：上面的修法只覆盖 7 个里的 6 个。AccountListCustomizationUITests.testSlowTodayStatsAllowsIndependentRuntimeRefresh 不调用 setField / moveFieldToFirst，用到的 login、openAccountDetail、assertDetail、reveal 在 S0-19 都没有改；它只有失败形态 ②（负载下快照停顿吃掉 assertDetail 的 10 秒与 runtime-updated 的 5 秒谓词等待），原因没有消除，之后几次 gate 通过只说明没有复现。阶段 2 账号页重写时整体替换；在此之前它再失败按既有不稳定处理，不算新回归（BACKLOG“UI 测试 6 并发下的快照停顿”一行同步改写）。
 
 ## UI 测试基线（改动前，`efcb8c1`）
 

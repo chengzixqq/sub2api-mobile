@@ -114,3 +114,17 @@ struct SiteTeardown: Sendable {
         log.notice("\(step, privacy: .public) failed: \(error.statusCode ?? 0, privacy: .public) \(error.reason ?? "-", privacy: .public) \(error.requestID ?? "-", privacy: .public)")
     }
 }
+
+/// D19: where a deletion ends up. Another site's deletion ends with a receipt while a site is still connected; after the
+/// connected one, or when no site is left by the time the server steps end, the notes use the root alert, so a token left
+/// unrevoked is never dropped silently.
+enum SiteRemovalNotice: Equatable {
+    case receipt(notes: [String])
+    case alert(String)
+    case silent
+
+    static func after(removingCurrent: Bool, hasReceiptHost: Bool, notes: [String]) -> SiteRemovalNotice {
+        if !removingCurrent && hasReceiptHost { return .receipt(notes: notes) }
+        return notes.isEmpty ? .silent : .alert(Receipt.siteRemoved(notes: notes).text)
+    }
+}

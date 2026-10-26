@@ -51,6 +51,8 @@ public actor APIClient {
     private var reportedInvalidation: UUID?
     /// The session owner's compliance and step-up prompts (S0-13); candidate, login and teardown clients pass nil (D13).
     let securityInterceptor: SecurityInterceptor?
+    /// Where each attempt's line goes (00 §3.4 rule 3): the unified log, or a collector in tests (`logRequests(to:)`).
+    private var requestLog: RequestLog.Sink = RequestLog.system
     /// `credentialStore` is a LeasedCredentialStore or nil, never the vault itself: `logout` and the persist fence call its
     /// `remove`, which must not delete the site's device ID (D07).
     public init(server: ServerProfile, credential: Credential? = nil, credentialStore: (any CredentialStore)? = nil, deviceID: UUID,
@@ -490,7 +492,7 @@ public actor APIClient {
             let response = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             // Error replies and 304 carry a Date too; a reply after cancelAll still came from this site.
             serverClock.recordDateHeader(response.header("Date"), receivedAt: serverClock.localNow())
-            RequestLog.record(request, response: response)
+            RequestLog.record(request, response: response, to: requestLog)
             try check(snapshot)
             if requestClass.isRead && started != epoch { throw CancellationError() }
             return response
@@ -498,10 +500,11 @@ public actor APIClient {
             if snapshot != generation || Task.isCancelled || error is CancellationError || (requestClass.isRead && started != epoch) {
                 throw CancellationError()
             }
-            RequestLog.record(request, response: nil)
+            RequestLog.record(request, response: nil, to: requestLog)
             throw error
         }
     }
+    func logRequests(to sink: @escaping RequestLog.Sink) { requestLog = sink }
     /// Waits on the request clock; cancelAll and suspend interrupt the wait, a changed generation fails it, and no wait
     /// starts while suspended (00 §2.4, D18).
     func pause(_ duration: Duration, generation snapshot: UUID) async throws {
@@ -571,27 +574,39 @@ public actor APIClient {
     private func openTestStream(_ spec: OutgoingRequest, generation snapshot: UUID) async throws -> HTTPStreamResponse {
         let auth = try await validCredential()
         try check(snapshot)
-        let first = try await openStream(makeRequest(spec, credential: auth), generation: snapshot)
-        guard let rejected = try await rejection(first, generation: snapshot) else { return first }
+        let request = try makeRequest(spec, credential: auth)
+        let first = try await openStream(request, generation: snapshot)
+        guard let rejected = try await rejection(first, of: request, generation: snapshot) else { return first }
         guard let access = expiredAccess(rejected, credential: auth, requestClass: spec.requestClass, context: .business) else { throw failure(rejected) }
         let fresh = try await validCredential(forceRefresh: true, rejectedAccess: access)
         try check(snapshot)
-        let second = try await openStream(makeRequest(spec, credential: fresh), generation: snapshot)
-        if let rejectedAgain = try await rejection(second, generation: snapshot) { throw failure(rejectedAgain) }
+        let resent = try makeRequest(spec, credential: fresh)
+        let second = try await openStream(resent, generation: snapshot)
+        if let rejectedAgain = try await rejection(second, of: resent, generation: snapshot) { throw failure(rejectedAgain) }
         return second
     }
-    /// nil for 2xx; otherwise the first 64 KB of the error body, read under the session generation.
-    private func rejection(_ response: HTTPStreamResponse, generation snapshot: UUID) async throws -> HTTPResponse? {
+    /// nil for 2xx; otherwise the first 64 KB of the error body, read under the session generation. The attempt's log line is
+    /// written here, so it carries the body's reason (00 §3.4 rule 3); a body cut short still logs its status.
+    private func rejection(_ response: HTTPStreamResponse, of request: URLRequest, generation snapshot: UUID) async throws -> HTTPResponse? {
         guard !(200..<300).contains(response.statusCode) else { return nil }
         let id = register(suspendable: true) { response.cancel() }
         defer { removeCancellation(id); response.cancel() }
         var body = Data()
-        for try await chunk in response.bytes {
+        do {
+            for try await chunk in response.bytes {
+                try check(snapshot)
+                body.append(chunk); if body.count > 64 * 1_024 { break }
+            }
             try check(snapshot)
-            body.append(chunk); if body.count > 64 * 1_024 { break }
+        } catch {
+            if !(error is CancellationError), snapshot == generation, !Task.isCancelled {
+                RequestLog.record(request, response: HTTPResponse(statusCode: response.statusCode, headers: response.headers, data: body), to: requestLog)
+            }
+            throw error
         }
-        try check(snapshot)
-        return HTTPResponse(statusCode: response.statusCode, headers: response.headers, data: body)
+        let reply = HTTPResponse(statusCode: response.statusCode, headers: response.headers, data: body)
+        RequestLog.record(request, response: reply, to: requestLog)
+        return reply
     }
     private func events(from response: HTTPStreamResponse, generation snapshot: UUID) -> AsyncThrowingStream<AccountTestEvent, any Error> {
         let streamID = UUID()
@@ -628,13 +643,16 @@ public actor APIClient {
         do {
             let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             serverClock.recordDateHeader(result.headers.headerValue("Date"), receivedAt: serverClock.localNow())
-            RequestLog.record(request, response: HTTPResponse(statusCode: result.statusCode, headers: result.headers, data: Data()))
+            // A refused stream is logged by `rejection`, once its error body is read.
+            if (200..<300).contains(result.statusCode) {
+                RequestLog.record(request, response: HTTPResponse(statusCode: result.statusCode, headers: result.headers, data: Data()), to: requestLog)
+            }
             do { try check(snapshot) } catch { result.cancel(); throw error }
             return result
         } catch is CancellationError { throw CancellationError() }
         catch {
             if snapshot != generation || Task.isCancelled { throw CancellationError() }
-            RequestLog.record(request, response: nil)
+            RequestLog.record(request, response: nil, to: requestLog)
             throw APIError.transport(error)
         }
     }

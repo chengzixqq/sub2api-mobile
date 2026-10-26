@@ -127,7 +127,15 @@ func accountStatusSummaryRejectsInvalidGroupLocally(groupID: Int) async throws {
     #expect(error.reason == "INVALID_GROUP_FILTER" && error.statusCode == 400)
     #expect(!error.localizedDescription.contains("server-private-text"))
     #expect(await rejected.requests.count == 1)
-    let oldSite = ScriptedTransport { _ in HTTPResponse(statusCode: 404, headers: ["content-type": "text/html"], data: Data("<html>not found</html>".utf8)) }
-    let missing = try #require(await thrownAPIError { _ = try await summaryClient(oldSite).accountStatusSummary() })
+    let proxied = ScriptedTransport { _ in HTTPResponse(statusCode: 404, headers: ["content-type": "text/html"], data: Data("<html>not found</html>".utf8)) }
+    let missing = try #require(await thrownAPIError { _ = try await summaryClient(proxied).accountStatusSummary() })
     #expect(missing.kind == .unsupported)
+    // A Sub2 server before the summary (5c94dbcfa) routes the path to accounts/:id and answers its 400 “Invalid account ID”
+    // without a reason: nothing says “unsupported”, so only the capability gate keeps old sites from asking.
+    let oldSite = ScriptedTransport { _ in
+        HTTPResponse(statusCode: 400, headers: ["content-type": "application/json; charset=utf-8"], data: Data(#"{"code":400,"message":"Invalid account ID"}"#.utf8))
+    }
+    let invalid = try #require(await thrownAPIError { _ = try await summaryClient(oldSite).accountStatusSummary() })
+    #expect(invalid.statusCode == 400); #expect(invalid.reason == nil); #expect(invalid.kind != .unsupported)
+    #expect(!invalid.localizedDescription.contains("Invalid account ID"))
 }

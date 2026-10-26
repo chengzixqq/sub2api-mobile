@@ -194,8 +194,9 @@ extension KeyedDecodingContainer {
 }
 
 extension APIClient {
-    /// 20 §10.1, R19: the only definition; overview, accounts and groups share it. Callers gate it with
-    /// `Capability.accountsStatusSummary`; an old site's non-JSON 404 arrives as `.unsupported`. Not conditional (00 §4.2).
+    /// 20 §10.1, R19: the only definition; overview, accounts and groups share it. Callers must gate it with
+    /// `Capability.accountsStatusSummary`: a Sub2 server before it routes the path to `accounts/:id` and answers 400 without a
+    /// reason, which is not `.unsupported` (only a non-Sub2 proxy's non-JSON 404 is). Not conditional (00 §4.2).
     public func accountStatusSummary(platform: String? = nil, groupID: Int? = nil, includeAccounts: Bool = false) async throws -> AccountStatusSummary {
         var query = optionalQuery("platform", platform?.trimmingCharacters(in: .whitespacesAndNewlines))
         if let groupID {

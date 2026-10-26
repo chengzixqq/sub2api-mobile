@@ -74,6 +74,10 @@ enum DemoData {
         guard ProcessInfo.processInfo.arguments.contains("-ui-switch-rejected") else { return nil }
         return APIError.server(status: 403, envelope: ErrorEnvelope(reason: "FORBIDDEN"), requestID: "ui-fixture-request-id")
     }
+    /// `-ui-slow-teardown` (D19): a deleted site's server steps take two seconds, so the settings row in progress shows.
+    static var teardownDelay: Duration? {
+        ProcessInfo.processInfo.arguments.contains("-ui-slow-teardown") ? .seconds(2) : nil
+    }
     static let dashboard = DashboardSummary(
         stats: DashboardStats(
             todayRequests: 128, todayTokens: 1_234_567, todayCost: Decimal(string: "99.99")!,

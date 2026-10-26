@@ -10,7 +10,7 @@ struct ReceiptOverlay: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             if let receipt = model.receipts.current {
-                ReceiptBar(receipt: receipt) { model.receipts.performAction() }
+                ReceiptBar(receipt: receipt) { model.receipts.performAction(id: receipt.id) }
                     .id(receipt.id)
                     // Without a button it is only read: taps reach the page under it (S0-16 shows one after every login).
                     .allowsHitTesting(receipt.action != nil)

@@ -143,3 +143,57 @@ import Sub2Core
     center.complete(try #require(center.active).id, outcome: .cancelled)
     #expect(await stale.value == .cancelled)
 }
+
+// S0-LOW-B: UIKit drops a present or dismiss started while another runs, so the overlay takes one transition at a time.
+
+@Test func promptAnsweredWhileItsSheetIsComingUpLeavesAfterwards() {
+    var overlay = SecurityPromptOverlay()
+    let first = UUID()
+    #expect(overlay.want(nil) == .wait)
+    #expect(overlay.want(first) == .present(first))
+    // The session ends (reset) while the sheet is still sliding in.
+    #expect(overlay.want(nil) == .wait)
+    #expect(overlay.transitionEnded() == .dismiss)
+    #expect(overlay.transitionEnded() == .hide)
+    #expect(overlay.want(nil) == .wait)
+}
+
+@Test func nextPromptWaitsForThePreviousSheetToLeave() {
+    var overlay = SecurityPromptOverlay()
+    let first = UUID(), next = UUID()
+    #expect(overlay.want(first) == .present(first))
+    #expect(overlay.transitionEnded() == .wait)
+    #expect(overlay.want(nil) == .dismiss)
+    // Another request is refused while the answered sheet is still leaving: the window stays for it.
+    #expect(overlay.want(next) == .wait)
+    #expect(overlay.transitionEnded() == .present(next))
+    #expect(overlay.transitionEnded() == .wait)
+    #expect(overlay.want(nil) == .dismiss)
+    #expect(overlay.transitionEnded() == .hide)
+}
+
+@Test func onlyTheLatestWantedPromptIsShown() {
+    var overlay = SecurityPromptOverlay()
+    let first = UUID(), second = UUID(), third = UUID()
+    #expect(overlay.want(first) == .present(first))
+    #expect(overlay.want(second) == .wait)
+    #expect(overlay.want(third) == .wait)
+    #expect(overlay.transitionEnded() == .dismiss)
+    #expect(overlay.transitionEnded() == .present(third))
+    #expect(overlay.transitionEnded() == .wait)
+    #expect(overlay.want(third) == .wait)
+    #expect(overlay.want(first) == .dismiss)
+    #expect(overlay.transitionEnded() == .present(first))
+}
+
+@Test func failedPresentationLeavesNothingPending() {
+    var overlay = SecurityPromptOverlay()
+    let first = UUID(), second = UUID()
+    #expect(overlay.want(first) == .present(first))
+    // No scene to put the window in: nothing is shown and no transition is awaited.
+    overlay.presentFailed()
+    #expect(overlay.want(second) == .present(second))
+    #expect(overlay.transitionEnded() == .wait)
+    #expect(overlay.want(nil) == .dismiss)
+    #expect(overlay.transitionEnded() == .hide)
+}

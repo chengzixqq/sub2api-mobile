@@ -1,7 +1,8 @@
 import SwiftUI
 import Sub2Core
 
-/// 00 §1.4 step 3: the bottom sheet of the password login. Six digits submit themselves; a swipe down is 取消. During a 429
+/// 00 §1.4 step 3: the bottom sheet of the password login. Six digits submit themselves; a swipe down is 取消, except while
+/// the code is checked. During a 429
 /// the field is locked and counts down (00 §2.7.2), the login page's timer ends the wait.
 struct LoginTwoFactorSheet: View {
     @Bindable var controller: LoginController
@@ -33,11 +34,13 @@ struct LoginTwoFactorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { controller.cancelTwoFactor() }.accessibilityIdentifier("login.totp.cancel")
+                    // A code being checked may already have signed in on the server, so it is not abandoned halfway.
+                    Button("取消") { controller.cancelTwoFactor() }.disabled(controller.isBusy).accessibilityIdentifier("login.totp.cancel")
                 }
             }
         }
         .presentationDetents([.medium])
+        .interactiveDismissDisabled(controller.isBusy)
         .onChange(of: controller.code) { Task { await controller.codeDidChange() } }
         .onChange(of: isCoolingDown) { if !isCoolingDown { focused = true } }
         .onAppear { focused = true }

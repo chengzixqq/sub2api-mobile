@@ -121,3 +121,49 @@ final class SecurityPromptCenter {
         waiters[promptID]?.removeValue(forKey: waiterID)?.resume(returning: outcome)
     }
 }
+
+/// The overlay window's sheet changes one at a time (S0-LOW-B): UIKit drops a present or dismiss started while another runs,
+/// which would leave the window over the App with nothing that answers. SecurityPromptPresenter asks for the next step
+/// whenever the active prompt changes or a transition ends, so the latest prompt is the one finally shown and the window is
+/// hidden once none is left.
+struct SecurityPromptOverlay: Equatable {
+    enum Step: Equatable { case present(UUID), dismiss, hide, wait }
+    private enum Transition: Equatable { case presenting, dismissing }
+
+    private var wanted: UUID?
+    /// The prompt whose sheet is up, coming up or leaving.
+    private var shown: UUID?
+    private var transition: Transition?
+    private var isWindowVisible = false
+
+    mutating func want(_ promptID: UUID?) -> Step {
+        wanted = promptID
+        return next()
+    }
+    mutating func transitionEnded() -> Step {
+        if transition == .dismissing { shown = nil }
+        transition = nil
+        return next()
+    }
+    /// No scene to show the window in: nothing is up, and the next change of prompt tries again.
+    mutating func presentFailed() {
+        shown = nil
+        transition = nil
+    }
+
+    private mutating func next() -> Step {
+        guard transition == nil else { return .wait }
+        if let shown {
+            guard shown != wanted else { return .wait }
+            transition = .dismissing
+            return .dismiss
+        }
+        if let wanted {
+            shown = wanted; transition = .presenting; isWindowVisible = true
+            return .present(wanted)
+        }
+        guard isWindowVisible else { return .wait }
+        isWindowVisible = false
+        return .hide
+    }
+}

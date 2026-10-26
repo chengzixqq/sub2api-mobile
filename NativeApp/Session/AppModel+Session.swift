@@ -51,6 +51,9 @@ extension AppModel {
         if isActive { isSigningOut = true }
         defer { if isActive { isSigningOut = false } }
         let ended = isActive ? await endActiveSession(cancelsConnection: true, then: .savedSites) : await storedSession(of: profile)
+        // The row stays, in progress, until the server steps end (D19).
+        removingSites.append(profile)
+        defer { removingSites.removeAll { $0.id == profile.id } }
         profiles.removeAll { $0.id == profile.id }
         if loginPrompt?.profile.id == profile.id { loginPrompt = nil }
         persistProfiles()
@@ -58,20 +61,19 @@ extension AppModel {
         pushRecords.removeAll(serverID: profile.id)
         do { try await credentials.remove(serverID: profile.id) } catch { report(error) }
         let result = await teardown(ended, of: profile, mode: .removeSite, pushDeviceIDs: pushIDs)
-        // D19: another site's deletion ends with a receipt; after the connected one the login page has no receipt, so its
-        // notes use the root alert.
-        if isActive {
-            if let notes = result?.notes, !notes.isEmpty { errorMessage = "已删除站点 · " + notes.joined(separator: "；") }
-        } else if activeProfile != nil {
-            receipts.show(.siteRemoved(notes: result?.notes ?? []))
+        switch SiteRemovalNotice.after(removingCurrent: isActive, hasReceiptHost: activeProfile != nil, notes: result?.notes ?? []) {
+        case .receipt(let notes): receipts.show(.siteRemoved(notes: notes))
+        case .alert(let text): errorMessage = text
+        case .silent: break
         }
         return result
     }
 
     /// 00 §1.1: the candidate's me() decides first, so a failed switch keeps the connected site. A site without a credential,
-    /// or whose session the server ended, opens its own login page.
+    /// or whose session the server ended, opens its own login page. The connected site is not switched to again: that would
+    /// reconnect and claim a switch that did not happen (every caller relies on this, not only the site menu).
     func switchTo(_ profile: ServerProfile) async {
-        guard !isSigningOut else { return }
+        guard !isSigningOut, profile.id != activeProfile?.id else { return }
         let attempt = beginConnection()
         do {
             guard let credential = try await credentials.load(serverID: profile.id) else {
@@ -137,7 +139,10 @@ extension AppModel {
     /// The server half, through a client without store or callback (D13) and within SiteTeardown.deadline. Without a
     /// credential nothing is sent and a deleted site reports what was not done. Fixture sites are not reachable.
     private func teardown(_ ended: EndedSession?, of profile: ServerProfile, mode: SiteTeardown.Mode, pushDeviceIDs: [Int]) async -> TeardownReport? {
-        guard !isUITesting else { return nil }
+        guard !isUITesting else {
+            if let delay = DemoData.teardownDelay { try? await Task.sleep(for: delay) }
+            return nil
+        }
         guard let ended, let credential = ended.credential else {
             return SiteTeardown.unsentReport(mode: mode, authentication: profile.authentication, pushDeviceIDs: pushDeviceIDs)
         }

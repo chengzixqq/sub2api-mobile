@@ -99,3 +99,17 @@ private struct LocalFailure: LocalizedError { var errorDescription: String? { "�
     #expect(LoginFailure.classify(APIError.server(status: 503, reason: nil), stage: .site)?.action == LoginFailure.Action.none)
     #expect(LoginFailure.classify(APIError.transport(URLError(.notConnectedToInternet)), stage: .site)?.action == LoginFailure.Action.none)
 }
+
+/// S0-LOW-B: a site or proxy answering a huge Retry-After (here Int.max) gets the same 300-second ceiling as the blocks
+/// (BlockRefresh), in the button and in the wording, instead of overflowing the countdown.
+@Test(arguments: [301, 86_400, Int.max])
+func loginCooldownIsCapped(retryAfter: Int) {
+    let row = LoginFailureRow(status: 429, reason: "RATE_LIMITED", context: .login, stage: .password, retryAfter: retryAfter,
+                              message: "登录过于频繁，请 300 秒后再试", action: .cooldown(seconds: 300))
+    let failure = LoginFailure.classify(row.error, stage: .password)
+    #expect(failure?.action == row.action)
+    #expect(failure?.message == row.message)
+    let exact = LoginFailureRow(status: 429, reason: "RATE_LIMITED", context: .twoFactor, stage: .twoFactor, retryAfter: 300,
+                                message: "登录过于频繁，请 300 秒后再试", action: .cooldown(seconds: 300))
+    #expect(LoginFailure.classify(exact.error, stage: .twoFactor) == LoginFailure(message: exact.message, action: exact.action))
+}

@@ -60,8 +60,13 @@ final class LoginController {
     private struct Halt: Error {
         let failure: LoginFailure?
         let stage: LoginStage
-        init(_ error: any Error, stage: LoginStage) { failure = LoginFailure.classify(error, stage: stage); self.stage = stage }
-        init(stop message: String, stage: LoginStage) { failure = LoginFailure(message: message, action: .stop); self.stage = stage }
+        /// A 404 of any kind; only a non-JSON one is `notSub2Site` already (D32).
+        let isNotFound: Bool
+        init(_ error: any Error, stage: LoginStage) {
+            failure = LoginFailure.classify(error, stage: stage); self.stage = stage
+            isNotFound = (error as? APIError)?.statusCode == 404
+        }
+        init(stop message: String, stage: LoginStage) { failure = LoginFailure(message: message, action: .stop); self.stage = stage; isNotFound = false }
     }
 
     @ObservationIgnored private let environment: LoginEnvironment
@@ -76,6 +81,9 @@ final class LoginController {
     @ObservationIgnored private var resumesAfterAgreement = false
     /// The page reopens itself at most once per tap on 连接站点.
     @ObservationIgnored private var bridgeReopened = false
+    /// The login limit is the site's (per IP, 00 §1.4): each address keeps its wait, so editing the address and back
+    /// does not end it.
+    @ObservationIgnored private var cooldowns: [URL: Date] = [:]
 
     init(prompt: LoginPrompt?, environment: LoginEnvironment) {
         self.prompt = prompt; self.environment = environment
@@ -97,7 +105,9 @@ final class LoginController {
     func addressDidChange() {
         endTwoFactor()
         proof = nil; attempt = nil; site = nil; signingProfile = nil
-        acceptedRevision = nil; agreementChecked = false; cooldownUntil = nil
+        acceptedRevision = nil; agreementChecked = false
+        let now = environment.now()
+        cooldownUntil = (try? ServerProfile.normalizedURL(address)).flatMap { cooldowns[$0] }.flatMap { $0 > now ? $0 : nil }
         // A new address is a new site: its login declares a new device ID (00 §1.2).
         draftDeviceID = UUID()
     }
@@ -172,9 +182,10 @@ final class LoginController {
             try await connect(profile, credential: .tokens(session.tokens), attempt)
         } catch { await fail(error, attempt, run: run) }
     }
-    /// The sheet's 取消 or a swipe: an answer still on its way is dropped.
+    /// The sheet's 取消 or a swipe. Not while a code is being checked: the server may already have issued the session, which
+    /// this phone could then neither use nor sign out of; the sheet disables both meanwhile.
     func cancelTwoFactor() {
-        guard challenge != nil else { return }
+        guard challenge != nil, !isBusy else { return }
         run = UUID()
         endTwoFactor()
     }
@@ -228,12 +239,16 @@ final class LoginController {
         } catch { await fail(error, attempt, run: run) }
     }
 
-    /// A password login needs the settings (captcha, agreement). A key login only takes the name from them and goes on past
-    /// a temporary failure, because `admin/me` checks the site anyway (D32).
+    /// A password login needs the settings (captcha, agreement), and a 404 of them says the address is no Sub2 site (00 §1.1).
+    /// A key login only takes the name from them and goes on past anything but a non-JSON 404, because `admin/me` checks the
+    /// site anyway (D32).
     private func loadSettings(_ attempt: Attempt, run: UUID) async throws -> PublicSettings? {
         let settings: PublicSettings
         do { settings = try await step(.site, run: run) { try await attempt.gateway.publicSettings() } }
-        catch let halt as Halt where method.usesKey && halt.failure != nil && halt.failure != LoginFailure.notSub2Site { return nil }
+        catch let halt as Halt where halt.failure != nil && halt.failure != LoginFailure.notSub2Site {
+            if method.usesKey { return nil }
+            throw halt.isNotFound ? Halt(stop: LoginCopy.notSub2Site, stage: .site) : halt
+        }
         site = settings
         guard LoginSite.isSub2(settings) else { throw Halt(stop: LoginCopy.notSub2Site, stage: .site) }
         return settings
@@ -302,7 +317,8 @@ final class LoginController {
 
     private func step<Value: Sendable>(_ stage: LoginStage, run: UUID, _ work: @MainActor () async throws -> Value) async throws -> Value {
         let value: Value
-        do { value = try await work() } catch { throw Halt(error, stage: stage) }
+        // After `cancel`, a failure is a cancelled step too: it shows nothing and never goes on to connect.
+        do { value = try await work() } catch { throw Halt(run == self.run ? error : CancellationError(), stage: stage) }
         guard run == self.run else { throw Halt(CancellationError(), stage: stage) }
         return value
     }
@@ -314,23 +330,23 @@ final class LoginController {
         let halt = error as? Halt ?? Halt(error, stage: .connect)
         guard let failure = halt.failure else { return }
         proof = nil
-        if halt.stage == .twoFactor { applyTwoFactor(failure); return }
+        if halt.stage == .twoFactor { applyTwoFactor(failure, site: attempt.url); return }
         notice = failure.message
         switch failure.action {
         case .clearPassword: password = ""
-        case .cooldown(let seconds): startCooldown(seconds)
+        case .cooldown(let seconds): startCooldown(seconds, site: attempt.url)
         case .reverify: reopenBridge()
         case .reloadSettings: await reloadSettings(attempt, run: run)
         case .none, .stop, .clearCode, .closeTwoFactor, .restart: break
         }
     }
 
-    private func applyTwoFactor(_ failure: LoginFailure) {
+    private func applyTwoFactor(_ failure: LoginFailure, site: URL) {
         switch failure.action {
         case .closeTwoFactor, .restart, .stop:
             endTwoFactor(); notice = failure.message
         case .cooldown(let seconds):
-            startCooldown(seconds); code = ""; twoFactorNotice = failure.message
+            startCooldown(seconds, site: site); code = ""; twoFactorNotice = failure.message
         case .none, .clearCode, .clearPassword, .reverify, .reloadSettings:
             code = ""; twoFactorNotice = failure.message
         }
@@ -350,7 +366,11 @@ final class LoginController {
         openBridge()
     }
 
-    private func startCooldown(_ seconds: Int) { cooldownUntil = environment.now().addingTimeInterval(TimeInterval(seconds)) }
+    private func startCooldown(_ seconds: Int, site: URL) {
+        let until = environment.now().addingTimeInterval(TimeInterval(seconds))
+        cooldowns[site] = until
+        if (try? ServerProfile.normalizedURL(address)) == site { cooldownUntil = until }
+    }
     private func endTwoFactor() { challenge = nil; code = ""; twoFactorNotice = nil }
     private func wipeSecrets() { password = ""; key = ""; code = ""; proof = nil }
 }

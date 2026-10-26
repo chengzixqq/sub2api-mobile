@@ -230,6 +230,16 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     #expect(timeouts == expected)
 }
 
+#if DEBUG
+/// 00 §9.1: a page size outside 1–1000 is a programming error that Debug builds stop at (Release clamps it, above).
+@Test func pageSizeOverTheLimitStopsADebugBuild() async {
+    await #expect(processExitsWith: .failure) {
+        let client = APIClient(server: stubServer(), transport: ScriptedTransport { _ in okReply("{}") })
+        _ = try? await client.pagination(1, pageSize: 1_001, search: "", status: nil)
+    }
+}
+#endif
+
 @Test func paginationDefaultsToTwentyAndAcceptsUpToOneThousand() async throws {
     let transport = ScriptedTransport { _ in okReply(#"{"items":[],"total":0,"page":1,"page_size":20}"#) }
     let client = layerClient(transport)

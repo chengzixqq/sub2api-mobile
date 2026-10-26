@@ -15,13 +15,15 @@ private func loginError(_ status: Int, _ reason: String, context: ReasonCatalog.
     APIError.server(status: status, envelope: ErrorEnvelope(reason: reason, metadata: metadata, retryAfter: retryAfter), context: context, retryAfter: retryAfter)
 }
 
-/// Answers from scripts whose last entry repeats; `loginGate` holds `login` until opened.
+/// Answers from scripts whose last entry repeats; the gates hold `publicSettings`, `login` and `completeTOTP` until opened.
 private actor StubLoginGateway: LoginGateway {
     struct Login: Sendable { let email: String; let password: String; let proof: CaptchaProof?; let deviceName: String; let declares: Bool }
     private var settingsScript: [Result<PublicSettings, any Error>]
     private var loginScript: [Result<LoginResult, any Error>]
     private var totpScript: [Result<AuthSession, any Error>]
     private let loginGate: SessionGate?
+    private let settingsGate: SessionGate?
+    private let totpGate: SessionGate?
     private(set) var settingsCalls = 0
     private(set) var logins: [Login] = []
     private(set) var codes: [String] = []
@@ -29,16 +31,26 @@ private actor StubLoginGateway: LoginGateway {
 
     init(settings: [Result<PublicSettings, any Error>] = [.success(settings(plainSettings))],
          logins: [Result<LoginResult, any Error>] = [.success(.authenticated(issued))],
-         totp: [Result<AuthSession, any Error>] = [.success(issued)], loginGate: SessionGate? = nil) {
-        settingsScript = settings; loginScript = logins; totpScript = totp; self.loginGate = loginGate
+         totp: [Result<AuthSession, any Error>] = [.success(issued)], loginGate: SessionGate? = nil, settingsGate: SessionGate? = nil,
+         totpGate: SessionGate? = nil) {
+        settingsScript = settings; loginScript = logins; totpScript = totp
+        self.loginGate = loginGate; self.settingsGate = settingsGate; self.totpGate = totpGate
     }
-    func publicSettings() async throws -> PublicSettings { settingsCalls += 1; return try Self.next(&settingsScript).get() }
+    func publicSettings() async throws -> PublicSettings {
+        settingsCalls += 1
+        await settingsGate?.wait()
+        return try Self.next(&settingsScript).get()
+    }
     func login(email: String, password: String, proof: CaptchaProof?, deviceName: String, declaresCaptchaProvider: Bool) async throws -> LoginResult {
         logins.append(Login(email: email, password: password, proof: proof, deviceName: deviceName, declares: declaresCaptchaProvider))
         await loginGate?.wait()
         return try Self.next(&loginScript).get()
     }
-    func completeTOTP(tempToken: String, code: String) async throws -> AuthSession { codes.append(code); return try Self.next(&totpScript).get() }
+    func completeTOTP(tempToken: String, code: String) async throws -> AuthSession {
+        codes.append(code)
+        await totpGate?.wait()
+        return try Self.next(&totpScript).get()
+    }
     func cancelAll() async { cancels += 1 }
     func script(settings: [Result<PublicSettings, any Error>]? = nil, logins: [Result<LoginResult, any Error>]? = nil) {
         if let settings { settingsScript = settings }
@@ -553,4 +565,79 @@ private actor GatedSettingsGateway: LoginGateway {
     await gate.open()
     await submitting.value
     #expect(harness.connects.isEmpty); #expect(harness.announced.isEmpty); #expect(!controller.isBusy)
+}
+
+// S0-LOW-B
+
+/// An answer that fails after the page was left is a cancelled step too: it neither shows anything nor connects with the
+/// wiped key (beginConnection would cancel a switch started meanwhile).
+@MainActor @Test func lateSettingsFailureAfterLeavingThePageConnectsNothing() async throws {
+    let gate = SessionGate()
+    let gateway = StubLoginGateway(settings: [.failure(URLError(.timedOut))], settingsGate: gate)
+    let harness = LoginHarness(gateway: gateway)
+    let controller = harness.controller!
+    controller.method = .adminKey; controller.key = "plain-key"; controller.name = "我的站"
+    let submitting = Task { await controller.submit() }
+    while !(await gate.arrived) { await Task.yield() }
+    await controller.cancel()
+    await gate.open()
+    await submitting.value
+    #expect(harness.connects.isEmpty); #expect(harness.announced.isEmpty); #expect(controller.notice == nil)
+}
+
+/// 00 §1.4: the login limit is the site's (per IP), so editing the address and back keeps the wait; another site has its own.
+@MainActor @Test func cooldownStaysWithItsSiteWhenTheAddressIsEditedBack() async throws {
+    let gateway = StubLoginGateway(logins: [.failure(loginError(429, "RATE_LIMITED", retryAfter: 30)), .success(.authenticated(issued))])
+    let harness = LoginHarness(gateway: gateway)
+    let controller = harness.controller!
+    harness.fillPassword()
+    await controller.submit()
+    #expect(controller.cooldownRemaining(at: harness.now) == 30)
+    controller.address = "https://sub2.example.invalid/x"; controller.addressDidChange()
+    controller.address = "https://sub2.example.invalid"; controller.addressDidChange()
+    #expect(controller.cooldownRemaining(at: harness.now) == 30)
+    await controller.submit()
+    #expect(await gateway.logins.count == 1)
+    controller.address = "https://other.example.invalid"; controller.addressDidChange()
+    #expect(controller.cooldownRemaining(at: harness.now) == 0)
+    controller.cooldownElapsed()
+    controller.address = "https://sub2.example.invalid"; controller.addressDidChange()
+    #expect(controller.cooldownRemaining(at: harness.now) == 30)
+}
+
+/// A code being checked cannot be cancelled: the server may already have issued the session, which would be left behind
+/// signed in and out of this phone's reach.
+@MainActor @Test func twoFactorCannotBeCancelledWhileTheCodeIsChecked() async throws {
+    let gate = SessionGate()
+    let challenge = LoginResult.twoFactor(TwoFactorChallenge(tempToken: "temporary"))
+    let gateway = StubLoginGateway(logins: [.success(challenge)], totpGate: gate)
+    let harness = LoginHarness(gateway: gateway)
+    let controller = harness.controller!
+    harness.fillPassword()
+    await controller.submit()
+    controller.code = "123456"
+    let checking = Task { await controller.codeDidChange() }
+    while !(await gate.arrived) { await Task.yield() }
+    controller.cancelTwoFactor()
+    #expect(controller.challenge != nil)
+    await gate.open()
+    await checking.value
+    #expect(harness.connects.first?.credential == .tokens(issuedTokens)); #expect(harness.announced == ["admin@example.com"])
+}
+
+/// 00 §1.1: only a success with a version is a Sub2 site. A password login stops without the settings anyway, and a JSON 404
+/// says the address has no Sub2 API; a key login still goes on to admin/me (D32).
+@MainActor @Test func jsonNotFoundForThePublicSettingsIsNoSub2Site() async throws {
+    let notFound = APIError.from(HTTPResponse(statusCode: 404, headers: ["content-type": "application/json"],
+                                              data: Data(#"{"code":404,"message":"not found"}"#.utf8)))
+    let password = LoginHarness(gateway: StubLoginGateway(settings: [.failure(notFound)]))
+    password.fillPassword(); password.controller.name = "我的站"
+    await password.controller.submit()
+    #expect(password.controller.notice == "该地址不是 Sub2 站点，请检查站点地址")
+    #expect(await password.gateway.logins.isEmpty); #expect(password.connects.isEmpty)
+
+    let key = LoginHarness(gateway: StubLoginGateway(settings: [.failure(notFound)]))
+    key.controller.method = .adminKey; key.controller.key = "plain-key"; key.controller.name = "我的站"
+    await key.controller.submit()
+    #expect(key.connects.count == 1)
 }

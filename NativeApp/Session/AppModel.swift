@@ -47,6 +47,8 @@ final class AppModel {
     var isRestoring = true
     /// Set while signing out or deleting the connected site (AppModel+Session.swift).
     var isSigningOut = false
+    /// Deleted sites whose server steps are still running; the settings page shows them in progress (D19).
+    var removingSites: [ServerProfile] = []
     /// The site login page to show: the root page without a connected site, a sheet over it otherwise (00 §1.1).
     var loginPrompt: LoginPrompt?
     var isConnecting = false
@@ -210,6 +212,8 @@ final class AppModel {
     /// S0-11's callbacks can capture it (D13).
     private func publish(_ profile: ServerProfile, generation: UUID, site: SiteSession, client next: APIClient, lease: UUID) {
         securityPrompts.reset()
+        // The previous site's receipt (and its button) never shows over the new session; a switch shows its own after this.
+        receipts.clear()
         sessionGeneration = generation
         client = next
         siteSession = site

@@ -4,27 +4,39 @@ import UIKit
 
 /// Shows the global security sheet from a window of its own above the App (00 §2.7.1): while a page sheet such as the user
 /// editor or the balance form is open, the root view cannot present a second one. The page and its confirmation stay
-/// underneath. The window is made in any connected scene, so a prompt raised in the background shows on return.
+/// underneath. The window is made in any connected scene, so a prompt raised in the background shows on return. Sheets come
+/// and go one transition at a time (SecurityPromptOverlay).
 @MainActor final class SecurityPromptPresenter {
     private var window: UIWindow?
     private weak var previousKeyWindow: UIWindow?
     private var hosted: UIViewController?
-    private var shownID: UUID?
+    private var overlay = SecurityPromptOverlay()
+    private var prompt: SecurityPromptCenter.Prompt?
+    private var model: AppModel?
 
     func sync(_ prompt: SecurityPromptCenter.Prompt?, model: AppModel) {
-        guard prompt?.id != shownID else { return }
-        shownID = prompt?.id
-        let leaving = hosted
-        hosted = nil
-        let next = { [weak self] in
-            guard let self, self.shownID == prompt?.id else { return }
-            if let prompt { self.present(prompt, model: model) } else { self.hide() }
-        }
-        if let leaving, leaving.presentingViewController != nil { leaving.dismiss(animated: true, completion: next) } else { next() }
+        self.prompt = prompt; self.model = model
+        perform(overlay.want(prompt?.id))
     }
 
+    private func perform(_ step: SecurityPromptOverlay.Step) {
+        switch step {
+        case .wait: return
+        case .hide: hide()
+        case .present:
+            guard let prompt, let model else { overlay.presentFailed(); return }
+            present(prompt, model: model)
+        case .dismiss:
+            let leaving = hosted
+            hosted = nil
+            guard let leaving, leaving.presentingViewController != nil else { perform(overlay.transitionEnded()); return }
+            leaving.dismiss(animated: true) { [weak self] in self?.transitionEnded() }
+        }
+    }
+    private func transitionEnded() { perform(overlay.transitionEnded()) }
+
     private func present(_ prompt: SecurityPromptCenter.Prompt, model: AppModel) {
-        guard let window = overlayWindow(), let root = window.rootViewController else { shownID = nil; return }
+        guard let window = overlayWindow(), let root = window.rootViewController else { overlay.presentFailed(); return }
         // The overlay is a window of its own, so the App's appearance setting (60 §3.4) is applied here too.
         window.overrideUserInterfaceStyle = model.preferences.appearance.userInterfaceStyle
         let sheet = prompt.kind == .compliance ? AnyView(ComplianceSheet(prompt: prompt)) : AnyView(StepUpSheet(prompt: prompt))
@@ -38,8 +50,8 @@ import UIKit
         }
         window.isHidden = false
         window.makeKeyAndVisible()
-        root.present(controller, animated: true)
         hosted = controller
+        root.present(controller, animated: true) { [weak self] in self?.transitionEnded() }
     }
     private func overlayWindow() -> UIWindow? {
         if let window, window.windowScene != nil { return window }

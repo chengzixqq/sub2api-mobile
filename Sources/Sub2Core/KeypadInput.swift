@@ -49,6 +49,18 @@ public enum KeypadInput {
         }
     }
 
+    /// A system text field's edit from `old` to `new`, where the cursor may be anywhere. Characters added at the end are keys
+    /// pressed one by one; any other edit stands only if the keypad could have typed it, otherwise `old` stays, so a refused
+    /// key never turns the text into a number nobody typed.
+    public static func edit(_ old: String, to new: String, maxDigits: Int, maxFractionDigits: Int, maximum: Decimal? = nil) -> String {
+        if new.hasPrefix(old) {
+            return new.dropFirst(old.count).compactMap(KeypadKey.init).reduce(old) {
+                apply($1, to: $0, maxDigits: maxDigits, maxFractionDigits: maxFractionDigits, maximum: maximum)
+            }
+        }
+        return retype(new, maxDigits: maxDigits, maxFractionDigits: maxFractionDigits, maximum: maximum) == new ? new : old
+    }
+
     /// The typed amount as an exact Decimal (never through Double); "12." is 12, an empty text is nil, and anything the
     /// keypad cannot produce is nil.
     public static func value(of text: String) -> Decimal? {

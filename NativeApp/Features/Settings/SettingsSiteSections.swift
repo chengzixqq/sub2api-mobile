@@ -3,7 +3,7 @@ import Sub2Core
 
 /// 60 §3.3 伍: the saved sites (initial, name, sign-in badge of 00 §1.1, host in monospace, “当前”), each with ··· for deleting;
 /// then 添加站点. A switch goes through the same function as the site menu and ends with its receipt; while it runs the row
-/// shows progress and the other rows wait.
+/// shows progress and the other rows wait. A deleted site keeps a row in progress until its server steps end (D19).
 struct SettingsSiteRows: View {
     /// “站点与凭据” scrolls here (60 §3.1).
     static let anchorID = "settings.sites.anchor"
@@ -17,6 +17,17 @@ struct SettingsSiteRows: View {
     var body: some View {
         ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
             row(profile).id(index == 0 ? Self.anchorID : profile.id.uuidString)
+        }
+        ForEach(model.removingSites, id: \.id) { profile in
+            HStack(spacing: 12) {
+                Text(profile.name).foregroundStyle(Palette.ink3).lineLimit(1)
+                Spacer(minLength: 8)
+                ProgressView()
+                Text("正在删除…").font(.subheadline).foregroundStyle(Palette.ink3)
+            }
+            .frame(minHeight: 44)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("settings.site.removing.\(profile.name)")
         }
         Button { router.present(.addSite) } label: {
             Label("添加站点", systemImage: "plus").foregroundStyle(Palette.accent).frame(minHeight: 44)

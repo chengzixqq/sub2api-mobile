@@ -28,9 +28,11 @@ public struct LoginFailure: Equatable, Sendable {
         if error == .administratorRequired { return LoginFailure(message: error.localizedDescription, action: .stop) }
         guard let status = error.statusCode, error.category != nil else { return LoginFailure(message: error.localizedDescription, action: .none) }
         let context: ReasonCatalog.Context = stage == .twoFactor ? .twoFactor : .login
-        let message = ReasonCatalog.lookup(status: status, reason: error.reason, context: context, retryAfter: error.retryAfter)?.message
+        // The blocks' ceiling (BlockRefresh) for the countdown too, so a huge Retry-After never overflows it.
+        let retryAfter = error.retryAfter.map { min($0, Int(BlockRefresh.maximumInterval)) }
+        let message = ReasonCatalog.lookup(status: status, reason: error.reason, context: context, retryAfter: retryAfter)?.message
             ?? error.localizedDescription
-        return LoginFailure(message: message, action: action(status: status, reason: error.reason, retryAfter: error.retryAfter))
+        return LoginFailure(message: message, action: action(status: status, reason: error.reason, retryAfter: retryAfter))
     }
 
     private static func action(status: Int, reason: String?, retryAfter: Int?) -> Action {

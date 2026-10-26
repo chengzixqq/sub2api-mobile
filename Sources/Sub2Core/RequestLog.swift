@@ -15,13 +15,19 @@ enum RequestLog {
     private static let apiPrefix = "/api/v1/"
     private static let maxFieldBytes = 64
 
-    /// Called by `transmit` and `openStream` once per attempt; `response` is nil when the attempt failed in transport.
-    static func record(_ request: URLRequest, response: HTTPResponse?) {
+    /// Receives each line; `failed` is true for a transport failure or a status outside 200–399.
+    typealias Sink = @Sendable (_ line: String, _ failed: Bool) -> Void
+    /// The unified log: failures as errors, the rest as debug.
+    static let system: Sink = { line, failed in
         #if canImport(os)
-        let text = line(for: request, response: response)
-        if let status = response?.statusCode, (200..<400).contains(status) { logger.debug("\(text, privacy: .public)") }
-        else { logger.error("\(text, privacy: .public)") }
+        if failed { logger.error("\(line, privacy: .public)") } else { logger.debug("\(line, privacy: .public)") }
         #endif
+    }
+
+    /// Called once per attempt; `response` is nil when the attempt failed in transport.
+    static func record(_ request: URLRequest, response: HTTPResponse?, to sink: Sink) {
+        let failed = response.map { !(200..<400).contains($0.statusCode) } ?? true
+        sink(line(for: request, response: response), failed)
     }
 
     /// The reason is read only from an error body; the request ID is the server's, else the one this request sent.

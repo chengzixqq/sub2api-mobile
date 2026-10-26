@@ -155,3 +155,17 @@ private let adminKey = Credential.adminKey("fixture-key")
     let report = await task.value
     #expect(report.failedPushDeviceIDs == [12]); #expect(report.serverLogoutSucceeded != nil)
 }
+
+/// D19 and S0-LOW-B: another site's deletion ends with a receipt while a site is connected; after the connected one, or when
+/// no site is left by the time the server steps end, the notes use the root alert instead of being dropped.
+@Test func removalNotesAreShownWithOrWithoutAReceiptHost() {
+    let notes = [SiteTeardown.tokenNotRevokedNote]
+    let alert = SiteRemovalNotice.alert("已删除站点 · 令牌未能吊销，可用 API 吊销")
+    #expect(SiteRemovalNotice.after(removingCurrent: false, hasReceiptHost: true, notes: notes) == .receipt(notes: notes))
+    #expect(SiteRemovalNotice.after(removingCurrent: false, hasReceiptHost: true, notes: []) == .receipt(notes: []))
+    #expect(SiteRemovalNotice.after(removingCurrent: true, hasReceiptHost: false, notes: notes) == alert)
+    #expect(SiteRemovalNotice.after(removingCurrent: false, hasReceiptHost: false, notes: notes) == alert)
+    #expect(SiteRemovalNotice.after(removingCurrent: true, hasReceiptHost: true, notes: notes) == alert)
+    #expect(SiteRemovalNotice.after(removingCurrent: false, hasReceiptHost: false, notes: []) == .silent)
+    #expect(SiteRemovalNotice.after(removingCurrent: true, hasReceiptHost: false, notes: []) == .silent)
+}

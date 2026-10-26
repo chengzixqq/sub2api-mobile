@@ -2,7 +2,8 @@ import SwiftUI
 import Sub2Core
 
 /// 60 §3.4 金额门槛: whole dollars 1–100,000 in large type on the number pad. Typing follows KeypadInput (D22: six digits, no
-/// point, a key that would pass 100,000 is refused); saving still checks 1–100,000. Raising the threshold is verified first
+/// point, a key that would pass 100,000 is refused; an edit elsewhere than the end that the keypad could not make keeps the
+/// previous text); saving still checks 1–100,000. Raising the threshold is verified first
 /// (D36); a failed check keeps the sheet and the old value.
 struct FaceIDThresholdSheet: View {
     let gate: BiometricGate
@@ -46,9 +47,9 @@ struct FaceIDThresholdSheet: View {
                     Button("保存", action: save).disabled(value == nil || saving).accessibilityIdentifier("settings.threshold.save")
                 }
             }
-            .onChange(of: text) { _, new in
-                let typed = KeypadInput.retype(new, maxDigits: AppPreferences.faceIDThresholdMaxDigits, maxFractionDigits: 0,
-                                               maximum: AppPreferences.faceIDThresholdRange.upperBound)
+            .onChange(of: text) { old, new in
+                let typed = KeypadInput.edit(old, to: new, maxDigits: AppPreferences.faceIDThresholdMaxDigits, maxFractionDigits: 0,
+                                             maximum: AppPreferences.faceIDThresholdRange.upperBound)
                 if typed != new { text = typed }
             }
             .onAppear { focused = true }

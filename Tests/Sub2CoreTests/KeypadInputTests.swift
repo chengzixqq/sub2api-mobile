@@ -101,6 +101,17 @@ func retypeFiltersThresholdTextLikeTheKeypad(text: String, expected: String) {
     #expect(KeypadInput.retype("1.2.3", maxDigits: 7, maxFractionDigits: 2) == "1.23")
 }
 
+/// S0-LOW-B: the system field lets the cursor sit anywhere. Typing at the end presses the new keys; an edit elsewhere is kept
+/// only when the keypad could have typed it, otherwise the text stays (never a different number nobody typed).
+@Test(arguments: [
+    ("10000", "100001", "10000"), ("", "1,000", "1000"), ("0", "05", "5"), ("250", "250１", "250"),
+    ("123", "12", "12"), ("12345", "1245", "1245"), ("1234", "91234", "91234"), ("12345", "", ""),
+    ("50000", "150000", "50000"), ("20000", "920000", "20000"), ("12345", "912345", "12345"), ("100", "00", "100"),
+])
+func editKeepsOnlyWhatTheKeypadCouldHaveTyped(old: String, new: String, expected: String) {
+    #expect(KeypadInput.edit(old, to: new, maxDigits: 6, maxFractionDigits: 0, maximum: 100_000) == expected)
+}
+
 @Test func padLayoutMatchesDesign() {
     let digits = (1...9).map(KeypadKey.digit)
     #expect(KeypadKey.pad == digits + [.decimalPoint, .digit(0), .delete])

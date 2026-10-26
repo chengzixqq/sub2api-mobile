@@ -77,9 +77,10 @@ public enum SettingsPresentation {
         default: return sessionBindingNotice
         }
     }
-    /// `GET admin/settings` is read only for the hint, and not before compliance is accepted (it would answer 423).
+    /// `GET admin/settings` is read only for the hint, only by the admin role (00 §1.2; a workspace vendor gets 403 there), and
+    /// not before compliance is accepted (it would answer 423).
     public static func readsBindingMode(me: AdminMe, authMethod: AdminAuthMethod?) -> Bool {
-        authMethod == .jwt && me.security.sessionBindingEnabled == true && me.compliance.required != true
+        authMethod == .jwt && me.isAdministrator && me.security.sessionBindingEnabled == true && me.compliance.required != true
     }
 
     /// The existing confirmation; a `sat_` site also revokes its token (00 §1.7.5 step 3).

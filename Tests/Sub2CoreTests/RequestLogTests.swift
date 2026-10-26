@@ -2,6 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import Synchronization
 import Testing
 @testable import Sub2Core
 
@@ -57,4 +58,51 @@ func reasonOutsideTheCodeAlphabetIsDropped(reason: String) {
     #expect(RequestLog.line(for: request, response: nil) == "POST admin/users/:id/balance - - client-rid")
     let html = HTTPResponse(statusCode: 502, data: Data("<html>502 Bad Gateway</html>".utf8))
     #expect(RequestLog.line(for: URLRequest(url: URL(string: "https://logs.example.invalid/api/v1/admin/me")!), response: html) == "GET admin/me 502 - -")
+}
+
+// S0-LOW-B: what the client hands to the log, collected instead of the unified log.
+
+private final class LoggedLines: Sendable {
+    private let lines = Mutex<[(line: String, failed: Bool)]>([])
+    var sink: RequestLog.Sink { { [self] line, failed in lines.withLock { $0.append((line, failed)) } } }
+    var all: [String] { lines.withLock { $0.map(\.line) } }
+    var failures: [Bool] { lines.withLock { $0.map(\.failed) } }
+}
+
+@Test func everyAttemptLogsOneLine() async throws {
+    let transport = ScriptedTransport(script: [.reply(errorReply(502)), .fail(URLError(.timedOut)),
+                                               .reply(okReply(stubUserJSON, headers: ["x-request-id": "rid-3"]))])
+    let client = APIClient(server: stubServer(), credential: .adminKey("fixture"), transport: transport, requestClock: .immediate)
+    let logged = LoggedLines()
+    await client.logRequests(to: logged.sink)
+    _ = try await client.user(id: 7)
+    #expect(logged.all == ["GET admin/users/:id 502 - -", "GET admin/users/:id - - -", "GET admin/users/:id 200 - rid-3"])
+    #expect(logged.failures == [true, true, false])
+}
+
+@Test(.timeLimit(.minutes(1))) func cancelledAttemptLogsNothing() async throws {
+    let transport = ScriptedTransport { _ in try await Task.sleep(for: .seconds(60)); return okReply(stubUserJSON) }
+    let client = APIClient(server: stubServer(), credential: .adminKey("fixture"), transport: transport, requestClock: .immediate)
+    let logged = LoggedLines()
+    await client.logRequests(to: logged.sink)
+    let reading = Task { try await client.user(id: 7) }
+    while await transport.requests.isEmpty { await Task.yield() }
+    await client.cancelAll()
+    _ = await reading.result
+    #expect(logged.all.isEmpty)
+}
+
+/// 00 §3.4 rule 3 for the account test stream too: a refused stream's line carries the reason read from its error body.
+@Test func refusedTestStreamLogsTheReasonFromItsBody() async throws {
+    let body = #"{"code":403,"reason":"ACCESS_TOKEN_READ_ONLY","message":"read only"}"#
+    let transport = ScriptedTransport(stream: { _ in
+        HTTPStreamResponse(statusCode: 403, headers: ["x-request-id": "rid-sse"], bytes: AsyncThrowingStream { $0.yield(Data(body.utf8)); $0.finish() })
+    }) { _ in throw URLError(.unsupportedURL) }
+    let client = APIClient(server: stubServer(), credential: .accessToken("sat_fixture"), transport: transport, requestClock: .immediate)
+    let logged = LoggedLines()
+    await client.logRequests(to: logged.sink)
+    let error = await thrownAPIError { _ = try await client.testAccount(id: 7, model: nil) }
+    #expect(error?.reason == "ACCESS_TOKEN_READ_ONLY")
+    #expect(logged.all == ["POST admin/accounts/:id/test 403 ACCESS_TOKEN_READ_ONLY rid-sse"])
+    #expect(logged.failures == [true])
 }
