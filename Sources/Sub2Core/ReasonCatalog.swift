@@ -175,6 +175,7 @@ private extension ReasonCatalog {
             rows(429, ["ACCOUNT_TEST_BUSY"], .rateLimited, .rateLimited, .waitRetryAfter, "站点同时运行的测试已满，请稍后再试"),
             rows(404, ["OPS_DISABLED"], .featureDisabled, .featureDisabled, .showDisabled, "运维监控未开启"),
             rows(409, ["OPS_CONFIG_DISABLED"], .featureDisabled, .featureDisabled, .noRetry, "需要在服务器配置中启用运维监控"),
+            rows(403, ["CHANNEL_MONITOR_DISABLED"], .featureDisabled, .featureDisabled, .showDisabled, "渠道监控未开启"),
             rows(503, ["PUSH_NOT_CONFIGURED"], .featureDisabled, .featureDisabled, .showDisabled, "站点未配置 APNs"),
             rows(503, ["ACCOUNT_STATS_UNAVAILABLE"], .statsUnavailable, .temporary, .showUnavailable, Text.temporary),
             rows(409, ["IDEMPOTENCY_IN_PROGRESS", "IDEMPOTENCY_RETRY_BACKOFF"], .idempotency, .idempotency, .idempotency, Text.unconfirmed),
