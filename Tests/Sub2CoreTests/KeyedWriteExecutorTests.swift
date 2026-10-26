@@ -142,12 +142,14 @@ func businessErrorsAreThrownAsAPIErrorWithoutRetry(response: HTTPResponse) async
     #expect(await transport.requests.count == 1); #expect(await recorder.durations.isEmpty)
 }
 
-/// 00 §2.5.4 step 2: after an attempt that may have run, a later one turned away before the handler does not settle the write.
+/// 00 §2.5.4 step 2: after an attempt that may have run, a later one turned away before the handler does not settle the write;
+/// nor does a reply that is not the server's JSON (a router or proxy page), which never reached the handler either.
 @Test(arguments: [ScriptStep.fail(URLError(.timedOut)), .reply(HTTPResponse(statusCode: 504, data: Data())), .reply(inProgress(["Retry-After": "1"])),
                   .reply(errorReply(409, reason: "IDEMPOTENCY_RETRY_BACKOFF", headers: ["Retry-After": "1"]))],
       [errorReply(401, reason: "TOKEN_REVOKED"), errorReply(403, reason: "FORBIDDEN"), errorReply(403, reason: "STEP_UP_REQUIRED"),
        errorReply(423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED"), errorReply(429, reason: "RATE_LIMITED"),
-       errorReply(503, reason: "STEP_UP_UNAVAILABLE")])
+       errorReply(503, reason: "STEP_UP_UNAVAILABLE"), HTTPResponse(statusCode: 404, data: Data("404 page not found".utf8)),
+       HTTPResponse(statusCode: 400, data: Data("<html>400 Bad Request</html>".utf8))])
 func rejectionBeforeExecutionAfterUncertainAttemptStaysUnconfirmed(first: ScriptStep, then rejection: HTTPResponse) async throws {
     let action = UUID()
     let transport = ScriptedTransport(script: [first, .reply(HTTPResponse(statusCode: rejection.statusCode,

@@ -61,11 +61,22 @@ private func persistedWrite(_ client: APIClient, serverID: UUID? = nil) -> Persi
     ]
     for (error, message) in fixed { #expect(verdict(error) == .notExecuted(message)) }
     let catalog: [APIError] = [.server(status: 401, reason: nil), .server(status: 403, reason: "STEP_UP_REQUIRED"), .server(status: 423, reason: nil),
-                               .server(status: 429, reason: "RATE_LIMITED"), .server(status: 503, reason: "STEP_UP_UNAVAILABLE"), .invalidAmount,
-                               .server(status: 404, reason: "RESOURCE_NOT_FOUND")]
+                               .server(status: 429, reason: "RATE_LIMITED"), .server(status: 503, reason: "STEP_UP_UNAVAILABLE"), .invalidAmount]
     for error in catalog {
         #expect(verdict(error) == .notExecuted(error.localizedDescription))
         #expect(BalanceReconciliation.balanceWriteOutcome(for: error, retrying: false).resolvesRecord)
+    }
+}
+
+/// The table has only USER_NOT_FOUND: the handler answers no other 404, so another one (a router or proxy page, another
+/// reason) did not come from it and says nothing about an earlier attempt of the same call.
+@Test func otherNotFoundRepliesStayPending() {
+    let errors: [APIError] = [.server(status: 404, reason: "RESOURCE_NOT_FOUND"), .server(status: 404, envelope: nil), .server(status: 404, reason: nil)]
+    for error in errors {
+        for retrying in [false, true] {
+            #expect(verdict(error, retrying: retrying) == unconfirmed)
+            #expect(!BalanceReconciliation.balanceWriteOutcome(for: error, retrying: retrying).resolvesRecord)
+        }
     }
 }
 
@@ -104,7 +115,9 @@ private func persistedWrite(_ client: APIClient, serverID: UUID? = nil) -> Persi
         guard case .notExecuted = verdict(error, retrying: false) else { Issue.record("a first send refused before execution resolves"); continue }
     }
     #expect(verdict(APIError.server(status: 400, reason: "INVALID_BALANCE"), retrying: true) == .notExecuted("金额不合法，未入账"))
-    #expect(verdict(APIError.server(status: 400, reason: nil), retrying: true) == .notExecuted("请求无效（错误码 HTTP 400），未入账"))
+    // A 400 without a reason may be a proxy's page as well, which the earlier bytes did not get.
+    #expect(verdict(APIError.server(status: 400, reason: nil), retrying: true) == unconfirmed)
+    #expect(verdict(APIError.server(status: 400, envelope: nil), retrying: true) == unconfirmed)
     #expect(verdict(keyed(.needsNewKey(.invalid)), retrying: true) == .notExecuted("请求格式错误，未入账"))
     #expect(verdict(keyed(.needsNewKey(.keyConflict)), retrying: true) == .pending("这个操作编号已被另一笔请求占用，请先核对", nil))
 }
@@ -127,6 +140,23 @@ private func persistedWrite(_ client: APIClient, serverID: UUID? = nil) -> Persi
     let outcome = try await echoing.updateBalance(sent)
     #expect(BalanceReconciliation.requestIDEchoMismatch(sent: sent.record.key, echoed: outcome.requestID))
     #expect(verdict(BalanceReconciliation.balanceWriteOutcome(for: outcome)) == .executed(userID: 7, replayed: false))
+}
+
+/// A lost attempt, then a reply that is not the server's JSON: the first attempt may have run, so the write stays to be
+/// checked; the handler's own USER_NOT_FOUND still settles it.
+@Test(arguments: [HTTPResponse(statusCode: 404, data: Data("404 page not found".utf8)),
+                  HTTPResponse(statusCode: 400, data: Data("<html>400 Bad Request</html>".utf8))])
+func proxyPageAfterLostAttemptStaysPending(page: HTTPResponse) async throws {
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(page)])
+    let client = balanceClient(transport)
+    do { _ = try await client.updateBalance(persistedWrite(client)); Issue.record("expected a failure") }
+    catch { #expect(verdict(error) == unconfirmed) }
+    #expect(await transport.requests.count == 2)
+
+    let missing = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(errorReply(404, reason: "USER_NOT_FOUND"))])
+    let other = balanceClient(missing)
+    do { _ = try await other.updateBalance(persistedWrite(other)); Issue.record("expected a refusal") }
+    catch { #expect(verdict(error) == .notExecuted("用户不存在或已删除")) }
 }
 
 @Test func updateBalanceAcceptsSameAddressRecordsOnly() async throws {

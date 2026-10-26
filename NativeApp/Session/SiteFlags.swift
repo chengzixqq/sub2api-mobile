@@ -12,6 +12,12 @@ struct SiteFlags {
     /// `serverIDs`: one address (AppModel.sameAddressServerIDs); any marked id of it decides.
     func requestIDUsable(sameAddress serverIDs: Set<UUID>) -> Bool { !serverIDs.contains { requestIDUnreliable(serverID: $0) } }
     func removeAll(serverID: UUID) { defaults.removeObject(forKey: Self.requestIDKey(serverID)) }
+    /// A deleted site leaves the address set, so its flag goes to the ids still at its address (`sameAddress` may include it);
+    /// the last id of an address takes the flag with it.
+    func remove(serverID: UUID, handingOverTo sameAddress: Set<UUID>) {
+        if requestIDUnreliable(serverID: serverID) { sameAddress.subtracting([serverID]).forEach(markRequestIDUnreliable) }
+        removeAll(serverID: serverID)
+    }
 
     static func requestIDKey(_ serverID: UUID) -> String { "site.requestIDUnreliable." + serverID.uuidString }
 }
