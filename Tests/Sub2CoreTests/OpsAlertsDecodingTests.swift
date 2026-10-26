@@ -104,3 +104,129 @@ private let fullEvent = #"""
     #expect(rule.metricType == "" && rule.comparison == "" && rule.threshold == nil)
     #expect(rule.windowMinutes == 0 && rule.sustainedMinutes == 0 && rule.deleted)
 }
+
+// MARK: S1-03 counts, silences, cursor and local copies
+
+private func decodeCounts(_ json: String) throws -> AlertCounts { try JSONDecoder().decode(AlertCounts.self, from: Data(json.utf8)) }
+private func decodeSilence(_ json: String) throws -> AlertSilence { try JSONDecoder().decode(AlertSilence.self, from: Data(json.utf8)) }
+private let zeroSeverities = ["P0": 0, "P1": 0, "P2": 0, "P3": 0]
+
+@Test func alertCountsDecodeFiringAndEverySeverity() throws {
+    let counts = try decodeCounts(#"{"firing":3,"by_severity":{"P0":1,"P1":2,"P2":0,"P3":0}}"#)
+    #expect(counts.firing == 3)
+    #expect(counts.count(severity: "P1") == 2 && counts.count(severity: " p1 ") == 2)
+    #expect(counts.count(severity: "P4") == 0 && counts.count(severity: nil) == 0)
+    #expect(counts.bySeverity == ["P0": 1, "P1": 2, "P2": 0, "P3": 0])
+    #expect(AlertCounts.severities == ["P0", "P1", "P2", "P3"])
+}
+
+@Test func alertCountsFillMissingSeveritiesAndFiring() throws {
+    let partial = try decodeCounts(#"{"by_severity":{"P2":4}}"#)
+    #expect(partial.bySeverity == ["P0": 0, "P1": 0, "P2": 4, "P3": 0])
+    #expect(partial.firing == 4)
+    for json in [#"{}"#, #"{"by_severity":null}"#, #"{"firing":null,"by_severity":"x"}"#] {
+        let empty = try decodeCounts(json)
+        #expect(empty.firing == 0 && empty.bySeverity == zeroSeverities)
+    }
+    let built = AlertCounts(firing: nil, bySeverity: [" p0 ": 1, "P4": 2])
+    #expect(built.bySeverity == ["P0": 1, "P1": 0, "P2": 0, "P3": 0, "P4": 2])
+    #expect(built.firing == 3 && built.count(severity: "p4") == 2)
+    #expect(AlertCounts(firing: 9, bySeverity: ["P1": 1]).firing == 9)
+    #expect(AlertCounts() == AlertCounts(firing: 0, bySeverity: zeroSeverities))
+}
+
+@Test func alertSilenceDecodesBackendObject() throws {
+    let silence = try decodeSilence(#"""
+    {"id":9,"rule_id":41,"platform":"openai","group_id":12,"region":null,"until":"2026-10-22T02:41:00Z","reason":"",
+     "created_by":1,"created_at":"2026-10-22T01:41:00Z","created_by_name":"admin"}
+    """#)
+    let until = try #require(ServerTime.parseTimestamp("2026-10-22T02:41:00Z"))
+    #expect(silence == AlertSilence(id: 9, ruleID: 41, platform: "openai", groupID: 12, until: until))
+    #expect(silence.ref == AlertSilenceRef(id: 9, until: until))
+}
+
+@Test func alertSilenceWithoutGroupOrPlatform() throws {
+    let unscoped = try decodeSilence(#"{"id":4,"rule_id":2,"platform":"","until":"later"}"#)
+    #expect(unscoped.groupID == nil && unscoped.platform == nil && unscoped.until == nil && unscoped.ruleID == 2)
+    #expect(try decodeSilence(#"{"id":4,"platform":"  ","group_id":null}"#).platform == nil)
+    #expect(AlertSilence(id: 1, platform: " openai ").platform == "openai")
+    #expect(AlertSilence(id: 1, platform: " ").platform == nil)
+    #expect(throws: (any Error).self) { try decodeSilence(#"{"rule_id":2}"#) }
+}
+
+@Test func alertEventCursorKeepsServerFraction() throws {
+    let event = try decodeEvent(fullEvent)
+    #expect(event.cursor?.firedAt == "2026-10-22T01:29:03.123456Z" && event.cursor?.id == 42)
+    #expect(AlertEventCursor(serverFiredAt: "2026-10-22T01:29:03Z", id: 1)?.firedAt == "2026-10-22T01:29:03Z")
+    #expect(AlertEventCursor(serverFiredAt: "2026-10-22T01:29:03.123456789Z", id: 1)?.firedAt == "2026-10-22T01:29:03.123456789Z")
+    #expect(AlertEventCursor(serverFiredAt: "2026-10-21T22:59:03.5-03:30", id: 1)?.firedAt == "2026-10-22T02:29:03.5Z")
+    #expect(AlertEventCursor(serverFiredAt: "garbage", id: 1) == nil)
+    #expect(AlertEventCursor(serverFiredAt: nil, id: 1) == nil)
+    #expect(AlertEventCursor(serverFiredAt: "2026-10-22T01:29:03Z", id: 0) == nil)
+    #expect(try decodeEvent(#"{"id":5}"#).cursor == nil)
+    #expect(try decodeEvent(#"{"id":5,"fired_at":"garbage"}"#).cursor == nil)
+}
+
+@Test func alertEventCursorFromDateUsesMilliseconds() throws {
+    #expect(AlertEventCursor(firedAt: Date(timeIntervalSince1970: 1_800_000_000.25), id: 3).firedAt == "2027-01-15T08:00:00.250Z")
+    let fired = Date(timeIntervalSince1970: 1_800_000_000)
+    let built = AlertEvent(id: 3, status: "firing", firedAt: fired)
+    #expect(built.cursor == AlertEventCursor(firedAt: fired, id: 3))
+    #expect(built.cursor?.firedAt == "2027-01-15T08:00:00.000Z")
+    #expect(AlertEvent(id: 3).cursor == nil)
+    let given = AlertEventCursor(serverFiredAt: "2027-01-15T08:00:00.123456Z", id: 3)
+    #expect(AlertEvent(id: 3, firedAt: fired, cursor: given).cursor == given)
+}
+
+@Test func alertEventCursorOrderComparesFractionThenID() throws {
+    func cursor(_ raw: String, _ id: Int) throws -> AlertEventCursor { try #require(AlertEventCursor(serverFiredAt: raw, id: id)) }
+    let whole = try cursor("2026-10-22T01:29:03Z", 9)
+    let half = try cursor("2026-10-22T01:29:03.5Z", 1)
+    let micro = try cursor("2026-10-22T01:29:03.500001Z", 1)
+    let nextSecond = try cursor("2026-10-22T01:29:04Z", 1)
+    #expect(whole < half && half < micro && micro < nextSecond)
+    #expect(try cursor("2026-10-22T01:29:03.123456Z", 76) < cursor("2026-10-22T09:29:03.123456+08:00", 77))
+    #expect(try !(cursor("2026-10-22T01:29:03.50Z", 1) < cursor("2026-10-22T01:29:03.5Z", 1)))
+    #expect(try cursor("2026-10-21T23:59:59.9Z", 99) < cursor("2026-10-22T00:00:00Z", 1))
+    #expect([nextSecond, whole, micro, half].sorted() == [whole, half, micro, nextSecond])
+}
+
+@Test func resolvedLocallyReturnsNewValueAndKeepsOriginal() throws {
+    let original = try decodeEvent(fullEvent)
+    let at = Date(timeIntervalSince1970: 1_800_000_000)
+    let resolved = original.resolvedLocally(at: at)
+    #expect(resolved.status == "manual_resolved" && resolved.resolvedAt == at && !resolved.isFiring)
+    #expect(resolved.silence == original.silence && resolved.rule == original.rule && resolved.cursor == original.cursor)
+    #expect(resolved.silenceSupported && resolved.platform == "openai" && resolved.groupID == 12 && resolved.groupName == "标准组")
+    #expect(resolved.id == original.id && resolved.title == original.title && resolved.firedAt == original.firedAt)
+    #expect(original.status == "firing" && original.resolvedAt == nil)
+}
+
+@Test func withSilenceReplacesOrClearsWithoutTouchingSupportFlag() throws {
+    let original = try decodeEvent(fullEvent)
+    let until = Date(timeIntervalSince1970: 1_800_003_600)
+    let replaced = original.withSilence(AlertSilenceRef(id: 5, until: until))
+    #expect(replaced.silence == AlertSilenceRef(id: 5, until: until) && replaced.silenceSupported)
+    let cleared = original.withSilence(nil)
+    #expect(cleared.silence == nil && cleared.silenceSupported && cleared.cursor == original.cursor)
+    #expect(original.silence?.id == 3)
+    #expect(cleared.withSilence(original.silence) == original)
+    let legacy = try decodeEvent(#"{"id":1,"status":"firing","fired_at":"2026-10-22T01:29:03Z"}"#)
+    #expect(!legacy.withSilence(AlertSilenceRef(id: 5, until: until)).silenceSupported)
+}
+
+@Test func replacingRuleKeepsServerCursor() throws {
+    let original = try decodeEvent(fullEvent)
+    let stripped = original.replacingRule(nil)
+    #expect(stripped.rule == nil && stripped.cursor?.firedAt == "2026-10-22T01:29:03.123456Z")
+    #expect(stripped.replacingRule(original.rule) == original)
+}
+
+@Test func replacingGroupNameKeepsEverythingElse() throws {
+    let original = try decodeEvent(fullEvent)
+    let renamed = original.replacingGroupName(" 高级组 ")
+    #expect(renamed.groupName == "高级组" && renamed.cursor == original.cursor && renamed.rule == original.rule)
+    #expect(original.replacingGroupName("  ").groupName == nil && original.replacingGroupName(nil).groupName == nil)
+    #expect(renamed.replacingGroupName("标准组") == original)
+    #expect(original.groupName == "标准组")
+}
