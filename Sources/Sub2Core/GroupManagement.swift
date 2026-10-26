@@ -20,14 +20,16 @@ public struct AdminGroup: Identifiable, Codable, Sendable, Equatable {
     public var billingLocked: Bool?
     public var createdAt: String?
     public var updatedAt: String?
+    /// `sort_order`; order groups with `displayOrder`.
+    public var sortOrder: Int?
 
-    public init(id: Int, name: String, description: String? = nil, platform: String = "openai", status: String = "active", rateMultiplier: Decimal? = 1, isExclusive: Bool? = false, subscriptionType: String? = "standard", dailyLimitUSD: Decimal? = nil, weeklyLimitUSD: Decimal? = nil, monthlyLimitUSD: Decimal? = nil, rpmLimit: Int? = 0, accountCount: Int? = nil, activeAccountCount: Int? = nil, rateLimitedAccountCount: Int? = nil, billingLocked: Bool? = nil, createdAt: String? = nil, updatedAt: String? = nil) {
+    public init(id: Int, name: String, description: String? = nil, platform: String = "openai", status: String = "active", rateMultiplier: Decimal? = 1, isExclusive: Bool? = false, subscriptionType: String? = "standard", dailyLimitUSD: Decimal? = nil, weeklyLimitUSD: Decimal? = nil, monthlyLimitUSD: Decimal? = nil, rpmLimit: Int? = 0, accountCount: Int? = nil, activeAccountCount: Int? = nil, rateLimitedAccountCount: Int? = nil, billingLocked: Bool? = nil, createdAt: String? = nil, updatedAt: String? = nil, sortOrder: Int? = nil) {
         self.id = id; self.name = name; self.description = description; self.platform = platform; self.status = status
         self.rateMultiplier = rateMultiplier; self.isExclusive = isExclusive; self.subscriptionType = subscriptionType
         self.dailyLimitUSD = dailyLimitUSD; self.weeklyLimitUSD = weeklyLimitUSD; self.monthlyLimitUSD = monthlyLimitUSD
         self.rpmLimit = rpmLimit; self.accountCount = accountCount; self.activeAccountCount = activeAccountCount
         self.rateLimitedAccountCount = rateLimitedAccountCount; self.billingLocked = billingLocked
-        self.createdAt = createdAt; self.updatedAt = updatedAt
+        self.createdAt = createdAt; self.updatedAt = updatedAt; self.sortOrder = sortOrder
     }
     enum CodingKeys: String, CodingKey {
         case id, name, description, platform, status
@@ -35,7 +37,7 @@ public struct AdminGroup: Identifiable, Codable, Sendable, Equatable {
         case dailyLimitUSD = "daily_limit_usd", weeklyLimitUSD = "weekly_limit_usd", monthlyLimitUSD = "monthly_limit_usd"
         case rpmLimit = "rpm_limit", accountCount = "account_count", activeAccountCount = "active_account_count"
         case rateLimitedAccountCount = "rate_limited_account_count", billingLocked = "billing_locked"
-        case createdAt = "created_at", updatedAt = "updated_at"
+        case createdAt = "created_at", updatedAt = "updated_at", sortOrder = "sort_order"
     }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -50,6 +52,14 @@ public struct AdminGroup: Identifiable, Codable, Sendable, Equatable {
         rateLimitedAccountCount = try c.decodeIfPresent(Int.self, forKey: .rateLimitedAccountCount)
         billingLocked = try c.decodeIfPresent(Bool.self, forKey: .billingLocked)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt); updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
+        sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder)
+    }
+}
+extension AdminGroup {
+    /// The backend's order (ListActive / ListWithFilters): sort_order ascending, a missing one as 0, then id.
+    /// Use as `groups.sorted(by: AdminGroup.displayOrder)`.
+    public static func displayOrder(_ lhs: AdminGroup, _ rhs: AdminGroup) -> Bool {
+        (lhs.sortOrder ?? 0, lhs.id) < (rhs.sortOrder ?? 0, rhs.id)
     }
 }
 
@@ -173,8 +183,12 @@ extension APIClient {
     public func groups(page: Int, search: String = "", platform: String? = nil, status: String? = nil) async throws -> Page<AdminGroup> {
         try await request("admin/groups", query: pagination(page, search: search, status: status) + optionalQuery("platform", platform))
     }
-    public func allGroups(platform: String? = nil) async throws -> [AdminGroup] {
-        try await request("admin/groups/all", query: optionalQuery("platform", platform))
+    /// With `includeInactive` the backend reads only the literal `true` and then ignores `platform`, so the platform is applied here.
+    public func allGroups(platform: String? = nil, includeInactive: Bool = false) async throws -> [AdminGroup] {
+        let inactive = includeInactive ? [URLQueryItem(name: "include_inactive", value: "true")] : []
+        let groups: [AdminGroup] = try await request("admin/groups/all", query: optionalQuery("platform", platform) + inactive)
+        guard includeInactive, let platform, !platform.isEmpty else { return groups }
+        return groups.filter { $0.platform == platform }
     }
     public func group(id: Int) async throws -> AdminGroup { try await request("admin/groups/\(validID(id))") }
     public func groupCapacities() async throws -> [GroupCapacitySummary] { try await request("admin/groups/capacity-summary") }

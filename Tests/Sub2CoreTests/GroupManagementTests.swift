@@ -107,3 +107,26 @@ private func groupClient(_ transport: GroupTransport) -> APIClient {
     #expect(capacity.concurrencyUsed == 4 && capacity.sessionsUsed == nil && capacity.rpmUsed == 8)
     #expect(await transport.requests().last?.url?.path == "/api/v1/admin/groups/capacity-summary")
 }
+
+@Test func groupSortOrderDecodesAndDisplayOrderMatchesServer() throws {
+    let sorted = try JSONDecoder().decode(AdminGroup.self, from: Data(#"{"id":3,"name":"排序","platform":"openai","status":"active","sort_order":3}"#.utf8))
+    #expect(sorted.sortOrder == 3)
+    #expect(try JSONDecoder().decode(AdminGroup.self, from: JSONEncoder().encode(sorted)) == sorted)
+    #expect(try JSONDecoder().decode(AdminGroup.self, from: Data(groupDTO.utf8)).sortOrder == nil)
+    #expect(AdminGroup(id: 1, name: "默认").sortOrder == nil)
+    let groups = [AdminGroup(id: 1, name: "a", sortOrder: 2), AdminGroup(id: 9, name: "b", sortOrder: 0),
+                  AdminGroup(id: 3, name: "c"), AdminGroup(id: 4, name: "d", sortOrder: 0)]
+    #expect(groups.sorted(by: AdminGroup.displayOrder).map(\.id) == [3, 4, 9, 1])
+}
+
+/// The backend reads only the literal `true` and then ignores `platform`, so the platform is applied here.
+@Test func allGroupsIncludeInactiveSendsLiteralTrueAndFiltersPlatformLocally() async throws {
+    let mixed = #"[{"id":1,"name":"o","platform":"openai","status":"inactive"},{"id":2,"name":"a","platform":"anthropic","status":"inactive"}]"#
+    let transport = GroupTransport { _ in HTTPResponse(statusCode: 200, data: Data("{\"code\":0,\"data\":\(mixed)}".utf8)) }
+    let client = groupClient(transport)
+    #expect(try await client.allGroups(includeInactive: true).map(\.id) == [1, 2])
+    #expect(try await client.allGroups(platform: "anthropic", includeInactive: true).map(\.id) == [2])
+    #expect(try await client.allGroups(platform: "anthropic").count == 2)
+    let queries = await transport.requests().map { $0.url?.query }
+    #expect(queries == ["include_inactive=true", "platform=anthropic&include_inactive=true", "platform=anthropic"])
+}

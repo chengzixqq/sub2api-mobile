@@ -1,18 +1,8 @@
 import Foundation
 
-/// Only display metadata is retained. Proxy credentials, addresses and backend errors are not decoded.
-public struct AccountProxy: Codable, Sendable, Equatable {
-    public let id: Int
-    public let name: String
-    public let status: String?
-    public let expiresAt: String?
-    public init(id: Int, name: String, status: String? = nil, expiresAt: String? = nil) {
-        self.id = id; self.name = name; self.status = status; self.expiresAt = expiresAt
-    }
-    enum CodingKeys: String, CodingKey { case id, name, status; case expiresAt = "expires_at" }
-}
-
+/// The whole `extra` is kept as sent (20 §1.7; the PUT fallback merges onto it); only memory holds it, never a log or a page.
 public struct AccountExtra: Codable, Sendable {
+    public let raw: JSONValue
     public let upstreamBillingProbe: AccountBillingProbe?
     /// `extra.model_rate_limits` as sent; read it through `modelRateLimits`.
     public let modelRateLimitEntries: [String: ModelRateLimitEntry]?
@@ -32,16 +22,27 @@ public struct AccountExtra: Codable, Sendable {
             parser.date(entry.rateLimitResetAt).map { AccountModelRateLimit(model: model, resetAt: $0) }
         }.sorted { $0.model < $1.model }
     }
+    public subscript(key: String) -> JSONValue? { raw[key] }
+    /// For fixtures: the same derivation as a decoded `extra`.
+    public init(raw: JSONValue) throws { self = try raw.decode(AccountExtra.self) }
     public init(upstreamBillingProbe: AccountBillingProbe? = nil, modelRateLimitEntries: [String: ModelRateLimitEntry]? = nil) {
         self.upstreamBillingProbe = upstreamBillingProbe; self.modelRateLimitEntries = modelRateLimitEntries
+        var fields = [String: JSONValue]()
+        fields[CodingKeys.upstreamBillingProbe.rawValue] = upstreamBillingProbe.flatMap { try? JSONValue(encoding: $0) }
+        fields[CodingKeys.modelRateLimitEntries.rawValue] = modelRateLimitEntries.flatMap { try? JSONValue(encoding: $0) }
+        raw = .object(fields)
     }
     enum CodingKeys: String, CodingKey { case upstreamBillingProbe = "upstream_billing_probe", modelRateLimitEntries = "model_rate_limits" }
-    /// A malformed `model_rate_limits` is dropped on its own; it must not fail the whole account list.
+    /// A malformed `model_rate_limits` is dropped on its own, and an `extra` that is not an object derives nothing; neither
+    /// fails the whole account list.
     public init(from decoder: any Decoder) throws {
+        raw = try JSONValue(from: decoder)
+        guard raw.objectValue != nil else { upstreamBillingProbe = nil; modelRateLimitEntries = nil; return }
         let c = try decoder.container(keyedBy: CodingKeys.self)
         upstreamBillingProbe = try c.decodeIfPresent(AccountBillingProbe.self, forKey: .upstreamBillingProbe)
         modelRateLimitEntries = try? c.decodeIfPresent([String: ModelRateLimitEntry].self, forKey: .modelRateLimitEntries)
     }
+    public func encode(to encoder: any Encoder) throws { try raw.encode(to: encoder) }
 }
 
 /// C10 `token_status`, for OAuth and Setup Token accounts; times stay raw strings until displayed.

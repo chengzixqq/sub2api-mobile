@@ -52,17 +52,21 @@ private func runtimeAccount(_ fields: String = "") throws -> UpstreamAccount {
     #expect(!AccountFieldPresentation.capacity(zero).contains("不限制"))
 }
 
-@Test func safeAccountMetadataDoesNotRetainProxyOrProbeSecretsAndExpiredBillingIsUnavailable() throws {
-    let account = try runtimeAccount(#""proxy":{"id":2,"name":"线路 A","status":"active","host":"secret-host","username":"secret-user","password":"secret-password"},"extra":{"private_token":"secret-token","upstream_billing_probe":{"status":"ok","fresh_until":"2026-10-15T02:00:00Z","last_error":"secret-error","data":{"effective_rate_multiplier":"1.234567890123456789","observed_at":"2026-10-15T00:00:00Z"}}}"#)
+/// 20 §3.3 shows the proxy address and 20 §1.7 keeps the whole `extra`; the proxy login is still never decoded.
+@Test func accountMetadataDropsProxyLoginKeepsRawExtraAndExpiredBillingIsUnavailable() throws {
+    let account = try runtimeAccount(#""proxy":{"id":2,"name":"线路 A","status":"active","host":"proxy.example.invalid","username":"secret-user","password":"secret-password"},"extra":{"private_token":"upstream-fixture","upstream_billing_probe":{"status":"ok","fresh_until":"2026-10-15T02:00:00Z","last_error":"upstream-error","data":{"effective_rate_multiplier":"1.234567890123456789","observed_at":"2026-10-15T00:00:00Z"}}}"#)
     #expect(AccountFieldPresentation.value(.proxy, account: account, now: fixedNow) == "线路 A（#2）")
+    #expect(account.proxy?.host == "proxy.example.invalid")
     let probe = try #require(account.extra?.upstreamBillingProbe)
     let beforeExpiry = Date(timeIntervalSince1970: 1_792_026_000)
     #expect(probe.historicalMultiplier(at: beforeExpiry) == Decimal(string: "1.234567890123456789"))
     #expect(probe.historicalMultiplier(at: beforeExpiry.addingTimeInterval(3_600)) == nil)
     #expect(probe.historicalMultiplier(at: beforeExpiry.addingTimeInterval(-7_200)) == nil)
     let encoded = String(decoding: try JSONEncoder().encode(account), as: UTF8.self)
-    #expect(!encoded.contains("secret-"))
-    #expect(!encoded.contains("host") && !encoded.contains("password"))
+    #expect(!encoded.contains("secret-user") && !encoded.contains("secret-password"))
+    #expect(!encoded.contains(#""username""#) && !encoded.contains(#""password""#))
+    #expect(account.extra?["private_token"] == .string("upstream-fixture"))
+    #expect(account.extra?["upstream_billing_probe"]?["last_error"] == .string("upstream-error"))
 }
 
 @Test func oldAccountFieldPreferencesKeepHiddenRuntimeFieldsAndOriginalRawKeys() {
