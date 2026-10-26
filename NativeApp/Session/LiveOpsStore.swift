@@ -85,31 +85,40 @@ final class LiveOpsStore {
 
     // MARK: - 首页（10 §1.2、§1.6）
 
-    /// Home and the extra reads side by side. A pull passes `noCache`; so does the first refresh after another page wrote.
+    /// Home and the extra reads side by side (a pull passes `noCache`); an extra read already in flight is left to finish.
     func refreshHome(noCache: Bool) async {
-        guard isCurrent(), let site = site() else { return }
-        let wrote = takeExternalWrite()
+        guard isCurrent(), site() != nil else { return }
         let skipsSLA = opsDisabled
-        async let main: Void = refreshHomeBlocks(site: site, noCache: noCache || wrote)
-        async let sla: Void = loadTodaySLA(zone: site.serverTimeZone, skipped: skipsSLA)
+        async let main: Void = refreshHomeBlocks(noCache: noCache)
+        async let sla: Void = refreshTodaySLA(skipped: skipsSLA)
         async let rank: Void = refreshRanking()
         _ = await (main, sla, rank)
     }
-    /// 00 §4.6: refresh, then wait 60 seconds (doubled after failures up to 300, or the rest of a 429 wait), for as long as the
-    /// caller's task lives. A refresh already in flight, such as a pull, is left to finish.
+    /// 00 §4.6, 10 §1.2: home, 今日 SLA and the calm ranking each keep their own timer for as long as the caller's task lives, so
+    /// a slow read never holds back the others: refresh, then wait 60 seconds from its end (doubled after failures up to 300, or
+    /// the rest of a 429 wait). A read already in flight, such as a pull, is left to finish.
     func homePolling() async {
-        while !Task.isCancelled, isCurrent() {
-            if !homeRequest.isLoading { await refreshHome(noCache: false) }
-            do { try await self.sleep(.seconds(homeRequest.nextDelay(base: Self.pollInterval))) } catch { return }
+        async let blocks: Void = pollHomeBlocks()
+        async let sla: Void = pollTodaySLA()
+        async let rank: Void = pollRanking()
+        _ = await (blocks, sla, rank)
+    }
+    /// The home request's own timer; its follow-ups (the structured errors) wait with it.
+    func pollHomeBlocks() async {
+        await poll {
+            if !homeRequest.isLoading { await refreshHomeBlocks(noCache: false) }
+            return nextHomeDelay()
         }
     }
-    /// A countdown on the page reached zero: at most one refresh in ten seconds.
+    /// S1-07 answers for the fallback's blocks here.
+    func nextHomeDelay() -> TimeInterval { homeRequest.nextDelay(base: Self.pollInterval) }
+    /// A countdown on the page reached zero: at most one home read in ten seconds; the extra reads keep their own timers.
     func countdownElapsed() async {
         let now = localNow()
         if let last = lastCountdownRefreshAt, Self.isWithin(Self.countdownRefreshGap, since: last, now: now) { return }
         lastCountdownRefreshAt = now
         guard !homeRequest.isLoading else { return }
-        await refreshHome(noCache: false)
+        await refreshHomeBlocks(noCache: false)
     }
     /// 10 §1.4, X17: another page wrote; the next home read bypasses the server cache.
     func noteExternalWrite() { externalWritePending = true }
@@ -122,9 +131,9 @@ final class LiveOpsStore {
         if ranking.value != nil, let fetched = rankingFetchedAt, Self.isWithin(Self.pollInterval, since: fetched, now: localNow()) { return }
         rankingTask = Task { [weak self] in await self?.refreshRanking() }
     }
-    /// 10 §2.3: only while the calm layout shows and the site has `dashboard.accounts_ranking`.
+    /// 10 §2.3: only while the calm layout shows and the site has `dashboard.accounts_ranking`; a read in flight is left to finish.
     func refreshRanking() async {
-        guard isCalmVisible, isCurrent(), let site = site(), site.has(.dashboardAccountsRanking) else { return }
+        guard isCalmVisible, !ranking.isLoading, isCurrent(), let site = site(), site.has(.dashboardAccountsRanking) else { return }
         let source = source, zone = site.serverTimeZone, limit = Self.rankingLimit, before = ranking.updatedAt
         await ranking.load(isCurrent: isCurrent) { try await source.accountsRanking(limit: limit, timezone: zone) }
         if case .loaded(_, let at) = ranking.state, at != before { rankingFetchedAt = localNow() }
@@ -146,7 +155,10 @@ final class LiveOpsStore {
         await refreshStructuredErrors(summary)
     }
 
-    private func refreshHomeBlocks(site: SiteSession, noCache: Bool) async {
+    /// The first read after another page wrote bypasses the cache too.
+    private func refreshHomeBlocks(noCache: Bool) async {
+        guard isCurrent(), let site = site() else { return }
+        let noCache = noCache || takeExternalWrite()
         guard site.has(.dashboardHome) else { needsFallback = true; return }
         needsFallback = false
         let source = source, zone = site.serverTimeZone
@@ -173,10 +185,27 @@ final class LiveOpsStore {
         }
         await applyAvailabilityFollowUps()
     }
-    private func loadTodaySLA(zone: ServerTimeZone, skipped: Bool) async {
+    /// 今日 SLA from the server's midnight, none while ops monitoring is off; a read in flight is left to finish.
+    private func refreshTodaySLA(skipped: Bool) async {
+        guard !todayOps.isLoading, isCurrent(), let zone = site()?.serverTimeZone else { return }
         let end = serverNow(), start = zone.calendar.startOfDay(for: end)
         guard !skipped, start < end else { todayOps.reset(); return }
         await todayOps.load(isCurrent: isCurrent, operation: controlled { try await $0.opsOverview(start: start, end: end) })
+    }
+    private func pollTodaySLA() async {
+        await poll { await refreshTodaySLA(skipped: opsDisabled); return todayOps.nextDelay(base: Self.pollInterval) }
+    }
+    /// Only on a site with `dashboard.accounts_ranking`; a tick reads only while the calm layout shows.
+    private func pollRanking() async {
+        guard site()?.has(.dashboardAccountsRanking) == true else { return }
+        await poll { await refreshRanking(); return ranking.nextDelay(base: Self.pollInterval) }
+    }
+    /// One block's timer: `tick` refreshes and returns the wait, counted from the end of that refresh.
+    private func poll(_ tick: @MainActor () async -> TimeInterval) async {
+        while !Task.isCancelled, isCurrent() {
+            let delay = await tick()
+            do { try await sleep(.seconds(delay)) } catch { return }
+        }
     }
     /// A failed read is tried again on the next refresh; a 429 wait holds it back.
     private func refreshStructuredErrors(_ summary: AccountStatusSummary) async {
