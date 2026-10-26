@@ -22,7 +22,9 @@ struct AccountEditView: View {
     @State private var saving = false
     @State private var unresolved = false
     @State private var confirming = false
-    @State private var pending: PendingAccountUpdate?
+    @State private var pending: AccountPatchRequest?
+    /// Made at “确认保存” (R05) and kept for the same body; a re-prepared or refused edit gets a new one.
+    @State private var pendingKey: UUID?
     @State private var changedFields: [String] = []
 
     var body: some View {
@@ -112,9 +114,9 @@ struct AccountEditView: View {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         guard let value = Int(text) else { throw AppFailure("\(label)必须填写整数。") }; return value
     }
-    private func buildRequest() throws -> AccountUpdateRequest {
+    private func buildRequest() throws -> AccountPatchRequest {
         guard let original else { throw APIError.invalidResponse }
-        var input = AccountUpdateRequest(); var fields: [String] = []
+        var input = AccountPatchRequest(); var fields: [String] = []
         if name != original.name { input.name = name; fields.append("名称") }
         if notes != (original.notes ?? "") { input.notes = notes; fields.append("备注") }
         if concurrency != (original.concurrency.map(String.init) ?? "") {
@@ -137,15 +139,14 @@ struct AccountEditView: View {
     private func prepare() async {
         guard !saving, !unresolved, let session, session.generation == model.sessionGeneration else { return }
         do {
-            let request = try buildRequest()
-            pending = try PendingAccountUpdate(serverID: session.serverID, identity: await session.client.userWriteIdentity(), accountID: initial.id, request: request)
-            guard session.generation == model.sessionGeneration else { pending = nil; return }
+            pending = try buildRequest(); pendingKey = nil
             error = nil; confirming = true
         } catch { self.error = error.localizedDescription }
     }
     private func save() async {
         guard !saving, !unresolved, let session, session.generation == model.sessionGeneration, let pending else { return }
         saving = true; defer { saving = false }
+        let key = pendingKey ?? (session.has(.adminIdempotentWrites) ? UUID() : nil); pendingKey = key
         do {
             let updated: UpstreamAccount
             if model.isUITesting {
@@ -155,14 +156,20 @@ struct AccountEditView: View {
                 if let value = request.rateMultiplier { fixture.rateMultiplier = value }; if let value = request.loadFactor { fixture.loadFactor = value }
                 if let value = request.groupIDs { fixture.groupIDs = value; fixture.groups = groups.filter { value.contains($0.id) }.map { .init(id: $0.id, name: $0.name) } }
                 updated = fixture
-            } else { updated = try await session.client.updateAccount(pending) }
+            } else { updated = try await session.client.fullUpdate(id: initial.id, patch: pending, base: nil, idempotencyKey: key) }
             guard session.generation == model.sessionGeneration else { return }; onSaved(updated); dismiss()
         } catch {
             guard session.generation == model.sessionGeneration else { return }
+            if let failure = error as? KeyedWriteFailure {
+                self.error = failure.localizedDescription
+                if case .needsNewKey = failure.disposition { pendingKey = nil } else { unresolved = true }
+                return
+            }
             self.error = accountWriteFailure(error)
             // Cleared by the global sheet: the same pending update is confirmed again (00 §2.6.2 step 4).
             if isClearedForReconfirmation(error) { self.error = error.localizedDescription; confirming = true }
-            else if let api = error as? APIError, let code = api.statusCode, (400..<500).contains(code), code != 408 { /* Explicit rejection permits a corrected request. */ }
+            // An explicit rejection permits a corrected request under a new key.
+            else if let api = error as? APIError, let code = api.statusCode, (400..<500).contains(code), code != 408 { pendingKey = nil }
             else { unresolved = true }
         }
     }

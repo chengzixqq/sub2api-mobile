@@ -152,52 +152,6 @@ public struct AccountListPage: Decodable, Sendable {
     }
 }
 
-/// Nil means unchanged. Empty notes/group IDs intentionally clear the value.
-/// Credentials and provider-specific extra are never part of quick edits.
-public struct AccountUpdateRequest: Encodable, Sendable {
-    public var name: String?
-    public var notes: String?
-    public var concurrency: Int?
-    public var priority: Int?
-    public var rateMultiplier: Decimal?
-    public var loadFactor: Int?
-    public var groupIDs: [Int]?
-    public init(name: String? = nil, notes: String? = nil, concurrency: Int? = nil, priority: Int? = nil, rateMultiplier: Decimal? = nil, loadFactor: Int? = nil, groupIDs: [Int]? = nil) {
-        self.name = name?.trimmingCharacters(in: .whitespacesAndNewlines); self.notes = notes
-        self.concurrency = concurrency; self.priority = priority; self.rateMultiplier = rateMultiplier
-        self.loadFactor = loadFactor; self.groupIDs = groupIDs
-    }
-    enum CodingKeys: String, CodingKey {
-        case name, notes, concurrency, priority, rateMultiplier = "rate_multiplier", loadFactor = "load_factor", groupIDs = "group_ids"
-    }
-    public func validate() throws {
-        guard name != nil || notes != nil || concurrency != nil || priority != nil || rateMultiplier != nil || loadFactor != nil || groupIDs != nil else {
-            throw APIError(kind: .validation, message: "请至少修改一个账号字段。")
-        }
-        if let name, name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { throw APIError(kind: .validation, message: "账号名称不能为空。") }
-        for value in [concurrency, priority].compactMap({ $0 }) {
-            guard value >= 0, value <= Int(Int32.max) else { throw APIError(kind: .validation, message: "并发和优先级必须是非负整数。") }
-        }
-        if let loadFactor, loadFactor < 0 || loadFactor > 10_000 { throw APIError(kind: .validation, message: "负载因子必须是 0 至 10000 的整数；0 恢复默认。") }
-        if let rateMultiplier, rateMultiplier.isNaN || rateMultiplier < 0 { throw APIError(kind: .validation, message: "成本倍率必须是非负数。") }
-        if let groupIDs, groupIDs.contains(where: { $0 <= 0 }) || Set(groupIDs).count != groupIDs.count { throw APIError(kind: .validation, message: "分组编号无效或重复。") }
-    }
-    public func requestBody() throws -> Data {
-        try validate(); let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; return try encoder.encode(self)
-    }
-}
-
-public struct PendingAccountUpdate: Sendable {
-    public let serverID: UUID
-    public let identity: UUID
-    public let accountID: Int
-    public let body: Data
-    public init(serverID: UUID, identity: UUID, accountID: Int, request: AccountUpdateRequest) throws {
-        guard accountID > 0 else { throw APIError(kind: .validation, message: "账号编号无效。") }
-        self.serverID = serverID; self.identity = identity; self.accountID = accountID; body = try request.requestBody()
-    }
-}
-
 public struct AccountBulkReply: Decodable, Sendable {
     public let success: Int
     public let failed: Int
@@ -219,10 +173,6 @@ extension APIClient {
     /// R19: the App's one account list read. A 304 comes back as the cached page through ConditionalCache.
     public func managedAccounts(page: Int, query: AccountListQuery) async throws -> AccountListPage {
         try await request("admin/accounts", query: query.queryItems(page: page))
-    }
-    public func updateAccount(_ operation: PendingAccountUpdate) async throws -> UpstreamAccount {
-        guard operation.serverID == server.id, operation.identity == userWriteIdentity() else { throw APIError.stationMismatch }
-        return try await request("admin/accounts/\(operation.accountID)", method: "PUT", body: operation.body)
     }
     public func setAccountsSchedulable(ids: [Int], enabled: Bool, identity: UUID) async throws -> AccountBulkReply {
         guard identity == userWriteIdentity() else { throw APIError.stationMismatch }

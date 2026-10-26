@@ -153,36 +153,14 @@ private func sentFields(_ query: AccountListQuery, page: Int = 1) throws -> [Str
     #expect(AccountStatusFilter.allCases.filter(\.isLegacy) == [.error, .rateLimited, .tempUnschedulable, .unschedulable, .inactive, .active])
 }
 
-@Test func accountQuickEditPreservesDecimalAndExplicitClearsWithoutCredentials() throws {
-    let request = AccountUpdateRequest(notes: "", concurrency: 0, priority: 0, rateMultiplier: Decimal(string: "0.12345678"), groupIDs: [])
-    let bytes = try request.requestBody()
-    let json = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
-    #expect(json["notes"] as? String == "" && json["concurrency"] as? Int == 0)
-    #expect(json["group_ids"] as? [Int] == [])
-    #expect(json["name"] == nil && json["credentials"] == nil && json["extra"] == nil)
-    #expect(String(decoding: bytes, as: UTF8.self).contains("0.12345678"))
-    let clearLoad = try JSONSerialization.jsonObject(with: AccountUpdateRequest(loadFactor: 0).requestBody()) as? [String: Any]
-    #expect(clearLoad?["load_factor"] as? Int == 0)
-    for invalid in [AccountUpdateRequest(), AccountUpdateRequest(name: "  "), AccountUpdateRequest(concurrency: -1), AccountUpdateRequest(priority: -1), AccountUpdateRequest(rateMultiplier: -1), AccountUpdateRequest(loadFactor: -1), AccountUpdateRequest(loadFactor: 10_001), AccountUpdateRequest(groupIDs: [10, 10])] {
-        #expect(throws: APIError.self) { try invalid.validate() }
-    }
-}
-
-@Test func accountWritesRejectOldIdentityAndNeverReplayUnknownResults() async throws {
+@Test func accountBatchWritesRejectOldIdentity() async throws {
     let transport = ManagedAccountTransport(fails: true)
-    let server = managedAccountServer()
-    let client = APIClient(server: server, credential: .adminKey("fixture"), transport: transport)
+    let client = APIClient(server: managedAccountServer(), credential: .adminKey("fixture"), transport: transport)
     let identity = await client.userWriteIdentity()
-    let pending = try PendingAccountUpdate(serverID: server.id, identity: identity, accountID: 4, request: AccountUpdateRequest(notes: "说明"))
-    await #expect(throws: APIError.self) { try await client.updateAccount(pending) }
-    #expect(await transport.requests().count == 1)
-    let sent = try #require(await transport.requests().first)
-    #expect(sent.httpMethod == "PUT" && sent.url?.path == "/api/v1/admin/accounts/4" && sent.httpBody == pending.body)
     await client.cancelAll()
-    await #expect(throws: APIError.self) { try await client.updateAccount(pending) }
     await #expect(throws: APIError.self) { try await client.setAccountsSchedulable(ids: [4], enabled: false, identity: identity) }
     await #expect(throws: APIError.self) { try await client.refreshManagedAccount(id: 4, identity: identity) }
-    #expect(await transport.requests().count == 1)
+    #expect(await transport.requests().isEmpty)
 }
 
 @Test func bulkAccountSchedulingPreservesPartialFailureAndUnknownRows() async throws {
