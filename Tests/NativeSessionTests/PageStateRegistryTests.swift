@@ -10,78 +10,78 @@ private let session = PageStateKey.analyticsSession
 private let usageLogs = LogsRoute(account: RouteObject(id: 3), group: RouteObject(id: 5), user: RouteObject(id: 7), model: "gpt")
 
 @MainActor @Test func sameTabAndKeyReturnsTheSameInstanceAndMakesOnce() {
-    let registry = PageStateRegistry()
+    let registry = PageStateRegistry(), router = AppRouter()
     var makes = 0
-    let first = registry.state("k", tab: .search) { makes += 1; return PageProbe() }
-    let second = registry.state("k", tab: .search) { makes += 1; return PageProbe() }
-    let third = registry.state("k", tab: .search) { makes += 1; return PageProbe() }
+    let first = registry.state("k", tab: .search, prunedBy: router) { makes += 1; return PageProbe() }
+    let second = registry.state("k", tab: .search, prunedBy: router) { makes += 1; return PageProbe() }
+    let third = registry.state("k", tab: .search, prunedBy: router) { makes += 1; return PageProbe() }
     #expect(first === second && second === third)
     #expect(makes == 1)
 }
 
 @MainActor @Test func tabsAndKeysAreIsolated() {
-    let registry = PageStateRegistry()
-    let today = registry.state("k", tab: .today) { PageProbe() }
-    let search = registry.state("k", tab: .search) { PageProbe() }
-    let other = registry.state("j", tab: .search) { PageProbe() }
+    let registry = PageStateRegistry(), router = AppRouter()
+    let today = registry.state("k", tab: .today, prunedBy: router) { PageProbe() }
+    let search = registry.state("k", tab: .search, prunedBy: router) { PageProbe() }
+    let other = registry.state("j", tab: .search, prunedBy: router) { PageProbe() }
     #expect(today !== search && search !== other)
-    registry.release("k", tab: .search)
-    #expect(registry.existing("k", tab: .search, as: PageProbe.self) == nil)
-    #expect(registry.existing("k", tab: .today, as: PageProbe.self) === today)
-    #expect(registry.existing("j", tab: .search, as: PageProbe.self) === other)
+    registry.release("k", tab: .search, in: router)
+    #expect(registry.existing("k", tab: .search, in: router, as: PageProbe.self) == nil)
+    #expect(registry.existing("k", tab: .today, in: router, as: PageProbe.self) === today)
+    #expect(registry.existing("j", tab: .search, in: router, as: PageProbe.self) === other)
 }
 
 @MainActor @Test func releaseMakesTheNextCallBuildAgain() {
-    let registry = PageStateRegistry()
+    let registry = PageStateRegistry(), router = AppRouter()
     var makes = 0
-    let first = registry.state("k", tab: .users) { makes += 1; return PageProbe() }
-    registry.release("k", tab: .users)
-    #expect(registry.existing("k", tab: .users, as: PageProbe.self) == nil)
-    let again = registry.state("k", tab: .users) { makes += 1; return PageProbe() }
+    let first = registry.state("k", tab: .users, prunedBy: router) { makes += 1; return PageProbe() }
+    registry.release("k", tab: .users, in: router)
+    #expect(registry.existing("k", tab: .users, in: router, as: PageProbe.self) == nil)
+    let again = registry.state("k", tab: .users, prunedBy: router) { makes += 1; return PageProbe() }
     #expect(makes == 2)
     #expect(again !== first)
 }
 
 @MainActor @Test func pruneKeepsListedKeysOfThatTabOnly() {
-    let registry = PageStateRegistry()
-    let kept = registry.state("a", tab: .search) { PageProbe() }
-    _ = registry.state("b", tab: .search) { PageProbe() }
-    let today = registry.state("a", tab: .today) { PageProbe() }
-    registry.prune(tab: .search, keeping: ["a"])
-    #expect(registry.existing("a", tab: .search, as: PageProbe.self) === kept)
-    #expect(registry.existing("b", tab: .search, as: PageProbe.self) == nil)
-    #expect(registry.existing("a", tab: .today, as: PageProbe.self) === today)
+    let registry = PageStateRegistry(), router = AppRouter()
+    let kept = registry.state("a", tab: .search, prunedBy: router) { PageProbe() }
+    _ = registry.state("b", tab: .search, prunedBy: router) { PageProbe() }
+    let today = registry.state("a", tab: .today, prunedBy: router) { PageProbe() }
+    registry.prune(tab: .search, keeping: ["a"], in: router)
+    #expect(registry.existing("a", tab: .search, in: router, as: PageProbe.self) === kept)
+    #expect(registry.existing("b", tab: .search, in: router, as: PageProbe.self) == nil)
+    #expect(registry.existing("a", tab: .today, in: router, as: PageProbe.self) === today)
 }
 
 @MainActor @Test func existingNeverMakes() {
-    let registry = PageStateRegistry()
-    #expect(registry.existing("k", tab: .monitor, as: PageProbe.self) == nil)
-    #expect(registry.instances(of: PageProbe.self, tab: .monitor).isEmpty)
-    let probe = registry.state("k", tab: .monitor) { PageProbe() }
-    let found: PageProbe? = registry.existing("k", tab: .monitor)
+    let registry = PageStateRegistry(), router = AppRouter()
+    #expect(registry.existing("k", tab: .monitor, in: router, as: PageProbe.self) == nil)
+    #expect(registry.instances(of: PageProbe.self, tab: .monitor, in: router).isEmpty)
+    let probe = registry.state("k", tab: .monitor, prunedBy: router) { PageProbe() }
+    let found: PageProbe? = registry.existing("k", tab: .monitor, in: router)
     #expect(found === probe)
-    #expect(registry.existing("k", tab: .monitor, as: OtherProbe.self) == nil)
+    #expect(registry.existing("k", tab: .monitor, in: router, as: OtherProbe.self) == nil)
 }
 
 @MainActor @Test func instancesListOneTypeInOneTab() {
-    let registry = PageStateRegistry()
-    let second = registry.state("b", tab: .search) { PageProbe() }
-    let first = registry.state("a", tab: .search) { PageProbe() }
-    _ = registry.state("c", tab: .search) { OtherProbe() }
-    _ = registry.state("a", tab: .today) { PageProbe() }
-    let found = registry.instances(of: PageProbe.self, tab: .search)
+    let registry = PageStateRegistry(), router = AppRouter()
+    let second = registry.state("b", tab: .search, prunedBy: router) { PageProbe() }
+    let first = registry.state("a", tab: .search, prunedBy: router) { PageProbe() }
+    _ = registry.state("c", tab: .search, prunedBy: router) { OtherProbe() }
+    _ = registry.state("a", tab: .today, prunedBy: router) { PageProbe() }
+    let found = registry.instances(of: PageProbe.self, tab: .search, in: router)
     #expect(found.elementsEqual([first, second]) { $0 === $1 })
-    #expect(registry.instances(of: OtherProbe.self, tab: .today).isEmpty)
+    #expect(registry.instances(of: OtherProbe.self, tab: .today, in: router).isEmpty)
 }
 
 @MainActor @Test func sameKeyWithAnotherTypeIsReplaced() {
-    let registry = PageStateRegistry()
-    _ = registry.state("k", tab: .accounts) { PageProbe() }
+    let registry = PageStateRegistry(), router = AppRouter()
+    _ = registry.state("k", tab: .accounts, prunedBy: router) { PageProbe() }
     var makes = 0
-    let other = registry.state("k", tab: .accounts) { makes += 1; return OtherProbe() }
+    let other = registry.state("k", tab: .accounts, prunedBy: router) { makes += 1; return OtherProbe() }
     #expect(makes == 1)
-    #expect(registry.existing("k", tab: .accounts, as: OtherProbe.self) === other)
-    #expect(registry.existing("k", tab: .accounts, as: PageProbe.self) == nil)
+    #expect(registry.existing("k", tab: .accounts, in: router, as: OtherProbe.self) === other)
+    #expect(registry.existing("k", tab: .accounts, in: router, as: PageProbe.self) == nil)
 }
 
 @MainActor @Test func routeKeysFollowTheContract() {
@@ -133,9 +133,9 @@ func logsKeySeparatesConditions(_ other: LogsRoute) {
     router.setPath([.analytics(), .analyticsChart(.tokens)], for: .search)
     let probe = registry.state(session, tab: .search, prunedBy: router) { PageProbe() }
     router.setPath([.analytics()], for: .search)
-    #expect(registry.existing(session, tab: .search, as: PageProbe.self) === probe)
+    #expect(registry.existing(session, tab: .search, in: router, as: PageProbe.self) === probe)
     router.setPath([], for: .search)
-    #expect(registry.existing(session, tab: .search, as: PageProbe.self) == nil)
+    #expect(registry.existing(session, tab: .search, in: router, as: PageProbe.self) == nil)
 }
 
 @MainActor @Test func analyticsSessionIsReleasedWithoutAnyOtherPageAttaching() {
@@ -145,7 +145,7 @@ func logsKeySeparatesConditions(_ other: LogsRoute) {
     router.setPath([.analytics(), .analyticsChart(.tokens)], for: .search)
     let first = registry.state(session, tab: .search, prunedBy: router) { makes += 1; return PageProbe() }
     router.setPath([], for: .search)
-    #expect(registry.existing(session, tab: .search, as: PageProbe.self) == nil)
+    #expect(registry.existing(session, tab: .search, in: router, as: PageProbe.self) == nil)
     router.push(.analytics())
     let again = registry.state(session, tab: .search, prunedBy: router) { makes += 1; return PageProbe() }
     #expect(makes == 2)
@@ -159,9 +159,9 @@ func logsKeySeparatesConditions(_ other: LogsRoute) {
     router.setPath([.logs(usageLogs), .request(.usageRequestID("req"))], for: .today)
     let store = registry.state(key, tab: .today, prunedBy: router) { PageProbe() }
     router.setPath([.logs(usageLogs)], for: .today)
-    #expect(registry.existing(key, tab: .today, as: PageProbe.self) === store)
+    #expect(registry.existing(key, tab: .today, in: router, as: PageProbe.self) === store)
     router.setPath([], for: .today)
-    #expect(registry.existing(key, tab: .today, as: PageProbe.self) == nil)
+    #expect(registry.existing(key, tab: .today, in: router, as: PageProbe.self) == nil)
 }
 
 @MainActor @Test func pushNeverPrunes() {
@@ -172,12 +172,12 @@ func logsKeySeparatesConditions(_ other: LogsRoute) {
     let orphan = registry.state("orphan", tab: .search, prunedBy: router) { PageProbe() }
     router.push(.analytics())
     router.push(.account(id: 1))
-    #expect(registry.existing("orphan", tab: .search, as: PageProbe.self) === orphan)
+    #expect(registry.existing("orphan", tab: .search, in: router, as: PageProbe.self) === orphan)
     router.setPath(router.path(for: .search) + [.user(id: 2)], for: .search)
     router.setPath(router.path(for: .search), for: .search)
-    #expect(registry.existing("orphan", tab: .search, as: PageProbe.self) === orphan)
+    #expect(registry.existing("orphan", tab: .search, in: router, as: PageProbe.self) === orphan)
     router.setPath([.groups()], for: .search)
-    #expect(registry.existing("orphan", tab: .search, as: PageProbe.self) == nil)
+    #expect(registry.existing("orphan", tab: .search, in: router, as: PageProbe.self) == nil)
 }
 
 @MainActor @Test func sameLengthReplacementPrunesTheReplacedRoute() {
@@ -187,7 +187,7 @@ func logsKeySeparatesConditions(_ other: LogsRoute) {
     router.setPath([.logs(usageLogs)], for: .search)
     _ = registry.state(PageStateKey.logs(usageLogs), tab: .search, prunedBy: router) { PageProbe() }
     router.setPath([.logs(errors)], for: .search)
-    #expect(registry.existing(PageStateKey.logs(usageLogs), tab: .search, as: PageProbe.self) == nil)
+    #expect(registry.existing(PageStateKey.logs(usageLogs), tab: .search, in: router, as: PageProbe.self) == nil)
 }
 
 @MainActor @Test func popToRootAndSelectReleaseOnlyThatTab() {
@@ -200,28 +200,24 @@ func logsKeySeparatesConditions(_ other: LogsRoute) {
     let search = registry.state(logsKey, tab: .search, prunedBy: router) { PageProbe() }
     router.select(.monitor())
     #expect(router.selectedTab == .monitor && router.pendingIntent == .monitor())
-    #expect(registry.existing(session, tab: .today, as: PageProbe.self) === today)
-    #expect(registry.existing(logsKey, tab: .search, as: PageProbe.self) === search)
+    #expect(registry.existing(session, tab: .today, in: router, as: PageProbe.self) === today)
+    #expect(registry.existing(logsKey, tab: .search, in: router, as: PageProbe.self) === search)
     router.popToRoot(.search)
     #expect(router.path(for: .search).isEmpty)
-    #expect(registry.existing(logsKey, tab: .search, as: PageProbe.self) == nil)
-    #expect(registry.existing(session, tab: .today, as: PageProbe.self) === today)
+    #expect(registry.existing(logsKey, tab: .search, in: router, as: PageProbe.self) == nil)
+    #expect(registry.existing(session, tab: .today, in: router, as: PageProbe.self) === today)
     router.select(.today)
     #expect(router.selectedTab == .today && router.pendingIntent == .today && router.path(for: .today).isEmpty)
-    #expect(registry.existing(session, tab: .today, as: PageProbe.self) == nil)
+    #expect(registry.existing(session, tab: .today, in: router, as: PageProbe.self) == nil)
 }
 
-@MainActor @Test func routerWithoutRegistryAndUnattachedRegistryAreUntouched() {
+@MainActor @Test func routerWithoutRegistryKeepsItsPaths() {
     let router = AppRouter()
+    router.setPath([.analytics(), .analyticsChart(.tokens)], for: .today)
     router.setPath([.analytics()], for: .today)
-    router.setPath([], for: .today)
     router.popToRoot(.search)
     router.select(.users)
-    let registry = PageStateRegistry()
-    let probe = registry.state(session, tab: .today) { PageProbe() }
-    router.setPath([.analytics()], for: .today)
-    router.setPath([], for: .today)
-    #expect(registry.existing(session, tab: .today, as: PageProbe.self) === probe)
+    #expect(router.path(for: .today) == [.analytics()] && router.selectedTab == .users)
 }
 
 @MainActor @Test func replacingTheSessionRegistryDropsEverything() {
@@ -241,5 +237,52 @@ func logsKeySeparatesConditions(_ other: LogsRoute) {
     let fresh = registry?.state(session, tab: .search, prunedBy: router) { makes += 1; return PageProbe() }
     #expect(makes == 2 && fresh != nil)
     router.setPath([], for: .search)
-    #expect(registry?.existing(session, tab: .search, as: PageProbe.self) == nil)
+    #expect(registry?.existing(session, tab: .search, in: router, as: PageProbe.self) == nil)
+}
+
+// iPad windows each have their own MainTabs and AppRouter but share the session's registry.
+@MainActor @Test func windowsOnTheSameTabDoNotShareState() {
+    let registry = PageStateRegistry()
+    let windowA = AppRouter(selectedTab: .today), windowB = AppRouter(selectedTab: .today)
+    windowA.setPath([.analytics()], for: .today)
+    windowB.setPath([.analytics()], for: .today)
+    let a = registry.state(session, tab: .today, prunedBy: windowA) { PageProbe() }
+    let b = registry.state(session, tab: .today, prunedBy: windowB) { PageProbe() }
+    #expect(a !== b)
+    #expect(registry.existing(session, tab: .today, in: windowA, as: PageProbe.self) === a)
+    #expect(registry.existing(session, tab: .today, in: windowB, as: PageProbe.self) === b)
+    #expect(registry.instances(of: PageProbe.self, tab: .today, in: windowA).elementsEqual([a]) { $0 === $1 })
+}
+
+@MainActor @Test func oneWindowLeavingItsStackKeepsTheOtherWindowsState() {
+    let registry = PageStateRegistry()
+    let windowA = AppRouter(selectedTab: .search), windowB = AppRouter(selectedTab: .search)
+    let key = PageStateKey.logs(usageLogs)
+    windowA.setPath([.logs(usageLogs)], for: .search)
+    windowB.setPath([.logs(usageLogs)], for: .search)
+    _ = registry.state(key, tab: .search, prunedBy: windowA) { PageProbe() }
+    let store = registry.state(key, tab: .search, prunedBy: windowB) { PageProbe() }
+    windowA.setPath([], for: .search)
+    #expect(registry.existing(key, tab: .search, in: windowA, as: PageProbe.self) == nil)
+    #expect(registry.instances(of: PageProbe.self, tab: .search, in: windowB).elementsEqual([store]) { $0 === $1 })
+    windowA.select(.search)
+    registry.release(key, tab: .search, in: windowA)
+    #expect(registry.existing(key, tab: .search, in: windowB, as: PageProbe.self) === store)
+    windowB.setPath([], for: .search)
+    #expect(registry.instances(of: PageProbe.self, tab: .search, in: windowB).isEmpty)
+}
+
+@MainActor @Test func aClosedWindowsStateGoesWithItsRouter() {
+    let registry = PageStateRegistry()
+    var closed: AppRouter? = AppRouter(selectedTab: .today)
+    closed?.setPath([.analytics()], for: .today)
+    weak let closedProbe = closed.map { registry.state(session, tab: .today, prunedBy: $0) { PageProbe() } }
+    #expect(closedProbe != nil)
+    closed = nil
+    let open = AppRouter(selectedTab: .today)
+    open.setPath([.analytics()], for: .today)
+    var makes = 0
+    let fresh = registry.state(session, tab: .today, prunedBy: open) { makes += 1; return PageProbe() }
+    #expect(makes == 1 && closedProbe == nil)
+    #expect(registry.instances(of: PageProbe.self, tab: .today, in: open).elementsEqual([fresh]) { $0 === $1 })
 }
