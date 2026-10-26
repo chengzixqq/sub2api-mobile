@@ -17,6 +17,18 @@ extension DemoData {
         static let groupsError = "-ui-account-groups-error"
         /// Every timed window an hour longer, for tests that need 过载中 (72 seconds in the design) to hold.
         static let longWindows = "-ui-accounts-long-windows"
+        /// The account tab's first appearance takes the next argument as an intent from another tab (10 §0.7-4): “limited”,
+        /// “limited:anthropic”, or “all:kimi” for a platform alone. Nothing reaches the tab while S1-10's overview rows are missing.
+        static let intent = "-ui-accounts-intent"
+
+        static func launchIntent(arguments: [String]) -> TabIntent? {
+            guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
+            let value = arguments[index + 1]
+            guard !value.isEmpty, !value.hasPrefix("-") else { return nil }
+            let parts = value.split(separator: ":", maxSplits: 1).map(String.init)
+            let platform = parts.count > 1 && !parts[1].isEmpty ? parts[1] : nil
+            return .accounts(filter: AccountsTabFilter(rawValue: parts[0]), platform: platform)
+        }
     }
 
     /// The design's DEMO.groups and 11 Codex 专线 (S3D1-15): the App's only group fixture (X11). Member counts follow the demo

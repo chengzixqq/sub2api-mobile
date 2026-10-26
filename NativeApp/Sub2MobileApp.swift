@@ -73,6 +73,7 @@ extension AppActivity {
 /// every session, so a new site starts on 概览 with empty stacks (00 §1.1).
 struct MainTabs: View {
     @State private var router = AppRouter()
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         TabView(selection: $router.selectedTab) {
@@ -80,6 +81,7 @@ struct MainTabs: View {
             Tab(MainTab.today.title, systemImage: MainTab.today.systemImage, value: MainTab.today) { stack(.today) { DashboardView().siteTitleMenu() } }
             // 账号 Tab：阶段 2 加 .badge（S2-04）
             Tab(MainTab.accounts.title, systemImage: MainTab.accounts.systemImage, value: MainTab.accounts) { stack(.accounts) { AccountsView().siteTitleMenu() } }
+                .badge(model.accountBadge.errorCount)
             // 用户 Tab
             Tab(MainTab.users.title, systemImage: MainTab.users.systemImage, value: MainTab.users) { stack(.users) { UsersView() } }
             // 监控 Tab

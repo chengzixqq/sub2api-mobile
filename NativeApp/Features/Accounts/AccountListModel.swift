@@ -138,6 +138,14 @@ final class AccountListModel {
         self.platform = trimmed
         await reload()
     }
+    /// A tab intent sets both at once, so the list is read once (10 §0.7-4).
+    func select(_ chip: AccountListChip, platform: String) async {
+        let trimmed = platform.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != self.platform else { return await select(chip) }
+        self.chip = chip
+        self.platform = trimmed
+        await reload()
+    }
     func setVisible(_ visible: Bool) { isVisible = visible; restartTimer() }
     func setSelecting(_ selecting: Bool) { isSelecting = selecting; restartTimer() }
     func setSheetPresented(_ presented: Bool) { hasSheet = presented; restartTimer() }
@@ -359,7 +367,7 @@ final class AccountListModel {
         frozenOrder = result.frozenOrder
     }
     /// A failed summary falls back to local counts; one being refreshed keeps its last value (20 §1.5).
-    private var usableSummary: AccountStatusSummary? {
+    var usableSummary: AccountStatusSummary? {
         if case .failed = summary { return nil }
         return summary.value
     }

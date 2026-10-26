@@ -87,7 +87,7 @@ func expiredTokenResendsEveryMethodOnceWithIdenticalBytes(kind: String) async th
     case "read": _ = try await client.user(id: 7)
     case "unkeyedWrite": _ = try await client.setUserStatus(id: 7, status: "active")
     case "keyedWrite": _ = try await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)))
-    default: _ = try await client.accountTodayStats(ids: [9])
+    default: _ = try await client.accountTodayStatsBatch(ids: [9])
     }
     let requests = await transport.requests
     let business = requests.filter { !isRefresh($0) }
@@ -203,7 +203,7 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     _ = try? await client.publicSettings()
     _ = try? await client.user(id: 7)
     _ = try? await client.users(query: UserListQuery())
-    _ = try? await client.accountTodayStats(ids: [9])
+    _ = try? await client.accountTodayStatsBatch(ids: [9])
     _ = try? await client.setUserStatus(id: 7, status: "active")
     _ = try? await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)))
     _ = try? await client.setAccountsSchedulable(ids: [9], enabled: true, identity: identity)

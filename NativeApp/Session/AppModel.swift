@@ -81,6 +81,8 @@ final class AppModel {
     private(set) var accountBadge = AccountErrorBadge()
     /// C-10: the session's group names and order, loaded on first use (AppModel+Accounts.swift); nil without a site.
     private(set) var groupDirectory: GroupDirectory?
+    /// 20 §1.6: the badge's 60-second foreground fetch (AppModel+Accounts.swift), one loop per session.
+    @ObservationIgnored var accountBadgeTask: Task<Void, Never>?
 
     // MARK: - 阶段 3 · 会话级状态
     // 阶段 3 的条目在这里追加
@@ -283,6 +285,8 @@ final class AppModel {
         // 阶段 2 的条目在这里追加
         accountBadge = AccountErrorBadge()
         groupDirectory = makeGroupDirectory(client: next)
+        accountBadgeTask?.cancel()
+        accountBadgeTask = Task { [weak self] in await self?.runAccountBadgeRefresh(generation: generation) }
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
         userChanges = UserChangeSignal()
@@ -318,6 +322,8 @@ final class AppModel {
         // 阶段 2 的条目在这里追加
         accountBadge = AccountErrorBadge()
         groupDirectory = nil
+        accountBadgeTask?.cancel()
+        accountBadgeTask = nil
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
         userChanges = nil
@@ -431,37 +437,7 @@ final class AppModel {
     }
 
     // MARK: - 账号
-    func accounts(page: Int, search: String, status: String?, platform: String?, includeSchedulerScore: Bool = false) async throws -> Page<UpstreamAccount> {
-        if isUITesting {
-            let result = DemoData.accounts(page: page, search: search, status: status, platform: platform)
-            return result.mapItems(accountFixture)
-        }
-        return try await requireClient().accounts(page: page, search: search, status: status, platform: platform, includeSchedulerScore: includeSchedulerScore)
-    }
-    func account(id: Int) async throws -> UpstreamAccount {
-        if isUITesting { return accountFixture(DemoData.allAccounts.first { $0.id == id }!) }
-        return try await requireClient().account(id: id)
-    }
-    func accountTodayStats(id: Int) async throws -> AccountTodayStats {
-        if isUITesting { try await accountStatsFixtureDelay(); return DemoData.accountStats }
-        return try await requireClient().accountTodayStats(id: id)
-    }
-    func accountTodayStats(ids: [Int]) async throws -> [Int: AccountTodayStats] {
-        if isUITesting {
-            try await accountStatsFixtureDelay()
-            return Dictionary(uniqueKeysWithValues: Set(ids).map { ($0, DemoData.accountStats) })
-        }
-        return try await requireClient().accountTodayStats(ids: ids)
-    }
-    private func accountFixture(_ initial: UpstreamAccount) -> UpstreamAccount {
-        var account = initial
-        if ProcessInfo.processInfo.arguments.contains("-ui-account-runtime-missing") { account.currentRPM = nil }
-        return account
-    }
-    private func accountStatsFixtureDelay() async throws {
-        if ProcessInfo.processInfo.arguments.contains("-ui-account-slow-stats") { try await Task.sleep(for: .seconds(45)) }
-        if ProcessInfo.processInfo.arguments.contains("-ui-account-stats-error") { throw AppFailure("账号今日统计测试失败") }
-    }
+    // The account wrappers and their fixture branches live in AppModel+Accounts.swift (S2-03, S2-04).
 
     // MARK: - 用户
     // The user wrappers and their fixture branches live in AppModel+Users.swift (S3-01).
