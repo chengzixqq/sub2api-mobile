@@ -145,6 +145,23 @@ func keyedUnconfirmedReadsBack(cause: KeyedWriteFailure.UnconfirmedCause) {
     #expect(AccountActionCopy.disposition(of: failure) == .readBack)
 }
 
+/// 00 §2.5.3: only STORE_UNAVAILABLE holds the same number back, until the time KeyedWriteFlow gave.
+@Test func storeUnavailableHoldsTheNumberUntilItsCooldownEnds() {
+    let until = copyNow.addingTimeInterval(10)
+    let busy = KeyedWriteFailure(disposition: .unconfirmed(.storeUnavailable, retryNotBefore: until), key: "k", actionID: nil, lastError: nil)
+    #expect(AccountActionCopy.storeUnavailableUntil(busy) == until)
+    for cause in unconfirmedCauses where cause != .storeUnavailable {
+        let other = KeyedWriteFailure(disposition: .unconfirmed(cause, retryNotBefore: until), key: "k", actionID: nil, lastError: nil)
+        #expect(AccountActionCopy.storeUnavailableUntil(other) == nil)
+    }
+    #expect(AccountActionCopy.storeUnavailableUntil(newKeyConflict) == nil)
+    #expect(AccountActionCopy.storeUnavailableUntil(APIError.server(status: 503, reason: nil)) == nil)
+    #expect(AccountActionCopy.storeUnavailable(.setSchedulable(false))
+            == AccountReceiptCopy(text: "停止调度没有生效：服务器暂时无法受理，稍后用同一编号重试", systemImage: "exclamationmark.triangle",
+                                  tone: .caution, button: .retry))
+    #expect(AccountActionCopy.storeUnavailable(.enableAccount).text == "启用账号没有生效：服务器暂时无法受理，稍后用同一编号重试")
+}
+
 // MARK: - Row swipe (20 §1.4, S2D1-20)
 
 @Test(arguments: [

@@ -42,11 +42,20 @@ final class AccountActions {
     @ObservationIgnored private let onChange: @MainActor (UpstreamAccount) -> Void
     @ObservationIgnored private let onMissing: (@MainActor (Int) -> Void)?
     @ObservationIgnored private let makeKey: @MainActor () -> UUID
+    /// Holds a same-number retry until the device time KeyedWriteFlow gave (00 §2.5.3).
+    @ObservationIgnored private let waitUntil: @MainActor (Date) async throws -> Void
     private static let log = Logger(subsystem: "com.chengzixqq.sub2mobile", category: "accounts")
 
     init(source: any AccountWriteSource, receipts: ReceiptCenter, onChange: @escaping @MainActor (UpstreamAccount) -> Void,
-         onMissing: (@MainActor (Int) -> Void)? = nil, makeKey: @escaping @MainActor () -> UUID = { UUID() }) {
+         onMissing: (@MainActor (Int) -> Void)? = nil, makeKey: @escaping @MainActor () -> UUID = { UUID() },
+         waitUntil: @escaping @MainActor (Date) async throws -> Void = AccountActions.sleep(until:)) {
         self.source = source; self.receipts = receipts; self.onChange = onChange; self.onMissing = onMissing; self.makeKey = makeKey
+        self.waitUntil = waitUntil
+    }
+
+    nonisolated static func sleep(until date: Date) async throws {
+        let delay = date.timeIntervalSinceNow
+        if delay > 0 { try await Task.sleep(for: .seconds(delay)) }
     }
 
     func isRunning(_ accountID: Int) -> Bool { inFlight.contains(accountID) }
@@ -88,14 +97,16 @@ final class AccountActions {
         defer { inFlight.remove(id) }
         return await body(session)
     }
-    /// A receipt's button: sent in the session the receipt belongs to, whose writes AppModel refuses once it has ended.
-    private func relaunch(_ id: Int, _ body: @escaping @MainActor @Sendable (AccountActions) async -> AccountActionOutcome) {
+    /// A receipt's button: sent in the session the receipt belongs to, whose writes AppModel refuses once it has ended, and
+    /// not before `notBefore`; the account stays busy meanwhile.
+    private func relaunch(_ id: Int, notBefore: Date? = nil, _ body: @escaping @MainActor @Sendable (AccountActions) async -> AccountActionOutcome) {
         guard !inFlight.contains(id) else { return }
         inFlight.insert(id)
         Task { [weak self] in
             guard let self else { return }
+            defer { self.inFlight.remove(id) }
+            if let notBefore { do { try await self.waitUntil(notBefore) } catch { return } }
             _ = await body(self)
-            self.inFlight.remove(id)
         }
     }
     private func newKey(_ session: AccountWriteSession) -> UUID? { session.idempotentWrites ? makeKey() : nil }
@@ -127,7 +138,7 @@ final class AccountActions {
             case .success(let fresh)?:
                 if AccountWriteCheck.schedulable(fresh.account, equals: change.enabled) { return switched(fresh.account, change, session: session) }
                 onChange(fresh.account)
-                return notConfirmed(change.kind, keyed: change.key != nil, retry: retrySwitch(change, session))
+                return notConfirmed(change.kind, keyed: change.key != nil, after: error) { retrySwitch(change, session, notBefore: $0) }
             }
         }
     }
@@ -142,8 +153,8 @@ final class AccountActions {
         }
         return .succeeded
     }
-    private func retrySwitch(_ change: Switch, _ session: AccountWriteSession) -> @MainActor @Sendable () -> Void {
-        { [weak self] in self?.relaunch(change.id) { await $0.sendSchedulable(change, session: session) } }
+    private func retrySwitch(_ change: Switch, _ session: AccountWriteSession, notBefore: Date? = nil) -> @MainActor @Sendable () -> Void {
+        { [weak self] in self?.relaunch(change.id, notBefore: notBefore) { await $0.sendSchedulable(change, session: session) } }
     }
 
     // MARK: - Recover
@@ -198,7 +209,7 @@ final class AccountActions {
             if partial { return recovered(fresh.account, session: session) }
             guard AccountWriteCheck.recovered(fresh.account, now: source.serverNow()) else {
                 onChange(fresh.account)
-                return notConfirmed(.recover, keyed: false, retry: retryRecovery(recovery, session))
+                return notConfirmed(.recover, keyed: false, after: error) { _ in retryRecovery(recovery, session) }
             }
             return await enableAfterRecovery(fresh.account, recovery, session: session)
         }
@@ -236,7 +247,8 @@ final class AccountActions {
         func keyed(_ key: UUID?) -> StatusChange { StatusChange(id: id, target: target, isUndo: isUndo, key: key, undoTarget: undoTarget) }
     }
 
-    /// Without an ETag the version is read first; a server that sends none takes the PUT fallback.
+    /// Without an ETag the version is read first; a server that sends none takes the PUT fallback, under a new key unless this
+    /// is a retry of one.
     private func writeStatus(_ change: StatusChange, base: UpstreamAccount?, etag: String?, session: AccountWriteSession) async -> AccountActionOutcome {
         guard session.patch else { return await putStatus(change, session: session) }
         if let etag { return await patchStatus(change, base: base, etag: etag, session: session, isConflictRetry: false) }
@@ -244,7 +256,7 @@ final class AccountActions {
         case nil: return .ignored
         case .failure(let error)?: return versionUnreadable(error, change)
         case .success(let fresh)?:
-            guard let tag = fresh.etag else { return await putStatus(change.keyed(newKey(session)), session: session) }
+            guard let tag = fresh.etag else { return await putStatus(change.key == nil ? change.keyed(newKey(session)) : change, session: session) }
             return await patchStatus(change, base: fresh.account, etag: tag, session: session, isConflictRetry: false)
         }
     }
@@ -262,7 +274,7 @@ final class AccountActions {
             if let settled = settle(error, kind: change.kind, id: change.id, retry: retryStatus(change, base: base, etag: etag, session)) {
                 return settled
             }
-            return await verifyStatus(change, session: session)
+            return await verifyStatus(change, after: error, session: session)
         }
     }
     private func putStatus(_ change: StatusChange, session: AccountWriteSession) async -> AccountActionOutcome {
@@ -276,7 +288,7 @@ final class AccountActions {
             if let settled = settle(error, kind: change.kind, id: change.id, retry: retryStatus(change, base: nil, etag: nil, session)) {
                 return settled
             }
-            return await verifyStatus(change, session: session)
+            return await verifyStatus(change, after: error, session: session)
         }
     }
     /// 20 §0.4-6 for this one field: still the old status → resend once with the new ETag; already the target → done; a third
@@ -298,14 +310,16 @@ final class AccountActions {
         }
     }
     /// 20 §5.5: done when `status` reads the target.
-    private func verifyStatus(_ change: StatusChange, session: AccountWriteSession) async -> AccountActionOutcome {
+    private func verifyStatus(_ change: StatusChange, after writeError: any Error, session: AccountWriteSession) async -> AccountActionOutcome {
         switch await readBack(change.id, session: session) {
         case nil: return .ignored
         case .failure(let error)?: return readBackFailed(error, id: change.id, kind: change.kind)
         case .success(let fresh)?:
             if fresh.account.status == change.target.rawValue { return statusApplied(fresh, change, session: session) }
             onChange(fresh.account)
-            return notConfirmed(change.kind, keyed: change.key != nil, retry: retryStatus(change, base: fresh.account, etag: fresh.etag, session))
+            return notConfirmed(change.kind, keyed: change.key != nil, after: writeError) {
+                retryStatus(change, base: fresh.account, etag: fresh.etag, session, notBefore: $0)
+            }
         }
     }
     /// The undo writes the old status back with the reply's ETag (read first when there is none), under a new key on PUT.
@@ -335,8 +349,9 @@ final class AccountActions {
         show(AccountActionCopy.failed(change.kind, error: error))
         return .failed
     }
-    private func retryStatus(_ change: StatusChange, base: UpstreamAccount?, etag: String?, _ session: AccountWriteSession) -> @MainActor @Sendable () -> Void {
-        { [weak self] in self?.relaunch(change.id) { await $0.writeStatus(change, base: base, etag: etag, session: session) } }
+    private func retryStatus(_ change: StatusChange, base: UpstreamAccount?, etag: String?, _ session: AccountWriteSession,
+                             notBefore: Date? = nil) -> @MainActor @Sendable () -> Void {
+        { [weak self] in self?.relaunch(change.id, notBefore: notBefore) { await $0.writeStatus(change, base: base, etag: etag, session: session) } }
     }
 
     // MARK: - Failures and read-back
@@ -382,8 +397,14 @@ final class AccountActions {
         }
     }
     /// The read-back shows the write did not happen: a keyed one may go again under its number, an unkeyed one on the user's tap.
-    private func notConfirmed(_ kind: AccountActionKind, keyed: Bool, retry: @escaping @MainActor @Sendable () -> Void) -> AccountActionOutcome {
-        show(keyed ? AccountActionCopy.unconfirmedRetry(kind) : AccountActionCopy.notApplied(kind), action: retry)
+    /// After 503 IDEMPOTENCY_STORE_UNAVAILABLE nothing ran, and the number goes out again only once the cooldown is over (00 §2.5.3).
+    private func notConfirmed(_ kind: AccountActionKind, keyed: Bool, after error: any Error,
+                              retry: (_ notBefore: Date?) -> @MainActor @Sendable () -> Void) -> AccountActionOutcome {
+        if keyed, let notBefore = AccountActionCopy.storeUnavailableUntil(error) {
+            show(AccountActionCopy.storeUnavailable(kind), action: retry(notBefore))
+            return .notApplied
+        }
+        show(keyed ? AccountActionCopy.unconfirmedRetry(kind) : AccountActionCopy.notApplied(kind), action: retry(nil))
         return keyed ? .unconfirmed : .notApplied
     }
     private func show(_ copy: AccountReceiptCopy, action: (@MainActor @Sendable () -> Void)? = nil) {

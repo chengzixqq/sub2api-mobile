@@ -137,6 +137,11 @@ public enum AccountActionCopy {
     public static var unconfirmedReceipt: AccountReceiptCopy {
         AccountReceiptCopy(text: unconfirmed, systemImage: warning, tone: .caution, button: nil)
     }
+    /// 00 §2.5.3: 503 IDEMPOTENCY_STORE_UNAVAILABLE ran nothing and the read-back agrees; 重试 sends the same number once the
+    /// cooldown is over.
+    public static func storeUnavailable(_ kind: AccountActionKind) -> AccountReceiptCopy {
+        AccountReceiptCopy(text: "\(kind.verb)没有生效：服务器暂时无法受理，稍后用同一编号重试", systemImage: warning, tone: .caution, button: .retry)
+    }
     /// 00 §2.6.2 step 4: the cleared notice; 重试 is the second confirmation.
     public static func reconfirm(_ error: any Error) -> AccountReceiptCopy {
         AccountReceiptCopy(text: error.localizedDescription, systemImage: "checkmark.shield", tone: .caution, button: .retry)
@@ -175,6 +180,12 @@ public enum AccountActionCopy {
         if status == 404, api.reason == AccountWriteReason.notFound { return .missing }
         if status == 412, api.reason == AccountWriteReason.versionConflict { return .versionConflict }
         return .failed
+    }
+    /// 00 §2.5.3: until when a keyed write refused with 503 IDEMPOTENCY_STORE_UNAVAILABLE may not go out again under its
+    /// number; nil for any other failure.
+    public static func storeUnavailableUntil(_ error: any Error) -> Date? {
+        guard let failure = error as? KeyedWriteFailure, case .unconfirmed(.storeUnavailable, let notBefore) = failure.disposition else { return nil }
+        return notBefore
     }
 
     /// 20 §1.4: 停止调度 for a normal or timed account whose switch is on, 启用调度 when it is off. An account paused by its expiry
