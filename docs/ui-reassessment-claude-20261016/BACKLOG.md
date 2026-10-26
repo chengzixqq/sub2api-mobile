@@ -242,6 +242,8 @@
 | UpstreamAccount.credentials 可直接赋值 | credentials 是 public var，只在解码和 init 时剔除敏感键；之后代码直接赋值可以绕过。目前没有这种调用点，S2-05 / S2-10 / S2-12 的夹具若要在本地套用 credentials_patch，应经 init 重建或另加一个会剔除敏感键的辅助方法 |
 | 账号平台显示名口径待用户确认 | S2D1-12 采用“App 已知平台用内置中文名（智谱 GLM），目录 display_name 只给后端新登记的平台”，与 20 §0.3 字面“目录 display_name 优先”不同；用户若坚持目录优先，只改 AccountNaming.platformName 一处与 accountNamingPlatformNames 一行断言 |
 | MetaCatalog.builtin 需随后端同步重抄 | 内置平台清单是 sub2 main 70116315d 的 platformCatalog.builtin.json 与站长口径 platform_auth 的手抄快照（单测 builtinCatalogMatchesSub2BuiltinJSON 锁住当前值）；后端登记新平台或改官方端点时要重抄 |
+| 账号列表超过 2000 行时按平台懒加载（U15） | S2-03 只加载前 2000 行（新服务端按紧急度，旧服务端按名称），底部提示“还有 N 个账号未加载，用平台筛选缩小范围”；旧服务端时 2000 行以外的错误账号看不到。U15 实测后再定是否按平台分区懒加载。 |
+| 账号平台分区同级时的最后排序键 | 20 §1.3 只给到“需处理数降序、总数降序”，S2-03 再按平台 id 升序；以后若要按 meta/catalog 的平台顺序排，只改 AccountListLayout.platformOrder 一处。 |
 
 ### App 与设计 · 阶段 3
 
