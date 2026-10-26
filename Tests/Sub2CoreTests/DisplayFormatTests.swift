@@ -256,3 +256,16 @@ func durationPercentileSwitchesAtOneAndTenSeconds(milliseconds: Double, expected
     #expect(zeros == ["$0.00", "$0.00", "$0.00", "0", "0", "0", "0.0%", "0.0%", "0ms", "0"])
     #expect(!zeros.contains(DisplayFormat.missing))
 }
+
+@Test func missingValueIsSpokenAsNoData() {
+    #expect(DisplayFormat.missingSpoken == "无数据")
+    #expect(DisplayFormat.spoken(DisplayFormat.missing) == "无数据")
+    #expect(DisplayFormat.spoken(DisplayFormat.money(nil)) == "无数据")
+    #expect(DisplayFormat.spoken(DisplayFormat.duration(nil as Double?, style: .list)) == "无数据")
+}
+
+/// Zero is a value, not a missing one (00 §6.1); only the whole missing mark is replaced, never text that contains it.
+@Test(arguments: ["$0.00", "0", "0.0%", "刚刚", "", "— · 3", " —", "--"])
+func spokenKeepsOtherTextAsShown(text: String) {
+    #expect(DisplayFormat.spoken(text) == text)
+}

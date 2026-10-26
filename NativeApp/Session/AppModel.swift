@@ -71,6 +71,44 @@ final class AppModel {
     var lifecycle = SessionLifecycle()
     /// Keeps suspend and resume reaching the client in order (AppModel+Session.swift).
     @ObservationIgnored var sceneTask: Task<Void, Never>?
+
+    // MARK: - 阶段 1 · 会话级状态
+    // 阶段 1 的条目在这里追加
+
+    // MARK: - 阶段 2 · 会话级状态
+    // 阶段 2 的条目在这里追加
+
+    // MARK: - 阶段 3 · 会话级状态
+    // 阶段 3 的条目在这里追加
+
+    // MARK: - 阶段 4 · 会话级状态
+    // 阶段 4 的条目在这里追加
+
+    // MARK: - 阶段 5 · 会话级状态
+    // 阶段 5 的条目在这里追加
+
+    // MARK: - 阶段 6 · 会话级状态
+    // 阶段 6 的条目在这里追加
+
+    // MARK: - 阶段 1 · App 级状态
+    // 阶段 1 的条目在这里追加
+
+    // MARK: - 阶段 2 · App 级状态
+    // 阶段 2 的条目在这里追加
+
+    // MARK: - 阶段 3 · App 级状态
+    // 阶段 3 的条目在这里追加
+
+    // MARK: - 阶段 4 · App 级状态
+    // 阶段 4 的条目在这里追加
+
+    // MARK: - 阶段 5 · App 级状态
+    // 阶段 5 的条目在这里追加
+
+    // MARK: - 阶段 6 · App 级状态
+    // 阶段 6 的条目在这里追加
+
+    // MARK: - 连接与会话
     var sessionContext: SessionContext? {
         guard let client, let activeProfile, let siteSession else { return nil }
         return SessionContext(generation: sessionGeneration, serverID: activeProfile.id, client: client, site: siteSession)
@@ -90,6 +128,18 @@ final class AppModel {
         self.preferences = preferences
         let authenticator: any BiometricAuthenticating = if isUITesting { DemoData.biometricAuthenticator(preferences) } else { SystemBiometricAuthenticator() }
         biometricGate = BiometricGate(preferences: preferences, authenticator: authenticator)
+        // MARK: - 阶段 1 · App 级状态
+        // 阶段 1 的条目在这里追加
+        // MARK: - 阶段 2 · App 级状态
+        // 阶段 2 的条目在这里追加
+        // MARK: - 阶段 3 · App 级状态
+        // 阶段 3 的条目在这里追加
+        // MARK: - 阶段 4 · App 级状态
+        // 阶段 4 的条目在这里追加
+        // MARK: - 阶段 5 · App 级状态
+        // 阶段 5 的条目在这里追加
+        // MARK: - 阶段 6 · App 级状态
+        // 阶段 6 的条目在这里追加
         if let data = defaults.data(forKey: "profiles") { profiles = ServerProfile.storedList(from: data) }
         if let data = defaults.data(forKey: "profileArchive") { profileArchive = ServerProfile.storedArchive(from: data) }
         if let raw = defaults.string(forKey: "activeProfile") { savedActiveID = UUID(uuidString: raw) }
@@ -219,6 +269,18 @@ final class AppModel {
         siteSession = site
         activeLease = lease
         activeProfile = profile
+        // MARK: - 阶段 1 · 会话级状态
+        // 阶段 1 的条目在这里追加
+        // MARK: - 阶段 2 · 会话级状态
+        // 阶段 2 的条目在这里追加
+        // MARK: - 阶段 3 · 会话级状态
+        // 阶段 3 的条目在这里追加
+        // MARK: - 阶段 4 · 会话级状态
+        // 阶段 4 的条目在这里追加
+        // MARK: - 阶段 5 · 会话级状态
+        // 阶段 5 的条目在这里追加
+        // MARK: - 阶段 6 · 会话级状态
+        // 阶段 6 的条目在这里追加
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
         else { profiles.append(profile) }
         savedActiveID = profile.id
@@ -238,6 +300,18 @@ final class AppModel {
         receipts.clear()
         sessionGeneration = UUID()
         client = nil; siteSession = nil; activeProfile = nil; activeLease = nil; savedActiveID = nil
+        // MARK: - 阶段 1 · 会话级状态
+        // 阶段 1 的条目在这里追加
+        // MARK: - 阶段 2 · 会话级状态
+        // 阶段 2 的条目在这里追加
+        // MARK: - 阶段 3 · 会话级状态
+        // 阶段 3 的条目在这里追加
+        // MARK: - 阶段 4 · 会话级状态
+        // 阶段 4 的条目在这里追加
+        // MARK: - 阶段 5 · 会话级状态
+        // 阶段 5 的条目在这里追加
+        // MARK: - 阶段 6 · 会话级状态
+        // 阶段 6 的条目在这里追加
         if case .siteLogin(let notice) = exit { openSiteLogin(profile, notice: notice) }
         persistProfiles()
         await old?.cancelAll()
@@ -271,6 +345,7 @@ final class AppModel {
         return client
     }
 
+    // MARK: - 概览
     func dashboard() async throws -> DashboardSummary {
         if isUITesting {
             if ProcessInfo.processInfo.arguments.contains("-ui-missing-account-cost") {
@@ -334,6 +409,8 @@ final class AppModel {
         let end = Date()
         return try await requireClient().dashboardPerformanceTrend(start: end.addingTimeInterval(-Double(hours) * 3_600), end: end)
     }
+
+    // MARK: - 账号
     func accounts(page: Int, search: String, status: String?, platform: String?, includeSchedulerScore: Bool = false) async throws -> Page<UpstreamAccount> {
         if isUITesting {
             let result = DemoData.accounts(page: page, search: search, status: status, platform: platform)
@@ -365,6 +442,8 @@ final class AppModel {
         if ProcessInfo.processInfo.arguments.contains("-ui-account-slow-stats") { try await Task.sleep(for: .seconds(45)) }
         if ProcessInfo.processInfo.arguments.contains("-ui-account-stats-error") { throw AppFailure("账号今日统计测试失败") }
     }
+
+    // MARK: - 用户
     func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser> {
         if isUITesting {
             if ProcessInfo.processInfo.arguments.contains("-ui-session-revoked"), let profile = activeProfile,
@@ -439,6 +518,7 @@ final class AppModel {
         return try await requireClient().userKeys(id: id, page: page)
     }
 
+    // MARK: - 站点列表保存
     func persistProfiles() {
         defaults.set(try? JSONEncoder().encode(profiles), forKey: "profiles")
         defaults.set(savedActiveID?.uuidString, forKey: "activeProfile")

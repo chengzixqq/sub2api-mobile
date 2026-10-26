@@ -19,10 +19,15 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["login.error"].label.contains("HTTPS"))
     }
 
-    @MainActor func testLoginDashboardAccountPaginationAndDetails() {
+    @MainActor func testLoginShowsDashboard() {
         launch()
         login(name: "站点 A", url: "https://a.example.com")
         XCTAssertTrue(app.otherElements["dashboard.metrics"].waitForExistence(timeout: 10) || app.staticTexts["今日请求"].exists)
+    }
+
+    @MainActor func testAccountPaginationAndDetails() {
+        launch()
+        login(name: "站点 A", url: "https://a.example.com")
         app.tabBars.buttons["账号"].tap()
         XCTAssertTrue(app.buttons["account.1"].waitForExistence(timeout: 10))
         app.buttons["accounts.more"].tap()

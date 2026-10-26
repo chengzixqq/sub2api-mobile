@@ -22,8 +22,12 @@ enum DemoData {
                 features: .init(opsMonitoringEnabled: true, opsRealtimeMonitoringEnabled: true, channelMonitorEnabled: false,
                                 backendModeEnabled: false, paymentEnabled: false, subscriptionEnabled: false),
                 server: .init(version: "ui-test", runMode: "standard", serverTimezone: serverTimeZone.identifier,
-                              serverUTCOffset: serverTimeZone.rawUTCOffset, capabilities: Set(Capability.allCases.map(\.rawValue))))
+                              serverUTCOffset: serverTimeZone.rawUTCOffset,
+                              capabilities: Set(Capability.allCases.map(\.rawValue)).subtracting(withheldCapabilities(arguments: arguments))))
     }
+    /// X05: `-ui-without-capabilities a,b` takes those raw values out of the fixture site's capabilities; chapters build
+    /// their old-server and missing-capability fixtures with it instead of adding arguments here.
+    static func withheldCapabilities(arguments: [String]) -> Set<String> { UITestArguments.withheldCapabilities(arguments: arguments) }
     /// `GET admin/compliance` of the compliance fixture; the document is never opened by the tests.
     static let complianceStatus = AdminComplianceStatus(required: true, version: "2026-06", documentPathZH: "docs/legal/admin-compliance.zh.md",
                                                         documentURLZH: "https://example.invalid/admin-compliance.zh.md",

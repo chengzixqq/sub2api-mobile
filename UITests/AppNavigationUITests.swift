@@ -1,32 +1,53 @@
 import XCTest
 
 /// S0-14: the four tabs and the search tab (10 §0.7, U14), the search directory (60 §1), the monitor placeholder, and
-/// the site menu with its switch receipt (10 §0.7-5, §0.7-6).
+/// the site menu with its switch receipt (10 §0.7-5, §0.7-6). One function per tab and directory item (S1-00, X40): an item
+/// changes only its own area's functions and adds new ones after the last test.
 final class AppNavigationUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
 
-    @MainActor func testFourTabsAndSearchTabReplaceManagementAndSettings() {
-        launchAndLogin(name: "导航站点", url: "https://navigation.example.invalid")
+    @MainActor func testTabBarAndTodayTab() {
+        launchNavigationSite()
         defer { diagnostics("app-tabs-final") }
         for title in ["概览", "账号", "用户", "监控"] { XCTAssertTrue(app.tabBars.buttons[title].exists, app.debugDescription) }
         XCTAssertFalse(app.tabBars.buttons["管理"].exists)
         XCTAssertFalse(app.tabBars.buttons["设置"].exists)
-        app.tabBars.buttons["账号"].tap()
-        XCTAssertTrue(app.buttons["account.1"].waitForExistence(timeout: 10), app.debugDescription)
-        app.tabBars.buttons["用户"].tap()
-        XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10), app.debugDescription)
-        app.tabBars.buttons["监控"].tap()
-        XCTAssertTrue(app.segmentedControls["monitor.segment"].waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(element("monitor.placeholder").exists, app.debugDescription)
-        app.openSearchTab()
-        XCTAssertTrue(element("search.home").waitForExistence(timeout: 5), app.debugDescription)
-        diagnostics("search-directory")
         app.tabBars.buttons["概览"].tap()
         XCTAssertTrue(element("dashboard.today-requests").waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    @MainActor func testSearchDirectoryOpensExistingPagesAndPlaceholders() {
-        launchAndLogin(name: "目录站点", url: "https://directory.example.invalid")
+    @MainActor func testAccountsTabShowsAccounts() {
+        launchNavigationSite()
+        defer { diagnostics("app-tabs-accounts-final") }
+        app.tabBars.buttons["账号"].tap()
+        XCTAssertTrue(app.buttons["account.1"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor func testUsersTabShowsUsers() {
+        launchNavigationSite()
+        defer { diagnostics("app-tabs-users-final") }
+        app.tabBars.buttons["用户"].tap()
+        XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor func testMonitorTabShowsSegments() {
+        launchNavigationSite()
+        defer { diagnostics("app-tabs-monitor-final") }
+        app.tabBars.buttons["监控"].tap()
+        XCTAssertTrue(app.segmentedControls["monitor.segment"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("monitor.placeholder").exists, app.debugDescription)
+    }
+
+    @MainActor func testSearchTabShowsDirectory() {
+        launchNavigationSite()
+        defer { diagnostics("app-tabs-search-final") }
+        app.openSearchTab()
+        XCTAssertTrue(element("search.home").waitForExistence(timeout: 5), app.debugDescription)
+        diagnostics("search-directory")
+    }
+
+    @MainActor func testSearchDirectoryShowsSectionsAndWebItems() {
+        launchDirectorySite()
         defer { diagnostics("search-directory-final") }
         app.openSearchTab()
         XCTAssertTrue(header("记录").waitForExistence(timeout: 5), app.debugDescription)
@@ -35,24 +56,48 @@ final class AppNavigationUITests: XCTestCase {
         // The fixture site has payments off (DemoData), so 支付与套餐 is hidden (60 §1.3).
         XCTAssertFalse(app.buttons["search.item.webPayments"].exists)
         diagnostics("search-directory-web")
+    }
 
+    @MainActor func testSearchDirectoryOpensUsageLogs() {
+        launchDirectorySite()
+        defer { diagnostics("search-directory-usage-final") }
         app.openSearchItem("search.item.usage")
         assertLogsMode("请求记录")
-        goBack()
+    }
+
+    @MainActor func testSearchDirectoryOpensErrorLogs() {
+        launchDirectorySite()
+        defer { diagnostics("search-directory-errors-final") }
         app.openSearchItem("search.item.errors")
         assertLogsMode("失败请求")
-        goBack()
+    }
+
+    @MainActor func testSearchDirectoryOpensGroups() {
+        launchDirectorySite()
+        defer { diagnostics("search-directory-groups-final") }
         app.openSearchItem("search.item.groups")
         XCTAssertTrue(app.buttons["groups.create"].waitForExistence(timeout: 10), app.debugDescription)
-        goBack()
+    }
+
+    @MainActor func testSearchDirectoryOpensAnalytics() {
+        launchDirectorySite()
+        defer { diagnostics("search-directory-analytics-final") }
         app.openSearchItem("search.item.analytics")
         XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
-        goBack()
+    }
+
+    @MainActor func testSearchDirectoryOpensRedeemPlaceholder() {
+        launchDirectorySite()
+        defer { diagnostics("search-directory-redeem-final") }
         app.openSearchItem("search.item.redeem")
         XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.navigationBars["兑换码"].exists, app.debugDescription)
         diagnostics("route-placeholder")
-        goBack()
+    }
+
+    @MainActor func testSearchDirectoryOpensInterfaceSettings() {
+        launchDirectorySite()
+        defer { diagnostics("search-directory-interface-final") }
         app.openSearchItem("search.item.interface")
         // S0-15: the settings page opens on 界面模式 under the entry's title.
         XCTAssertTrue(app.buttons["settings.mode.main"].waitForExistence(timeout: 10), app.debugDescription)
@@ -137,11 +182,31 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(app.textFields["login.url"].waitForExistence(timeout: 5), app.debugDescription)
     }
 
-    @MainActor private func launchAndLogin(name: String, url: String) {
+    /// X05: a site without some capabilities still opens every tab; 管理访问令牌 follows admin.access_tokens (60 §3.3).
+    @MainActor func testWithheldCapabilitiesStillOpenEveryTab() {
+        launchAndLogin(name: "能力站点", url: "https://capabilities.example.invalid",
+                       arguments: ["-ui-without-capabilities", "dashboard.home,admin.access_tokens"])
+        defer { diagnostics("withheld-capabilities-final") }
+        for title in ["账号", "用户", "监控", "概览"] {
+            let tab = app.tabBars.buttons[title]
+            tab.tap()
+            XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+            XCTAssertTrue(tab.isSelected, app.debugDescription)
+            XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+        }
+        app.openSitesSettings()
+        reveal(element("settings.current.web"))
+        XCTAssertTrue(element("settings.current.sessions").exists, app.debugDescription)
+        XCTAssertFalse(element("settings.current.tokens").exists, app.debugDescription)
+    }
+
+    @MainActor private func launchAndLogin(name: String, url: String, arguments: [String] = []) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
         fillLogin(name: name, url: url)
     }
+    @MainActor private func launchNavigationSite() { launchAndLogin(name: "导航站点", url: "https://navigation.example.invalid") }
+    @MainActor private func launchDirectorySite() { launchAndLogin(name: "目录站点", url: "https://directory.example.invalid") }
     @MainActor private func fillLogin(name: String, url: String) {
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(name, in: "login.name")

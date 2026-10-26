@@ -145,6 +145,8 @@ public actor APIClient {
         try await store?.remove(serverID: server.id)
         if case .tokens(let tokens) = oldCredential { try await postLogout(tokens) }
     }
+
+    // MARK: - 概览
     public func dashboard() async throws -> DashboardSummary {
         let snapshot = generation
         // Large stations can need longer to calculate an uncached aggregate. Optional
@@ -196,6 +198,8 @@ public actor APIClient {
         try check(snapshot)
         return result
     }
+
+    // MARK: - 账号
     public func accounts(page: Int, search: String, status: String?, platform: String?, includeSchedulerScore: Bool = false) async throws -> Page<UpstreamAccount> {
         try await request("admin/accounts", query: pagination(page, search: search, status: status) + optionalQuery("platform", platform)
             + (includeSchedulerScore ? [URLQueryItem(name: "include_scheduler_score", value: "1")] : []))
@@ -221,6 +225,8 @@ public actor APIClient {
     public func refreshAccount(id: Int) async throws {
         let _: EmptyReply = try await request("admin/accounts/\(validID(id))/refresh", method: "POST", body: Data("{}".utf8), timeout: RequestTimeout.keyedBulk)
     }
+
+    // MARK: - 用户
     public func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser> {
         try await request("admin/users", query: pagination(page, search: search, status: status))
     }
@@ -260,6 +266,8 @@ public actor APIClient {
         return try await performKeyedWrite(KeyedWriteRequest(path: "admin/users/\(validID(operation.userID))/balance", method: "POST",
                                                              body: operation.requestBody(), key: operation.id), onEvent: onEvent)
     }
+
+    // MARK: - 测试连接
     public func testAccount(id: Int, model: String?) async throws -> AsyncThrowingStream<AccountTestEvent, any Error> {
         let snapshot = generation
         let spec = try OutgoingRequest(path: "admin/accounts/\(validID(id))/test", method: "POST", body: encode(["model_id": model ?? ""]),
@@ -273,6 +281,7 @@ public actor APIClient {
         return events(from: response, generation: snapshot)
     }
 
+    // MARK: - 登录与凭据
     private func acceptLogin(_ reply: LoginReply, generation snapshot: UUID) async throws -> AuthSession {
         try check(snapshot)
         guard let user = reply.user, let token = reply.accessToken, !token.isEmpty else { throw APIError.invalidResponse }

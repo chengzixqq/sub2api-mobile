@@ -76,10 +76,15 @@ struct MainTabs: View {
 
     var body: some View {
         TabView(selection: $router.selectedTab) {
+            // 概览 Tab：阶段 1 换根视图（S1-09）
             Tab(MainTab.today.title, systemImage: MainTab.today.systemImage, value: MainTab.today) { stack(.today) { DashboardView().siteTitleMenu() } }
+            // 账号 Tab：阶段 2 加 .badge（S2-04）
             Tab(MainTab.accounts.title, systemImage: MainTab.accounts.systemImage, value: MainTab.accounts) { stack(.accounts) { AccountsView().siteTitleMenu() } }
+            // 用户 Tab
             Tab(MainTab.users.title, systemImage: MainTab.users.systemImage, value: MainTab.users) { stack(.users) { UsersView() } }
+            // 监控 Tab
             Tab(MainTab.monitor.title, systemImage: MainTab.monitor.systemImage, value: MainTab.monitor) { stack(.monitor) { MonitorView() } }
+            // 搜索 Tab
             Tab(MainTab.search.title, systemImage: MainTab.search.systemImage, value: MainTab.search, role: .search) {
                 stack(.search) { SearchHomeView() }
             }

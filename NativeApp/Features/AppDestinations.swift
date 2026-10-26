@@ -1,44 +1,41 @@
 import SwiftUI
 import Sub2Core
 
-/// AppRoute → page. Pages not rewritten yet map to the existing page or to the placeholder; a later stage changes
-/// only its line here. No `default`, so a new route has to be mapped.
+/// AppRoute → page, one line per area (X02). Each area maps its own cases in Features/Destinations/<区域>Destinations.swift,
+/// so this file no longer changes. No `default`, so a new route has to be given an area.
 struct RouteDestination: View {
     let route: AppRoute
 
     var body: some View {
         switch route {
-        case .logs(let logs): RequestLogsView(accountID: logs.account?.id, groupID: logs.group?.id, scope: logs.scope)
-        case .analytics: AnalyticsView()
-        case .groups: GroupsView()
-        case .group(let id): GroupDestination(id: id)
-        case .account(let id, _): AccountDestination(id: id)
-        case .user(let id): UserDestination(id: id)
-        case .settings(let focus): SettingsView(focus: focus)
-        case .alert, .accountScheduledTests, .userLedger, .userNew, .userEdit, .analyticsMore, .analyticsChart, .analyticsRank,
-             .analyticsModel, .request, .groupBatch, .groupKeys, .groupSubscriptions, .searchResults, .sessions, .accessTokens,
-             .push, .pushTarget, .redeem, .proxies, .proxyDetail, .proxyFallbackAccounts, .announcements, .announcementDetail,
-             .announcementReads:
-            ComingSoonView(title: route.placeholderTitle)
+        case .alert: TodayRouteDestination(route: route)
+        case .account, .accountScheduledTests: AccountRouteDestination(route: route)
+        case .user, .userLedger, .userNew, .userEdit: UserRouteDestination(route: route)
+        case .logs, .request: LogRouteDestination(route: route)
+        case .analytics, .analyticsMore, .analyticsChart, .analyticsRank, .analyticsModel: AnalyticsRouteDestination(route: route)
+        case .groups, .group, .groupBatch, .groupKeys, .groupSubscriptions: GroupRouteDestination(route: route)
+        case .settings, .sessions, .accessTokens, .push, .pushTarget: SettingsRouteDestination(route: route)
+        case .redeem: RedeemRouteDestination(route: route)
+        case .proxies, .proxyDetail, .proxyFallbackAccounts: ProxyRouteDestination(route: route)
+        case .announcements, .announcementDetail, .announcementReads: AnnouncementRouteDestination(route: route)
+        case .searchResults: SearchRouteDestination(route: route)
         }
     }
 }
 
-/// AppSheet → sheet content.
+/// AppSheet → sheet content, one line per area like `RouteDestination`.
 struct SheetDestination: View {
     let sheet: AppSheet
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         switch sheet {
         case .addSite: NavigationStack { LoginView() }
-        case .accountNew, .accountTest, .balanceKeypad, .groupEdit, .groupPick, .redeemEdit, .redeemGenerate, .redeemReconcile,
-             .redeemGrant, .proxyEdit, .announcementEdit:
-            NavigationStack {
-                ComingSoonView(title: sheet.placeholderTitle).toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.accessibilityIdentifier("sheet.close") }
-                }
-            }
+        case .accountNew, .accountTest: AccountSheetDestination(sheet: sheet)
+        case .balanceKeypad: UserSheetDestination(sheet: sheet)
+        case .groupEdit, .groupPick: GroupSheetDestination(sheet: sheet)
+        case .redeemEdit, .redeemGenerate, .redeemReconcile, .redeemGrant: RedeemSheetDestination(sheet: sheet)
+        case .proxyEdit: ProxySheetDestination(sheet: sheet)
+        case .announcementEdit: AnnouncementSheetDestination(sheet: sheet)
         }
     }
 }
@@ -53,6 +50,20 @@ struct ComingSoonView: View {
             .accessibilityIdentifier("route.placeholder")
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// A sheet whose page comes in a later version; 关闭 dismisses the whole sheet.
+struct ComingSoonSheet: View {
+    let title: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ComingSoonView(title: title).toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.accessibilityIdentifier("sheet.close") }
+            }
+        }
     }
 }
 
@@ -92,28 +103,5 @@ struct LoadingDestination<Value: Sendable, Content: View>: View {
             guard session.generation == model.sessionGeneration, !(error is CancellationError), !Task.isCancelled else { return }
             failure = error.localizedDescription
         }
-    }
-}
-
-/// `.account(id:)` until 20 §2 rewrites the detail page; the fixture branch is the one the request logs used.
-struct AccountDestination: View {
-    @Environment(AppModel.self) private var model
-    let id: Int
-
-    var body: some View {
-        LoadingDestination(loadingText: "正在读取账号…") { (session: SessionContext) async throws -> UpstreamAccount in
-            if model.isUITesting { return UpstreamAccount(id: id, name: "演示账号", platform: "openai", type: "apikey") }
-            return try await session.client.account(id: id)
-        } content: { AccountDetailView(initial: $0) }
-    }
-}
-
-/// `.user(id:)` until 30 §2 rewrites the detail page.
-struct UserDestination: View {
-    @Environment(AppModel.self) private var model
-    let id: Int
-
-    var body: some View {
-        LoadingDestination(loadingText: "正在读取用户…") { _ in try await model.user(id: id) } content: { UserDetailView(initial: $0) }
     }
 }

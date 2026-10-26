@@ -6,6 +6,8 @@ import Foundation
 /// No formatter is cached, so every function is a pure static call from any isolation domain.
 public enum DisplayFormat {
     public static let missing = "—"
+    /// What VoiceOver reads for `missing` (S1-00); pages pass displayed values through `spoken(_:)`.
+    public static let missingSpoken = "无数据"
     static let minus = "\u{2212}"
 
     /// 00 §6.2: list and detail durations, P50 / P95 / P99, single millisecond readings. Callers always pick one.
@@ -147,6 +149,11 @@ public enum DisplayFormat {
         guard let date else { return missing }
         return clock(date, calendar: gregorian(timeZone))
     }
+
+    // MARK: Accessibility
+
+    /// A displayed value as VoiceOver should read it: the missing mark reads as `missingSpoken`, anything else as shown.
+    public static func spoken(_ text: String) -> String { text == missing ? missingSpoken : text }
 
     // MARK: Internals shared inside Sub2Core
 
