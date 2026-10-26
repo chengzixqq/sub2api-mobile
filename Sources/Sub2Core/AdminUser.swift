@@ -87,22 +87,20 @@ public struct UserUsageSummary: Codable, Sendable {
         totalRequests = try c.decode(Int.self, forKey: .totalRequests); totalTokens = try c.decode(Int.self, forKey: .totalTokens); totalCost = try c.decimal(.totalCost)
     }
 }
-public struct UserAPIKey: Identifiable, Codable, Sendable {
-    public let id: Int
-    public let name: String
-    public let key: String?
-    public let status: String
-    public let quota: Decimal
-    public let quotaUsed: Decimal
-    public init(id: Int, name: String, key: String? = nil, status: String, quota: Decimal, quotaUsed: Decimal) {
-        self.id = id; self.name = name; self.key = key; self.status = status; self.quota = quota; self.quotaUsed = quotaUsed
+/// The user embedded in a key (50 §6.3) or a subscription (50 §7.3); a field that is missing or malformed reads as nil.
+public struct AdminUserSummary: Decodable, Sendable, Equatable {
+    public let id: Int?
+    public let email: String?
+    public let username: String?
+    public let status: String?
+    public init(id: Int? = nil, email: String? = nil, username: String? = nil, status: String? = nil) {
+        self.id = id; self.email = email; self.username = username; self.status = status
     }
-    enum CodingKeys: String, CodingKey { case id, name, key, status, quota, quotaUsed = "quota_used" }
+    enum CodingKeys: String, CodingKey { case id, email, username, status }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(Int.self, forKey: .id); name = try c.decode(String.self, forKey: .name)
-        key = try c.decodeIfPresent(String.self, forKey: .key); status = try c.decode(String.self, forKey: .status)
-        quota = try c.decimal(.quota); quotaUsed = try c.decimal(.quotaUsed)
+        func text(_ key: CodingKeys) -> String? { try? c.decodeIfPresent(String.self, forKey: key) }
+        self.init(id: try? c.decodeIfPresent(Int.self, forKey: .id), email: text(.email), username: text(.username), status: text(.status))
     }
 }
 

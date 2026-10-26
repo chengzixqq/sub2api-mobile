@@ -6,9 +6,7 @@ struct UserDetailView: View {
     @Environment(\.sessionContext) private var session
     @State private var user: AdminUser
     @State private var usage: UserUsageSummary?
-    @State private var keys: [UserAPIKey] = []
-    @State private var keysPage = 0
-    @State private var moreKeys = false
+    @State private var keys: [AdminAPIKey] = []
     @State private var loadingKeys = false
     @State private var error: String?
     @State private var busy = false
@@ -41,14 +39,13 @@ struct UserDetailView: View {
             Section("API Key") {
                 ForEach(keys) { key in
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(key.name).font(.headline)
-                        Text(key.key.map { "••••••••" + String($0.suffix(4)) } ?? "••••••••")
+                        Text(key.displayName).font(.headline)
+                        Text(key.keyMasked ?? DisplayFormat.missing)
                             .font(.system(.caption, design: .monospaced)).privacySensitive()
                         Text("\(key.status) · 已用 \(DisplayFormat.money(key.quotaUsed)) / 配额 \(DisplayFormat.money(key.quota))").font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                 }
                 if keys.isEmpty && !loadingKeys { Text("暂无 API Key").foregroundStyle(.secondary) }
-                if moreKeys { Button("加载更多密钥") { Task { await loadKeys(page: keysPage + 1) } }.disabled(loadingKeys).frame(minHeight: 44) }
                 if loadingKeys { ProgressView() }
             }
             Section("管理操作") {
@@ -86,19 +83,18 @@ struct UserDetailView: View {
             let statistics = try await model.userUsage(id: user.id)
             guard generation == model.sessionGeneration, !Task.isCancelled else { return }; usage = statistics
             error = nil
-            await loadKeys(page: 1)
+            await loadKeys()
         } catch { if generation == model.sessionGeneration && !(error is CancellationError) { self.error = error.localizedDescription } }
     }
-    private func loadKeys(page: Int) async {
+    private func loadKeys() async {
         guard !loadingKeys else { return }; loadingKeys = true
         defer { loadingKeys = false }
         let generation = session?.generation ?? UUID()
         guard generation == model.sessionGeneration else { return }
         do {
-            let result = try await model.userKeys(id: user.id, page: page)
+            let result = try await model.userAPIKeys(userID: user.id)
             guard generation == model.sessionGeneration, !Task.isCancelled else { return }
-            keys = page == 1 ? result.items : keys + result.items.filter { item in !keys.contains { $0.id == item.id } }
-            keysPage = result.page; moreKeys = result.hasMore
+            keys = result
         } catch { if generation == model.sessionGeneration && !(error is CancellationError) { self.error = error.localizedDescription } }
     }
     private func changeStatus() async {

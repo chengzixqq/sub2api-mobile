@@ -153,9 +153,6 @@ extension APIClient {
         try await request("admin/usage/stats", query: monthRange() + [URLQueryItem(name: "user_id", value: String(validID(id)))],
                           timeout: RequestTimeout.aggregate)
     }
-    public func userKeys(id: Int, page: Int) async throws -> Page<UserAPIKey> {
-        try await request("admin/users/\(validID(id))/api-keys", query: pagination(page, search: "", status: nil))
-    }
     public func setUserStatus(id: Int, status: String) async throws -> AdminUser {
         guard ["active", "disabled"].contains(status) else { throw APIError(kind: .validation, message: "无效的用户状态。") }
         return try await request("admin/users/\(validID(id))", method: "PUT", body: encode(["status": status]))
