@@ -9,7 +9,7 @@ struct SettingsRouteDestination: View {
         // .settings：S0-15 已定，阶段 1–6 不改
         case .settings(let focus): SettingsView(focus: focus)
         // .sessions：S6-01
-        case .sessions: ComingSoonView(title: route.placeholderTitle)
+        case .sessions: SessionsView()
         // .accessTokens：S6-02
         case .accessTokens: ComingSoonView(title: route.placeholderTitle)
         // .push：S6-24

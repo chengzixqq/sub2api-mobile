@@ -45,12 +45,14 @@ public struct UserListSnapshot: Sendable, Equatable {
         self.firstPageCount = firstPageCount; self.lastPageHasMore = lastPageHasMore
     }
 
-    /// The new first page, then the later pages without the ids it now holds; total and pages are the new ones.
+    /// The new first page, then the loaded rows after the last one it still holds; total and pages are the new ones. Rows past
+    /// that one were pushed down by users added above and stay with the later pages, which are not refreshed (30 §1.6); a row
+    /// before it that the page left out was deleted or no longer matches.
     public func mergingFirstPage(_ first: Page<AdminUser>) -> UserListSnapshot {
         let fresh = UserListSnapshot(firstPage: first)
         guard page > 1, !fresh.rows.isEmpty else { return fresh }
         let ids = Set(fresh.rows.map(\.id))
-        let later = rows.dropFirst(firstPageCount).filter { !ids.contains($0.id) }
+        let later = rows.lastIndex { ids.contains($0.id) }.map { rows.suffix(from: $0 + 1) } ?? rows[...]
         return UserListSnapshot(rows: fresh.rows + later, total: first.total, page: page, pages: first.pages,
                                 firstPageCount: fresh.rows.count, lastPageHasMore: lastPageHasMore)
     }
