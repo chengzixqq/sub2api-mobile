@@ -131,8 +131,14 @@ public struct AccountPatchRequest: Encodable, Sendable, Equatable {
         }
         let storedCredentials = (base.credentials?.objectValue ?? [:]).filter { !AccountCredentialKeys.isSensitive($0.key) }
         let storedExtra = (base.extra?.raw.objectValue ?? [:]).filter { !Self.managedExtraKeys.contains($0.key) || extraPatch[$0.key] != nil }
-        return try Self.encoded(FullUpdateBody(request: self, credentials: credentialsPatch.isEmpty ? nil : Self.merged(storedCredentials, credentialsPatch),
+        return try Self.encoded(FullUpdateBody(request: self, credentials: credentialsPatch.isEmpty ? nil : Self.putCredentials(storedCredentials, credentialsPatch),
                                                extra: extraPatch.isEmpty ? nil : Self.merged(storedExtra, extraPatch)))
+    }
+    /// The server merges `credentials` only when it has keys, so emptying them would send a `{}` it skips while answering 200;
+    /// the deleted keys go out as null instead, which the server stores as missing and keeps the secrets beside.
+    static func putCredentials(_ base: [String: JSONValue], _ patch: [String: JSONPatchValue]) -> [String: JSONValue] {
+        let merged = Self.merged(base, patch)
+        return merged.isEmpty ? patch.filter { $0.value.isDeletion }.mapValues { _ in .null } : merged
     }
     /// A copy that answers the mixed-channel warning; a keyed write sends it under a new key (00 §2.5.2).
     public func confirmingMixedChannel() -> AccountPatchRequest {

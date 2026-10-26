@@ -252,6 +252,19 @@ func patchAccountRejectionsAreRecognised(reason: String) async throws {
     #expect(try json(patch.fullUpdateBody(base: base)) == expected)
 }
 
+/// The server merges credentials only when the object has keys (`len(input.Credentials) > 0`): deleting the last non-sensitive
+/// keys names them as null instead of sending `{}`, which the server would skip while still answering 200.
+@Test func fullUpdateDeletingTheLastNonSensitiveKeysNamesThemAsNull() throws {
+    let keyed = try detail(#""credentials":{"base_url":"https://upstream.example.invalid"},"credentials_status":{"has_api_key":true}"#)
+    let restored = try AccountPatchRequest(credentialsPatch: ["base_url": .delete]).fullUpdateBody(base: keyed)
+    #expect(text(restored) == #"{"credentials":{"base_url":null}}"#)
+    let mapped = try detail(#""credentials":{"model_mapping":{"a":"b"},"base_url":"https://upstream.example.invalid"}"#)
+    let cleared = try AccountPatchRequest(credentialsPatch: ["model_mapping": .set(.null), "base_url": .delete]).fullUpdateBody(base: mapped)
+    #expect(text(cleared) == #"{"credentials":{"base_url":null,"model_mapping":null}}"#)
+    let kept = try AccountPatchRequest(credentialsPatch: ["model_mapping": .delete]).fullUpdateBody(base: mapped)
+    #expect(try json(kept) == ["credentials": ["base_url": "https://upstream.example.invalid"]])
+}
+
 /// Only the patch's own secrets go out; the server keeps the stored ones (MergePreservingSensitiveCreds).
 @Test func fullUpdateCarriesOnlyThePatchsSecrets() throws {
     let base = try detail(#""credentials":{"base_url":"https://a.example.invalid","api_key":""},"credentials_status":{"has_api_key":true,"has_access_token":true}"#)
