@@ -59,8 +59,11 @@ extension AppModel {
         persistProfiles()
         let pushIDs = pushRecords.teardownCandidates(serverID: profile.id)
         pushRecords.removeAll(serverID: profile.id)
-        // An archived site's records are still checked with its request-id flag.
-        if profileArchive[profile.id] == nil { siteFlags.removeAll(serverID: profile.id) }
+        // An archived site's records are still checked with its request-id flag; otherwise the flag stays with the other
+        // logins of its address, where the proxy still is.
+        if profileArchive[profile.id] == nil {
+            siteFlags.remove(serverID: profile.id, handingOverTo: MoneyRecordOrigin.sameAddressIDs(of: profile, among: profiles + Array(profileArchive.values)))
+        }
         do { try await credentials.remove(serverID: profile.id) } catch { report(error) }
         let result = await teardown(ended, of: profile, mode: .removeSite, pushDeviceIDs: pushIDs)
         switch SiteRemovalNotice.after(removingCurrent: isActive, hasReceiptHost: activeProfile != nil, notes: result?.notes ?? []) {

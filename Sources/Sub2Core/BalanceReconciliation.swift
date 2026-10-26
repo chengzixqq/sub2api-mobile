@@ -175,11 +175,11 @@ extension BalanceReconciliation {
     }
     /// `retrying`: the record was sent before (it is already in the ledger), so that attempt may have run. Then a refusal of
     /// this attempt says nothing about it (S0-06); only a refusal decided by the body, which the earlier bytes got as well,
-    /// still settles it.
+    /// still settles it. Within one call KeyedWriteFlow already keeps such a refusal unconfirmed.
     public static func balanceWriteOutcome(for error: any Error, retrying: Bool) -> BalanceWriteOutcome {
         if let failure = error as? KeyedWriteFailure { return outcome(of: failure.disposition) }
         guard let error = error as? APIError else { return .pending(message: unconfirmedReceipt, retryNotBefore: nil) }
-        if let message = bodyRefusal(error) { return .notExecuted(message: message) }
+        if let message = bodyRefusal(error, retrying: retrying) { return .notExecuted(message: message) }
         guard !retrying, let message = refusalBeforeExecution(error) else { return .pending(message: unconfirmedReceipt, retryNotBefore: nil) }
         return .notExecuted(message: message)
     }
@@ -199,22 +199,24 @@ extension BalanceReconciliation {
         case .unconfirmed(_, let retryNotBefore): .pending(message: unconfirmedReceipt, retryNotBefore: retryNotBefore)
         }
     }
-    /// 400s the handler or the key check returns before executing, for these exact bytes.
-    private static func bodyRefusal(_ error: APIError) -> String? {
+    /// 400s the handler or the key check returns before executing, for these exact bytes. One without a reason may also be a
+    /// proxy's page, which the earlier bytes did not get, so it settles a first send only.
+    private static func bodyRefusal(_ error: APIError, retrying: Bool) -> String? {
         guard error.statusCode == 400 else { return nil }
         switch error.reason.flatMap({ $0.isEmpty ? nil : $0 }) {
-        case nil: return invalidRequestMessage
+        case nil: return retrying ? nil : invalidRequestMessage
         case "INVALID_BALANCE"?: return invalidBalanceMessage
         case "IDEMPOTENCY_KEY_INVALID"?, "IDEMPOTENCY_KEY_REQUIRED"?, "IDEMPOTENCY_PAYLOAD_INVALID"?: return malformedRequestMessage
         default: return nil
         }
     }
-    /// A first send refused before it ran: another 400, 404, the middleware's 401 / 403 / 423 / 429 / step-up, or a local check.
-    /// Anything else (5xx, 409, statuses outside the table, transport) may have run.
+    /// A first send refused before it ran: another 400, 404 USER_NOT_FOUND, the middleware's 401 / 403 / 423 / 429 / step-up,
+    /// or a local check. Anything else (5xx, 409, any other 404, which the handler never answers, statuses outside the table,
+    /// transport) may have run.
     private static func refusalBeforeExecution(_ error: APIError) -> String? {
         switch error.statusCode {
         case 400?: return ReasonCatalog.entry(status: 400, reason: error.reason).message + "，未入账"
-        case 404?: return error.reason == "USER_NOT_FOUND" ? userMissingMessage : error.localizedDescription
+        case 404?: return error.reason == "USER_NOT_FOUND" ? userMissingMessage : nil
         case nil: return error.kind == .validation ? error.localizedDescription : nil
         default: return error.isRefusedBeforeHandler ? error.localizedDescription : nil
         }

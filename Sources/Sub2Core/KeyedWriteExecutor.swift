@@ -30,6 +30,12 @@ struct KeyedWriteFlow: Sendable {
     static func isRefusedBeforeHandler(status: Int, marker: String?) -> Bool {
         [401, 403, 423, 429].contains(status) || SecurityInterruption(status: status, reason: marker) != nil
     }
+    /// After an attempt that may have run: a refusal before the handler, or a reply that is not the server's JSON at all (a
+    /// router or proxy 404 / 400 page), which did not reach the handler either. Only a business answer settles the write.
+    private static func saysNothingAboutEarlierAttempt(_ response: HTTPResponse) -> Bool {
+        guard let envelope = ErrorEnvelope.decode(response.data) else { return true }
+        return isRefusedBeforeHandler(status: response.statusCode, marker: envelope.marker)
+    }
     private(set) var actionID: UUID?
     /// An earlier attempt may have run: lost, 502/504/proxy 503, IN_PROGRESS or RETRY_BACKOFF. From then on only a 2xx or a
     /// business answer settles the write (00 §2.5.4 step 2); a later attempt refused before the handler says nothing about it.
@@ -48,7 +54,7 @@ struct KeyedWriteFlow: Sendable {
         guard case .reply(let response) = attempt else { return transportRetry() }
         switch IdempotencyOutcome.classify(response) {
         case .succeeded: return .succeeded(response)
-        case .rejected where mayHaveRun && Self.isRefusedBeforeHandler(status: response.statusCode, marker: ErrorEnvelope.decode(response.data)?.marker):
+        case .rejected where mayHaveRun && Self.saysNothingAboutEarlierAttempt(response):
             return .unresolved(.unconfirmed(.transport, retryNotBefore: nil))
         case .rejected: return .rejected(response)
         case .transportFailure: return transportRetry()

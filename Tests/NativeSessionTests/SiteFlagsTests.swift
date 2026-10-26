@@ -21,6 +21,24 @@ import Testing
     #expect(flags.requestIDUsable(sameAddress: [marked, sibling]))
 }
 
+/// Deleting a site that is not archived takes its id out of the address set, so its flag moves to the ids still there:
+/// the proxy stays in front of the address (D17 keeps an older login, one server may hold several identities).
+@MainActor @Test func removedSiteHandsItsFlagToTheRestOfItsAddress() {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let flags = SiteFlags(defaults: scratch.defaults)
+    let removed = UUID(), sibling = UUID(), archived = UUID(), elsewhere = UUID()
+    flags.markRequestIDUnreliable(serverID: removed)
+    flags.remove(serverID: removed, handingOverTo: [removed, sibling, archived])
+    #expect(!flags.requestIDUnreliable(serverID: removed))
+    #expect(!flags.requestIDUsable(sameAddress: [sibling])); #expect(!flags.requestIDUsable(sameAddress: [archived]))
+    #expect(flags.requestIDUsable(sameAddress: [elsewhere]))
+    // An unmarked site hands nothing over; the last id of an address takes its flag with it.
+    flags.remove(serverID: elsewhere, handingOverTo: [elsewhere, removed])
+    #expect(flags.requestIDUsable(sameAddress: [removed]))
+    flags.remove(serverID: sibling, handingOverTo: [sibling])
+    #expect(flags.requestIDUsable(sameAddress: [sibling]))
+}
+
 @MainActor @Test func requestIDFlagKey() {
     let scratch = ScratchDefaults(); defer { scratch.remove() }
     let id = UUID(uuidString: "5B6C7D8E-9F0A-4B1C-8D2E-3F4A5B6C7D8E")!
