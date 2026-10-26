@@ -74,6 +74,8 @@ final class AppModel {
 
     // MARK: - 阶段 1 · 会话级状态
     // 阶段 1 的条目在这里追加
+    /// C-9, 10 §0.5: the session's home blocks, alert list and ops state; pages read it here (X03). Rebuilt with the session.
+    private(set) var liveOps: LiveOpsStore?
 
     // MARK: - 阶段 2 · 会话级状态
     // 阶段 2 的条目在这里追加
@@ -281,6 +283,12 @@ final class AppModel {
         activeProfile = profile
         // MARK: - 阶段 1 · 会话级状态
         // 阶段 1 的条目在这里追加
+        let liveSource: any LiveOpsSource = if isUITesting {
+            FixtureLiveOpsSource(options: LiveOpsFixtures.Options(arguments: ProcessInfo.processInfo.arguments), base: next.serverClock.now())
+        } else { ClientLiveOpsSource(client: next) }
+        liveOps = LiveOpsStore(generation: generation, source: liveSource, site: { [weak self] in self?.siteSession },
+                               isCurrent: { [weak self] in self?.sessionGeneration == generation }, errorBadge: { [weak self] in self?.accountBadge },
+                               serverNow: { [clock = next.serverClock] in clock.now() })
         // MARK: - 阶段 2 · 会话级状态
         // 阶段 2 的条目在这里追加
         accountBadge = AccountErrorBadge()
@@ -318,6 +326,7 @@ final class AppModel {
         client = nil; siteSession = nil; activeProfile = nil; activeLease = nil; savedActiveID = nil
         // MARK: - 阶段 1 · 会话级状态
         // 阶段 1 的条目在这里追加
+        liveOps = nil
         // MARK: - 阶段 2 · 会话级状态
         // 阶段 2 的条目在这里追加
         accountBadge = AccountErrorBadge()
