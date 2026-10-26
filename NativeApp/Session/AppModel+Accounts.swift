@@ -92,3 +92,51 @@ extension AppModel {
     /// The site clock (20 §0.6) the fixtures derive states with.
     func accountFixtureNow() -> Date { sessionContext?.client.serverClock.now() ?? Date() }
 }
+
+// MARK: - 账号动作（S2-06）
+
+/// C-16: every stage 2 account write takes the generation of the session the user acted in, and goes nowhere once that session
+/// has ended. `-ui-testing` writes the session's AccountDemoStore; `-ui-account-write-fail` fails every write with a 500.
+extension AppModel: AccountWriteSource {
+    var accountWriteSession: AccountWriteSession? {
+        guard let session = sessionContext else { return nil }
+        return AccountWriteSession(generation: session.generation, idempotentWrites: session.has(.adminIdempotentWrites),
+                                   recoverSchedulable: session.has(.accountsRecoverSchedulable), patch: session.has(.accountsPatch),
+                                   isReadOnlyToken: session.isReadOnlyToken)
+    }
+    /// The site clock (20 §0.6).
+    func serverNow() -> Date { client?.serverClock.now() ?? Date() }
+    func accountWriteClient(_ generation: UUID) throws -> APIClient {
+        guard generation == sessionGeneration else { throw CancellationError() }
+        return try requireClient()
+    }
+
+    func recoverAccountState(id: Int, schedulable: Bool?, generation: UUID) async throws -> UpstreamAccount {
+        if isUITesting { return try accountDemoWrite(generation) { try $0.recover(id: id, schedulable: schedulable) } }
+        return try await accountWriteClient(generation).recoverAccountState(id: id, schedulable: schedulable)
+    }
+    func setAccountSchedulable(id: Int, enabled: Bool, idempotencyKey: UUID?, generation: UUID) async throws -> WriteOutcome<UpstreamAccount> {
+        if isUITesting { return WriteOutcome(value: try accountDemoWrite(generation) { try $0.setSchedulable(id: id, enabled: enabled) }) }
+        return try await accountWriteClient(generation).setSchedulable(id: id, enabled: enabled, idempotencyKey: idempotencyKey)
+    }
+    /// A read: no generation (S2D1-05).
+    func accountWithVersion(id: Int) async throws -> VersionedAccount {
+        if isUITesting { return try accountDemo.versioned(id: id) }
+        return try await requireClient().accountWithVersion(id: id)
+    }
+    func patchAccount(id: Int, body: AccountPatchRequest, ifMatch: String, generation: UUID) async throws -> VersionedAccount {
+        if isUITesting { return try accountDemoWrite(generation) { try $0.patch(id: id, body: body, ifMatch: ifMatch) } }
+        return try await accountWriteClient(generation).patchAccount(id: id, body: body, ifMatch: ifMatch)
+    }
+    func fullUpdateAccount(id: Int, patch: AccountPatchRequest, base: UpstreamAccount?, idempotencyKey: UUID?,
+                           generation: UUID) async throws -> UpstreamAccount {
+        if isUITesting { return try accountDemoWrite(generation) { try $0.fullUpdate(id: id, patch: patch) } }
+        return try await accountWriteClient(generation).fullUpdate(id: id, patch: patch, base: base, idempotencyKey: idempotencyKey)
+    }
+
+    private func accountDemoWrite<T>(_ generation: UUID, _ write: (AccountDemoStore) throws -> T) throws -> T {
+        guard generation == sessionGeneration else { throw CancellationError() }
+        if ProcessInfo.processInfo.arguments.contains(DemoData.AccountFixture.writeFail) { throw APIError.server(status: 500, reason: nil) }
+        return try write(accountDemo)
+    }
+}

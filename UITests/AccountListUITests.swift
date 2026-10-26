@@ -289,4 +289,98 @@ final class AccountListUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
     }
+
+    // MARK: - 行右滑（S2-06）
+
+    /// OpenAI-主力-01 is normal: 停止调度 pauses it, and 撤销 on the receipt (within its 4.2 seconds) brings it back.
+    @MainActor func testScheduleSwipeStopsThenUndoRestores() {
+        launchAndOpenAccounts()
+        defer { diagnostics("account-swipe-stop-final") }
+        let row = app.buttons["account.4"]
+        reveal(row)
+        assertLabel(row, contains: ["OpenAI-主力-01", "正常"])
+        tapSwipeAction(on: row, titled: "停止调度")
+        waitForReceipt("已停止调度")
+        // The receipt stays 4.2 seconds: one look at the row, then 撤销.
+        XCTAssertTrue(row.label.contains("暂停"), row.label)
+        app.buttons.matching(NSPredicate(format: "identifier == 'receipt.action' AND label == '撤销'")).firstMatch.tap()
+        waitForLabel(row, containing: "正常")
+        XCTAssertFalse(row.label.contains("暂停"), row.label)
+        XCTAssertTrue(app.staticTexts["receipt.text"].waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    /// Gemini-测试-B has its switch off: the swipe offers only 启用调度.
+    @MainActor func testScheduleSwipeEnablesPausedAccount() {
+        launchAndOpenAccounts()
+        defer { diagnostics("account-swipe-enable-final") }
+        let row = app.buttons["account.5"]
+        reveal(row)
+        assertLabel(row, contains: ["Gemini-测试-B", "暂停"])
+        row.swipeLeft()
+        let enable = swipeButton("启用调度")
+        XCTAssertTrue(enable.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(swipeButton("停止调度").exists, app.debugDescription)
+        diagnostics("account-swipe-enable")
+        enable.tap()
+        waitForReceipt("已启用调度")
+        XCTAssertEqual(app.buttons["receipt.action"].label, "撤销")
+        waitForLabel(row, containing: "正常")
+    }
+
+    @MainActor func testScheduleSwipeFailureShowsReasonAndKeepsRow() {
+        launchAndOpenAccounts(arguments: ["-ui-account-write-fail"])
+        defer { diagnostics("account-swipe-failure-final") }
+        let row = app.buttons["account.4"]
+        reveal(row)
+        tapSwipeAction(on: row, titled: "停止调度")
+        waitForReceipt("停止调度没有成功：站点暂时不可用")
+        XCTAssertFalse(app.buttons["receipt.action"].exists, app.debugDescription)
+        assertLabel(row, contains: ["正常"])
+    }
+
+    /// 00 §2.6.3 / C-1: a read-only admin access token gets no swipe; the row still opens the detail. A row without swipe
+    /// actions may take the swipe as a tap (as before S2-06), so the detail can already be open.
+    @MainActor func testReadOnlyTokenOffersNoScheduleSwipe() {
+        launchWithReadOnlyToken()
+        defer { diagnostics("account-swipe-readonly-final") }
+        app.tabBars.buttons["账号"].tap()
+        let row = app.buttons["account.4"]
+        reveal(row)
+        row.swipeLeft()
+        XCTAssertFalse(swipeButton("停止调度").waitForExistence(timeout: 1), app.debugDescription)
+        let detail = app.navigationBars["OpenAI-主力-01"]
+        if !detail.exists { row.tap() }
+        XCTAssertTrue(detail.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// The access-token method with a `sat_` key; `-ui-readonly-token` makes it read-only.
+    @MainActor private func launchWithReadOnlyToken() {
+        continueAfterFailure = false
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launch()
+        XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
+        enter(Fixture.site, in: "login.name")
+        enter("https://accounts-list.example.invalid", in: "login.url")
+        let method = element("login.method.accessToken"); reveal(method); method.tap()
+        enter("sat_fixture-readonly", in: "login.key")
+        let submit = app.buttons["login.submit"]; reveal(submit); submit.tap()
+        XCTAssertTrue(app.tabBars.buttons["账号"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+    /// System swipe buttons are found by their title; the identifier does not always reach them.
+    @MainActor private func swipeButton(_ title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
+    }
+    @MainActor private func tapSwipeAction(on row: XCUIElement, titled title: String, file: StaticString = #filePath, line: UInt = #line) {
+        row.swipeLeft()
+        let button = swipeButton(title)
+        XCTAssertTrue(button.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        button.tap()
+    }
+    @MainActor private func waitForReceipt(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
+        let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", text), object: app.staticTexts["receipt.text"])
+        XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 10), .completed, app.debugDescription, file: file, line: line)
+    }
+    @MainActor private func waitForLabel(_ item: XCUIElement, containing part: String, file: StaticString = #filePath, line: UInt = #line) {
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", part), object: item)
+        XCTAssertEqual(XCTWaiter().wait(for: [changed], timeout: 10), .completed, "“\(part)” missing in “\(item.label)”", file: file, line: line)
+    }
 }
