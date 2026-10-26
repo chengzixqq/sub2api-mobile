@@ -333,9 +333,10 @@ final class LiveOpsStore {
 
 extension LiveOpsStore: AlertActionsHost {
     var isSessionCurrent: Bool { isCurrent() }
-    /// The event as read back: a firing one replaces its copies; an ended one leaves the firing list, home's alerts and the
-    /// counts for 最近结束.
-    func upsertAlert(_ event: AlertEvent) {
+    /// The event as read back, normalized like every other event read (S1D1-16): a firing one replaces its copies; an ended one
+    /// leaves the firing list, home's alerts and the counts for 最近结束.
+    func upsertAlert(_ received: AlertEvent) async {
+        let event = await normalizeReceivedAlerts([received]).first ?? received
         guard isCurrent() else { return }
         guard event.isFiring else {
             if let known = knownFiringEvent(event.id) { dropFiring(known) }

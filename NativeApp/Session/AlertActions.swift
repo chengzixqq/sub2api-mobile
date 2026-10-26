@@ -9,7 +9,7 @@ import Sub2Core
     var isSessionCurrent: Bool { get }
     func markResolved(eventID: Int, at date: Date)
     func applySilence(eventID: Int, _ silence: AlertSilenceRef?)
-    func upsertAlert(_ event: AlertEvent)
+    func upsertAlert(_ event: AlertEvent) async
     func removeAlert(eventID: Int)
     func refreshAlertsAfterWrite() async
     func noteOpsDisabled() async
@@ -30,6 +30,8 @@ enum AlertActionOutcome: Equatable, Sendable {
 final class AlertActions {
     /// Events with a write on the way; their buttons wait (C-6 `isRunning`).
     private(set) var inFlight: Set<Int> = []
+    /// Receipt buttons tapped while their event was running, in tap order; each takes the event's turn when the write before ends.
+    @ObservationIgnored private var queued: [Int: [CheckedContinuation<Void, Never>]] = [:]
     /// Rules the server refused to silence (400 INVALID_RULE_ID), for this session.
     private(set) var silenceRejectedRuleIDs: Set<Int> = []
     @ObservationIgnored weak var host: (any AlertActionsHost)?
@@ -118,7 +120,21 @@ final class AlertActions {
 
     private func execute(_ event: AlertEvent, _ step: Step) async -> AlertActionOutcome {
         guard liveHost != nil, inFlight.insert(event.id).inserted else { return .ignored }
-        defer { inFlight.remove(event.id) }
+        return await run(event, step)
+    }
+    /// From a receipt's button: an undo or a retry. The receipt shows before its write reads back, so a tap may come while the
+    /// event is still running: it then waits for that write to end and is sent after it, never dropped.
+    private func start(_ event: AlertEvent, _ step: Step) {
+        Task { [weak self] in
+            guard let self else { return }
+            if !inFlight.insert(event.id).inserted { await withCheckedContinuation { queued[event.id, default: []].append($0) } }
+            _ = await run(event, step)
+        }
+    }
+    /// Holds the event's turn until it returns, then hands it to the next waiting receipt button, or frees it.
+    private func run(_ event: AlertEvent, _ step: Step) async -> AlertActionOutcome {
+        defer { passTurn(event.id) }
+        guard liveHost != nil else { return .ignored }
         do {
             let applied = try await step.send()
             return await complete(event, step, applied, readBack: nil)
@@ -126,9 +142,11 @@ final class AlertActions {
             return await recover(event, step, error)
         }
     }
-    /// From a receipt's button: an undo or a retry, under the same one-write-per-event rule.
-    private func start(_ event: AlertEvent, _ step: Step) {
-        Task { [weak self] in _ = await self?.execute(event, step) }
+    private func passTurn(_ eventID: Int) {
+        guard var waiting = queued.removeValue(forKey: eventID), !waiting.isEmpty else { inFlight.remove(eventID); return }
+        let next = waiting.removeFirst()
+        if !waiting.isEmpty { queued[eventID] = waiting }
+        next.resume()
     }
 
     /// The write landed: the local copies change and the receipt shows, then the event and the lists are read again.
@@ -140,7 +158,7 @@ final class AlertActions {
         }
         if !step.isUndo { receipts.show(successReceipt(event, step.intent, applied)) }
         guard let readBack else { return await reread(event.id) }
-        host.upsertAlert(readBack)
+        await host.upsertAlert(readBack)
         await host.refreshAlertsAfterWrite()
         return .succeeded
     }
@@ -149,7 +167,7 @@ final class AlertActions {
         do {
             let fresh = try await source.alertEvent(id: eventID)
             guard let host = liveHost else { return .ignored }
-            host.upsertAlert(fresh)
+            await host.upsertAlert(fresh)
             await host.refreshAlertsAfterWrite()
             return .succeeded
         } catch {
