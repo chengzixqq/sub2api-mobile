@@ -10,6 +10,9 @@ struct AccountListSnapshot: Sendable {
     var counts: AccountListCounts?
     /// Rows read (an old server: before the chip is applied).
     var loadedCount: Int
+    /// A new query's first pages, shown while the rest are read; one cut short (the tab left, a sheet opened) stays partial until
+    /// the next full refresh, which reads it page by page again.
+    var isPartial = false
 }
 
 /// 20 §1.2–§1.6: the account tab's data. Layout and timing are the Sub2Core rules (AccountListLayout, AccountListRefresh); this
@@ -55,15 +58,19 @@ final class AccountListModel {
     @ObservationIgnored private var runtimeTicket = UUID()
     @ObservationIgnored private var summaryTicket = UUID()
     @ObservationIgnored private var todayTicket = UUID()
+    /// The light refresh's blocks wait out their own 429 and back off on their own failures (00 §2.7.2, §4.6).
+    @ObservationIgnored private var runtimeBlock = AccountListRefresh.LightBlock()
+    @ObservationIgnored private var summaryBlock = AccountListRefresh.LightBlock()
+    @ObservationIgnored private var todayBlock = AccountListRefresh.LightBlock()
     @ObservationIgnored private var timer: Task<Void, Never>?
     /// Collapsed platforms by site, kept while the App runs.
     private static var collapsedBySite: [UUID: Set<String>] = [:]
 
     var rows: [UpstreamAccount] { list.value?.rows ?? [] }
     var counts: AccountListCounts? { list.value?.counts }
-    /// U15; not while pages are still coming or after a failed read.
+    /// U15; not while pages are still coming, after pages were cut short or after a failed read.
     var overflowNote: String? {
-        guard !isLoadingMore, let snapshot = list.value else { return nil }
+        guard let snapshot = list.value, !snapshot.isPartial else { return nil }
         if case .failed = list { return nil }
         return AccountListLayout.overflowNote(total: snapshot.total, loaded: snapshot.loadedCount)
     }
@@ -98,20 +105,7 @@ final class AccountListModel {
     }
     /// 20 §1.6: runtime merged over the rows, then status-summary and today. A changed status or switch, or a row the reply left
     /// out, makes it a full refresh; without runtime_batch it is one. A failed runtime read keeps the last values silently.
-    func refreshLight() async {
-        guard supportsRuntime, list.value != nil else { return await runFull(replacing: false) }
-        marks = marks.recording(.light, at: Date())
-        guard let app, listTask == nil, isLive else { return }
-        let current = legacyRows ?? rows
-        let ticket = UUID()
-        runtimeTicket = ticket
-        if !current.isEmpty, let runtime = try? await app.accountRuntime(ids: current.map(\.id)) {
-            guard runtimeTicket == ticket, listTask == nil, isLive, !Task.isCancelled else { return }
-            if AccountListRefresh.needsFullRefresh(current, runtime: runtime) { return await runFull(replacing: false) }
-            merge(runtime)
-        }
-        await refreshCompanions()
-    }
+    func refreshLight() async { await refreshLight(scheduled: false) }
     /// A row's countdown reached zero: derive again now; a light refresh follows, at most once in 10 seconds and not while paused.
     func countdownElapsed() async {
         rederive()
@@ -119,7 +113,7 @@ final class AccountListModel {
         guard let kind = AccountListRefresh.countdownRefresh(at: now, gate: gate, marks: marks, supportsRuntime: supportsRuntime,
                                                             throttle: listRefresh) else { return }
         marks = marks.recordingCountdown(at: now)
-        await perform(kind)
+        await perform(kind, scheduled: true)
     }
     /// Back in the foreground: a light refresh at once, and the timer again.
     func foregroundResumed() async {
@@ -190,10 +184,13 @@ final class AccountListModel {
             if listTicket == ticket {
                 isLoadingMore = false
                 if list.isLoading { list = list.withCancelledLoad() }
+                // Cancelled after the first pages were shown: the rows stay, and the timer reads the rest when it runs again.
+                if case .loaded(let snapshot, _) = list, snapshot.isPartial { marks = marks.forgettingFull() }
             }
         }
         do {
-            let result = try await readPages(query, ticket: ticket, progressive: query.supportsListQuery && loadedQuery != query)
+            let progressive = query.supportsListQuery && (loadedQuery != query || list.value?.isPartial == true)
+            let result = try await readPages(query, ticket: ticket, progressive: progressive)
             guard listTicket == ticket, isLive, !Task.isCancelled else { return }
             show(result, for: query)
             listRefresh = listRefresh.recordingSuccess()
@@ -208,7 +205,7 @@ final class AccountListModel {
             relayout()
             return
         }
-        await refreshCompanions()
+        await refreshCompanions(AccountListRefresh.Round(start: Date(), isScheduled: false))
         if listTicket == ticket { reordersSections = false }
     }
 
@@ -233,7 +230,8 @@ final class AccountListModel {
         loadedQuery = query
         if query.supportsListQuery {
             legacyRows = nil
-            let snapshot = AccountListSnapshot(rows: result.rows, total: result.total, counts: result.counts, loadedCount: result.rows.count)
+            let snapshot = AccountListSnapshot(rows: result.rows, total: result.total, counts: result.counts, loadedCount: result.rows.count,
+                                               isPartial: morePages)
             list = .loaded(snapshot, at: serverNow())
         } else {
             legacyRows = result.rows
@@ -249,45 +247,77 @@ final class AccountListModel {
         return AccountListSnapshot(rows: rows, total: total, counts: AccountListLocal.counts(all, now: now), loadedCount: all.count)
     }
 
-    // MARK: - Companions
+    // MARK: - Light refresh and companions
 
+    /// A block waiting out a 429 sends nothing in any round; a failing one also sits out scheduled rounds while it backs off.
+    private func refreshLight(scheduled: Bool) async {
+        guard supportsRuntime, list.value != nil else { return await runFull(replacing: false) }
+        let round = AccountListRefresh.Round(start: Date(), isScheduled: scheduled)
+        marks = marks.recording(.light, at: round.start)
+        guard let app, listTask == nil, isLive else { return }
+        let current = legacyRows ?? rows
+        if !current.isEmpty, runtimeBlock.allowsRequest(in: round) {
+            let ticket = UUID()
+            runtimeTicket = ticket
+            runtimeBlock = runtimeBlock.requesting(in: round)
+            do {
+                let runtime = try await app.accountRuntime(ids: current.map(\.id))
+                runtimeBlock = runtimeBlock.recordingSuccess()
+                guard runtimeTicket == ticket, listTask == nil, isLive, !Task.isCancelled else { return }
+                if AccountListRefresh.needsFullRefresh(current, runtime: runtime) { return await runFull(replacing: false) }
+                merge(runtime)
+            } catch {
+                guard !(error is CancellationError), !Task.isCancelled else { return }
+                runtimeBlock = runtimeBlock.recordingFailure(error, at: Date())
+            }
+        }
+        await refreshCompanions(round)
+    }
     /// status-summary and today, side by side after each list or runtime read.
-    private func refreshCompanions() async {
-        async let summaryRead: Void = loadSummary()
-        async let todayRead: Void = loadToday()
+    private func refreshCompanions(_ round: AccountListRefresh.Round) async {
+        async let summaryRead: Void = loadSummary(round)
+        async let todayRead: Void = loadToday(round)
         _ = await (summaryRead, todayRead)
     }
     /// A failure falls back to local header counts silently. The badge takes the site's error count with the device time it was read.
-    private func loadSummary() async {
+    private func loadSummary(_ round: AccountListRefresh.Round) async {
         guard let app, has(.accountsStatusSummary) else { summary = .idle; return }
+        guard summaryBlock.allowsRequest(in: round) else { return }
         let ticket = UUID(), readAt = Date()
         summaryTicket = ticket
+        summaryBlock = summaryBlock.requesting(in: round)
         summary = summary.withLoading()
         do {
             let result = try await app.accountStatusSummary()
             guard summaryTicket == ticket, isLive else { return }
             summary = .loaded(result, at: serverNow())
+            summaryBlock = summaryBlock.recordingSuccess()
             app.accountBadge.update(errorCount: result.totals.error, at: readAt)
         } catch {
             guard summaryTicket == ticket, isLive else { return }
             summary = error is CancellationError ? summary.withCancelledLoad() : summary.withFailure(error.localizedDescription)
+            if !(error is CancellationError) { summaryBlock = summaryBlock.recordingFailure(error, at: Date()) }
         }
         relayout()
     }
     /// Every loaded row (an old server's whole list, so a chip change needs no new read); S2-02 splits the ids by 200.
-    private func loadToday() async {
+    private func loadToday(_ round: AccountListRefresh.Round) async {
         let ids = (legacyRows ?? rows).map(\.id)
         guard let app, !ids.isEmpty else { today = .idle; return }
+        guard todayBlock.allowsRequest(in: round) else { return }
         let ticket = UUID()
         todayTicket = ticket
+        todayBlock = todayBlock.requesting(in: round)
         today = today.withLoading()
         do {
             let result = try await app.accountTodayStatsBatch(ids: ids)
             guard todayTicket == ticket, isLive else { return }
             today = .loaded(result, at: serverNow())
+            todayBlock = todayBlock.recordingSuccess()
         } catch {
             guard todayTicket == ticket, isLive else { return }
             today = error is CancellationError ? today.withCancelledLoad() : today.withFailure(error.localizedDescription)
+            if !(error is CancellationError) { todayBlock = todayBlock.recordingFailure(error, at: Date()) }
         }
     }
     private func refreshGroups() async {
@@ -334,9 +364,10 @@ final class AccountListModel {
         return summary.value
     }
 
-    private func perform(_ kind: AccountListRefresh.Kind) async {
+    /// `scheduled`: the timer or a countdown, not the user or the foreground.
+    private func perform(_ kind: AccountListRefresh.Kind, scheduled: Bool = false) async {
         switch kind {
-        case .light: await refreshLight()
+        case .light: await refreshLight(scheduled: scheduled)
         case .full: await runFull(replacing: false)
         }
     }
@@ -359,7 +390,7 @@ final class AccountListModel {
     private func timerFired() async {
         guard let kind = AccountListRefresh.due(at: Date(), gate: gate, marks: marks, supportsRuntime: supportsRuntime,
                                                 throttle: listRefresh) else { return }
-        await perform(kind)
+        await perform(kind, scheduled: true)
     }
 
     private var gate: AccountListRefresh.Gate {
