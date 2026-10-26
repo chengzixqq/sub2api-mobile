@@ -244,6 +244,11 @@
 | MetaCatalog.builtin 需随后端同步重抄 | 内置平台清单是 sub2 main 70116315d 的 platformCatalog.builtin.json 与站长口径 platform_auth 的手抄快照（单测 builtinCatalogMatchesSub2BuiltinJSON 锁住当前值）；后端登记新平台或改官方端点时要重抄 |
 | 账号列表超过 2000 行时按平台懒加载（U15） | S2-03 只加载前 2000 行（新服务端按紧急度，旧服务端按名称），底部提示“还有 N 个账号未加载，用平台筛选缩小范围”；旧服务端时 2000 行以外的错误账号看不到。U15 实测后再定是否按平台分区懒加载。 |
 | 账号平台分区同级时的最后排序键 | 20 §1.3 只给到“需处理数降序、总数降序”，S2-03 再按平台 id 升序；以后若要按 meta/catalog 的平台顺序排，只改 AccountListLayout.platformOrder 一处。 |
+| 账号行暂停 / 停用的降色方式 | S2-04 按设计稿 is-idle 只把名称改为 ink2，没有按 20 §1.3 整行降低不透明度（整行降透明度会让 ink2 / ink3 文字低于 4.5:1）。请看 AccountListUITests 的 account-row-idle 截图确认，要改只动 AccountRow.swift 的 AccountRowTitle |
+| 平台菜单的平台个数位置 | iOS 系统菜单项不能放右对齐的自定义文字，S2-04 把“N 个”放在菜单项第二行（同站点菜单写法）；设计稿是右侧数字，实机看过后再决定是否改 |
+| 旧接口 APIClient.accounts(page:…) | S2-04 删掉 AppModel 包装后，只剩 CoreTests / AccountRuntimeTests / ConditionalRequestTests 在用，与 managedAccounts 重复（R19）；交 S2-23 删除，并把测试改用 managedAccounts |
+| 账号 Tab 意图的端到端 UI 测试 | S2-04 用夹具参数 -ui-accounts-intent 覆盖“从意图进入受限”；概览“受限 N 个账号”等行真正发出 .accounts(filter:) 的端到端测试由 S1-10 的 HomeUITests 补 |
+| 进入账号 Tab 的完整刷新判定 | S2-04 以“根视图消失时账号栈为空”视为离开 Tab，下次出现时完整刷新（20 §1.6）；从详情返回不重刷。若以后要求返回也刷新，或改为监听 selectedTab，只改 AccountsView 的 appeared / disappeared |
 
 ### App 与设计 · 阶段 3
 
