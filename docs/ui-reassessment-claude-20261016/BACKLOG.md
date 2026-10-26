@@ -230,6 +230,9 @@
 | 下拉刷新 nocache 的 ETag 键 | nocache=1 的请求与普通轮询是两个 ConditionalCache 键，第一次下拉刷新拿完整响应体，普通轮询的条目也不会因下拉刷新而更新。目前接受；若要让两者共用，需要在 S0-05 的缓存键规则里对 nocache 特判。 |
 | 渠道“首字”格式 | 10 §5.3 写“秒，1 位小数”（设计稿 0.9s），按 R10 用 00 §6.2 的毫秒读数：不到 1 秒写 850ms，1–10 秒写 1.4s，10 秒以上取整（12s）；要改只需改 ChannelPresentation.firstTokenNote 里的一处调用（S1-03） |
 | 渠道排序的中文顺序 | ChannelPresentation.sorted 同档按标题比较（.caseInsensitive + .numeric，不带 locale），中文按 Unicode 码位而不是拼音排序，测试结果确定；要拼音顺序时改为带 zh_Hans locale 的比较并补测试（S1-03） |
+| 首页 accounts_truncated 时错误 / 过载行可能不全 | 后端最多列 100 个异常账号，按账号 id 顺序，上限对 error / overloaded / rate_limited / temp_unschedulable 四种状态合计生效。截断时错误行和过载行也可能漏掉；S1-04 只在受限行改用 totals 数字并加“等”，平静判定看 totals，不受影响。需要时加“另有 N 个异常账号”行，或请后端把 error / overloaded 排在前面 |
+| 本机待核对文件读不出时的平静判定 | HomePresentation.isCalm 只看读得出的待核对记录。PendingMoneyLedger 某类文件读不出时，不阻止平静布局（设置页和全局提示已经显示读不出的通知）。如需更保守，再给 isCalm 加一个 hasUnreadablePending 参数 |
+| 首页待处理行图标 | S1-04 暂定的 SF Symbol：告警 bell.fill、另有 bell.badge、错误 xmark.octagon.fill、过载 flame.fill、受限 hourglass、分组 square.stack.3d.up.fill、资金待核对 doc.text.magnifyingglass（设计稿 docCheck）、重试 arrow.clockwise。S1-10 视图落地时对照设计稿 v-today.jsx 核对 |
 
 ### App 与设计 · 阶段 2
 
