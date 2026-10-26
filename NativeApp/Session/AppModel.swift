@@ -85,6 +85,8 @@ final class AppModel {
 
     // MARK: - 阶段 4 · 会话级状态
     // 阶段 4 的条目在这里追加
+    /// X21 / C-13: page state shared along one tab's stack (analytics, usage-record lists). Rebuilt with the session.
+    private(set) var pageStates: PageStateRegistry?
 
     // MARK: - 阶段 5 · 会话级状态
     // 阶段 5 的条目在这里追加
@@ -280,6 +282,7 @@ final class AppModel {
         userChanges = UserChangeSignal()
         // MARK: - 阶段 4 · 会话级状态
         // 阶段 4 的条目在这里追加
+        pageStates = PageStateRegistry()
         // MARK: - 阶段 5 · 会话级状态
         // 阶段 5 的条目在这里追加
         // MARK: - 阶段 6 · 会话级状态
@@ -312,6 +315,7 @@ final class AppModel {
         userChanges = nil
         // MARK: - 阶段 4 · 会话级状态
         // 阶段 4 的条目在这里追加
+        pageStates = nil
         // MARK: - 阶段 5 · 会话级状态
         // 阶段 5 的条目在这里追加
         // MARK: - 阶段 6 · 会话级状态
