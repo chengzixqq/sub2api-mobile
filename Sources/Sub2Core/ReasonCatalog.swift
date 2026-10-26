@@ -209,6 +209,7 @@ private extension ReasonCatalog {
             rows(404, ["USER_NOT_FOUND", "ACCOUNT_NOT_FOUND", "GROUP_NOT_FOUND", "RESOURCE_NOT_FOUND", "PROXY_NOT_FOUND", "ANNOUNCEMENT_NOT_FOUND",
                 "REDEEM_CODE_NOT_FOUND", "USER_PLATFORM_QUOTA_NOT_FOUND", "ACCOUNT_TEST_RUN_NOT_FOUND", "PUSH_DEVICE_NOT_FOUND",
                 "SESSION_NOT_FOUND", "ACCESS_TOKEN_NOT_FOUND", "OPS_REQUEST_NOT_FOUND"], .notFound, .notFound, .removeObject, Text.notFound),
+            rows(404, ["OPS_ERROR_NOT_FOUND"], .notFound, .notFound, .removeObject, "记录已不存在"),
             rows(500, ["ACCOUNT_RECOVERED_SCHEDULABLE_FAILED"], .partialSuccess, .response, .readBack, "已恢复 · 仍暂停调度"),
             rows(500, ["REAUTH_PERSIST_FAILED"], .partialSuccess, .response, .readBack, "令牌已换到，但没保存成功"),
             rows(400, ["NOT_OAUTH", "REAUTH_UNSUPPORTED"], .oauth, .validation, .handledByPage, "这个账号不能在手机上重新授权"),

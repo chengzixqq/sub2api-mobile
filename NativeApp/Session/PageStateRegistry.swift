@@ -3,8 +3,9 @@ import Observation
 
 /// X21 / C-13: page state shared along one tab's navigation stack, such as the analytics session that `analytics` and the
 /// pages it pushes use (40 §0.1) and a usage-record list its request detail updates in place (40 §7.4). Entries are kept
-/// per tab and key; AppRouter drops those whose route left the tab's path, and AppModel makes a new registry with each
-/// session, so a session change drops everything.
+/// per window, tab and key: every iPad window has its own MainTabs and AppRouter, so a window never shares or prunes
+/// another's state. AppRouter drops the entries whose route left the tab's path, those of a closed window go with its
+/// router, and AppModel makes a new registry with each session, so a session change drops everything.
 ///
 /// A page reads `router.selectedTab` when it first appears and keeps it in `@State`; it registers once in `onAppear` /
 /// `task` through `state(_:tab:prunedBy:make:)` with a key from `PageStateKey`, keeps the instance in `@State` and never
@@ -13,43 +14,50 @@ import Observation
 @MainActor @Observable
 final class PageStateRegistry {
     private struct Entry: Hashable {
+        let router: ObjectIdentifier
         let tab: MainTab
         let key: String
     }
+    /// The router is weak and compared on every read, so a closed window's entries are never found under a new router at
+    /// the same address.
+    private struct Slot {
+        weak var router: AppRouter?
+        let value: AnyObject
+    }
     // Not observed: registering in `onAppear` and pruning while NavigationStack sets its path update no view.
-    @ObservationIgnored private var states: [Entry: AnyObject] = [:]
+    @ObservationIgnored private var states: [Entry: Slot] = [:]
 
     init() {}
 
-    /// The instance for this tab and key, made on the first call. Another type under the same key replaces it. Pages use
-    /// `state(_:tab:prunedBy:make:)`; this one is for the registry and its tests.
-    func state<T: AnyObject>(_ key: String, tab: MainTab, make: () -> T) -> T {
-        let entry = Entry(tab: tab, key: key)
-        if let existing = states[entry] as? T { return existing }
-        let made = make()
-        states[entry] = made
-        return made
-    }
-    /// The same, after letting `router` prune this registry when the page's route leaves the tab's stack.
+    /// The instance for this window's tab and key, made on the first call; another type under the same key replaces it.
+    /// `router` prunes it once the page's route leaves the tab's stack.
     func state<T: AnyObject>(_ key: String, tab: MainTab, prunedBy router: AppRouter, make: () -> T) -> T {
         router.attach(self)
-        return state(key, tab: tab, make: make)
+        states = states.filter { $0.value.router != nil }
+        if let existing = existing(key, tab: tab, in: router, as: T.self) { return existing }
+        let made = make()
+        states[Entry(router: ObjectIdentifier(router), tab: tab, key: key)] = Slot(router: router, value: made)
+        return made
     }
-    func existing<T: AnyObject>(_ key: String, tab: MainTab, as type: T.Type = T.self) -> T? {
-        states[Entry(tab: tab, key: key)] as? T
+    func existing<T: AnyObject>(_ key: String, tab: MainTab, in router: AppRouter, as type: T.Type = T.self) -> T? {
+        let slot = states[Entry(router: ObjectIdentifier(router), tab: tab, key: key)]
+        return slot?.router === router ? slot?.value as? T : nil
     }
-    /// Every live instance of `type` in `tab`, ordered by key; a request detail finds the lists of its tab with it.
-    func instances<T: AnyObject>(of type: T.Type, tab: MainTab) -> [T] {
-        states.filter { $0.key.tab == tab }
+    /// Every live instance of `type` in this window's `tab`, ordered by key; a request detail finds the lists of its tab with it.
+    func instances<T: AnyObject>(of type: T.Type, tab: MainTab, in router: AppRouter) -> [T] {
+        states.filter { $0.key.tab == tab && $0.value.router === router }
             .sorted { $0.key.key < $1.key.key }
-            .compactMap { $0.value as? T }
+            .compactMap { $0.value.value as? T }
     }
-    func release(_ key: String, tab: MainTab) {
-        states[Entry(tab: tab, key: key)] = nil
+    func release(_ key: String, tab: MainTab, in router: AppRouter) {
+        states[Entry(router: ObjectIdentifier(router), tab: tab, key: key)] = nil
     }
-    /// Drops the entries of `tab` whose key is not in `keys`; other tabs are untouched.
-    func prune(tab: MainTab, keeping keys: Set<String>) {
-        states = states.filter { $0.key.tab != tab || keys.contains($0.key.key) }
+    /// Drops the entries of this window's `tab` whose key is not in `keys`; other tabs and windows are untouched.
+    func prune(tab: MainTab, keeping keys: Set<String>, in router: AppRouter) {
+        states = states.filter { entry, slot in
+            guard let owner = slot.router else { return false }
+            return owner !== router || entry.tab != tab || keys.contains(entry.key)
+        }
     }
 }
 

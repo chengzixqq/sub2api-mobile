@@ -44,6 +44,6 @@ final class AppRouter {
         let old = paths[tab] ?? []
         paths[tab] = path
         guard !path.starts(with: old) else { return }
-        pageStates?.prune(tab: tab, keeping: path.reduce(into: Set()) { $0.formUnion($1.pageStateKeys) })
+        pageStates?.prune(tab: tab, keeping: path.reduce(into: Set()) { $0.formUnion($1.pageStateKeys) }, in: self)
     }
 }

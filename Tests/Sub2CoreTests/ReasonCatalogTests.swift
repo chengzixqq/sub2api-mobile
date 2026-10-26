@@ -210,3 +210,12 @@ func userNotActiveClearsSessionWhileAuthenticating(_ context: ReasonCatalog.Cont
     #expect(ReasonCatalog.lookup(status: 404, reason: "OPS_DISABLED") != nil)
     for status in [100, 204, 304, 400, 418, 451, 500, 599, 700] { #expect(!ReasonCatalog.entry(status: status, reason: nil).message.isEmpty) }
 }
+
+@Test func opsErrorNotFoundReadsAsRecordGone() {
+    #expect(ReasonCatalog.entry(status: 404, reason: "OPS_ERROR_NOT_FOUND") == ReasonCatalog.Entry(category: .notFound, kind: .notFound, action: .removeObject, message: "记录已不存在"))
+    #expect(ReasonCatalog.lookup(status: 404, reason: "OPS_ERROR_NOT_FOUND") != nil)
+    #expect(ReasonCatalog.entry(status: 404, reason: "OPS_REQUEST_NOT_FOUND").message == "对象不存在或已删除")
+    #expect(ReasonCatalog.entry(status: 404, reason: "OPS_DISABLED").kind == .featureDisabled)
+    #expect(ReasonCatalog.entry(status: 409, reason: "OPS_REQUEST_AMBIGUOUS").kind == .conflict)
+    #expect(ReasonCatalog.entry(status: 400, reason: "INVALID_REQUEST_ID").category == .invalidParameter)
+}
