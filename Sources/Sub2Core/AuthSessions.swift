@@ -121,6 +121,13 @@ extension AuthSessionItem {
     }
     /// 让其他所有设备下线 shows from one; a pre-deployment session has no current entry, so every row counts.
     public static func otherDeviceCount(in items: [AuthSessionItem]) -> Int { items.filter { !$0.current }.count }
+    /// The rows 让其他所有设备下线 ended: the page hides them at once, so a reload that fails cannot bring them back.
+    public static func otherDeviceIDs(in items: [AuthSessionItem]) -> Set<String> { Set(items.filter { !$0.current }.map(\.id)) }
+    /// 00 §4.6: a failed reload keeps the older list, with this retry and the time of that list.
+    public static let refreshFailedText = "刷新失败 · 重试"
+    public static func updatedLine(_ date: Date?, timeZone: TimeZone) -> String? {
+        date.map { "更新于 " + DisplayFormat.clock($0, timeZone: timeZone) }
+    }
     /// The session is gone already: the row is simply removed (60 §5.4).
     public static func isAlreadyGone(_ error: any Error) -> Bool {
         guard let error = error as? APIError else { return false }

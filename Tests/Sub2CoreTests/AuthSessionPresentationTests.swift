@@ -97,6 +97,21 @@ private func item(name: String? = nil, client: String? = nil, agent: String? = n
     #expect(AuthSessionItem.otherDeviceCount(in: []) == 0)
 }
 
+@Test func otherDeviceIDsAreTheRowsRevokeAllEnds() {
+    let this = AuthSessionItem(id: "a1", current: true), web = AuthSessionItem(id: "b2"), legacy = AuthSessionItem(id: "c3")
+    #expect(AuthSessionItem.otherDeviceIDs(in: [this, web, legacy]) == ["b2", "c3"])
+    #expect(AuthSessionItem.otherDeviceIDs(in: [this]).isEmpty)
+    // Without a current entry this device's pre-deployment session ends with the others.
+    #expect(AuthSessionItem.otherDeviceIDs(in: [web, legacy]) == ["b2", "c3"])
+}
+
+@Test func failedReloadKeepsTheOlderListWithItsTime() {
+    #expect(AuthSessionItem.refreshFailedText == "刷新失败 · 重试")
+    #expect(AuthSessionItem.updatedLine(instant("2026-10-17T01:41:00Z"), timeZone: shanghai) == "更新于 09:41")
+    #expect(AuthSessionItem.updatedLine(instant("2026-10-17T01:41:00Z"), timeZone: utc) == "更新于 01:41")
+    #expect(AuthSessionItem.updatedLine(nil, timeZone: shanghai) == nil)
+}
+
 @Test func alreadyGoneOnlyForSessionNotFound() {
     #expect(AuthSessionItem.isAlreadyGone(APIError.server(status: 404, reason: "SESSION_NOT_FOUND")))
     #expect(!AuthSessionItem.isAlreadyGone(APIError.server(status: 404, reason: "ACCESS_TOKEN_NOT_FOUND")))

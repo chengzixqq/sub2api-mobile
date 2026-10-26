@@ -8,6 +8,8 @@ enum SessionFixture {
     static let legacyCurrentArgument = "-ui-sessions-legacy-current"
     /// The session's first list read fails with 503 SERVICE_UNAVAILABLE.
     static let unavailableArgument = "-ui-sessions-unavailable"
+    /// The list read right after 让其他所有设备下线 fails with 503 SERVICE_UNAVAILABLE; the next one succeeds.
+    static let reloadFailsArgument = "-ui-sessions-reload-fails"
     static let currentID = "5e5510000000000000000000000000a1"
     static let webID = "5e5510000000000000000000000000b2"
     static let legacyID = "5e5510000000000000000000000000c3"
@@ -39,6 +41,7 @@ extension DemoData {
             failedSessionReads.insert(generation)
             throw APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE")
         }
+        if failingReloads.remove(generation) != nil { throw APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE") }
         if revokedThisDevice.contains(generation) { throw APIError.server(status: 401, reason: "TOKEN_REVOKED") }
         return storedAuthSessions(generation: generation)
     }
@@ -56,11 +59,13 @@ extension DemoData {
     @MainActor static func revokeOtherAuthSessions(generation: UUID) {
         let sessions = storedAuthSessions(generation: generation)
         if !sessions.contains(where: \.current) { revokedThisDevice.insert(generation) }
+        if ProcessInfo.processInfo.arguments.contains(SessionFixture.reloadFailsArgument) { failingReloads.insert(generation) }
         authSessionsByGeneration[generation] = sessions.filter(\.current)
     }
 
     @MainActor private static var authSessionsByGeneration: [UUID: [AuthSessionItem]] = [:]
     @MainActor private static var revokedThisDevice: Set<UUID> = []
+    @MainActor private static var failingReloads: Set<UUID> = []
     @MainActor private static var failedSessionReads: Set<UUID> = []
     @MainActor private static func storedAuthSessions(generation: UUID) -> [AuthSessionItem] {
         if let stored = authSessionsByGeneration[generation] { return stored }

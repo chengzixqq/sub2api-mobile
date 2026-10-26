@@ -2,8 +2,9 @@ import SwiftUI
 import Sub2Core
 
 /// 60 §5: the account's signed-in devices. This device has no swipe and only explains how to sign out (U50); another device
-/// goes after a confirmation. 让其他所有设备下线 reloads the list: a pre-deployment session (no sid) is revoked with the
-/// others, and the reload's 401 then takes this device to the login page (BACKLOG). No step-up, no idempotency key, no polling.
+/// goes after a confirmation. 让其他所有设备下线 hides the others and reloads the list: a pre-deployment session (no sid) is
+/// revoked with the others, and the reload's 401 then takes this device to the login page (BACKLOG). A failed reload keeps
+/// the older list under “刷新失败 · 重试” (00 §4.6). No step-up, no idempotency key, no polling.
 struct SessionsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sessionContext) private var session
@@ -46,16 +47,19 @@ struct SessionsView: View {
             ProgressView("正在读取登录设备…").frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityIdentifier("sessions.loading")
         case .failed(let reason):
             FailureView(message: reason ?? "") { Task { await reload() } }
-        case .value, .disabled:
-            sessionList
+        case .value(_, let at, _, let updateFailed):
+            sessionList(updateFailed: updateFailed, updatedAt: at)
+        case .disabled:
+            sessionList(updateFailed: false, updatedAt: nil)
         }
     }
 
-    private var sessionList: some View {
+    private func sessionList(updateFailed: Bool, updatedAt: Date?) -> some View {
         let items = shownItems
         let now = session?.client.serverClock.now() ?? Date()
         let timeZone = session?.site.serverTimeZone.timeZone ?? .current
         return List {
+            if updateFailed { refreshFailedBanner(updatedAt: updatedAt, timeZone: timeZone) }
             Section { ForEach(items) { row($0, now: now, timeZone: timeZone) } }
             Section {
                 if AuthSessionItem.otherDeviceCount(in: items) > 0 { revokeOthersButton } else {
@@ -69,6 +73,23 @@ struct SessionsView: View {
         .listStyle(.insetGrouped)
         .refreshable { await reload() }
         .accessibilityIdentifier("sessions.list")
+    }
+
+    /// The time of the list shown, in the site's clock and zone like the rows; tapping reads the list again.
+    private func refreshFailedBanner(updatedAt: Date?, timeZone: TimeZone) -> some View {
+        let shown = updatedAt.map { $0.addingTimeInterval(session?.site.clockOffset ?? 0) }
+        let detail = AuthSessionItem.updatedLine(shown, timeZone: timeZone)
+        return Section {
+            Button { Task { await reload() } } label: {
+                StatusBanner(tone: .caution, systemImage: "exclamationmark.triangle", title: AuthSessionItem.refreshFailedText, detail: detail)
+                    .frame(minHeight: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(list.isLoading)
+            .accessibilityLabel([AuthSessionItem.refreshFailedText, detail].compactMap { $0 }.joined(separator: "，"))
+            .accessibilityIdentifier("sessions.refreshFailed")
+            .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+        }
     }
 
     private var revokeOthersButton: some View {
@@ -159,16 +180,19 @@ struct SessionsView: View {
         await reload()
     }
 
+    /// The ended rows go at once, as after 下线: a reload that fails or waits out a 429 keeps the older list.
     private func revokeOthers() async {
         guard let context = session, context.generation == model.sessionGeneration, !isWriting else { return }
         isWriting = true
         defer { isWriting = false }
+        let ended = AuthSessionItem.otherDeviceIDs(in: shownItems)
         do { try await SessionsSource(model: model, context: context).revokeOthers() }
         catch {
             if context.generation == model.sessionGeneration { report(error) }
             return
         }
         guard context.generation == model.sessionGeneration else { return }
+        removedIDs.formUnion(ended)
         await reload()
     }
 

@@ -122,6 +122,31 @@ final class SessionsUITests: XCTestCase {
         XCTAssertTrue(row(webID).exists && row(legacyID).exists, app.debugDescription)
     }
 
+    /// 让其他所有设备下线 went through but the reload after it failed: the revoked devices still leave the older list,
+    /// which says it failed to refresh (00 §4.6), and the retry reads it again.
+    @MainActor func testRevokingAllOthersHidesThemWhenReloadFails() {
+        launchAndLogin(arguments: ["-ui-sessions-reload-fails"])
+        defer { diagnostics("sessions-revoke-all-reload-failed-final") }
+        openSessions(expectingCount: "3")
+        let revokeOthers = app.buttons["sessions.revokeOthers"]
+        XCTAssertTrue(revokeOthers.waitForExistence(timeout: 5), app.debugDescription)
+        reveal(revokeOthers)
+        revokeOthers.tap()
+        confirmDialogButton("全部下线").tap()
+        let stale = app.buttons["sessions.refreshFailed"]
+        XCTAssertTrue(stale.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(stale.label.contains("刷新失败 · 重试") && stale.label.contains("更新于 "), stale.label)
+        XCTAssertTrue(waitUntilGone(row(webID)), app.debugDescription)
+        XCTAssertFalse(row(legacyID).exists, app.debugDescription)
+        XCTAssertTrue(row(currentID).exists, app.debugDescription)
+        XCTAssertEqual(element("sessions.noOthers").label, "没有其他设备登录")
+        diagnostics("sessions-revoke-all-reload-failed")
+        stale.tap()
+        XCTAssertTrue(waitUntilGone(stale), app.debugDescription)
+        XCTAssertTrue(row(currentID).exists && element("sessions.noOthers").exists, app.debugDescription)
+        goBackToSettings(expectingCount: "1")
+    }
+
     // MARK: Helpers
 
     @MainActor private func launchAndLogin(arguments: [String] = []) {
