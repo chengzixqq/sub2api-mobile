@@ -11,7 +11,7 @@ struct SettingsRouteDestination: View {
         // .sessions：S6-01
         case .sessions: SessionsView()
         // .accessTokens：S6-02
-        case .accessTokens: ComingSoonView(title: route.placeholderTitle)
+        case .accessTokens: AccessTokensView()
         // .push：S6-24
         case .push: ComingSoonView(title: route.placeholderTitle)
         // .pushTarget：S6-24

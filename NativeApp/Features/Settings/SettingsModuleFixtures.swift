@@ -74,3 +74,61 @@ extension DemoData {
         return seed
     }
 }
+
+/// 60 §6's `-ui-testing` launch arguments and token ids; AccessTokensView and SettingsSiteStatus read the fixture below.
+enum AccessTokenFixture {
+    /// The account has no token left (U02: the App issues none).
+    static let emptyArgument = "-ui-access-tokens-empty"
+    /// Every list read fails with 503 SERVICE_UNAVAILABLE, so 设置 shows no count either.
+    static let failureArgument = "-ui-access-tokens-failure"
+    static let thisAppID = 1
+    static let scriptID = 2
+    static let temporaryID = 3
+}
+
+// 60 §6: the account's access tokens. Revoking changes memory only.
+extension DemoData {
+    /// Newest first, as the server sorts them. The first is this App's own when it signed in with `sat_`, read-only under
+    /// `-ui-readonly-token`; the last expires within a week and was never used.
+    static func accessTokenSeed(now: Date, signedInWithToken: Bool, readOnly: Bool) -> [AdminAccessToken] {
+        let stamp = { (seconds: TimeInterval) in ServerTime.utcTimestamp(now.addingTimeInterval(seconds)) }
+        let day: TimeInterval = 86_400
+        return [
+            AdminAccessToken(id: AccessTokenFixture.thisAppID, name: "本机 iPhone", prefix: "sat_3f9a", last4: "c71e", scope: readOnly ? "read" : "write",
+                             expiresAt: stamp(87 * day), lastUsedAt: stamp(-180), lastUsedIP: "203.0.113.24", createdAt: stamp(-day),
+                             current: signedInWithToken),
+            AdminAccessToken(id: AccessTokenFixture.scriptID, name: "监控脚本", prefix: "sat_9b20", last4: "41ad", scope: "read",
+                             expiresAt: stamp(60 * day), lastUsedAt: stamp(-26 * 3_600), lastUsedIP: "198.51.100.7", createdAt: stamp(-2 * day)),
+            AdminAccessToken(id: AccessTokenFixture.temporaryID, name: "临时排查", prefix: "sat_d71c", last4: "08f3", scope: "write",
+                             expiresAt: stamp(5 * day), lastUsedIP: "", createdAt: stamp(-3 * day))
+        ]
+    }
+
+    @MainActor static func accessTokens(context: SessionContext) throws -> [AdminAccessToken] {
+        if ProcessInfo.processInfo.arguments.contains(AccessTokenFixture.failureArgument) {
+            throw APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE")
+        }
+        return storedAccessTokens(context: context)
+    }
+    /// Settings → 当前站点 counts the fixture's own tokens (60 §3.6), so it follows the revocations; nil when the list fails.
+    @MainActor static func accessTokenFixtureCount(context: SessionContext) -> Int? {
+        guard let tokens = try? accessTokens(context: context) else { return nil }
+        return SettingsPresentation.activeTokenCount(tokens, now: Date())
+    }
+    /// Revoking this App's own token answers `current: true`, which ends the session; a token gone already is a 404.
+    @MainActor static func revokeAccessTokenFixture(_ token: AdminAccessToken, generation: UUID) -> AccessTokenRevocation.Outcome {
+        let tokens = accessTokensByGeneration[generation] ?? []
+        guard let revoked = tokens.first(where: { $0.id == token.id }) else { return AccessTokenRevocation.Outcome(kind: .alreadyGone) }
+        accessTokensByGeneration[generation] = tokens.filter { $0.id != token.id }
+        return AccessTokenRevocation.Outcome(kind: revoked.current ? .revokedCurrent : .revoked)
+    }
+
+    @MainActor private static var accessTokensByGeneration: [UUID: [AdminAccessToken]] = [:]
+    @MainActor private static func storedAccessTokens(context: SessionContext) -> [AdminAccessToken] {
+        if let stored = accessTokensByGeneration[context.generation] { return stored }
+        let seed = ProcessInfo.processInfo.arguments.contains(AccessTokenFixture.emptyArgument) ? []
+            : accessTokenSeed(now: Date(), signedInWithToken: context.site.authenticationKind == .accessToken, readOnly: context.isReadOnlyToken)
+        accessTokensByGeneration[context.generation] = seed
+        return seed
+    }
+}
