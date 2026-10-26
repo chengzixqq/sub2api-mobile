@@ -15,6 +15,7 @@ actor StubLiveOpsSource: LiveOpsSource {
         case home(noCache: Bool), rates(LiveRatesWindow), overview(start: Date, end: Date), overviewRange(String), errorAccounts
         case ranking(limit: Int, timezone: String), summary, alertEvents(status: String?, limit: Int), alertCounts, alertEvent(Int)
         case alertRules, channels(range: String, refresh: Bool), monitoringStatus
+        case setAlertStatus(Int, String), createSilence(rule: Int, until: Date), updateSilence(Int, Date), deleteSilence(Int)
     }
     struct Handlers: Sendable {
         var home: (@Sendable (_ noCache: Bool) async throws -> DashboardHome)?
@@ -29,6 +30,10 @@ actor StubLiveOpsSource: LiveOpsSource {
         var alertRules: (@Sendable () async throws -> [AlertEventRule])?
         var channels: (@Sendable () async throws -> ChannelOverview)?
         var monitoringStatus: (@Sendable () async throws -> OpsMonitoringStatus)?
+        var setAlertStatus: (@Sendable (Int, String) async throws -> Void)?
+        var createSilence: (@Sendable (Int, Date) async throws -> AlertSilence)?
+        var updateSilence: (@Sendable (Int, Date) async throws -> AlertSilence)?
+        var deleteSilence: (@Sendable (Int) async throws -> Void)?
     }
     private var handlers: Handlers
     private(set) var calls: [Call] = []
@@ -104,6 +109,26 @@ actor StubLiveOpsSource: LiveOpsSource {
         calls.append(.monitoringStatus)
         guard let handler = handlers.monitoringStatus else { throw StubMissing() }
         return try await handler()
+    }
+    func setAlertEventStatus(id: Int, status: String) async throws {
+        calls.append(.setAlertStatus(id, status))
+        guard let handler = handlers.setAlertStatus else { throw StubMissing() }
+        try await handler(id, status)
+    }
+    func createAlertSilence(ruleID: Int, platform: String?, groupID: Int?, until: Date) async throws -> AlertSilence {
+        calls.append(.createSilence(rule: ruleID, until: until))
+        guard let handler = handlers.createSilence else { throw StubMissing() }
+        return try await handler(ruleID, until)
+    }
+    func updateAlertSilence(id: Int, until: Date) async throws -> AlertSilence {
+        calls.append(.updateSilence(id, until))
+        guard let handler = handlers.updateSilence else { throw StubMissing() }
+        return try await handler(id, until)
+    }
+    func deleteAlertSilence(id: Int) async throws {
+        calls.append(.deleteSilence(id))
+        guard let handler = handlers.deleteSilence else { throw StubMissing() }
+        try await handler(id)
     }
 }
 

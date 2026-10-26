@@ -32,18 +32,28 @@ enum LiveOpsFixtures {
         static let hourlyTimeout = "-ui-home-hourly-timeout"
         static let calm = "-ui-home-calm"
         static let calmLimited = "-ui-home-calm-limited"
+        /// S1-06: every alert write answers 500 INTERNAL_ERROR (回执“站点暂时不可用”).
+        static let alertWriteFails = "-ui-alert-write-fails"
+        /// S1-06, S1D1-15: events without the `silence` key, so only 手动解决 is offered.
+        static let alertLegacySilence = "-ui-alert-legacy-silence"
     }
     struct Options: Equatable, Sendable {
         var variant: HomeVariant
         var opsDisabled: Bool
-        init(variant: HomeVariant = .allOK, opsDisabled: Bool = false) { self.variant = variant; self.opsDisabled = opsDisabled }
+        var alertWritesFail: Bool
+        var alertsWithoutSilenceKey: Bool
+        init(variant: HomeVariant = .allOK, opsDisabled: Bool = false, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false) {
+            self.variant = variant; self.opsDisabled = opsDisabled
+            self.alertWritesFail = alertWritesFail; self.alertsWithoutSilenceKey = alertsWithoutSilenceKey
+        }
         /// The most specific variant wins (calm-limited, calm, hourly timeout, availability error); ops off goes with any.
         init(arguments: [String]) {
             let order: [(argument: String, variant: HomeVariant)] = [(Argument.calmLimited, .calmLimited), (Argument.calm, .calm),
                                                                      (Argument.hourlyTimeout, .hourlyTimeout),
                                                                      (Argument.availabilityError, .availabilityError)]
             self.init(variant: order.first { arguments.contains($0.argument) }?.variant ?? .allOK,
-                      opsDisabled: arguments.contains(Argument.opsDisabled))
+                      opsDisabled: arguments.contains(Argument.opsDisabled), alertWritesFail: arguments.contains(Argument.alertWriteFails),
+                      alertsWithoutSilenceKey: arguments.contains(Argument.alertLegacySilence))
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -51,6 +61,7 @@ enum LiveOpsFixtures {
     /// The name S2-22's plan uses.
     static let anthropicFiringEventID = LiveOpsFixtureIDs.anthropicFiringEventID
     static let opsDisabledError = APIError.server(status: 404, reason: "OPS_DISABLED")
+    static let alertWriteError = APIError.server(status: 500, reason: "INTERNAL_ERROR")
 
     // MARK: 首页
 
@@ -220,22 +231,25 @@ enum LiveOpsFixtures {
     }
 }
 
-/// `-ui-testing`'s LiveOpsSource. The events are its state, so S1-06's writes can change them; `homeCalls` is for fixtures that
-/// change after a pull to refresh (S1-11). Gated reads answer 404 OPS_DISABLED under `-ui-ops-disabled`.
+/// `-ui-testing`'s LiveOpsSource. The alert events are its state (FixtureAlertBook), so S1-06's writes change what is read next;
+/// `homeCalls` is for fixtures that change after a pull to refresh (S1-11). Gated reads and the alert writes answer 404
+/// OPS_DISABLED under `-ui-ops-disabled`.
 actor FixtureLiveOpsSource: LiveOpsSource {
     let options: LiveOpsFixtures.Options
     let base: Date
-    private(set) var events: [AlertEvent]
+    private(set) var book: FixtureAlertBook
     private(set) var homeCalls = 0
+    var events: [AlertEvent] { book.events }
 
     init(options: LiveOpsFixtures.Options, base: Date = Date()) {
         self.options = options; self.base = base
-        events = LiveOpsFixtures.alertEvents(options.variant, base: base)
+        book = FixtureAlertBook(events: LiveOpsFixtures.alertEvents(options.variant, base: base), legacy: options.alertsWithoutSilenceKey,
+                                writesFail: options.alertWritesFail)
     }
 
     func dashboardHome(timezone: ServerTimeZone, include: [HomeSectionKey]?, noCache: Bool) -> DashboardHome {
         homeCalls += 1
-        return LiveOpsFixtures.home(options, base: base, events: events)
+        return LiveOpsFixtures.home(options, base: base, events: book.events)
     }
     func dashboardRates(window: LiveRatesWindow) -> LiveRates { LiveOpsFixtures.rates(base: base, opsDisabled: options.opsDisabled) }
     func opsOverview(start: Date, end: Date) throws -> OpsOverview {
@@ -258,15 +272,10 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         let summary = LiveOpsFixtures.availability(options.variant == .availabilityError ? .allOK : options.variant, base: base)
         return includeAccounts ? summary : AccountStatusSummary(collectedAt: summary.collectedAt, totals: summary.totals, groups: summary.groups)
     }
-    /// Filtered like the server, newest first; `timeRange` is not applied (every event is within a day and a half).
     func alertEvents(status: String?, timeRange: String?, limit: Int, before: AlertEventCursor?, groupID: Int?,
                      platform: String?) throws -> [AlertEvent] {
         try requireOps()
-        let wanted = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let matches = events.filter { event in
-            Self.matches(event, status: wanted?.isEmpty == false ? wanted : nil, groupID: groupID, platform: platform, before: before)
-        }
-        return Array(LiveOpsFixtures.newestFirst(matches).prefix(max(0, limit)))
+        return book.list(status: status, limit: limit, before: before, groupID: groupID, platform: platform)
     }
     func alertEventCounts() throws -> AlertCounts {
         try requireOps()
@@ -274,8 +283,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     }
     func alertEvent(id: Int) throws -> AlertEvent {
         try requireOps()
-        guard let event = events.first(where: { $0.id == id }) else { throw APIError.server(status: 404, reason: "OPS_ALERT_EVENT_NOT_FOUND") }
-        return event
+        return try book.event(id: id)
     }
     func alertRules() throws -> [AlertEventRule] {
         try requireOps()
@@ -283,13 +291,22 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     }
     func channelOverview(range: String, refresh: Bool) -> ChannelOverview { LiveOpsFixtures.channelOverview(base: base) }
     func opsMonitoringStatus() -> OpsMonitoringStatus { LiveOpsFixtures.monitoringStatus(options) }
+    func setAlertEventStatus(id: Int, status: String) throws {
+        try requireOps()
+        try book.setStatus(id: id, status: status, at: Date())
+    }
+    func createAlertSilence(ruleID: Int, platform: String?, groupID: Int?, until: Date) throws -> AlertSilence {
+        try requireOps()
+        return try book.createSilence(ruleID: ruleID, platform: platform, groupID: groupID, until: until)
+    }
+    func updateAlertSilence(id: Int, until: Date) throws -> AlertSilence {
+        try requireOps()
+        return try book.updateSilence(id: id, until: until)
+    }
+    func deleteAlertSilence(id: Int) throws {
+        try requireOps()
+        try book.deleteSilence(id: id)
+    }
 
     private func requireOps() throws { if options.opsDisabled { throw LiveOpsFixtures.opsDisabledError } }
-    private static func matches(_ event: AlertEvent, status: String?, groupID: Int?, platform: String?, before: AlertEventCursor?) -> Bool {
-        if let status, event.status.lowercased() != status { return false }
-        if let groupID, event.groupID != groupID { return false }
-        if let platform, event.platform?.caseInsensitiveCompare(platform) != .orderedSame { return false }
-        if let before { return event.cursor.map { $0 < before } ?? false }
-        return true
-    }
 }

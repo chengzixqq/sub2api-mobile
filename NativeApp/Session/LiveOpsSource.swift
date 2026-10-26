@@ -1,10 +1,19 @@
 import Foundation
 import Sub2Core
 
+/// 10 §7.1: AlertActions' requests (S1-03), unkeyed and never retried; AlertActions' tests may stand in for just these.
+protocol AlertActionSource: Sendable {
+    func alertEvent(id: Int) async throws -> AlertEvent
+    func setAlertEventStatus(id: Int, status: String) async throws
+    func createAlertSilence(ruleID: Int, platform: String?, groupID: Int?, until: Date) async throws -> AlertSilence
+    func updateAlertSilence(id: Int, until: Date) async throws -> AlertSilence
+    func deleteAlertSilence(id: Int) async throws
+}
+
 /// C-27, S1D1-05: the reads behind LiveOpsStore, named and typed as on APIClient (no default arguments here). S1-06, S1-07,
 /// S1-08, S1-12, S1-13 and S1-17 add theirs; every new requirement also goes into ClientLiveOpsSource, FixtureLiveOpsSource
 /// and the tests' StubLiveOpsSource in the same commit (S1D1-06).
-protocol LiveOpsSource: Sendable {
+protocol LiveOpsSource: AlertActionSource {
     func dashboardHome(timezone: ServerTimeZone, include: [HomeSectionKey]?, noCache: Bool) async throws -> DashboardHome
     func dashboardRates(window: LiveRatesWindow) async throws -> LiveRates
     func opsOverview(start: Date, end: Date) async throws -> OpsOverview
@@ -15,7 +24,6 @@ protocol LiveOpsSource: Sendable {
     func alertEvents(status: String?, timeRange: String?, limit: Int, before: AlertEventCursor?, groupID: Int?,
                      platform: String?) async throws -> [AlertEvent]
     func alertEventCounts() async throws -> AlertCounts
-    func alertEvent(id: Int) async throws -> AlertEvent
     func alertRules() async throws -> [AlertEventRule]
     func channelOverview(range: String, refresh: Bool) async throws -> ChannelOverview
     func opsMonitoringStatus() async throws -> OpsMonitoringStatus
@@ -49,4 +57,10 @@ struct ClientLiveOpsSource: LiveOpsSource {
         try await client.channelOverview(range: range, refresh: refresh)
     }
     func opsMonitoringStatus() async throws -> OpsMonitoringStatus { try await client.opsMonitoringStatus() }
+    func setAlertEventStatus(id: Int, status: String) async throws { try await client.setAlertEventStatus(id: id, status: status) }
+    func createAlertSilence(ruleID: Int, platform: String?, groupID: Int?, until: Date) async throws -> AlertSilence {
+        try await client.createAlertSilence(ruleID: ruleID, platform: platform, groupID: groupID, until: until)
+    }
+    func updateAlertSilence(id: Int, until: Date) async throws -> AlertSilence { try await client.updateAlertSilence(id: id, until: until) }
+    func deleteAlertSilence(id: Int) async throws { try await client.deleteAlertSilence(id: id) }
 }

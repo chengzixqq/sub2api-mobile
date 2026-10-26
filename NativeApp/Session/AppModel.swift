@@ -290,7 +290,7 @@ final class AppModel {
         } else { ClientLiveOpsSource(client: next) }
         liveOps = LiveOpsStore(generation: generation, source: liveSource, site: { [weak self] in self?.siteSession },
                                isCurrent: { [weak self] in self?.sessionGeneration == generation }, errorBadge: { [weak self] in self?.accountBadge },
-                               serverNow: { [clock = next.serverClock] in clock.now() })
+                               serverNow: { [clock = next.serverClock] in clock.now() }, receipts: receipts)
         // MARK: - 阶段 2 · 会话级状态
         // 阶段 2 的条目在这里追加
         accountBadge = AccountErrorBadge()
