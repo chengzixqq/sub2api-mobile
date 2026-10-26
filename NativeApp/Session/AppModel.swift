@@ -80,6 +80,8 @@ final class AppModel {
 
     // MARK: - 阶段 3 · 会话级状态
     // 阶段 3 的条目在这里追加
+    /// C-12: bumped after a balance write, a save or a compensation; the user page watches it. Rebuilt with the session.
+    private(set) var userChanges: UserChangeSignal?
 
     // MARK: - 阶段 4 · 会话级状态
     // 阶段 4 的条目在这里追加
@@ -275,6 +277,7 @@ final class AppModel {
         // 阶段 2 的条目在这里追加
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
+        userChanges = UserChangeSignal()
         // MARK: - 阶段 4 · 会话级状态
         // 阶段 4 的条目在这里追加
         // MARK: - 阶段 5 · 会话级状态
@@ -306,6 +309,7 @@ final class AppModel {
         // 阶段 2 的条目在这里追加
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
+        userChanges = nil
         // MARK: - 阶段 4 · 会话级状态
         // 阶段 4 的条目在这里追加
         // MARK: - 阶段 5 · 会话级状态
