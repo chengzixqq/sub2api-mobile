@@ -114,6 +114,28 @@ extension AppModel {
         guard !isSigningOut else { return }
         _ = await endActiveSession(cancelsConnection: false, then: .siteLogin(notice: notice))
     }
+    /// 60 §6.4 through AccessTokenRevocation; the push records follow what it did. This App's own token ends the session here
+    /// without a logout request. A request in flight may have ended it first with its own 401: the login page then says why.
+    func revokeAccessToken(_ token: AdminAccessToken, context: SessionContext) async throws -> AccessTokenRevocation.Outcome {
+        guard context.generation == sessionGeneration else { throw CancellationError() }
+        let outcome: AccessTokenRevocation.Outcome
+        if isUITesting {
+            outcome = DemoData.revokeAccessTokenFixture(token, generation: context.generation)
+        } else {
+            guard let credential = await context.client.currentCredential() else { throw CancellationError() }
+            let pushIDs = pushRecords.teardownCandidates(serverID: context.serverID)
+            outcome = try await AccessTokenRevocation(tokenID: token.id, isCurrent: token.current, pushDeviceIDs: pushIDs, credential: credential)
+                .run(using: context.client)
+        }
+        if let report = outcome.pushReport { pushRecords.apply(report, serverID: context.serverID) }
+        guard outcome.kind == .revokedCurrent else { return outcome }
+        if context.generation == sessionGeneration {
+            await forgetActiveSession(notice: AccessTokenRevocation.currentRevokedNotice)
+        } else if let prompt = loginPrompt, prompt.profile.id == context.serverID {
+            openSiteLogin(prompt.profile, notice: AccessTokenRevocation.currentRevokedNotice)
+        }
+        return outcome
+    }
 
     /// The deletion prompt promises what SiteTeardown does, and that follows the saved credential: a `sat_` site saved
     /// before access tokens still says Admin Key in its profile until it connects again.

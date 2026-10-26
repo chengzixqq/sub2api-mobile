@@ -146,7 +146,7 @@ final class SettingsUITests: XCTestCase {
         let sessions = app.buttons["settings.current.sessions"]
         reveal(sessions)
         XCTAssertTrue(sessions.label.contains("3"), sessions.label)
-        XCTAssertTrue(app.buttons["settings.current.tokens"].label.contains("2"), app.buttons["settings.current.tokens"].label)
+        XCTAssertTrue(app.buttons["settings.current.tokens"].label.contains("3"), app.buttons["settings.current.tokens"].label)
         reveal(app.buttons["settings.logout"])
         diagnostics("settings-current-site-rows")
         sessions.tap()
