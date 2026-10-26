@@ -44,6 +44,8 @@ public struct APIError: LocalizedError, Sendable, Equatable {
                                                         category: .sessionExpired, action: .clearSession)
     public static let administratorRequired = APIError(kind: .permission, statusCode: 403, message: "当前版本仅支持管理员账号")
     public static let stationMismatch = APIError(kind: .validation, message: "该操作属于其他站点，已阻止发送。")
+    /// The server derives action_id from the sender, so only the administrator who sent a money write retries its number (S3D1-16).
+    public static let otherActorWrite = APIError(kind: .validation, message: "这笔由其他管理员发起，不能用同一编号重试。")
     public static let incompleteStream = APIError(kind: .stream, message: "连接已结束，但未收到测试完成结果；请检查后手动重试。")
     /// 00 §1.7.2: refresh failed for a transient reason and the access has expired; the session is kept.
     public static let refreshDeferred = APIError(kind: .transport, message: "暂时无法续期登录，正在重试")

@@ -198,3 +198,59 @@ private func pendingError(_ operation: () throws -> Void) -> PendingMoneyError? 
     let values = try scratch.directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
     #expect(values.isExcludedFromBackup == true)
 }
+
+// MARK: Stage 3: the last send of a retried balance write and records of one address (S3-06)
+
+/// A copy taken before the reply (the balance page's action-id saver) never takes back what a later save added.
+@Test func rememberNeverDropsSavedActionIDOrLastSend() throws {
+    let scratch = Scratch(), files = scratch.files
+    defer { scratch.remove() }
+    let original = balance(), action = UUID(), sent = Date(timeIntervalSince1970: 1_800_000_500)
+    let saved = try PendingMoneyLedger().remembering(original.with(actionID: action).with(lastSentAt: sent), in: files)
+    let stale = try saved.remembering(original, in: files)
+    #expect(stale.balances.first?.actionID == action); #expect(stale.balances.first?.lastSentAt == sent)
+    #expect(PendingMoneyLedger.load(from: files).balances == stale.balances)
+    let later = sent.addingTimeInterval(60), newAction = UUID()
+    let newer = try stale.remembering(original.with(actionID: newAction).with(lastSentAt: later), in: files)
+    #expect(newer.balances.first?.actionID == newAction); #expect(newer.balances.first?.lastSentAt == later)
+    #expect(try newer.remembering(original.with(lastSentAt: sent), in: files).balances.first?.lastSentAt == later)
+    let changed = PendingBalanceOperation(id: original.id, serverID: site, userID: 42, amount: 60, operation: .add, notes: "补偿", actorUserID: 7)
+    #expect(pendingError { _ = try newer.remembering(changed.with(lastSentAt: later), in: files) } == PendingMoneyError(kind: .balance, reason: .conflictingRecord))
+}
+
+@Test func lastSentAtRoundTripsAndOldFilesDecode() throws {
+    let scratch = Scratch()
+    defer { scratch.remove() }
+    let retried = balance().with(lastSentAt: Date(timeIntervalSince1970: 1_800_000_500))
+    let encoded = String(decoding: try JSONEncoder().encode([retried]), as: UTF8.self)
+    #expect(encoded.contains("\"lastSentAt\""))
+    #expect(!String(decoding: try JSONEncoder().encode([balance()]), as: UTF8.self).contains("lastSentAt"))
+    try scratch.write(encoded, to: .balance)
+    #expect(PendingMoneyLedger.load(from: scratch.files).balances == [retried])
+    // A record S0-06 wrote has no such key.
+    let id = UUID()
+    try scratch.write(#"[{"id":"\#(id.uuidString)","serverID":"\#(site.uuidString)","userID":42,"amount":1,"operation":"add","notes":"","requestID":"\#(id.uuidString.lowercased())","actorUserID":7,"createdAt":0}]"#, to: .balance)
+    let old = try #require(PendingMoneyLedger.load(from: scratch.files).balances.first)
+    #expect(old.lastSentAt == nil); #expect(old.graceStart == old.createdAt)
+}
+
+@Test func writesForSameAddressSet() throws {
+    let other = UUID(), elsewhere = UUID()
+    let old = try JSONDecoder().decode(PendingBalanceOperation.self, from: Data(
+        #"{"id":"\#(UUID().uuidString)","serverID":"\#(site.uuidString)","userID":42,"amount":"1","operation":"add","notes":""}"#.utf8))
+    let first = grant(), second = balance(serverID: other), third = batch(serverID: elsewhere)
+    let ledger = try PendingMoneyLedger().remembering(second, in: .memoryOnly).remembering(third, in: .memoryOnly)
+        .remembering(first, in: .memoryOnly).remembering(old, in: .memoryOnly)
+    #expect(ledger.writes(serverIDs: [site, other]).map(\.id) == [old.id, first.id, second.id])
+    #expect(ledger.writes(serverIDs: [elsewhere]).map(\.id) == [third.id])
+    #expect(ledger.writes(serverIDs: []).isEmpty)
+}
+
+@Test func resendStampedOnlyForSavedRecords() throws {
+    let saved = balance(), unsaved = balance(60), at = Date(timeIntervalSince1970: 1_800_000_900)
+    let ledger = try PendingMoneyLedger().remembering(saved, in: .memoryOnly)
+    let stamped = ledger.resendStamped(saved, at: at)
+    #expect(stamped.lastSentAt == at); #expect(stamped.id == saved.id); #expect(stamped.createdAt == saved.createdAt)
+    #expect(try stamped.requestBody() == saved.requestBody())
+    #expect(ledger.resendStamped(unsaved, at: at) == unsaved)
+}

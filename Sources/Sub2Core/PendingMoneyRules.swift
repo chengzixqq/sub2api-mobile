@@ -119,7 +119,8 @@ public enum MoneyWriteIntent: Sendable, Equatable {
 }
 
 /// Whether a new money write may start. The pages own the two exceptions of R03 (30 §3.4 “仍要充值 / 仍要退款”, 60 §8.4
-/// “仍要生成新的一批”); a compensation has none.
+/// “仍要生成新的一批”); a compensation has none. Records of every site id at the connected address count (X34): a new
+/// login there gets a new id while its old records stay (D17).
 public enum PendingMoneyGate: Sendable, Equatable {
     case clear
     /// Pending records of the same object: confirm twice before going on.
@@ -128,18 +129,19 @@ public enum PendingMoneyGate: Sendable, Equatable {
     /// The kind's file cannot be read.
     case paused(PendingMoneyKind)
 
-    public static func evaluate(_ intent: MoneyWriteIntent, serverID: UUID, balances: [PendingBalanceOperation], redeemBatches: [PendingRedeemBatch],
+    /// `serverIDs`: the connected site and the older logins of its address (AppModel.sameAddressServerIDs).
+    public static func evaluate(_ intent: MoneyWriteIntent, serverIDs: Set<UUID>, balances: [PendingBalanceOperation], redeemBatches: [PendingRedeemBatch],
                                 compensations: [PendingCompensation], unavailable: Set<PendingMoneyKind>) -> PendingMoneyGate {
         guard !unavailable.contains(intent.kind) else { return .paused(intent.kind) }
         switch intent {
         case .balance(let userID, let direction):
-            let ids = balances.filter { $0.serverID == serverID && $0.userID == userID && BalanceDirection.directions(of: $0).contains(direction) }.map(\.id)
+            let ids = balances.filter { serverIDs.contains($0.serverID) && $0.userID == userID && BalanceDirection.directions(of: $0).contains(direction) }.map(\.id)
             return ids.isEmpty ? .clear : .overridable(ids)
         case .redeemGenerate:
-            let ids = redeemBatches.filter { $0.serverID == serverID }.map(\.id)
+            let ids = redeemBatches.filter { serverIDs.contains($0.serverID) }.map(\.id)
             return ids.isEmpty ? .clear : .overridable(ids)
         case .compensation(let userID):
-            let ids = compensations.filter { $0.serverID == serverID && $0.userID == userID }.map(\.id)
+            let ids = compensations.filter { serverIDs.contains($0.serverID) && $0.userID == userID }.map(\.id)
             return ids.isEmpty ? .clear : .blocked(ids)
         }
     }
@@ -155,29 +157,82 @@ public enum PendingRetryPermission: Sendable, Equatable {
         guard let actorUserID else { return .allowedActorUnknown }
         return actorUserID == currentUserID ? .allowed : .otherActor
     }
-    /// User ids belong to a site, so a record of another site is never the current administrator's.
-    public static func evaluate(_ record: any PendingMoneyWrite, activeServerID: UUID?, currentUserID: Int?) -> PendingRetryPermission {
-        evaluate(actorUserID: record.actorUserID, currentUserID: record.serverID == activeServerID ? currentUserID : nil)
+    /// User ids belong to a server. An older login at the same address shares them, but only a known sender who is the current
+    /// administrator retries its record (C-26); a record of another address never.
+    public static func evaluate(actorUserID: Int?, currentUserID: Int?, recordServerID: UUID, currentServerID: UUID?,
+                                sameAddress: Set<UUID>) -> PendingRetryPermission {
+        switch MoneyRecordOrigin.Kind(recordServerID: recordServerID, currentServerID: currentServerID, sameAddress: sameAddress) {
+        case .currentSite: evaluate(actorUserID: actorUserID, currentUserID: currentUserID)
+        case .sameAddressOldLogin: actorUserID != nil && actorUserID == currentUserID ? .allowed : .otherActor
+        case .otherAddress: .otherActor
+        }
+    }
+    public static func evaluate(_ record: any PendingMoneyWrite, activeServerID: UUID?, currentUserID: Int?,
+                                sameAddress: Set<UUID> = []) -> PendingRetryPermission {
+        evaluate(actorUserID: record.actorUserID, currentUserID: currentUserID, recordServerID: record.serverID, currentServerID: activeServerID,
+                 sameAddress: sameAddress)
+    }
+}
+
+/// Where a money record came from, relative to the connected site (X34, C-26). The pages' wording, the reconciliation guards
+/// and the same-number retries of all three kinds share this one rule.
+public enum MoneyRecordOrigin {
+    public enum Kind: Sendable, Equatable {
+        case currentSite, sameAddressOldLogin, otherAddress
+        /// No connected site → otherAddress.
+        public init(recordServerID: UUID, currentServerID: UUID?, sameAddress: Set<UUID>) {
+            guard let currentServerID else { self = .otherAddress; return }
+            if recordServerID == currentServerID { self = .currentSite }
+            else { self = sameAddress.contains(recordServerID) ? .sameAddressOldLogin : .otherAddress }
+        }
+    }
+    /// The only copy of this text (S3D1-08): banners put “这笔在” before it, settings and the overview show it as is.
+    public static let oldLoginNote = "本站点的旧登录下发起"
+
+    /// One address: ServerProfile.normalizedURL's https and lowercased host, without the default port 443. nil for an address
+    /// that would not be accepted as a site.
+    public static func addressKey(of url: URL) -> String? {
+        guard let normalized = try? ServerProfile.normalizedURL(url.absoluteString),
+              var parts = URLComponents(url: normalized, resolvingAgainstBaseURL: false) else { return nil }
+        if parts.port == 443 { parts.port = nil }
+        return parts.url?.absoluteString
+    }
+    /// The current site and every profile at its address; only itself when its address has no key.
+    public static func sameAddressIDs(of current: ServerProfile, among profiles: [ServerProfile]) -> Set<UUID> {
+        guard let key = addressKey(of: current.baseURL) else { return [current.id] }
+        return Set(profiles.filter { addressKey(of: $0.baseURL) == key }.map(\.id)).union([current.id])
+    }
+    /// Reconciliation and same-number retries accept a record of this site or of an older login at its address.
+    public static func check(recordServerID: UUID, currentServerID: UUID, sameAddress: Set<UUID>) throws {
+        guard recordServerID == currentServerID || sameAddress.contains(recordServerID) else { throw APIError.stationMismatch }
+    }
+    /// Before a record goes out again under its own number (S3D1-16): the server derives action_id from the sender, so another
+    /// administrator's retry would run the write a second time.
+    public static func checkSender(actorUserID: Int?, currentUserID: Int?, recordServerID: UUID, currentServerID: UUID?, sameAddress: Set<UUID>) throws {
+        let permission = PendingRetryPermission.evaluate(actorUserID: actorUserID, currentUserID: currentUserID, recordServerID: recordServerID,
+                                                         currentServerID: currentServerID, sameAddress: sameAddress)
+        guard permission != .otherActor else { throw APIError.otherActorWrite }
     }
 }
 
 extension APIClient {
-    public func reconcileRedeemBatch(_ batch: PendingRedeemBatch) async throws -> RedeemBatchReconcileOutcome {
-        guard batch.serverID == server.id else { throw APIError.stationMismatch }
+    public func reconcileRedeemBatch(_ batch: PendingRedeemBatch, sameAddress: Set<UUID> = []) async throws -> RedeemBatchReconcileOutcome {
+        try MoneyRecordOrigin.check(recordServerID: batch.serverID, currentServerID: server.id, sameAddress: sameAddress)
         let page = try await redeemCodes(page: 1, query: RedeemBatchReconciliation.query(for: batch))
         return RedeemBatchReconciliation.evaluate(batch, items: page.items)
     }
-    public func reconcileCompensation(_ grant: PendingCompensation) async throws -> CompensationReconcileOutcome {
-        guard grant.serverID == server.id else { throw APIError.stationMismatch }
+    public func reconcileCompensation(_ grant: PendingCompensation, sameAddress: Set<UUID> = []) async throws -> CompensationReconcileOutcome {
+        try MoneyRecordOrigin.check(recordServerID: grant.serverID, currentServerID: server.id, sameAddress: sameAddress)
         let page = try await redeemCodes(page: 1, query: CompensationReconciliation.query(for: grant))
         return CompensationReconciliation.evaluate(grant, items: page.items)
     }
-    /// 00 §9.5: one entry for the overview, settings, banners and the foreground check; it only reads.
-    public func reconcile(_ record: any PendingMoneyWrite) async throws -> PendingReconcileOutcome {
+    /// 00 §9.5: one entry for the overview, settings, banners and the foreground check; it only reads, with the current
+    /// identity, also for a record of an older login at the same address (`sameAddress`, C-26).
+    public func reconcile(_ record: any PendingMoneyWrite, requestIDUsable: Bool = true, sameAddress: Set<UUID> = []) async throws -> PendingReconcileOutcome {
         switch record {
-        case let op as PendingBalanceOperation: return .balance(try await reconcileBalance(op))
-        case let batch as PendingRedeemBatch: return .redeemBatch(try await reconcileRedeemBatch(batch))
-        case let grant as PendingCompensation: return .compensation(try await reconcileCompensation(grant))
+        case let op as PendingBalanceOperation: return .balance(try await reconcileBalance(op, requestIDUsable: requestIDUsable, sameAddress: sameAddress))
+        case let batch as PendingRedeemBatch: return .redeemBatch(try await reconcileRedeemBatch(batch, sameAddress: sameAddress))
+        case let grant as PendingCompensation: return .compensation(try await reconcileCompensation(grant, sameAddress: sameAddress))
         default: throw APIError(kind: .validation, message: "无法核对这类记录。")
         }
     }
