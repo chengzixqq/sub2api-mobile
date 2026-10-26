@@ -17,8 +17,8 @@ final class SettingsSiteStatus {
     func load(model: AppModel, context: SessionContext) async {
         let isFirstRead = loadedGeneration != context.generation
         if model.isUITesting {
-            apply(sessions: (true, DemoData.authSessionFixtureCount(generation: context.generation)), tokens: DemoData.accessTokenCount, mode: nil,
-                  generation: context.generation)
+            apply(sessions: (true, DemoData.authSessionFixtureCount(generation: context.generation)),
+                  tokens: DemoData.accessTokenFixtureCount(context: context), mode: nil, generation: context.generation)
             return
         }
         let site = context.site, client = context.client

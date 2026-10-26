@@ -31,6 +31,11 @@ public struct AdminAccessToken: Identifiable, Decodable, Sendable, Equatable {
         lastUsedIP = try c.decodeIfPresent(String.self, forKey: .lastUsedIP); createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
         current = try c.decodeIfPresent(Bool.self, forKey: .current) ?? false
     }
+    public init(id: Int, name: String? = nil, prefix: String? = nil, last4: String? = nil, scope: String? = nil, expiresAt: String? = nil,
+                lastUsedAt: String? = nil, lastUsedIP: String? = nil, createdAt: String? = nil, current: Bool = false) {
+        self.id = id; self.name = name; self.prefix = prefix; self.last4 = last4; self.scope = scope; self.expiresAt = expiresAt
+        self.lastUsedAt = lastUsedAt; self.lastUsedIP = lastUsedIP; self.createdAt = createdAt; self.current = current
+    }
 }
 
 extension APIClient {
@@ -48,3 +53,65 @@ extension APIClient {
 }
 
 private struct AccessTokenList: Decodable, Sendable { let items: [AdminAccessToken]? }
+
+// MARK: Presentation (60 §6.3–§6.5)
+
+extension AdminAccessToken {
+    public static let intro = "访问令牌以签发它的管理员身份调用管理接口，可只读、会过期、能单独吊销。比 Admin Key 安全：Admin Key 以第一个管理员身份操作，丢了只能到 Web 重新生成。"
+    public static let currentBadgeText = "本机"
+    /// U02: the App lists and revokes tokens but never issues one.
+    public static let emptyTitle = "还没有访问令牌"
+    public static let emptyMessage = "首版 App 不签发访问令牌。"
+    public static let revokeActionTitle = "吊销"
+    public static func revokedReceipt(_ name: String) -> String { "已吊销「\(name)」" }
+
+    public var displayName: String { Self.trimmed(name) ?? "未命名令牌" }
+    /// “sat_3f9a…c71e”, shown monospaced; the backend's prefix is `sat_` and the first four hex digits.
+    public var maskedText: String { (Self.trimmed(prefix) ?? "sat_") + "…" + (Self.trimmed(last4) ?? "") }
+    /// The same rule as `isReadOnly`: an unknown scope reads 只读.
+    public var scopeTitle: String { isReadOnly ? "只读" : "读写" }
+    public var scopeTone: Tone { isReadOnly ? .neutral : .caution }
+
+    /// “最近使用 3 分钟前 · 203.0.113.24”: `now` is the site's clock, the day boundary the server's zone (00 §6.3). The server
+    /// writes the time at most every five minutes.
+    public func usageLine(now: Date, timeZone: ServerTimeZone) -> String {
+        guard let used = Self.date(lastUsedAt) else { return "从未使用" }
+        let line = "最近使用 " + DisplayFormat.relativeTime(used, now: now, timeZone: timeZone.timeZone)
+        return Self.trimmed(lastUsedIP).map { line + " · " + $0 } ?? line
+    }
+    /// Server calendar days from today to the expiry day; nil without a readable expiry.
+    public func daysLeft(now: Date, timeZone: ServerTimeZone) -> Int? {
+        guard let expires = Self.date(expiresAt) else { return nil }
+        let calendar = timeZone.calendar
+        return calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: expires)).day
+    }
+    /// “2027/01/16 到期 · 还剩 87 天”; the expiry day itself is “今天到期”.
+    public func expiryLine(now: Date, timeZone: ServerTimeZone) -> String {
+        guard let expires = Self.date(expiresAt), let days = daysLeft(now: now, timeZone: timeZone) else { return DisplayFormat.missing }
+        return days <= 0 ? "今天到期" : Self.day(expires, timeZone: timeZone) + " 到期 · 还剩 \(days) 天"
+    }
+    /// Seven days or less draws the expiry in caution (60 §6.3).
+    public func isExpiringSoon(now: Date, timeZone: ServerTimeZone) -> Bool { daysLeft(now: now, timeZone: timeZone).map { $0 <= 7 } ?? false }
+
+    public var revokeTitle: String { "吊销「\(displayName)」？" }
+    /// 60 §6.4; revoking this App's own token also ends the session here.
+    public var revokeMessage: String {
+        let message = "用它的设备或脚本会失去访问（其他服务器实例最多 30 秒后生效）。"
+        return current ? message + "\n本机会退出这个站点。" : message
+    }
+
+    /// Go's zero time would read as a date long gone; it counts as missing.
+    private static func date(_ raw: String?) -> Date? {
+        guard let date = ServerTime.parseTimestamp(raw), date.timeIntervalSince1970 > 0 else { return nil }
+        return date
+    }
+    private static func trimmed(_ text: String?) -> String? {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
+    }
+    /// yyyy/MM/dd in the server's zone; S6-26 moves this to the shared date formats (S6D1-16).
+    private static func day(_ date: Date, timeZone: ServerTimeZone) -> String {
+        let parts = timeZone.calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d/%02d/%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+}
