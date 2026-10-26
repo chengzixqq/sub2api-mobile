@@ -95,7 +95,7 @@ IPA SHA-256：`6d82265d91b74ea25db418c8ec7547f6153a830f5e1f7538ca92be9bca239478`
 
 用量趋势逐小时明细按时间倒序，最新桶置顶；图表本身仍按时间正序绘制。第四个“性能指标”趋势按需读取独立吞吐接口，默认近 1 小时，可选 6/24 小时，切换 RPM/TPM、点选和查看最新在上的性能明细；只在该页前台每次请求完成后间隔 30 秒刷新，离开、后台或切站取消。监控禁用、接口不支持、权限和超时在性能区局部显示，不用费用趋势合成性能数据。
 
-性能读取 `GET /admin/ops/dashboard/throughput-trend`，使用带时区的 `start_time` / `end_time` 和 `mode=auto`。服务端按范围返回 `1m` / `5m` / `1h` 桶；RPM = `request_count × 60 / bucketSeconds`，TPM = `token_consumed × 60 / bucketSeconds`，不把已舍入的 `qps` / `tps` 乘 60。请求包含成功与错误请求（不含 count_tokens 错误），Tokens 来自成功请求并包含缓存；边界桶仍按完整桶宽计算。当前后端此接口仍扫描原始 usage/error 日志，`mode=auto` 不保证预聚合，较长范围可能较慢。
+性能读取 `GET /admin/ops/dashboard/throughput-trend`：`start_time` / `end_time` 一律写 UTC `Z`（近 N 小时时，`end_time` 为服务器现在向下取整到整分钟，`start_time` 前推 N 小时）；不传 `mode`（后端不读它，带模型筛选时强制走原始日志）；有分组筛选时带 `group_id`；有模型筛选、站点有 `ops.dashboard_model_filter` 且口径为 requested / upstream 时带 `model` + `model_source`，映射口径或没有该能力时不带模型、按全站显示，卡头会说明。服务端按窗口返回 `1m` / `5m` / `1h` 桶（≤ 2 小时、≤ 24 小时、更长），标签缺失或不认识时 App 按同一规则从窗口推算。RPM = `request_count × 60 ÷ 覆盖秒数`，TPM = `token_consumed × 60 ÷ 覆盖秒数`，覆盖秒数 = `min(bucket_start + 桶秒数, end_time) − max(bucket_start, start_time)`：首尾不满一桶的按实际覆盖时长折算，≤ 0 的点丢弃；峰值取各点最大值，平均 = Σ数量 × 60 ÷ Σ覆盖秒数；不把已舍入的 `qps` / `tps` 乘 60。请求包含成功与错误请求（不含 count_tokens 错误），Tokens 来自成功请求并包含缓存。当前后端此接口仍扫描原始 usage/error 日志，较长范围可能较慢，App 只接受 31 天 + 1 小时以内的范围。
 
 账号和用户列表支持本机显示字段开关、拖动或上下箭头排序，长字段自动换行。邮箱/账号名保留为目标身份。偏好按登录 profile UUID 隔离；同站点的不同登录身份也有独立配置。列表只使用批量响应已有字段，不为每行增加请求。账号可选平台、认证类型、分组、并发、优先级、倍率、状态、调度、过期/最后使用/创建、备注、基础 RPM 与配额已用；用户可选用户名、角色、状态、余额、当前/最大并发、创建/最后使用/最后活跃、备注与 RPM。不存在的字段显示不可用或无记录，不编造最后登录时间。
 
