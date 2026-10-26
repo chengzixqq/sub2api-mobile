@@ -155,6 +155,10 @@ public enum PendingRetryPermission: Sendable, Equatable {
         guard let actorUserID else { return .allowedActorUnknown }
         return actorUserID == currentUserID ? .allowed : .otherActor
     }
+    /// User ids belong to a site, so a record of another site is never the current administrator's.
+    public static func evaluate(_ record: any PendingMoneyWrite, activeServerID: UUID?, currentUserID: Int?) -> PendingRetryPermission {
+        evaluate(actorUserID: record.actorUserID, currentUserID: record.serverID == activeServerID ? currentUserID : nil)
+    }
 }
 
 extension APIClient {

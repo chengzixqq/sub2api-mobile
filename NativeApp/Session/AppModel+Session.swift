@@ -87,7 +87,7 @@ extension AppModel {
     /// A switch or restore the server refused for good: the connected site ends like any invalidated session, another site
     /// has its credential erased; both open the site's login page. Any other failure keeps everything and is shown.
     func connectionFailed(_ error: any Error, profile: ServerProfile) async {
-        guard let invalidation = SessionInvalidation(error: error) else { report(error); return }
+        guard let invalidation = SessionInvalidation(error: error) else { report((error as? APIError)?.forConnection ?? error); return }
         if activeProfile?.id == profile.id {
             await invalidateSession(invalidation, serverID: profile.id, generation: sessionGeneration)
             return
@@ -106,6 +106,12 @@ extension AppModel {
     func forgetActiveSession(notice: String?) async {
         guard !isSigningOut else { return }
         _ = await endActiveSession(cancelsConnection: false, then: .siteLogin(notice: notice))
+    }
+
+    /// The deletion prompt promises what SiteTeardown does, and that follows the saved credential: a `sat_` site saved
+    /// before access tokens still says Admin Key in its profile until it connects again.
+    func removalAuthentication(of profile: ServerProfile) async -> AuthenticationKind {
+        await credentials.storedAuthentication(serverID: profile.id) ?? profile.authentication
     }
 
     func openSiteLogin(_ profile: ServerProfile, notice: String?) {

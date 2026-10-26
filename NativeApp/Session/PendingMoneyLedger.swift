@@ -2,8 +2,8 @@ import Foundation
 import Sub2Core
 
 /// Where the money-write files live (00 §2.5.5): `Application Support/Sub2Mobile/`, one file per kind, written atomically
-/// with complete file protection. `memoryOnly` (UI tests) never touches the disk. Default JSON coding, so the records
-/// S0-06 wrote keep reading (D16).
+/// with complete file protection and kept out of backups. `memoryOnly` (UI tests) never touches the disk. Default JSON
+/// coding, so the records S0-06 wrote keep reading (D16).
 struct PendingMoneyFiles: Sendable {
     let directory: URL?
     let protectsFiles: Bool
@@ -22,15 +22,24 @@ struct PendingMoneyFiles: Sendable {
         }
     }
     func url(for kind: PendingMoneyKind) -> URL? { directory?.appendingPathComponent(Self.fileName(for: kind)) }
+    var writeOptions: Data.WritingOptions { protectsFiles ? [.atomic, .completeFileProtection] : [.atomic] }
     /// A missing file is an empty list; one that exists but cannot be read or decoded throws.
     func read<Record: Decodable>(_ kind: PendingMoneyKind, as type: Record.Type) throws -> [Record] {
         guard let url = url(for: kind), FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return [] }
         return try JSONDecoder().decode([Record].self, from: Data(contentsOf: url))
     }
     func persist<Record: Encodable>(_ records: [Record], to kind: PendingMoneyKind) throws {
-        guard let url = url(for: kind) else { return }
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(records).write(to: url, options: protectsFiles ? [.atomic, .completeFileProtection] : [.atomic])
+        guard let directory, let url = url(for: kind) else { return }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        Self.excludeFromBackup(directory)
+        try JSONEncoder().encode(records).write(to: url, options: writeOptions)
+    }
+    /// Compensation codes are bearer credentials and every record has an e-mail: they stay on this device, like the
+    /// credentials that could retry them. A failure here never blocks the write it protects.
+    private static func excludeFromBackup(_ directory: URL) {
+        var values = URLResourceValues(); values.isExcludedFromBackup = true
+        var target = directory
+        try? target.setResourceValues(values)
     }
 }
 

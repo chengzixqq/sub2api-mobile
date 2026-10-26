@@ -305,3 +305,18 @@ func unlistedEndpointsNeverSendIfNoneMatch(path: String) async throws {
     #expect(AdminAuthMethod.resolved(reported: .other("future"), credential: .adminKey("k")) == .other("future"))
     #expect(AdminAuthMethod.resolved(reported: nil, credential: nil) == nil)
 }
+
+/// Both cache steps suspend on the cache actor; a cancelAll meanwhile turns the request into CancellationError (S0-04's
+/// contract), so a stale 401 never reaches the page and no new attempt starts on an ended session.
+@Test func conditionalCacheStepsEndWithTheGeneration() async throws {
+    let client = cachingClient(ScriptedTransport { _ in okReply(usersPageJSON) })
+    let current = await client.currentGeneration()
+    let unauthorized = errorReply(401, reason: "INVALID_ADMIN_KEY")
+    #expect(try await client.resolveConditional(unauthorized, plan: nil, generation: current).statusCode == 401)
+    #expect(try await client.conditionalPlan(path: "admin/users", method: "GET", query: [], body: nil, authenticated: true, generation: current) != nil)
+    await client.cancelAll()
+    await #expect(throws: CancellationError.self) { _ = try await client.resolveConditional(unauthorized, plan: nil, generation: current) }
+    await #expect(throws: CancellationError.self) {
+        _ = try await client.conditionalPlan(path: "admin/users", method: "GET", query: [], body: nil, authenticated: true, generation: current)
+    }
+}

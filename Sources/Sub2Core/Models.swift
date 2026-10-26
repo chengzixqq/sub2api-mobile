@@ -52,6 +52,13 @@ struct Lossy<Value: Decodable>: Decodable {
     let value: Value?
     init(from decoder: any Decoder) throws { value = try? Value(from: decoder) }
 }
+/// A list field read element by element; a value that is not a list reads as empty (00 §5 rule 2).
+struct LossyList<Element: Decodable & Sendable>: Decodable, Sendable {
+    let items: [Element]
+    init(from decoder: any Decoder) throws {
+        items = ((try? decoder.singleValueContainer().decode([Lossy<Element>].self)) ?? []).compactMap(\.value)
+    }
+}
 
 public struct TokenPair: Codable, Sendable, Equatable {
     public var accessToken: String
@@ -518,13 +525,14 @@ public struct PublicSettings: Decodable, Sendable {
     public let loginAgreementMode: String?
     public let loginAgreementRevision: String?
     public let loginAgreementUpdatedAt: String?
-    private let agreementDocuments: [LoginAgreementDocument]?
+    /// Read before every sign-in, so one malformed document is dropped instead of failing the whole reply.
+    private let agreementDocuments: LossyList<LoginAgreementDocument>?
     public let channelMonitorEnabled: Bool?
     public let channelMonitorMode: String?
     public let paymentEnabled: Bool?
     public let subscriptionEnabled: Bool?
 
-    public var loginAgreementDocuments: [LoginAgreementDocument] { agreementDocuments ?? [] }
+    public var loginAgreementDocuments: [LoginAgreementDocument] { agreementDocuments?.items ?? [] }
     public var hasCaptchaProviderKey: Bool { rawCaptchaProvider != nil }
     /// nil, turnstile, tencent, aliyun, conflict, or an unknown value from a newer server. Without the
     /// provider key the three legacy switches decide, and more than one enabled is a conflict.

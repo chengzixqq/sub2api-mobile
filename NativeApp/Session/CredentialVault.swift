@@ -29,6 +29,8 @@ actor KeychainCredentialStore: CredentialStore {
     func save(_ credential: Credential, serverID: UUID) throws {
         try items.write(JSONEncoder().encode(credential), account: Self.credentialAccount(for: serverID))
     }
+    /// The kind the saved credential decodes to (a `sat_` saved as an Admin Key is an access token); nil when none is readable.
+    func storedAuthentication(serverID: UUID) -> AuthenticationKind? { (try? load(serverID: serverID))?.authenticationKind }
     /// Deleting a site (00 §1.1, §9.6): its credential, lease and device ID.
     func remove(serverID: UUID) throws {
         try eraseCredential(serverID: serverID)

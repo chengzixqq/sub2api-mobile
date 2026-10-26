@@ -406,15 +406,15 @@ public actor APIClient {
         let plan: ConditionalPlan?, spec: OutgoingRequest
         var received: HTTPResponse, response: HTTPResponse
         do {
-            plan = try await conditionalPlan(path: path, method: method, query: query, body: body, authenticated: authenticated)
+            plan = try await conditionalPlan(path: path, method: method, query: query, body: body, authenticated: authenticated, generation: snapshot)
             spec = OutgoingRequest(path: path, method: method, query: query, body: body,
                                    headers: headers.merging(plan?.validatorHeaders ?? [:]) { _, validator in validator },
                                    requestClass: requestClass, timeout: timeout, authenticated: authenticated, requestID: requestID)
             received = try await send(spec, context: context, generation: snapshot)
-            response = try await resolveConditional(received, plan: plan)
+            response = try await resolveConditional(received, plan: plan, generation: snapshot)
             if !(200..<300).contains(response.statusCode) {
                 received = try await resendAfterPrompt(failure(response, context: context), spec: spec, context: context, generation: snapshot)
-                response = try await resolveConditional(received, plan: plan)
+                response = try await resolveConditional(received, plan: plan, generation: snapshot)
             }
         }
         catch let error as APIError { throw surfaced(error, context: context, generation: snapshot) }

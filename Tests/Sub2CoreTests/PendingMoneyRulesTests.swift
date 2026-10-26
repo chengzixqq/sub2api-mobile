@@ -159,3 +159,17 @@ private func codePage(_ items: String...) -> HTTPResponse {
     }
     #expect(await transport.requests.count == 3)
 }
+
+/// D17: user ids belong to a site, so a record of another site is never the current administrator's (AppModel.retryPermission).
+@Test func retryPermissionOfARecordIsScopedToTheActiveSite() {
+    let site = UUID(), other = UUID()
+    let mine = balance(serverID: site, .add, 5)
+    #expect(PendingRetryPermission.evaluate(mine, activeServerID: site, currentUserID: 7) == .allowed)
+    #expect(PendingRetryPermission.evaluate(mine, activeServerID: site, currentUserID: 8) == .otherActor)
+    #expect(PendingRetryPermission.evaluate(mine, activeServerID: other, currentUserID: 7) == .otherActor)
+    #expect(PendingRetryPermission.evaluate(mine, activeServerID: nil, currentUserID: 7) == .otherActor)
+    let unknown = PendingBalanceOperation(serverID: site, userID: 42, amount: 5, operation: .add)
+    #expect(PendingRetryPermission.evaluate(unknown, activeServerID: site, currentUserID: 7) == .allowedActorUnknown)
+    #expect(PendingRetryPermission.evaluate(unknown, activeServerID: other, currentUserID: 7) == .allowedActorUnknown)
+    #expect(PendingRetryPermission.evaluate(grant(serverID: other), activeServerID: site, currentUserID: 7) == .otherActor)
+}

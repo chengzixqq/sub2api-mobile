@@ -110,7 +110,7 @@ struct PerformanceTrendView: View {
         } }
         .chartYAxis { AxisMarks(position: .leading) { value in
             AxisGridLine(); AxisValueLabel {
-                if let number = value.as(Double.self) { Text(metric.format(number)).font(.caption2) }
+                if let number = value.as(Double.self) { Text(metric.axisLabel(number)).font(.caption2) }
             }
         } }
         .frame(height: 230).accessibilityLabel("\(metric.rawValue) 性能趋势")

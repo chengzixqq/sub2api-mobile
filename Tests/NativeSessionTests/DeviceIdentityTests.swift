@@ -101,3 +101,19 @@ import Sub2Core
     try items.write(Data(#"{"adminKey":{"_0":"sat_saved"}}"#.utf8), account: KeychainCredentialStore.credentialAccount(for: serverID))
     #expect(try await KeychainCredentialStore(items: items).load(serverID: serverID) == .accessToken("sat_saved"))
 }
+
+/// The deletion prompt reads the kind the teardown will act on: a `sat_` saved as an Admin Key is an access token (00 §9.4).
+@Test func storedAuthenticationFollowsTheMigratedCredential() async throws {
+    let items = MemorySecureItems()
+    let vault = KeychainCredentialStore(items: items)
+    let legacy = UUID(), key = UUID(), account = UUID(), unreadable = UUID()
+    try items.write(Data(#"{"adminKey":{"_0":"sat_saved"}}"#.utf8), account: KeychainCredentialStore.credentialAccount(for: legacy))
+    try await vault.save(.adminKey("plain"), serverID: key)
+    try await vault.save(.tokens(TokenPair(accessToken: "a", refreshToken: "r", expiresAt: Date())), serverID: account)
+    try items.write(Data("not json".utf8), account: KeychainCredentialStore.credentialAccount(for: unreadable))
+    #expect(await vault.storedAuthentication(serverID: legacy) == .accessToken)
+    #expect(await vault.storedAuthentication(serverID: key) == .adminKey)
+    #expect(await vault.storedAuthentication(serverID: account) == .password)
+    #expect(await vault.storedAuthentication(serverID: unreadable) == nil)
+    #expect(await vault.storedAuthentication(serverID: UUID()) == nil)
+}

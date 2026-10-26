@@ -47,8 +47,10 @@ enum DemoData {
         let arguments = ProcessInfo.processInfo.arguments
         guard arguments.contains("-ui-pending-money") else { return nil }
         let created = now.addingTimeInterval(-300)
+        // D17: the fixture administrator is user 1; `-ui-pending-other-actor` and `-ui-pending-actor-unknown` change the sender.
+        let actor: Int? = arguments.contains("-ui-pending-actor-unknown") ? nil : arguments.contains("-ui-pending-other-actor") ? 2 : 1
         let refund = PendingBalanceOperation(id: UUID(uuidString: "0A000000-0000-4000-8000-000000000001")!, serverID: serverID, userID: 1,
-                                             amount: Decimal(string: "12.5")!, operation: .subtract, actorUserID: 1, createdAt: created,
+                                             amount: Decimal(string: "12.5")!, operation: .subtract, actorUserID: actor, createdAt: created,
                                              userDisplayName: "Alice", userEmail: "alice@example.com")
         let batch = PendingRedeemBatch(id: UUID(uuidString: "0A000000-0000-4000-8000-000000000002")!, serverID: serverID, actorUserID: 1,
                                        createdAt: created, spec: RedeemGenerateSpec(type: .balance, value: 10, count: 20))

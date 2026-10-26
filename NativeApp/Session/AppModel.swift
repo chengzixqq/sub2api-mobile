@@ -55,6 +55,8 @@ final class AppModel {
     let pushRecords: PushDeviceRecords
     private let defaults: UserDefaults
     @ObservationIgnored private var demoUsersBySession: [UUID: [AdminUser]] = [:]
+    /// `-ui-count-user-loads`: the user list's username field reads “读取 N 次”, so a reload is visible (D18).
+    @ObservationIgnored private var demoUserLoads = 0
     @ObservationIgnored private var demoUserUpdates: [UUID: AdminUser] = [:]
     @ObservationIgnored private var connectionAttempt = UUID()
     @ObservationIgnored private var pendingCandidate: APIClient?
@@ -367,8 +369,13 @@ final class AppModel {
                 await invalidateSession(invalidation, serverID: profile.id, generation: sessionGeneration)
                 throw CancellationError()
             }
-            let matches = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).filter {
+            var matches = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).filter {
                 (search.isEmpty || $0.email.localizedCaseInsensitiveContains(search) || ($0.username?.localizedCaseInsensitiveContains(search) ?? false)) && (status == nil || status == $0.status)
+            }
+            if ProcessInfo.processInfo.arguments.contains("-ui-count-user-loads") {
+                demoUserLoads += 1
+                let label = "读取 \(demoUserLoads) 次"
+                matches = matches.map { var user = $0; user.username = label; return user }
             }
             return Page(items: Array(matches.dropFirst(max(0, page - 1)).prefix(1)), total: matches.count, page: page, pageSize: 1, pages: matches.count)
         }

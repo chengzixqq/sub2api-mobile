@@ -62,3 +62,15 @@ private actor PerformanceTransport: HTTPTransport {
     #expect(PerformanceMetric.tpm.format(690_000) == "690K")
     #expect(PerformanceMetric.tpm.format(987_654) == "987.7K")
 }
+
+/// Axis ticks of a quiet site sit below 1: they keep two decimals so neighbouring ticks never share a label (like
+/// DashboardTrendMetric.axisLabel); rates and the selected value keep `format`.
+@Test func performanceAxisLabelsKeepSmallTicksDistinct() {
+    #expect(PerformanceMetric.rpm.axisLabel(0) == "0")
+    #expect(PerformanceMetric.rpm.axisLabel(0.05) == "0.05"); #expect(PerformanceMetric.rpm.axisLabel(0.15) == "0.15")
+    #expect(PerformanceMetric.rpm.axisLabel(0.2) == "0.2"); #expect(PerformanceMetric.rpm.axisLabel(12) == "12")
+    #expect(PerformanceMetric.tpm.axisLabel(0.5) == "0.5"); #expect(PerformanceMetric.tpm.axisLabel(1.5) == "1.5")
+    #expect(PerformanceMetric.tpm.axisLabel(999) == "999"); #expect(PerformanceMetric.tpm.axisLabel(1_500) == "1.5K")
+    #expect(PerformanceMetric.rpm.axisLabel(1_234) == "1,234")
+    #expect(PerformanceMetric.rpm.format(0.05) == "0.1")
+}

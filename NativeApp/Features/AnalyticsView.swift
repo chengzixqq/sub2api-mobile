@@ -108,8 +108,8 @@ struct AnalyticsView: View {
         .task(id: query) {
             cancel()
             if lastQuery != query {
-                summary = LoadState(); trend = LoadState()
-                models = LoadState(); groups = LoadState()
+                // reset() keeps each block's 429 wait (D23): a new query does not send during it.
+                summary.reset(); trend.reset(); models.reset(); groups.reset()
                 lastQuery = query
             }
             await refresh()

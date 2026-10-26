@@ -183,4 +183,18 @@ private func pendingError(_ operation: () throws -> Void) -> PendingMoneyError? 
     let production = PendingMoneyFiles.applicationSupport()
     #expect(production.protectsFiles)
     #expect(production.directory?.lastPathComponent == "Sub2Mobile")
+    // Written atomically with complete protection; the test scratch files only atomically.
+    #expect(production.writeOptions == [.atomic, .completeFileProtection])
+    #expect(PendingMoneyFiles(directory: production.directory, protectsFiles: false).writeOptions == [.atomic])
+}
+
+/// Redeem codes and e-mails stay on this device: the directory is excluded from iCloud and computer backups (a restored
+/// record has no credential to retry with anyway).
+@Test func pendingMoneyDirectoryIsExcludedFromBackup() throws {
+    let scratch = Scratch()
+    defer { scratch.remove() }
+    let ledger = try PendingMoneyLedger().remembering(balance(), in: scratch.files)
+    #expect(ledger.balances.count == 1)
+    let values = try scratch.directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+    #expect(values.isExcludedFromBackup == true)
 }

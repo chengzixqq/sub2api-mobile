@@ -130,3 +130,23 @@ func discardFailureStillReportsAdministratorRequired(discard: ScriptStep) async 
     // Sent once: no refresh, no retry.
     #expect(await transport.requests.filter(isLogout).count == 1)
 }
+
+/// postLogout belongs to the non-administrator branch only: an administrator's new session is never discarded.
+@Test func administratorLoginNeverSendsLogout() async throws {
+    let direct = ScriptedTransport { request in isLogout(request) ? okReply("null") : issued() }
+    let client = loginClient(direct)
+    guard case .authenticated = try await client.login(email: "admin@example.invalid", password: "only-test", deviceName: "iPhone",
+                                                       declaresCaptchaProvider: true) else { Issue.record("Expected a session"); return }
+    #expect(await direct.requests.count == 1); #expect(await direct.requests.filter(isLogout).isEmpty)
+    #expect(await client.currentCredential() != nil)
+
+    let totp = ScriptedTransport { request in
+        if isLogout(request) { return okReply("null") }
+        return request.url?.path.hasSuffix("/login/2fa") == true ? issued() : okReply(#"{"requires_2fa":true,"temp_token":"temporary"}"#)
+    }
+    let second = loginClient(totp)
+    guard case .twoFactor(let challenge) = try await second.login(email: "admin@example.invalid", password: "only-test", deviceName: "iPhone",
+                                                                  declaresCaptchaProvider: true) else { Issue.record("Expected TOTP"); return }
+    _ = try await second.completeTOTP(tempToken: challenge.tempToken, code: "123456")
+    #expect(await totp.requests.count == 2); #expect(await totp.requests.filter(isLogout).isEmpty)
+}

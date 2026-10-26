@@ -66,7 +66,7 @@ struct AccountsView: View {
         List {
             Section {
                 Button { editingFilters = true } label: {
-                    HStack { Label("筛选与排序", systemImage: "line.3.horizontal.decrease.circle"); Spacer(); Text(total.map { "\($0) 个" } ?? "—").foregroundStyle(.secondary) }
+                    HStack { Label("筛选与排序", systemImage: "line.3.horizontal.decrease.circle"); Spacer(); Text(total.map { DisplayFormat.grouped($0) + " 个" } ?? DisplayFormat.missing).foregroundStyle(.secondary) }
                 }.accessibilityIdentifier("accounts.filters")
                 Toggle("前台自动刷新（30 秒）", isOn: $autoRefresh).accessibilityIdentifier("accounts.auto-refresh")
                 if selecting {
@@ -283,7 +283,7 @@ struct AccountsView: View {
                         guard operation.generation == model.sessionGeneration else { return }
                         batchOutcomes.append(.init(id: account.id, name: account.name, message: accountWriteFailure(error)))
                         // Every later account would hit the same session or security gate; the global sheet already handled it.
-                        if let refusal = error as? APIError, refusal.kind == .authentication || SecurityInterruption(refusal) != nil {
+                        if AccountBatchRefresh.stopsRemaining(after: error) {
                             for skipped in operation.accounts.dropFirst(index + 1) { batchOutcomes.append(.init(id: skipped.id, name: skipped.name, message: "尚未执行，请重新选择")) }
                             break
                         }

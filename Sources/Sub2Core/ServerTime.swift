@@ -73,7 +73,7 @@ public struct ServerTimeZone: Equatable, Sendable {
     public func overviewSuffix(device: TimeZone, at date: Date) -> String? { hint(device, date) { "· 按 \($0)" } }
     /// Analytics range line and log subtitle tail (40 §0.2).
     public func siteTimeSuffix(device: TimeZone, at date: Date) -> String? { hint(device, date) { "（站点时间 \($0)）" } }
-    /// Settings → site and credentials, and the account expiry picker footnote.
+    /// Settings → site and credentials. Not the account expiry picker: that one is in the phone's zone (00 §6.3, U53).
     public func settingsNote(device: TimeZone, at date: Date) -> String? { hint(device, date) { "时间按服务器时区（\($0)）显示" } }
     private func hint(_ device: TimeZone, _ date: Date, _ text: (String) -> String) -> String? {
         differsFromDevice(device, at: date) ? text(offsetLabel(at: date)) : nil

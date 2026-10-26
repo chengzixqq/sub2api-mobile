@@ -543,9 +543,12 @@ struct BalanceView: View {
         let permission = model.retryPermission(for: item)
         if permission == .otherActor {
             Text("这笔由其他管理员发起，只能由同一管理员重试").font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("balance.retry.other-actor")
         } else {
-            if permission == .allowedActorUnknown { Text("无法确认发起人").font(.caption).foregroundStyle(.secondary) }
-            Button("确认并重试原请求") { prepared = item; confirm = true }.frame(minHeight: 44)
+            if permission == .allowedActorUnknown {
+                Text("无法确认发起人").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("balance.retry.actor-unknown")
+            }
+            Button("确认并重试原请求") { prepared = item; confirm = true }.frame(minHeight: 44).accessibilityIdentifier("balance.retry")
         }
     }
     private func prepare() {

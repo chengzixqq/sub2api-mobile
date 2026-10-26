@@ -47,6 +47,14 @@ public struct APIError: LocalizedError, Sendable, Equatable {
     public static let incompleteStream = APIError(kind: .stream, message: "连接已结束，但未收到测试完成结果；请检查后手动重试。")
     /// 00 §1.7.2: refresh failed for a transient reason and the access has expired; the session is kept.
     public static let refreshDeferred = APIError(kind: .transport, message: "暂时无法续期登录，正在重试")
+    static let refreshDeferredOnce = APIError(kind: .transport, message: "暂时无法续期登录，请稍后重试")
+    /// How a failed restore or site switch is shown. They ask once, so `refreshDeferred` promises no retry; and admin/me's
+    /// 403 FORBIDDEN means the identity is no longer an administrator, worded as on the login page (00 §1.6 step 2, §1.11).
+    public var forConnection: APIError {
+        if self == .refreshDeferred { return .refreshDeferredOnce }
+        if statusCode == 403, reason == "FORBIDDEN" { return replacing(entry: ReasonCatalog.entry(status: 403, reason: reason, context: .login)) }
+        return self
+    }
     public static let malformedStream = APIError(kind: .stream, message: "账号测试返回了无法解析的数据。")
 
     /// Classifies a server error that had a JSON body with this reason.
@@ -88,6 +96,12 @@ public struct APIError: LocalizedError, Sendable, Equatable {
     public func withSecurityOutcome(_ outcome: SecurityPromptOutcome) -> APIError {
         APIError(kind: kind, reason: reason, statusCode: statusCode, message: message, category: category, action: action,
                  retryAfter: retryAfter, metadata: metadata, requestID: requestID, actionID: actionID, securityOutcome: outcome)
+    }
+    /// A keyed write's answer keeps the action id an earlier attempt reported (30 §3.4 step 4); its own header wins.
+    func addingActionID(_ id: UUID?) -> APIError {
+        guard actionID == nil, let id else { return self }
+        return APIError(kind: kind, reason: reason, statusCode: statusCode, message: message, category: category, action: action,
+                        retryAfter: retryAfter, metadata: metadata, requestID: requestID, actionID: id, securityOutcome: securityOutcome)
     }
     public var diagnostics: [Diagnostic] {
         [Diagnostic(label: "HTTP 状态", value: statusCode.map(String.init) ?? "—"),

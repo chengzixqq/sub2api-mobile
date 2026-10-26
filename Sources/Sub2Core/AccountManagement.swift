@@ -122,3 +122,13 @@ extension APIClient {
         try await refreshAccount(id: id)
     }
 }
+
+/// Batch “刷新凭据” sends one request per account (60 §3.4).
+public enum AccountBatchRefresh {
+    /// Every later account would meet the same ended session (D06's single source, binding mismatch included) or the same
+    /// security gate, so the rest are left unsent.
+    public static func stopsRemaining(after error: any Error) -> Bool {
+        guard let error = error as? APIError else { return false }
+        return SessionInvalidation(error: error) != nil || SecurityInterruption(error) != nil
+    }
+}

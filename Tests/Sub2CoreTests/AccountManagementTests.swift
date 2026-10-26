@@ -86,3 +86,18 @@ private func managedAccountServer() -> ServerProfile {
     let duplicate = try JSONDecoder().decode(AccountBulkReply.self, from: Data(#"{"success":2,"failed":0,"results":[{"account_id":1,"success":true},{"account_id":1,"success":true}]}"#.utf8))
     #expect(duplicate.outcome(for: 1) == nil)
 }
+
+/// Every later account would meet the same ended session or security gate, so the batch stops there (00 §1.7.2, D06).
+@Test func batchRefreshStopsOnEveryEndedSessionAndSecurityRefusal() {
+    let stopping: [APIError] = [
+        .server(status: 401, reason: "TOKEN_REVOKED"), .server(status: 401, reason: "SESSION_BINDING_MISMATCH"),
+        .server(status: 401, reason: "INVALID_ADMIN_KEY"), .server(status: 401, reason: "ACCESS_TOKEN_EXPIRED"), .server(status: 401, reason: nil),
+        .server(status: 403, reason: "WORKSPACE_DISABLED"), .server(status: 423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED"),
+        .server(status: 403, reason: "STEP_UP_REQUIRED"), .server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY"), .authenticationRequired
+    ]
+    for error in stopping { #expect(AccountBatchRefresh.stopsRemaining(after: error), "\(error.statusCode ?? 0) \(error.reason ?? "-")") }
+    let continuing: [any Error] = [APIError.server(status: 400, reason: "INVALID_REQUEST"), APIError.server(status: 404, reason: "ACCOUNT_NOT_FOUND"),
+                                   APIError.server(status: 500, reason: nil), APIError.server(status: 403, reason: "FORBIDDEN"),
+                                   APIError.transport(URLError(.timedOut)), URLError(.timedOut)]
+    for error in continuing { #expect(!AccountBatchRefresh.stopsRemaining(after: error), "\(error)") }
+}

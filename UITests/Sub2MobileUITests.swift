@@ -470,17 +470,45 @@ final class Sub2MobileUITests: XCTestCase {
     }
 
     @MainActor func testBackgroundAndForegroundKeepsSession() {
-        launch()
+        launch(arguments: ["-ui-count-user-loads"])
         login(name: "站点 A", url: "https://a.example.com")
         app.tabBars.buttons["用户"].tap()
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
+        let loads = app.descendants(matching: .any)["user.1.field.username"].firstMatch
+        XCTAssertTrue(loads.waitForExistence(timeout: 10), app.debugDescription)
+        let before = loads.label
+        XCTAssertTrue(before.contains("读取 "), before)
         XCUIDevice.shared.press(.home)
         app.activate()
-        // Returning reloads the list instead of leaving it empty, and the session is still connected.
+        // Returning reloads the list (D18): the fixture's read count moves on, and the session is still connected.
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 15))
+        let reloaded = NSPredicate(format: "label CONTAINS %@ AND label != %@", "读取 ", before)
+        XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: reloaded, evaluatedWith: loads)], timeout: 15), .completed, loads.label)
         XCTAssertFalse(app.buttons["login.submit"].exists)
         app.tabBars.buttons["概览"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["dashboard.today-requests"].firstMatch.waitForExistence(timeout: 15))
+    }
+
+    /// D17 on the balance sheet: only the administrator who sent a pending write may retry its number.
+    @MainActor func testPendingBalanceRetryFollowsTheSender() {
+        for (argument, retries, note) in [(nil, true, nil), ("-ui-pending-actor-unknown", true, "balance.retry.actor-unknown"),
+                                          ("-ui-pending-other-actor", false, "balance.retry.other-actor")] as [(String?, Bool, String?)] {
+            launch(arguments: ["-ui-pending-money"] + (argument.map { [$0] } ?? []))
+            login(name: "站点 A", url: "https://a.example.com")
+            app.tabBars.buttons["用户"].tap()
+            XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
+            app.buttons["user.1"].tap()
+            reveal(app.buttons["user.balance"])
+            app.buttons["user.balance"].tap()
+            let retry = app.buttons["balance.retry"]
+            let other = app.descendants(matching: .any)["balance.retry.other-actor"].firstMatch
+            XCTAssertTrue(retry.waitForExistence(timeout: 5) || other.waitForExistence(timeout: 5), app.debugDescription)
+            XCTAssertEqual(retry.exists, retries, (argument ?? "same sender") + "\n" + app.debugDescription)
+            for identifier in ["balance.retry.actor-unknown", "balance.retry.other-actor"] {
+                XCTAssertEqual(app.descendants(matching: .any)[identifier].firstMatch.exists, identifier == note, identifier)
+            }
+            app.terminate()
+        }
     }
 
     @MainActor private func login(name: String, url: String) {

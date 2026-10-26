@@ -8,6 +8,8 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var status = SettingsSiteStatus()
     @State private var removeProfile: ServerProfile?
+    /// What deleting `removeProfile` revokes follows its saved credential, not the profile (60 §3.4).
+    @State private var removeAuthentication = AuthenticationKind.password
     @State private var confirmLogout = false
     @State private var editingThreshold = false
     @State private var scrolledToSites = false
@@ -53,7 +55,7 @@ struct SettingsView: View {
         .confirmationDialog("删除站点？", isPresented: Binding(get: { removeProfile != nil }, set: { if !$0 { removeProfile = nil } }), titleVisibility: .visible) {
             Button("删除站点和凭据", role: .destructive) { if let profile = removeProfile { removeProfile = nil; remove(profile) } }
         } message: {
-            if let removeProfile { Text(SettingsPresentation.removeSiteMessage(name: removeProfile.name, authentication: removeProfile.authentication)) }
+            if let removeProfile { Text(SettingsPresentation.removeSiteMessage(name: removeProfile.name, authentication: removeAuthentication)) }
         }
         .confirmationDialog("退出当前站点？", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("退出并清除凭据", role: .destructive) { Task { await model.logout() } }
@@ -66,7 +68,7 @@ struct SettingsView: View {
         case .appearance: SettingsAppearanceRows()
         case .security: SettingsSecurityRows { editingThreshold = true }
         case .notifications: SettingsNotificationRows()
-        case .sites: SettingsSiteRows { removeProfile = $0 }
+        case .sites: SettingsSiteRows { profile in Task { await askToRemove(profile) } }
         case .currentSite: SettingsCurrentSiteRows(status: status) { confirmLogout = true }
         case .pending: SettingsPendingRows()
         case .about: aboutRows
@@ -89,6 +91,10 @@ struct SettingsView: View {
         proxy.scrollTo(SettingsSiteRows.anchorID, anchor: .center)
     }
 
+    private func askToRemove(_ profile: ServerProfile) async {
+        removeAuthentication = await model.removalAuthentication(of: profile)
+        removeProfile = profile
+    }
     /// Not tied to the page: the server steps of a deletion finish even after the page is gone (D19).
     private func remove(_ profile: ServerProfile) {
         let model = model

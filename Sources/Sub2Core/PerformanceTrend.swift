@@ -60,6 +60,10 @@ public enum PerformanceMetric: String, CaseIterable, Identifiable, Sendable {
     case rpm = "RPM", tpm = "TPM"
     public var id: String { rawValue }
     public var label: String { self == .rpm ? "每分钟请求" : "每分钟 Tokens" }
-    /// Rates, details and axis ticks share one format: RPM keeps a decimal below 10, TPM is compact (00 §6.2).
+    /// Rates, details and the selected value: RPM keeps a decimal below 10, TPM is compact (00 §6.2).
     public func format(_ value: Double) -> String { self == .rpm ? DisplayFormat.rpm(value) : DisplayFormat.compact(value) }
+    /// Y-axis ticks: below 1,000 two decimals at most, so a quiet site's 0.05 steps never share a label (as DashboardTrendMetric.axisLabel).
+    public func axisLabel(_ value: Double) -> String {
+        abs(value) >= 1_000 ? format(value) : DisplayFormat.decimal(value, maxFractionDigits: 2)
+    }
 }

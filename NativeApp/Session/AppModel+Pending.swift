@@ -49,10 +49,9 @@ extension AppModel {
         return .evaluate(intent, serverID: serverID, balances: pendingMoney.balances, redeemBatches: pendingMoney.redeemBatches,
                          compensations: pendingMoney.compensations, unavailable: pendingMoney.unreadable)
     }
-    /// D17: user ids belong to a site, so a record of another site is never the current administrator's.
+    /// D17, scoped to the connected site.
     func retryPermission(for record: any PendingMoneyWrite) -> PendingRetryPermission {
-        let current = record.serverID == activeProfile?.id ? siteSession?.me.user?.id : nil
-        return .evaluate(actorUserID: record.actorUserID, currentUserID: current)
+        .evaluate(record, activeServerID: activeProfile?.id, currentUserID: siteSession?.me.user?.id)
     }
     /// Only reads (00 §2.5.5). A record the server confirms as executed is dropped here; every other outcome is left to the
     /// page. A result for an older session is not returned.

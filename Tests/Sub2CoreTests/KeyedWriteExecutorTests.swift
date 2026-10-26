@@ -307,3 +307,20 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
     #expect(try await client.updateBalance(balanceWrite(client)).value.id == 7)
     #expect(await transport.requests.count == 3)
 }
+
+/// cross_review_notes S0-06 §1: a business answer after IN_PROGRESS still carries the action id the flow already saw.
+@Test func businessErrorAfterInProgressKeepsTheFlowsActionID() async throws {
+    let action = UUID()
+    let transport = ScriptedTransport(script: [.reply(inProgress(["Retry-After": "1", "X-Admin-Adjustment-Action-ID": action.uuidString])),
+                                               .reply(errorReply(400, reason: "INVALID_BALANCE"))])
+    let client = keyedClient(transport)
+    let error = try #require(await thrownAPIError { _ = try await client.updateBalance(balanceWrite(client)) })
+    #expect(error.statusCode == 400); #expect(error.reason == "INVALID_BALANCE"); #expect(error.actionID == action)
+    // A reply's own header wins over the one seen earlier.
+    let own = UUID()
+    let replied = ScriptedTransport(script: [.reply(inProgress(["Retry-After": "1", "X-Admin-Adjustment-Action-ID": action.uuidString])),
+                                             .reply(errorReply(400, reason: "INVALID_BALANCE", headers: ["X-Admin-Adjustment-Action-ID": own.uuidString]))])
+    let other = keyedClient(replied)
+    #expect(await thrownAPIError { _ = try await other.updateBalance(balanceWrite(other)) }?.actionID == own)
+    #expect(await transport.requests.count == 2)
+}

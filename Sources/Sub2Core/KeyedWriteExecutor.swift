@@ -107,7 +107,8 @@ extension APIClient {
             switch flow.next(after: attempt, now: requestClock.now()) {
             case .succeeded(let response): return try keyedOutcome(response, key: key, actionID: flow.actionID)
             case .rejected(let response):
-                throw surfaced(await refusedWrite(failure(response), generation: snapshot), context: .business, generation: snapshot)
+                let refusal = failure(response).addingActionID(flow.actionID)
+                throw surfaced(await refusedWrite(refusal, generation: snapshot), context: .business, generation: snapshot)
             case .unresolved(let disposition):
                 throw KeyedWriteFailure(disposition: disposition, key: key, actionID: flow.actionID, lastError: lastError(of: attempt, generation: snapshot))
             case .retry(let delay, let event):

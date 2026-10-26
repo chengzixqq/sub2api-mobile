@@ -52,7 +52,7 @@ struct RequestLogsView: View {
                 if mode == .upstream { Text("上游错误按时间、账号、分组与状态筛选。用户、密钥和模型条件仅用于请求记录及失败请求。")
                     .font(.caption).foregroundStyle(.secondary) }
                 if let updatedAt {
-                    Text("已加载 \(mode == .requests ? records.count : errors.count) 条\(total.map { " / 共 \($0) 条" } ?? "") · 更新于 \(updatedAt.formatted(date: .omitted, time: .standard))")
+                    Text("已加载 \(DisplayFormat.grouped(mode == .requests ? records.count : errors.count)) 条\(total.map { " / 共 \(DisplayFormat.grouped($0)) 条" } ?? "") · 更新于 \(updatedAt.formatted(date: .omitted, time: .standard))")
                         .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("logs.loaded")
                 }
             }

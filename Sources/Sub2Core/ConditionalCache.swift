@@ -100,15 +100,22 @@ struct ConditionalPlan: Sendable {
 
 extension APIClient {
     /// nil when unauthenticated, while the identity is unknown, or for endpoints outside 00 §4.2.
-    func conditionalPlan(path: String, method: String, query: [URLQueryItem], body: Data?, authenticated: Bool) async throws -> ConditionalPlan? {
+    func conditionalPlan(path: String, method: String, query: [URLQueryItem], body: Data?, authenticated: Bool,
+                         generation snapshot: UUID) async throws -> ConditionalPlan? {
         guard authenticated, let identity = cacheIdentity, ConditionalCache.supports(method: method, path: path) else { return nil }
         let key = ConditionalCache.Key(siteID: server.id, identity: identity, method: method, url: try endpointURL(path, query: query), body: body)
-        return ConditionalPlan(key: key, cached: await conditionalCache.entry(for: key, now: requestClock.now()))
+        let cached = await conditionalCache.entry(for: key, now: requestClock.now())
+        // The lookup suspended: a cancelAll meanwhile cancels instead of starting an attempt (S0-04).
+        try check(snapshot)
+        return ConditionalPlan(key: key, cached: cached)
     }
     /// A 304 becomes the cached success body under the fresh headers; one the cache cannot answer is a contract error.
-    /// A final 401 (after any token resend) empties this site's entries.
-    func resolveConditional(_ response: HTTPResponse, plan: ConditionalPlan?) async throws -> HTTPResponse {
-        if response.statusCode == 401 { await conditionalCache.clear(siteID: server.id) }
+    /// A final 401 (after any token resend) empties this site's entries; a late one of a cancelled generation is not thrown.
+    func resolveConditional(_ response: HTTPResponse, plan: ConditionalPlan?, generation snapshot: UUID) async throws -> HTTPResponse {
+        if response.statusCode == 401 {
+            await conditionalCache.clear(siteID: server.id)
+            try check(snapshot)
+        }
         guard response.statusCode == 304 else { return response }
         guard let plan, let cached = plan.cached else { throw APIError.invalidResponse }
         await conditionalCache.revalidated(plan.key, sentETag: cached.etag, newETag: Self.etag(response), now: requestClock.now())

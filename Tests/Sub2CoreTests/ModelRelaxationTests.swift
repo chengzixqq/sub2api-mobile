@@ -173,3 +173,17 @@ private struct DecodableOnlyItem: Decodable, Sendable, Equatable { let id: Int }
     #expect(mapped.items == [10, 20]); #expect(mapped.total == 9); #expect(mapped.page == 2); #expect(mapped.pageSize == 2)
     #expect(mapped.pages == 5); #expect(mapped.reportedHasMore == true); #expect(mapped.sinceID == 3); #expect(mapped.latestID == 8)
 }
+
+/// settings/public is read before every sign-in: one malformed agreement document is dropped instead of failing it (00 §5).
+@Test func publicSettingsSkipsUnreadableAgreementDocuments() throws {
+    let json = #"""
+    {"version":"0.9.0","login_agreement_enabled":true,"login_agreement_documents":[{"id":"terms","title":"服务条款","content_md":"条款"},
+    {"id":"privacy","title":"隐私政策"},{"id":3,"title":"数字编号","content_md":"x"},"bad",{"id":"cookies","title":"Cookie 说明","content_md":""}]}
+    """#
+    let settings = try JSONDecoder().decode(PublicSettings.self, from: Data(json.utf8))
+    #expect(settings.version == "0.9.0")
+    #expect(settings.loginAgreementDocuments == [LoginAgreementDocument(id: "terms", title: "服务条款", contentMarkdown: "条款"),
+                                                 LoginAgreementDocument(id: "cookies", title: "Cookie 说明", contentMarkdown: "")])
+    let notList = try JSONDecoder().decode(PublicSettings.self, from: Data(#"{"version":"1","login_agreement_documents":{"id":"x"}}"#.utf8))
+    #expect(notList.loginAgreementDocuments.isEmpty); #expect(notList.version == "1")
+}

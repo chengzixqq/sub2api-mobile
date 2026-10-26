@@ -191,3 +191,17 @@ func transientRefreshFailureKeepsSessionAndBacksOff(step: ScriptStep) async thro
     _ = await thrownAPIError { _ = try await client.user(id: 7) }
     #expect(await transport.requests.count == 2)
 }
+
+/// Restoring or switching sites asks once and does not retry, so it does not promise to (00 §1.7.2 is the page text); a
+/// demoted identity reads as on the login page.
+@Test func connectionFailuresDoNotPromiseARetryAndNameTheRole() {
+    let once = APIError.refreshDeferred.forConnection
+    #expect(once.localizedDescription == "暂时无法续期登录，请稍后重试"); #expect(once.kind == .transport)
+    #expect(once.statusCode == nil); #expect(once.action == nil)
+    let demoted = APIError.server(status: 403, envelope: ErrorEnvelope(reason: "FORBIDDEN"), requestID: "rid-me").forConnection
+    #expect(demoted.localizedDescription == "当前版本仅支持管理员账号")
+    #expect(demoted.statusCode == 403); #expect(demoted.reason == "FORBIDDEN"); #expect(demoted.requestID == "rid-me")
+    #expect(SessionInvalidation(error: demoted) == nil)
+    let other = APIError.server(status: 403, reason: "WORKSPACE_PERMISSION_DENIED")
+    #expect(other.forConnection == other); #expect(APIError.authenticationRequired.forConnection == .authenticationRequired)
+}

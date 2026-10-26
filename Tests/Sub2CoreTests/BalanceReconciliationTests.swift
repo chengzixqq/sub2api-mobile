@@ -153,8 +153,17 @@ private func reconcilingClient(_ transport: ScriptedTransport, server: ServerPro
 
     let server = stubServer()
     let gateway = ScriptedTransport { _ in HTTPResponse(statusCode: 502, headers: ["content-type": "text/html"], data: Data("<html>bad gateway</html>".utf8)) }
-    let failure = await thrownAPIError { _ = try await reconcilingClient(gateway, server: server).reconcileBalance(pending(serverID: server.id)) }
-    #expect(failure != nil)
+    let failure = try #require(await thrownAPIError { _ = try await reconcilingClient(gateway, server: server).reconcileBalance(pending(serverID: server.id)) })
+    // The first query is a read: retried twice, then thrown without running the fallback or reaching a verdict.
+    #expect(failure.kind == .temporary); #expect(failure.statusCode == 502)
+    #expect(await gateway.requests.count == 3)
+    #expect(await gateway.requests.allSatisfy { sentFields($0)["keyword"] == nil })
+
+    // An old server without user-adjustments (non-JSON 404) is no answer either: never notExecuted.
+    let oldSite = stubServer()
+    let missing = ScriptedTransport { _ in HTTPResponse(statusCode: 404, headers: ["content-type": "text/plain"], data: Data("404 page not found".utf8)) }
+    let unsupported = try #require(await thrownAPIError { _ = try await reconcilingClient(missing, server: oldSite).reconcileBalance(pending(serverID: oldSite.id)) })
+    #expect(unsupported.kind == .unsupported); #expect(await missing.requests.count == 1)
 
     let legacyServer = stubServer()
     let silent = ScriptedTransport { _ in ledgerPage() }
