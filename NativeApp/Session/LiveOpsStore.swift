@@ -58,13 +58,18 @@ final class LiveOpsStore {
     @ObservationIgnored private var rankingFetchedAt: Date?
     /// The read `setCalmVisible(true)` started.
     @ObservationIgnored private(set) var rankingTask: Task<Void, Never>?
+    /// C-6, S1-06: 手动解决 and 静默 for every page, writing through this store's lists; receipts go to AppModel's center.
+    let alertActions: AlertActions
 
     init(generation: UUID, source: any LiveOpsSource, site: @escaping @MainActor () -> SiteSession?, isCurrent: @escaping @MainActor () -> Bool,
          errorBadge: @escaping @MainActor () -> AccountErrorBadge? = { nil }, serverNow: @escaping @Sendable () -> Date,
          localNow: @escaping @MainActor () -> Date = { Date() },
-         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+         receipts: ReceiptCenter = ReceiptCenter()) {
         self.generation = generation; self.source = source; self.site = site; self.isCurrent = isCurrent; self.errorBadge = errorBadge
         self.serverNow = serverNow; self.localNow = localNow; self.sleep = sleep
+        alertActions = AlertActions(source: source, receipts: receipts, timeZone: { site()?.serverTimeZone.timeZone ?? .gmt }, now: serverNow)
+        alertActions.host = self
     }
 
     var availability: AccountStatusSummary? { home.availability.value }
@@ -251,9 +256,7 @@ final class LiveOpsStore {
     /// 10 §1.4, §7.1 step 3: a confirmed manual resolve leaves the lists and the counts at once; S1-06 reads them again after.
     func markResolved(eventID: Int, at date: Date) {
         guard isCurrent(), let event = knownFiringEvent(eventID) else { return }
-        firing.updateValue { $0.filter { $0.id != eventID } }
-        home.alerts = home.alerts.updatingValue { $0.removingFiring(event) }
-        countsValue = countsValue?.removingFiring(severity: event.severity)
+        dropFiring(event)
         recent.updateValue { $0.upserting(event.resolvedLocally(at: date)) }
     }
     /// A new, changed or ended (nil) silence on every copy of the event; the counts keep it (a silenced event still fires).
@@ -287,6 +290,12 @@ final class LiveOpsStore {
     private func knownFiringEvent(_ id: Int) -> AlertEvent? {
         ((firing.value ?? []) + (home.alerts.value?.top ?? [])).first { $0.id == id && $0.isFiring }
     }
+    /// Off the firing list, home's alerts and the counts at once (10 §1.4).
+    private func dropFiring(_ event: AlertEvent) {
+        firing.updateValue { $0.filter { $0.id != event.id } }
+        home.alerts = home.alerts.updatingValue { $0.removingFiring(event) }
+        countsValue = countsValue?.removingFiring(severity: event.severity)
+    }
 
     // MARK: - 运维监控开关（10 §7.2，S1D1-02：唯一入口，S1-08 只改函数体）
 
@@ -317,5 +326,36 @@ final class LiveOpsStore {
     private static func isWithin(_ interval: TimeInterval, since start: Date, now: Date) -> Bool {
         let elapsed = now.timeIntervalSince(start)
         return elapsed >= 0 && elapsed < interval
+    }
+}
+
+// MARK: - 告警写后的本地更新（S1-06，10 §7.1）
+
+extension LiveOpsStore: AlertActionsHost {
+    var isSessionCurrent: Bool { isCurrent() }
+    /// The event as read back: a firing one replaces its copies; an ended one leaves the firing list, home's alerts and the
+    /// counts for 最近结束.
+    func upsertAlert(_ event: AlertEvent) {
+        guard isCurrent() else { return }
+        guard event.isFiring else {
+            if let known = knownFiringEvent(event.id) { dropFiring(known) }
+            recent.updateValue { $0.upserting(event) }
+            return
+        }
+        let update: (AlertEvent) -> AlertEvent = { $0.id == event.id ? event : $0 }
+        firing.updateValue { $0.map(update) }
+        home.alerts = home.alerts.updatingValue { $0.mapEvents(update) }
+        recent.updateValue { $0.removing(eventID: event.id) }
+    }
+    /// 404 OPS_ALERT_EVENT_NOT_FOUND: the event is gone from every list.
+    func removeAlert(eventID: Int) {
+        guard isCurrent() else { return }
+        if let known = knownFiringEvent(eventID) { dropFiring(known) }
+        recent.updateValue { $0.removing(eventID: eventID) }
+    }
+    /// BACKLOG D06: the firing list and the counts at once, and the next home read bypasses the cache (10 §1.4).
+    func refreshAlertsAfterWrite() async {
+        await refreshFiringAlerts(maxAge: 0)
+        noteExternalWrite()
     }
 }
