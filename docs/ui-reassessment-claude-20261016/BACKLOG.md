@@ -266,6 +266,8 @@
 | 使用记录在旧服务端不发 key_view | 没有 api_keys.masked_view 的服务端（早于 2026-10-19）仍会在 admin/usage 响应里下发明文 api_key.key，App 只是不解码；若希望一律发 key_view=masked（旧服务端会忽略），需要为 00 §0 硬规则 8 开一个例外，待用户确认（S4D1 需要拍板第 3 条） |
 | errorCount 的口径 | 近 24 小时 N 条一律带 view=all，包含用户自身余额、额度、频率限制，与告警 error_rate 的 SLA 口径不同；S1-17、S2-09、S5-07 的文案只写“近 24 小时 N 条”，不要当作错误率依据 |
 | 页面状态注册表只对 AppRoute 推入的页面生效 | PageStateRegistry 按 Tab 的 path 释放状态。视图式 NavigationLink 推入的页面不在 path 里，它登记的状态会在该 Tab 下一次出栈或替换时释放，path 一直不变时留到会话结束。过渡期的旧入口（S4-05 的 LegacyLogsEntry）会这样，S4-20 删掉兼容入口后就没有了。新页面必须经 AppRoute 推入（X39），并一律用 prunedBy 重载登记。 |
+| 性能趋势范围上限 31 天 + 1 小时 | S4-10 按 S4D1-10 把 throughput-trend 的本地上限由 40 §2.7 字面的 30 天放宽为 31 天 + 1 小时（PerformanceTrend.maximumSpan），以覆盖“上月”与夏令时；后端没有上限。待用户确认，S4-18 平均账号切换超限时的卡内提示按这个常量走。 |
+| 删除 PerformanceTrend 的 Decodable 与 init(from:) | S4-10 按 X29 没改 APIClient.swift，只为旧的 dashboardPerformanceTrend(start:end:) 保留 Decodable 和按点列推窗口的 init(from:)；S1-09b 删除旧方法时同一提交删掉（S1D1-18），漏掉的话由 S4-20 收口。 |
 
 ### App 与设计 · 阶段 5
 
