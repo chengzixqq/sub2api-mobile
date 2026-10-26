@@ -21,7 +21,7 @@ struct RequestLogsView: View {
     @State private var ticket = UUID()
     @State private var pendingTask: Task<Void, Never>?
     init(accountID: Int? = nil, groupID: Int? = nil, scope: LogScope = .usage) {
-        _filter = State(initialValue: RequestLogFilter(accountID: accountID, groupID: groupID))
+        _filter = State(initialValue: RequestLogFilter(time: .lastDay(), accountID: accountID, groupID: groupID))
         _mode = State(initialValue: LogMode(scope))
     }
     private var queryKey: String { mode.rawValue + revision.uuidString }
@@ -32,8 +32,10 @@ struct RequestLogsView: View {
                 Picker("记录类型", selection: $mode) {
                     ForEach(LogMode.allCases) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented).accessibilityIdentifier("logs.mode")
-                Text("\(filter.start.formatted(date: .abbreviated, time: .shortened)) — \(filter.end.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption).foregroundStyle(.secondary)
+                if case let .range(start, end) = filter.time {
+                    Text("\(start.formatted(date: .abbreviated, time: .shortened)) — \(end.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if rollingLastDay {
                     Text("最近 24 小时；下拉刷新时更新至现在。")
                         .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("logs.range.rolling")
@@ -48,7 +50,7 @@ struct RequestLogsView: View {
                 }
                 if let id = filter.accountID { Text("账号 #\(id)").font(.caption).accessibilityIdentifier("logs.account-filter") }
                 if let id = filter.groupID { Text("分组 #\(id)").font(.caption) }
-                if !effectiveFilter.model.isEmpty { Text("模型：\(effectiveFilter.model)").font(.caption) }
+                if let name = effectiveFilter.model, !name.isEmpty { Text("模型：\(name)").font(.caption) }
                 if mode == .upstream { Text("上游错误按时间、账号、分组与状态筛选。用户、密钥和模型条件仅用于请求记录及失败请求。")
                     .font(.caption).foregroundStyle(.secondary) }
                 if let updatedAt {
@@ -111,11 +113,7 @@ struct RequestLogsView: View {
         .onChange(of: model.foregroundRevision) { _, _ in beginLoad(page: 1) }
         .onDisappear { invalidate() }
     }
-    private func advanceLastDay() {
-        let now = Date()
-        filter.start = now.addingTimeInterval(-86_400)
-        filter.end = now
-    }
+    private func advanceLastDay() { filter.time = .lastDay() }
     private func requestRow(_ record: UsageRequestRecord) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(record.model).font(.headline)
@@ -151,15 +149,15 @@ struct RequestLogsView: View {
         defer { if ticket == id { loading = false } }
         do {
             if selected == .requests {
-                let result = try await (model.isUITesting ? LogFixtures.requests(page: requested, filter: query) : session.client.requestRecords(page: requested, filter: query))
+                let result = try await (model.isUITesting ? LogFixtures.requests(page: requested, filter: query) : session.client.requestRecords(page: requested, filter: query, maskedView: session.has(.apiKeysMaskedView)))
                 guard ticket == id, generation == model.sessionGeneration, effectiveFilter == query, mode == selected, !Task.isCancelled else { return }
                 records = requested == 1 ? result.items : records + result.items.filter { next in !records.contains { $0.id == next.id } }
-                page = result.page; hasMore = result.hasMore; total = result.totalExact ? result.total : nil
+                page = result.page; hasMore = result.hasMore; total = result.total
             } else {
                 let result = try await (model.isUITesting ? LogFixtures.errors(page: requested, filter: query) : session.client.errorRecords(page: requested, filter: query, kind: selected.errorKind))
                 guard ticket == id, generation == model.sessionGeneration, effectiveFilter == query, mode == selected, !Task.isCancelled else { return }
                 errors = requested == 1 ? result.items : errors + result.items.filter { next in !errors.contains { $0.id == next.id } }
-                page = result.page; hasMore = result.hasMore; total = result.totalExact ? result.total : nil
+                page = result.page; hasMore = result.hasMore; total = result.total
             }
             updatedAt = Date()
         } catch {
@@ -193,6 +191,10 @@ private struct RequestLogFilterEditor: View {
     @State private var apiKeyID: String
     @State private var statusCode: String
     @State private var resolved: String
+    @State private var start: Date
+    @State private var end: Date
+    @State private var modelName: String
+    @State private var requestID: String
     @State private var error: String?
     let errors: Bool
     let upstream: Bool
@@ -205,13 +207,17 @@ private struct RequestLogFilterEditor: View {
         _apiKeyID = State(initialValue: initial.apiKeyID.map(String.init) ?? "")
         _statusCode = State(initialValue: initial.statusCode.map(String.init) ?? "")
         _resolved = State(initialValue: initial.resolved.map { $0 ? "true" : "false" } ?? "")
+        let now = Date()
+        let bounds = if case let .range(start, end) = initial.time { (start, end) } else { (now.addingTimeInterval(-86_400), now) }
+        _start = State(initialValue: bounds.0); _end = State(initialValue: bounds.1)
+        _modelName = State(initialValue: initial.model ?? ""); _requestID = State(initialValue: initial.requestID ?? "")
     }
     var body: some View {
         NavigationStack {
             Form {
                 Section("时间范围") {
-                    DatePicker("开始", selection: $value.start)
-                    DatePicker("结束", selection: $value.end)
+                    DatePicker("开始", selection: $start)
+                    DatePicker("结束", selection: $end)
                     HStack {
                         Button("近 24 小时") { setRange(days: 1) }
                         Spacer(); Button("近 7 天") { setRange(days: 7) }
@@ -224,8 +230,8 @@ private struct RequestLogFilterEditor: View {
                     TextField("分组 ID", text: $groupID).keyboardType(.numberPad)
                     if !upstream {
                         TextField("API Key ID", text: $apiKeyID).keyboardType(.numberPad)
-                        TextField("模型（精确匹配）", text: $value.model).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("logs.filter.model")
-                        TextField("请求 ID", text: $value.requestID).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        TextField("模型（精确匹配）", text: $modelName).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("logs.filter.model")
+                        TextField("请求 ID", text: $requestID).textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
                 }
                 if errors {
@@ -246,7 +252,7 @@ private struct RequestLogFilterEditor: View {
                     }
                 }
                 if let error { Section { Text(error).foregroundStyle(.red) } }
-                Section { Button("清除筛选") { value = RequestLogFilter(); userID = ""; accountID = ""; groupID = ""; apiKeyID = ""; statusCode = ""; resolved = "" }.accessibilityIdentifier("logs.filter.clear") }
+                Section { Button("清除筛选") { clear() }.accessibilityIdentifier("logs.filter.clear") }
             }
             .navigationTitle("筛选记录")
             .toolbar {
@@ -255,7 +261,11 @@ private struct RequestLogFilterEditor: View {
             }
         }
     }
-    private func setRange(days: Double) { value.end = Date(); value.start = value.end.addingTimeInterval(-days * 86_400) }
+    private func setRange(days: Double) { end = Date(); start = end.addingTimeInterval(-days * 86_400) }
+    private func clear() {
+        value = RequestLogFilter(time: .lastDay()); setRange(days: 1)
+        userID = ""; accountID = ""; groupID = ""; apiKeyID = ""; statusCode = ""; resolved = ""; modelName = ""; requestID = ""
+    }
     private func parse(_ raw: String) throws -> Int? {
         let raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.isEmpty { return nil }
@@ -266,7 +276,9 @@ private struct RequestLogFilterEditor: View {
         do {
             value.userID = try parse(userID); value.accountID = try parse(accountID); value.groupID = try parse(groupID); value.apiKeyID = try parse(apiKeyID)
             value.statusCode = try parse(statusCode); value.resolved = resolved.isEmpty ? nil : resolved == "true"
-            _ = try value.queryItems(page: 1, errors: errors, errorKind: upstream ? .upstream : .request)
+            value.time = .range(start, end)
+            value.model = modelName.isEmpty ? nil : modelName; value.requestID = requestID.isEmpty ? nil : requestID
+            _ = try value.queryItems(page: 1, errors: errors, timeZone: .device)
             save(value); dismiss()
         } catch { self.error = error.localizedDescription }
     }
@@ -372,18 +384,23 @@ private struct RequestErrorDetailView: View {
 }
 
 private enum LogFixtures {
-    static func requests(page: Int, filter: RequestLogFilter) async throws -> RequestLogPage<UsageRequestRecord> {
+    static func requests(page: Int, filter: RequestLogFilter) async throws -> Page<UsageRequestRecord> {
         try Task.checkCancellation()
         let id = page == 1 ? 101 : 102
-        let empty = (filter.userID != nil && filter.userID != 8) || (filter.accountID != nil && filter.accountID != 1) || (filter.groupID != nil && filter.groupID != 3) || (filter.apiKeyID != nil && filter.apiKeyID != 9) || (!filter.model.isEmpty && filter.model != "gpt-demo") || (!filter.requestType.isEmpty && filter.requestType != "stream") || (!filter.requestID.isEmpty && filter.requestID != "req-demo-\(id)")
-        let row = #"{"id":ID,"request_id":"req-demo-ID","created_at":"2026-10-16T08:12:00Z","model":"gpt-demo","user_id":8,"account_id":1,"api_key_id":9,"group_id":3,"input_tokens":1200000,"output_tokens":2400,"cache_creation_tokens":0,"cache_read_tokens":0,"total_cost":"0.50","actual_cost":"0.35","account_stats_cost":"0.40","account_rate_multiplier":"0.30","duration_ms":1250,"first_token_ms":210,"request_type":"stream","account":{"name":"演示账号"},"group":{"name":"演示分组"}}"#.replacingOccurrences(of: "ID", with: String(id))
-        return try JSONDecoder().decode(RequestLogPage<UsageRequestRecord>.self, from: Data("{\"items\":[\(empty ? "" : row)],\"total\":null,\"page\":\(page),\"page_size\":30,\"pages\":null,\"total_exact\":false,\"has_more\":\(!empty && page == 1)}".utf8))
+        let empty = (filter.userID != nil && filter.userID != 8) || (filter.accountID != nil && filter.accountID != 1) || (filter.groupID != nil && filter.groupID != 3) || (filter.apiKeyID != nil && filter.apiKeyID != 9) || differs(filter.model, from: "gpt-demo") || (!filter.requestType.isEmpty && filter.requestType != "stream") || differs(filter.requestID, from: "req-demo-\(id)")
+        let row = #"{"id":ID,"request_id":"req-demo-ID","created_at":"2026-10-16T08:12:00Z","model":"gpt-demo","user_id":8,"account_id":1,"api_key_id":9,"group_id":3,"input_tokens":1200000,"output_tokens":2400,"cache_creation_tokens":0,"cache_read_tokens":0,"total_cost":"0.50","actual_cost":"0.35","account_stats_cost":"0.40","account_rate_multiplier":"0.30","account_cost":"0.12","provider_cost_recorded":true,"duration_ms":1250,"first_token_ms":210,"request_type":"stream","account":{"name":"演示账号"},"group":{"name":"演示分组"}}"#.replacingOccurrences(of: "ID", with: String(id))
+        return try JSONDecoder().decode(Page<UsageRequestRecord>.self, from: Data("{\"items\":[\(empty ? "" : row)],\"total\":null,\"page\":\(page),\"page_size\":100,\"pages\":null,\"total_exact\":false,\"has_more\":\(!empty && page == 1)}".utf8))
     }
     static let errorJSON = #"{"id":201,"created_at":"2026-10-16T08:12:00Z","request_id":"req-error-201","phase":"upstream","type":"upstream_error","status_code":429,"platform":"openai","model":"gpt-demo","resolved":false,"message":"上游请求受限，请稍后重试。","user_id":8,"account_id":1,"group_id":3,"account_name":"演示账号","group_name":"演示分组","upstream_status_code":429,"upstream_latency_ms":530,"response_latency_ms":550}"#
-    static func errors(page: Int, filter: RequestLogFilter) async throws -> RequestLogPage<RequestErrorRecord> {
+    static func errors(page: Int, filter: RequestLogFilter) async throws -> Page<RequestErrorRecord> {
         try Task.checkCancellation()
-        let empty = (filter.statusCode != nil && filter.statusCode != 429) || filter.resolved == true || (filter.userID != nil && filter.userID != 8) || (filter.accountID != nil && filter.accountID != 1) || (filter.groupID != nil && filter.groupID != 3) || (!filter.model.isEmpty && filter.model != "gpt-demo") || (!filter.requestID.isEmpty && filter.requestID != "req-error-201") || (!filter.category.isEmpty && filter.category != "upstream")
-        return try JSONDecoder().decode(RequestLogPage<RequestErrorRecord>.self, from: Data("{\"items\":[\(empty ? "" : errorJSON)],\"total\":\(empty ? 0 : 1),\"page\":1,\"page_size\":30,\"pages\":1,\"total_exact\":true,\"has_more\":false}".utf8))
+        let empty = (filter.statusCode != nil && filter.statusCode != 429) || filter.resolved == true || (filter.userID != nil && filter.userID != 8) || (filter.accountID != nil && filter.accountID != 1) || (filter.groupID != nil && filter.groupID != 3) || differs(filter.model, from: "gpt-demo") || differs(filter.requestID, from: "req-error-201") || (!filter.category.isEmpty && filter.category != "upstream")
+        return try JSONDecoder().decode(Page<RequestErrorRecord>.self, from: Data("{\"items\":[\(empty ? "" : errorJSON)],\"total\":\(empty ? 0 : 1),\"page\":1,\"page_size\":100,\"pages\":1,\"total_exact\":true,\"has_more\":false}".utf8))
     }
     static func errorDetail() async throws -> RequestErrorRecord { try JSONDecoder().decode(RequestErrorRecord.self, from: Data(errorJSON.utf8)) }
+    private static func differs(_ value: String?, from expected: String) -> Bool { value.map { !$0.isEmpty && $0 != expected } ?? false }
+}
+
+private extension LogTimeWindow {
+    static func lastDay(until now: Date = Date()) -> Self { .range(now.addingTimeInterval(-86_400), now) }
 }
