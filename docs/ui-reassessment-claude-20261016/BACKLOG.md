@@ -253,6 +253,9 @@
 | 旧接口 APIClient.accounts(page:…) | S2-04 删掉 AppModel 包装后，只剩 CoreTests / AccountRuntimeTests / ConditionalRequestTests 在用，与 managedAccounts 重复（R19）；交 S2-23 删除，并把测试改用 managedAccounts |
 | 账号 Tab 意图的端到端 UI 测试 | S2-04 用夹具参数 -ui-accounts-intent 覆盖“从意图进入受限”；概览“受限 N 个账号”等行真正发出 .accounts(filter:) 的端到端测试由 S1-10 的 HomeUITests 补 |
 | 进入账号 Tab 的完整刷新判定 | S2-04 以“根视图消失时账号栈为空”视为离开 Tab，下次出现时完整刷新（20 §1.6）；从详情返回不重刷。若以后要求返回也刷新，或改为监听 selectedTab，只改 AccountsView 的 appeared / disappeared |
+| 账号写接口 reason 进 ReasonCatalog | CREDENTIAL_KEY_NOT_DELETABLE、ACCOUNT_NOT_IN_FALLBACK、PROXY_FALLBACK_ORIGIN_UNAVAILABLE 现在走 400 / 409 通用兜底文案；页面（S2-10 / S2-11）按 AccountWriteReason 常量给 20 §0.5 的文案。是否要在 ReasonCatalog 补表行，以后再定 |
+| DELETE 账号的 ACCOUNT_NOT_FOUND | 核实后端：站长再次 DELETE 已删除的账号返回 200，vendor 越权返回 404 RESOURCE_NOT_FOUND，当前不会返回 ACCOUNT_NOT_FOUND。App 已按规格把 404 ACCOUNT_NOT_FOUND 当已删除，等后端补校验后自然生效 |
+| :id/models 不存在时的 404 | 后端用 response.NotFound 返回无 reason 的 JSON 404，App 照抛（kind .notFound）；S2-12 / S2-14 应按 kind 处理，不依赖 reason |
 
 ### App 与设计 · 阶段 3
 
