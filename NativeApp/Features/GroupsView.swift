@@ -262,7 +262,7 @@ private struct GroupDetailView: View {
         guard let context = session, context.generation == model.sessionGeneration, !model.isUITesting else { return }
         let ticket = UUID(); capacityTicket = ticket
         do {
-            let result = try await context.client.groupCapacities().first { $0.groupID == group.id }
+            let result = try await context.client.groupCapacities(groupIDs: [group.id], serverFiltered: context.has(.groupsCapacityFilter)).first
             guard context.generation == model.sessionGeneration, capacityTicket == ticket, !Task.isCancelled else { return }
             capacity = result; capacityDate = Date(); capacityError = result == nil ? "当前分组未提供容量数据。" : nil
         } catch {
@@ -335,7 +335,7 @@ private struct GroupEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var description = ""
-    @State private var platform = "openai"
+    @State private var platform = "anthropic"
     @State private var rate = "1"
     @State private var exclusive = false
     @State private var subscription = "standard"
@@ -375,7 +375,7 @@ private struct GroupEditorView: View {
                     TextField("描述（可选）", text: $description, axis: .vertical).accessibilityIdentifier("group-editor.description")
                     if target.group == nil {
                         Picker("平台", selection: $platform) {
-                            ForEach(GroupPlatform.values, id: \.self) { Text(GroupPlatform.title($0)).tag($0) }
+                            ForEach(GroupPlatform.concrete, id: \.self) { Text(GroupPlatform.title($0)).tag($0) }
                         }.accessibilityIdentifier("group-editor.platform")
                     } else { LabeledValue(label: "平台", value: GroupPlatform.title(platform)) }
                     Toggle("专属分组", isOn: $exclusive).accessibilityIdentifier("group-editor.exclusive")
