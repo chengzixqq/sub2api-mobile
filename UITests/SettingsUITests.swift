@@ -150,7 +150,7 @@ final class SettingsUITests: XCTestCase {
         reveal(app.buttons["settings.logout"])
         diagnostics("settings-current-site-rows")
         sessions.tap()
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("sessions.list").waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.navigationBars["登录设备"].exists, app.debugDescription)
     }
 

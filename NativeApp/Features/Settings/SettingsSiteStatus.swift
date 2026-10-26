@@ -2,9 +2,10 @@ import Foundation
 import Observation
 import Sub2Core
 
-/// 60 §3.6: read once each time the page opens, never polled. A failure only leaves the number out; a server without
-/// `auth/sessions` (non-JSON 404) hides 登录设备. The binding mode is read only for the 00 §1.2 hint. A result for an
-/// older session is dropped.
+/// 60 §3.6: read each time the page appears, coming back from 登录设备 or the token page included, so a revocation there
+/// shows here; never polled. A failure only leaves the number out; a server without `auth/sessions` (non-JSON 404) hides
+/// 登录设备 for the rest of the session. The binding mode is read once per session, only for the 00 §1.2 hint. A result for
+/// an older session is dropped.
 @MainActor @Observable
 final class SettingsSiteStatus {
     private(set) var sessionsSupported = true
@@ -14,22 +15,26 @@ final class SettingsSiteStatus {
     @ObservationIgnored private var loadedGeneration: UUID?
 
     func load(model: AppModel, context: SessionContext) async {
-        guard loadedGeneration != context.generation else { return }
+        let isFirstRead = loadedGeneration != context.generation
         if model.isUITesting {
-            apply(sessions: (true, DemoData.authSessionCount), tokens: DemoData.accessTokenCount, mode: nil, generation: context.generation)
+            apply(sessions: (true, DemoData.authSessionFixtureCount(generation: context.generation)), tokens: DemoData.accessTokenCount, mode: nil,
+                  generation: context.generation)
             return
         }
         let site = context.site, client = context.client
-        let readsSessions = SettingsPresentation.sessionsRow(authMethod: site.authMethod, fallback: site.authenticationKind, sessionsSupported: true) == .available
+        let supported = isFirstRead || sessionsSupported
+        let readsSessions = supported && SettingsPresentation.sessionsRow(authMethod: site.authMethod, fallback: site.authenticationKind,
+                                                                          sessionsSupported: true) == .available
         // admin/access-tokens and admin/settings answer 423 until compliance is accepted (as in SiteSession.currentTokenScope).
         let readsTokens = SettingsPresentation.showsAccessTokens(site.me) && site.me.compliance.required != true
-        let readsMode = SettingsPresentation.readsBindingMode(me: site.me, authMethod: site.authMethod)
+        let readsMode = isFirstRead && SettingsPresentation.readsBindingMode(me: site.me, authMethod: site.authMethod)
         async let sessions = Self.sessions(client, reads: readsSessions)
         async let tokens = Self.activeTokens(client, reads: readsTokens)
         async let mode = Self.bindingMode(client, reads: readsMode)
         let results = await (sessions, tokens, mode)
         guard context.generation == model.sessionGeneration, !Task.isCancelled else { return }
-        apply(sessions: results.0, tokens: results.1, mode: results.2, generation: context.generation)
+        apply(sessions: supported ? results.0 : (supported: false, count: nil), tokens: results.1, mode: isFirstRead ? results.2 : bindingNativeMode,
+              generation: context.generation)
     }
 
     private func apply(sessions: (supported: Bool, count: Int?), tokens: Int?, mode: String?, generation: UUID) {
