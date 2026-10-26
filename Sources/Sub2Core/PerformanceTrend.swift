@@ -1,25 +1,24 @@
 import Foundation
 
-public struct PerformanceTrend: Decodable, Sendable {
-    public enum Bucket: String, Decodable, Sendable {
-        case minute = "1m", fiveMinutes = "5m", hour = "1h"
-        public var seconds: Double {
-            switch self { case .minute: 60; case .fiveMinutes: 300; case .hour: 3_600 }
-        }
-        public var label: String {
-            switch self { case .minute: "1 分钟"; case .fiveMinutes: "5 分钟"; case .hour: "1 小时" }
-        }
-    }
-    public struct Point: Decodable, Identifiable, Sendable {
+/// `ops/dashboard/throughput-trend` (40 §1.4). Rates divide by the seconds each bucket covers inside the requested window, so
+/// the partial first and last buckets keep their real level.
+public struct PerformanceTrend: Decodable, Sendable, Equatable {
+    public typealias Bucket = OpsBucket
+    /// Last month plus a daylight-saving hour (S4D1-10); the server itself has no limit.
+    public static let maximumSpan: TimeInterval = 31 * 86_400 + 3_600
+
+    public struct Point: Decodable, Identifiable, Sendable, Equatable {
         public let date: Date
         public let requestCount: Int
         public let tokenConsumed: Int
+        /// Failovers in this bucket (40 §2.2 平均账号切换).
+        public let switchCount: Int
         public var id: Date { date }
-        public init(date: Date, requestCount: Int, tokenConsumed: Int) {
-            self.date = date; self.requestCount = requestCount; self.tokenConsumed = tokenConsumed
+        public init(date: Date, requestCount: Int, tokenConsumed: Int, switchCount: Int = 0) {
+            self.date = date; self.requestCount = requestCount; self.tokenConsumed = tokenConsumed; self.switchCount = switchCount
         }
         enum CodingKeys: String, CodingKey {
-            case date = "bucket_start", requestCount = "request_count", tokenConsumed = "token_consumed"
+            case date = "bucket_start", requestCount = "request_count", tokenConsumed = "token_consumed", switchCount = "switch_count"
         }
         public init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -30,29 +29,75 @@ public struct PerformanceTrend: Decodable, Sendable {
             self.date = date
             requestCount = try c.decode(Int.self, forKey: .requestCount)
             tokenConsumed = try c.decode(Int.self, forKey: .tokenConsumed)
-            guard requestCount >= 0, tokenConsumed >= 0 else {
+            switchCount = try c.decodeIfPresent(Int.self, forKey: .switchCount) ?? 0
+            guard requestCount >= 0, tokenConsumed >= 0, switchCount >= 0 else {
                 throw DecodingError.dataCorruptedError(forKey: .requestCount, in: c, debugDescription: "Negative throughput count")
             }
         }
     }
+
+    /// The wire body; a missing or unknown `bucket` is derived from the window instead of failing.
+    struct Reply: Decodable, Sendable {
+        let bucket: String?
+        let points: [Point]
+        enum CodingKeys: CodingKey { case bucket, points }
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            bucket = try? c.decodeIfPresent(String.self, forKey: .bucket)
+            points = try c.decodeIfPresent([Point].self, forKey: .points) ?? []
+        }
+    }
+
     public let bucket: Bucket
+    /// The requested window; buckets are cut to it.
+    public let windowStart: Date
+    public let windowEnd: Date
+    /// Unique and oldest first; points without coverage inside the window are dropped.
     public let points: [Point]
-    public init(bucket: Bucket, points: [Point]) {
-        self.bucket = bucket
+
+    public init(bucket: Bucket, windowStart: Date, windowEnd: Date, points: [Point]) {
+        self.bucket = bucket; self.windowStart = windowStart; self.windowEnd = windowEnd
         // The endpoint already aggregates buckets; retain the last duplicate.
         var unique: [Date: Point] = [:]
         for point in points { unique[point.date] = point }
-        self.points = unique.values.sorted { $0.date < $1.date }
+        self.points = unique.values
+            .filter { Self.coverage(of: $0.date, bucket: bucket, start: windowStart, end: windowEnd) > 0 }
+            .sorted { $0.date < $1.date }
     }
-    enum CodingKeys: CodingKey { case bucket, points }
+    init(reply: Reply, windowStart: Date, windowEnd: Date) {
+        self.init(bucket: .resolve(reply.bucket, window: windowEnd.timeIntervalSince(windowStart)), windowStart: windowStart,
+                  windowEnd: windowEnd, points: reply.points)
+    }
+    /// Only for the old `dashboardPerformanceTrend(start:end:)` in APIClient.swift; S1-09b deletes it together with this
+    /// initializer and `Decodable` (S1D1-18). Without the request the window runs from the first bucket to the end of the last.
     public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(bucket: try c.decode(Bucket.self, forKey: .bucket), points: try c.decode([Point].self, forKey: .points))
+        let reply = try Reply(from: decoder)
+        let first = reply.points.map(\.date).min() ?? Date(timeIntervalSince1970: 0)
+        let last = reply.points.map(\.date).max() ?? first
+        let bucket = Bucket.resolve(reply.bucket, window: last.timeIntervalSince(first))
+        self.init(bucket: bucket, windowStart: first, windowEnd: last.addingTimeInterval(bucket.seconds), points: reply.points)
     }
+
     public var newestFirst: [Point] { Array(points.reversed()) }
+    /// min(bucket start + bucket seconds, window end) − max(bucket start, window start).
+    public func coveredSeconds(_ point: Point) -> TimeInterval {
+        Self.coverage(of: point.date, bucket: bucket, start: windowStart, end: windowEnd)
+    }
+    /// qps/tps are rounded by the server. Counts preserve low-volume precision.
     public func rate(_ point: Point, metric: PerformanceMetric) -> Double {
-        // qps/tps are rounded by the server. Counts preserve low-volume precision.
-        Double(metric == .rpm ? point.requestCount : point.tokenConsumed) * 60 / bucket.seconds
+        Double(metric.amount(point)) * 60 / coveredSeconds(point)
+    }
+    public func peak(_ metric: PerformanceMetric) -> Double? { points.map { rate($0, metric: metric) }.max() }
+    /// Σ amounts × 60 ÷ Σ covered seconds, not the mean of the bucket rates.
+    public func average(_ metric: PerformanceMetric) -> Double? {
+        guard !points.isEmpty else { return nil }
+        let amount = points.reduce(0) { $0 + metric.amount($1) }
+        let seconds = points.reduce(0) { $0 + coveredSeconds($1) }
+        return Double(amount) * 60 / seconds
+    }
+
+    private static func coverage(of date: Date, bucket: Bucket, start: Date, end: Date) -> TimeInterval {
+        min(date.addingTimeInterval(bucket.seconds), end).timeIntervalSince(max(date, start))
     }
 }
 
@@ -65,5 +110,23 @@ public enum PerformanceMetric: String, CaseIterable, Identifiable, Sendable {
     /// Y-axis ticks: below 1,000 two decimals at most, so a quiet site's 0.05 steps never share a label (as DashboardTrendMetric.axisLabel).
     public func axisLabel(_ value: Double) -> String {
         abs(value) >= 1_000 ? format(value) : DisplayFormat.decimal(value, maxFractionDigits: 2)
+    }
+    fileprivate func amount(_ point: PerformanceTrend.Point) -> Int { self == .rpm ? point.requestCount : point.tokenConsumed }
+}
+
+extension APIClient {
+    /// 40 §1.4: no `mode`; group and model follow OpsQuery. `supportsModelFilter` has no default, so a caller cannot drop the
+    /// model filter silently. A 404 `OPS_DISABLED` is thrown unchanged.
+    public func dashboardPerformanceTrend(_ query: OpsQuery, supportsModelFilter: Bool) async throws -> PerformanceTrend {
+        try query.validate()
+        guard query.end.timeIntervalSince(query.start) <= PerformanceTrend.maximumSpan else {
+            throw APIError(kind: .validation, message: "请选择 31 天以内的性能趋势范围。")
+        }
+        let snapshot = currentGeneration()
+        let reply: PerformanceTrend.Reply = try await request("admin/ops/dashboard/throughput-trend",
+                                                             query: query.queryItems(supportsModelFilter: supportsModelFilter),
+                                                             timeout: RequestTimeout.aggregate)
+        try check(snapshot)
+        return PerformanceTrend(reply: reply, windowStart: query.start, windowEnd: query.end)
     }
 }

@@ -43,6 +43,50 @@ public enum AccountListRefresh {
             next.lastCountdown = date
             return next
         }
+        /// A full refresh cut short with only its first pages shown: the next timer check runs one again.
+        public func forgettingFull() -> Marks {
+            var next = self
+            next.lastFull = nil
+            return next
+        }
+    }
+
+    /// A light refresh: when it started, and whether the timer or a countdown started it rather than the user or an event.
+    public struct Round: Equatable, Sendable {
+        public var start: Date
+        public var isScheduled: Bool
+        public init(start: Date, isScheduled: Bool) { self.start = start; self.isScheduled = isScheduled }
+    }
+
+    /// runtime/batch, status-summary or today-stats/batch, each apart from the list (00 §2.3: a 429 holds back only its block).
+    /// No round sends it during a 429 wait (00 §2.7.2); a scheduled round also skips it after failures until the backed-off
+    /// interval (60 → 120 → 240 → 300 seconds, 00 §4.6) has passed since the round it last went out in.
+    public struct LightBlock: Equatable, Sendable {
+        public private(set) var refresh = BlockRefresh()
+        public private(set) var lastRound: Date?
+        public init() {}
+
+        public func allowsRequest(in round: Round) -> Bool {
+            guard refresh.allowsRequest(at: round.start) else { return false }
+            guard round.isScheduled, refresh.consecutiveFailures > 0, let lastRound else { return true }
+            let wait = BlockRefresh.nextRefreshInterval(base: AccountListRefresh.lightInterval, consecutiveFailures: refresh.consecutiveFailures)
+            return !AccountListRefresh.isWithin(wait, since: lastRound, now: round.start)
+        }
+        public func requesting(in round: Round) -> LightBlock {
+            var next = self
+            next.lastRound = round.start
+            return next
+        }
+        public func recordingSuccess() -> LightBlock {
+            var next = self
+            next.refresh = refresh.recordingSuccess()
+            return next
+        }
+        public func recordingFailure(_ error: any Error, at now: Date) -> LightBlock {
+            var next = self
+            next.refresh = refresh.recordingFailure(error, at: now)
+            return next
+        }
     }
 
     /// Without `accounts.runtime_batch` the 60-second refresh reads the whole list.

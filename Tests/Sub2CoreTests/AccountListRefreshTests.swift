@@ -133,6 +133,48 @@ func closedGatePausesEveryTimerRefresh(_ gate: AccountListRefresh.Gate) {
     #expect(recorded == AccountListRefresh.Marks(lastLight: t0.addingTimeInterval(1), lastFull: t0, lastCountdown: t0.addingTimeInterval(2)))
 }
 
+@Test func forgettingFullRunsOneAtTheNextCheck() {
+    let cut = marks(light: 20, full: 20).forgettingFull()
+    #expect(cut.lastFull == nil && cut.lastLight == t0.addingTimeInterval(-20))
+    #expect(due(cut) == .full)
+    #expect(AccountListRefresh.nextCheck(at: t0, gate: open, marks: cut, throttle: BlockRefresh()) == 0)
+    #expect(due(cut, throttle: rateLimited(after: 30)) == nil)
+}
+
+// MARK: - Light blocks (00 §2.3, §2.7.2, §4.6)
+
+private func round(_ seconds: TimeInterval, scheduled: Bool = true) -> AccountListRefresh.Round {
+    AccountListRefresh.Round(start: t0.addingTimeInterval(seconds), isScheduled: scheduled)
+}
+
+@Test func lightBlockSendsNothingDuringItsRateLimitWait() {
+    let limited = AccountListRefresh.LightBlock().requesting(in: round(0))
+        .recordingFailure(APIError.server(status: 429, envelope: ErrorEnvelope(reason: "RATE_LIMITED", retryAfter: 120), retryAfter: 120), at: t0)
+    for scheduled in [true, false] {
+        #expect(!limited.allowsRequest(in: round(60, scheduled: scheduled)))
+        #expect(!limited.allowsRequest(in: round(119, scheduled: scheduled)))
+    }
+    #expect(limited.allowsRequest(in: round(120, scheduled: false)))
+    #expect(limited.allowsRequest(in: round(240)))
+    #expect(AccountListRefresh.LightBlock().allowsRequest(in: round(0)))
+}
+
+@Test func failingLightBlockBacksOffOnScheduledRoundsOnly() {
+    let server = APIError.server(status: 502, reason: nil)
+    let once = AccountListRefresh.LightBlock().requesting(in: round(0)).recordingFailure(server, at: t0.addingTimeInterval(2))
+    #expect(!once.allowsRequest(in: round(60)))
+    #expect(once.allowsRequest(in: round(120)))
+    #expect(once.allowsRequest(in: round(60, scheduled: false)))
+    let twice = once.requesting(in: round(120)).recordingFailure(server, at: t0.addingTimeInterval(121))
+    #expect(!twice.allowsRequest(in: round(300)))
+    #expect(twice.allowsRequest(in: round(360)))
+    let many = (0..<6).reduce(twice) { block, _ in block.requesting(in: round(360)).recordingFailure(server, at: t0.addingTimeInterval(361)) }
+    #expect(!many.allowsRequest(in: round(659)) && many.allowsRequest(in: round(660)))
+    // Success restores the 60-second rhythm; a device clock that moved back is treated as overdue.
+    #expect(twice.recordingSuccess().allowsRequest(in: round(180)))
+    #expect(twice.allowsRequest(in: round(60)))
+}
+
 @Test func resolvedLightBecomesFullWithoutRuntimeBatch() {
     #expect(AccountListRefresh.resolved(.light, supportsRuntime: false) == .full)
     #expect(AccountListRefresh.resolved(.light, supportsRuntime: true) == .light)

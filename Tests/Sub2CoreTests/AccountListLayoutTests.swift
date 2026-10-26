@@ -239,6 +239,9 @@ func headerFlagsFollowRightSideTable(_ counts: AccountStateCounts, _ texts: [Str
     #expect(AccountListLayout.overflowNote(total: 12_350, loaded: 2000) == "还有 10,350 个账号未加载，用平台筛选缩小范围")
     #expect(AccountListLayout.overflowNote(total: 2000, loaded: 2000) == nil)
     #expect(AccountListLayout.overflowNote(total: nil, loaded: 0) == nil)
+    // Under the cap nothing was left out on purpose: pages cut short, or rows that moved while they were read.
+    #expect(AccountListLayout.overflowNote(total: 1200, loaded: 500) == nil)
+    #expect(AccountListLayout.overflowNote(total: 1990, loaded: 1980) == nil)
 }
 
 // MARK: - Old servers and fixtures (20 §1.2 本地推导)
