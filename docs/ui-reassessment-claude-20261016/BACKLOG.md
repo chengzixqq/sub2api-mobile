@@ -268,6 +268,9 @@
 | 页面状态注册表只对 AppRoute 推入的页面生效 | PageStateRegistry 按 Tab 的 path 释放状态。视图式 NavigationLink 推入的页面不在 path 里，它登记的状态会在该 Tab 下一次出栈或替换时释放，path 一直不变时留到会话结束。过渡期的旧入口（S4-05 的 LegacyLogsEntry）会这样，S4-20 删掉兼容入口后就没有了。新页面必须经 AppRoute 推入（X39），并一律用 prunedBy 重载登记。 |
 | 性能趋势范围上限 31 天 + 1 小时 | S4-10 按 S4D1-10 把 throughput-trend 的本地上限由 40 §2.7 字面的 30 天放宽为 31 天 + 1 小时（PerformanceTrend.maximumSpan），以覆盖“上月”与夏令时；后端没有上限。待用户确认，S4-18 平均账号切换超限时的卡内提示按这个常量走。 |
 | 删除 PerformanceTrend 的 Decodable 与 init(from:) | S4-10 按 X29 没改 APIClient.swift，只为旧的 dashboardPerformanceTrend(start:end:) 保留 Decodable 和按点列推窗口的 init(from:)；S1-09b 删除旧方法时同一提交删掉（S1D1-18），漏掉的话由 S4-20 收口。 |
+| 请求详情退路：客户端已成功但查不到成功记录 | 已恢复样子走退路时，如果用 client:<client_request_id> 查不到成功那次，fallbackRows 只有失败尝试，最后一次的副行会写“失败，错误返回客户端”，与客户端实际拿到 200 矛盾。S4-08 需要决定此时的写法（例如不显示该副行，或改写成“失败，后续尝试未记录”），规格没有对应文案 |
+| 退路尝试行的账号名 | failover 事件常常没有 account_name，退路行的标题会显示“#<id>”。可以借用同 id 的其他事件或成功记录里的名字，需要时再加 |
+| 请求详情日期格式归属 | 副标题“M/d HH:mm:ss”和已处理小字“M/d HH:mm”目前是 RequestDetailPresentation 的私有函数。按 R10，若 S4-04 或其他页面也需要“月/日 时刻”格式，应统一放进 DisplayFormat，并确定月日是否补零 |
 
 ### App 与设计 · 阶段 5
 
