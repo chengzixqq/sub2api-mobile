@@ -192,8 +192,9 @@ public enum AccountListLayout {
         return parts.joined(separator: " · ")
     }
 
+    /// Only when the 2,000-row cap left rows out (U15); pages cut short or rows that moved while read are not the cap's doing.
     public static func overflowNote(total: Int?, loaded: Int) -> String? {
-        guard let total, total > loaded else { return nil }
+        guard let total, loaded >= rowLimit, total > loaded else { return nil }
         return "还有 \(DisplayFormat.grouped(total - loaded)) 个账号未加载，用平台筛选缩小范围"
     }
 }
