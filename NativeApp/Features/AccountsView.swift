@@ -24,7 +24,7 @@ struct AccountsView: View {
     @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
     @State private var accounts: [UpstreamAccount] = []
-    @State private var filters = AccountListQuery()
+    @State private var filters = AccountListQuery(pageSize: Self.legacyPageSize)
     @State private var page = 0
     @State private var hasMore = false
     @State private var total: Int?
@@ -32,7 +32,7 @@ struct AccountsView: View {
     @State private var error: String?
     @State private var failedPage: Int?
     @State private var requestID = UUID()
-    @State private var readTask: Task<(Page<UpstreamAccount>, [UpstreamAccount]), any Error>?
+    @State private var readTask: Task<(AccountListPage, [UpstreamAccount]), any Error>?
     @State private var fieldSelection = ListFieldSelection<AccountListField>()
     @State private var editingFields = false
     @State private var editingFilters = false
@@ -57,8 +57,13 @@ struct AccountsView: View {
     }
     private var statsQuery: String { "\(fieldSelection.isEnabled(.todayStats))-\(pageRevision)" }
     private var polling: Bool { visible && scenePhase == .active && autoRefresh && !selecting && !batchRunning && editingAccount == nil }
+    /// This page keeps its old paging and single-status filters until S2-04 replaces it.
+    private static let legacyPageSize = PageSize.standard
+    private var statusSelection: Binding<AccountStatusFilter?> {
+        Binding(get: { filters.statuses.count == 1 ? filters.statuses.first : nil }, set: { filters.statuses = $0.map { [$0] } ?? [] })
+    }
     init(initialGroupID: Int? = nil) {
-        var initial = AccountListQuery(); if let initialGroupID { initial.group = String(initialGroupID) }
+        var initial = AccountListQuery(pageSize: Self.legacyPageSize); if let initialGroupID { initial.group = .id(initialGroupID) }
         _filters = State(initialValue: initial)
     }
 
@@ -210,10 +215,11 @@ struct AccountsView: View {
         NavigationStack {
             Form {
                 Section("筛选") {
-                    Picker("状态与调度", selection: $filters.status) {
-                        Text("全部状态").tag(""); Text("可调度").tag("active"); Text("已暂停调度").tag("unschedulable")
-                        Text("限流中").tag("rate_limited"); Text("临时不可调度").tag("temp_unschedulable")
-                        Text("异常").tag("error"); Text("已禁用").tag("inactive")
+                    Picker("状态与调度", selection: statusSelection) {
+                        Text("全部状态").tag(AccountStatusFilter?.none); Text("可调度").tag(AccountStatusFilter?.some(.active))
+                        Text("已暂停调度").tag(AccountStatusFilter?.some(.unschedulable))
+                        Text("限流中").tag(AccountStatusFilter?.some(.rateLimited)); Text("临时不可调度").tag(AccountStatusFilter?.some(.tempUnschedulable))
+                        Text("异常").tag(AccountStatusFilter?.some(.error)); Text("已禁用").tag(AccountStatusFilter?.some(.inactive))
                     }.accessibilityIdentifier("accounts.status")
                     Picker("平台", selection: $filters.platform) {
                         Text("全部平台").tag("")
@@ -224,19 +230,19 @@ struct AccountsView: View {
                         Text("Setup Token").tag("setup-token"); Text("上游").tag("upstream"); Text("Bedrock").tag("bedrock"); Text("Service Account").tag("service_account")
                     }.accessibilityIdentifier("accounts.type")
                     Picker("分组", selection: $filters.group) {
-                        Text("全部分组").tag(""); Text("未分组").tag("ungrouped")
-                        ForEach(groups) { Text("\($0.name) · #\($0.id)").tag(String($0.id)) }
-                        if let id = Int(filters.group), !groups.contains(where: { $0.id == id }) { Text("分组 #\(id)").tag(filters.group) }
+                        Text("全部分组").tag(AccountGroupFilter?.none); Text("未分组").tag(AccountGroupFilter?.some(.ungrouped))
+                        ForEach(groups) { Text("\($0.name) · #\($0.id)").tag(AccountGroupFilter?.some(.id($0.id))) }
+                        if case .id(let id) = filters.group, !groups.contains(where: { $0.id == id }) { Text("分组 #\(id)").tag(filters.group) }
                     }.accessibilityIdentifier("accounts.group")
                     if let groupsError { Text(groupsError).font(.caption).foregroundStyle(.red); Button("重新读取分组") { Task { await loadGroups() } } }
                 }
                 Section("全量结果排序") {
-                    Picker("排序字段", selection: $filters.sort) { ForEach(AccountSort.allCases, id: \.self) { Text($0.title).tag($0) } }
+                    Picker("排序字段", selection: $filters.sort) { ForEach(AccountSort.allCases.filter { $0 != .urgency }, id: \.self) { Text($0.title).tag($0) } }
                         .accessibilityIdentifier("accounts.sort")
                     Toggle("降序排列", isOn: $filters.descending)
                     Text("排序应用于全部分页结果。").font(.caption).foregroundStyle(.secondary)
                 }
-                Button("重置筛选与排序") { filters = AccountListQuery() }
+                Button("重置筛选与排序") { filters = AccountListQuery(pageSize: Self.legacyPageSize) }
             }
             .navigationTitle("账号筛选")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { editingFilters = false }.accessibilityIdentifier("accounts.filters.done") } }
@@ -329,22 +335,34 @@ struct AccountsView: View {
         let ids = accounts.map(\.id); let currentQuery = statsQuery
         await todayStats.load(isCurrent: { generation == model.sessionGeneration && currentQuery == statsQuery && fieldSelection.isEnabled(.todayStats) }) { try await model.accountTodayStats(ids: ids) }
     }
-    private func fetchPage(_ number: Int, query: AccountListQuery) async throws -> Page<UpstreamAccount> {
+    private func fetchPage(_ number: Int, query: AccountListQuery) async throws -> AccountListPage {
         if model.isUITesting {
             // Fetch fixture pages through AppModel to retain runtime/stats regression switches.
             let all = try await model.accounts(page: 1, search: query.search, status: nil, platform: query.platform.isEmpty ? nil : query.platform)
             var source = all.items
             if all.hasMore { source += try await model.accounts(page: 2, search: query.search, status: nil, platform: query.platform.isEmpty ? nil : query.platform).items }
-            source = source.filter { account in
-                (query.type.isEmpty || account.type == query.type) && (query.group.isEmpty || (query.group == "ungrouped" ? account.groupIDs.isEmpty : account.groupIDs.contains(Int(query.group) ?? 0))) &&
-                (query.status.isEmpty || (query.status == "active" ? account.status == "active" && account.schedulable : query.status == "unschedulable" ? !account.schedulable : account.status == query.status))
-            }
+            source = source.filter { Self.fixtureMatches($0, query: query) }
             source.sort { query.descending ? $0.name > $1.name : $0.name < $1.name }
-            return Page(items: Array(source.dropFirst(max(0, number - 1)).prefix(1)), total: source.count, page: number, pageSize: 1, pages: source.count)
+            return AccountListPage(items: Array(source.dropFirst(max(0, number - 1)).prefix(1)), total: source.count, page: number, pageSize: 1, pages: source.count)
         }
         guard let client = session?.client else { throw APIError.authenticationRequired }
         let result = try await client.managedAccounts(page: number, query: query)
         return result.mapItems(withGroupNames)
+    }
+    private static func fixtureMatches(_ account: UpstreamAccount, query: AccountListQuery) -> Bool {
+        let group = switch query.group {
+        case nil: true
+        case .ungrouped: account.groupIDs.isEmpty
+        case .id(let id): account.groupIDs.contains(id)
+        }
+        let status = query.statuses.isEmpty || query.statuses.contains { filter in
+            switch filter {
+            case .active: account.status == "active" && account.schedulable
+            case .unschedulable: !account.schedulable
+            default: account.status == filter.rawValue
+            }
+        }
+        return (query.type.isEmpty || account.type == query.type) && group && status
     }
     private func load(nextPage: Int, replace: Bool = false) async {
         guard !loading, let generation = session?.generation, generation == model.sessionGeneration else { return }

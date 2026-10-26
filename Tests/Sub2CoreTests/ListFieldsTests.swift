@@ -65,6 +65,7 @@ import Testing
     let encoded = try JSONEncoder().encode(account)
     #expect(!String(decoding: encoded, as: UTF8.self).contains("never-decoded"))
     #expect(try JSONDecoder().decode(UpstreamAccount.self, from: encoded).groups == account.groups)
+    #expect(account.credentialsStatus?["has_api_key"] == true && account.credentials?["api_key"] == nil)
 }
 
 @Test func accountListKeepsOldResponsesCompatibleAndGroupIDsAvailable() throws {

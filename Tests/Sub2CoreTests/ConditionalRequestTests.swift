@@ -320,3 +320,19 @@ func unlistedEndpointsNeverSendIfNoneMatch(path: String) async throws {
         _ = try await client.conditionalPlan(path: "admin/users", method: "GET", query: [], body: nil, authenticated: true, generation: current)
     }
 }
+
+/// R08: the account list page keeps no ETag of its own; a 304 brings back the cached counts, and later pages ask for none (R09).
+@Test func accountListPageKeepsCountsOn304AndLaterPagesOmitCounts() async throws {
+    let page = "{\"items\":[\(cachedAccountJSON)],\"total\":600,\"page\":1,\"page_size\":500,\"pages\":2,\"counts\":{\"all\":600,\"error\":1}}"
+    let transport = revalidatingTransport(page, etag: "\"a1\"")
+    let client = cachingClient(transport)
+    let query = AccountListQuery(includeCounts: true, supportsListQuery: true)
+    let first = try await client.managedAccounts(page: 1, query: query)
+    let second = try await client.managedAccounts(page: 1, query: query)
+    #expect(second.items.map(\.id) == first.items.map(\.id) && second.counts == first.counts)
+    #expect(second.counts == AccountListCounts(all: 600, error: 1) && second.hasMore)
+    #expect(await validators(transport) == [nil, "\"a1\""])
+    _ = try await client.managedAccounts(page: 2, query: query)
+    let later = try #require(await transport.requests.last?.url)
+    #expect(!later.absoluteString.contains("include_counts") && later.absoluteString.contains("page=2"))
+}
