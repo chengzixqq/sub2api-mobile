@@ -18,6 +18,8 @@ let package = Package(
             "DemoData.swift",
             // 阶段 1
             // 阶段 2
+            "AppModel+Accounts.swift",
+            "DemoData+Accounts.swift",
             // 阶段 3
             // 阶段 4
             // 阶段 5

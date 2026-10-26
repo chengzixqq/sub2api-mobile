@@ -77,6 +77,10 @@ final class AppModel {
 
     // MARK: - 阶段 2 · 会话级状态
     // 阶段 2 的条目在这里追加
+    /// C-11: the account tab's error count; the account list and LiveOpsStore write it. Rebuilt with the session.
+    private(set) var accountBadge = AccountErrorBadge()
+    /// C-10: the session's group names and order, loaded on first use (AppModel+Accounts.swift); nil without a site.
+    private(set) var groupDirectory: GroupDirectory?
 
     // MARK: - 阶段 3 · 会话级状态
     // 阶段 3 的条目在这里追加
@@ -275,6 +279,8 @@ final class AppModel {
         // 阶段 1 的条目在这里追加
         // MARK: - 阶段 2 · 会话级状态
         // 阶段 2 的条目在这里追加
+        accountBadge = AccountErrorBadge()
+        groupDirectory = makeGroupDirectory(client: next)
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
         userChanges = UserChangeSignal()
@@ -307,6 +313,8 @@ final class AppModel {
         // 阶段 1 的条目在这里追加
         // MARK: - 阶段 2 · 会话级状态
         // 阶段 2 的条目在这里追加
+        accountBadge = AccountErrorBadge()
+        groupDirectory = nil
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
         userChanges = nil
