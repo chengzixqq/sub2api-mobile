@@ -250,7 +250,7 @@ private func isOverview(_ call: StubLiveOpsSource.Call) -> Bool { if case .overv
     let store = harness.store
     await store.refreshHome(noCache: false)
     await store.refreshHome(noCache: true)
-    await store.homePolling()
+    await store.pollHomeBlocks()
     #expect(await source.homeCalls == [false])
     let waits = await harness.sleeper.seconds
     #expect(waits.count == 1 && waits[0] >= 29 && waits[0] <= 30)
@@ -263,7 +263,7 @@ private func isOverview(_ call: StubLiveOpsSource.Call) -> Bool { if case .overv
         return homeReply()
     }))
     let harness = LiveOpsHarness(source, sleeper: PollSleeper(stopAfter: 4))
-    await harness.store.homePolling()
+    await harness.store.pollHomeBlocks()
     #expect(await harness.sleeper.seconds == [60, 120, 240, 300])
     #expect(await source.homeCalls.count == 4)
 }
@@ -278,7 +278,7 @@ private func isOverview(_ call: StubLiveOpsSource.Call) -> Bool { if case .overv
     let store = harness.store
     let pull = Task { await store.refreshHome(noCache: true) }
     await waitUntil { await gate.arrived }
-    await store.homePolling()
+    await store.pollHomeBlocks()
     #expect(await source.homeCalls == [true])
     await gate.open()
     await pull.value
@@ -305,7 +305,7 @@ private func isOverview(_ call: StubLiveOpsSource.Call) -> Bool { if case .overv
     await store.refreshHome(noCache: false)
     await store.refreshHome(noCache: false)
     store.noteExternalWrite()
-    await store.homePolling()
+    await store.pollHomeBlocks()
     #expect(await source.homeCalls == [true, false, true])
 }
 
@@ -378,4 +378,86 @@ private func isOverview(_ call: StubLiveOpsSource.Call) -> Bool { if case .overv
     await source.update { $0.home = { _ in homeReply(availability: .ok(errorSummary([]))) } }
     await harness.store.refreshHome(noCache: false)
     #expect(harness.badge.errorCount == 0)
+}
+
+/// 00 §4.6, 10 §1.2: home keeps its own 60-second timer while a slow 今日 SLA is still on its way, and that read is not sent again.
+@MainActor @Test func homePollingKeepsItsOwnPaceWhileTodaySLAIsSlow() async {
+    let gate = SessionGate()
+    let source = StubLiveOpsSource(.init(home: { _ in homeReply() }, overview: { _, _ in
+        await gate.wait()
+        return OpsOverview(sla: 0.99)
+    }))
+    let harness = LiveOpsHarness(source, site: liveOpsSite([.dashboardHome]), sleeper: PollSleeper(parks: true))
+    let store = harness.store
+    let polling = Task { await store.homePolling() }
+    await waitUntil {
+        let arrived = await gate.arrived, parked = await harness.sleeper.parkedCount
+        return arrived && parked == 1
+    }
+    await harness.sleeper.releaseAll()
+    await waitUntil {
+        let parked = await harness.sleeper.parkedCount, calls = await source.homeCalls.count
+        return parked == 1 && calls == 2
+    }
+    #expect(await source.homeCalls == [false, false])
+    #expect(await harness.sleeper.seconds == [60, 60])
+    #expect(await source.count(isOverview) == 1)
+    #expect(store.todayOps.isLoading)
+    await gate.open()
+    await waitUntil { store.todaySLA != nil }
+    #expect(store.todaySLA == 0.99)
+    await harness.sleeper.stop()
+    await polling.value
+}
+
+/// 10 §1.6: a countdown reads home only; neither it nor a pull cancels and resends an extra read still in flight.
+@MainActor @Test func countdownAndPullLeaveSlowExtraReadsInFlight() async {
+    let gate = SessionGate()
+    let source = StubLiveOpsSource(.init(home: { _ in homeReply() }, overview: { _, _ in
+        await gate.wait()
+        return OpsOverview(sla: 0.99)
+    }, ranking: {
+        await gate.wait()
+        return [AccountsRankingItem(accountID: 1, actualCost: 5)]
+    }))
+    let harness = LiveOpsHarness(source)
+    let store = harness.store
+    store.setCalmVisible(true)
+    let first = Task { await store.refreshHome(noCache: false) }
+    await waitUntil { store.home.stats.value != nil && store.todayOps.isLoading && store.ranking.isLoading }
+    let countdown = Task { await store.countdownElapsed() }
+    await waitUntil { await source.homeCalls.count == 2 && !store.homeRequest.isLoading }
+    let pull = Task { await store.refreshHome(noCache: true) }
+    await waitUntil { await source.homeCalls.count == 3 && !store.homeRequest.isLoading }
+    #expect(await source.homeCalls == [false, false, true])
+    #expect(await source.count(isOverview) == 1)
+    #expect(await source.count(isRanking) == 1)
+    #expect(store.todayOps.isLoading && store.ranking.isLoading)
+    await gate.open()
+    await first.value
+    await countdown.value
+    await pull.value
+    await store.rankingTask?.value
+    #expect(store.todaySLA == 0.99 && store.ranking.value?.map(\.accountID) == [1])
+}
+
+/// 00 §4.6: each timer backs off on its own failures; the ranking's reads only once the calm layout shows.
+@MainActor @Test func homePollingBacksOffEachReadOnItsOwn() async {
+    let source = StubLiveOpsSource(.init(home: { _ in homeReply() }, overview: { _, _ in throw serverFailure }, ranking: { [] }))
+    let harness = LiveOpsHarness(source, sleeper: PollSleeper(parks: true))
+    let store = harness.store
+    let polling = Task { await store.homePolling() }
+    await waitUntil { await harness.sleeper.parkedCount == 3 }
+    #expect(await harness.sleeper.seconds.sorted() == [60, 60, 120])
+    #expect(await source.count(isRanking) == 0)
+    store.setCalmVisible(true)
+    await store.rankingTask?.value
+    await harness.sleeper.releaseAll()
+    await waitUntil { await harness.sleeper.parkedCount == 3 }
+    #expect(await harness.sleeper.seconds.sorted() == [60, 60, 60, 60, 120, 240])
+    #expect(await source.homeCalls.count == 2)
+    #expect(await source.count(isOverview) == 2)
+    #expect(await source.count(isRanking) == 2)
+    await harness.sleeper.stop()
+    await polling.value
 }

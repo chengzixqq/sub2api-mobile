@@ -107,15 +107,32 @@ actor StubLiveOpsSource: LiveOpsSource {
     }
 }
 
-/// Records the polling waits in seconds and ends the loop at the `stopAfter`-th one, as a cancelled task would.
+/// Records the polling waits in seconds and ends the loop at the `stopAfter`-th one, as a cancelled task would. With `parks`
+/// a wait holds until `releaseAll()`; it ignores task cancellation, so such a test ends its polling with `stop()`.
 actor PollSleeper {
     private(set) var seconds: [TimeInterval] = []
     private let limit: Int
-    init(stopAfter limit: Int = .max) { self.limit = limit }
-    func sleep(_ duration: Duration) throws {
+    private let parks: Bool
+    private var isStopped = false
+    private var parked: [CheckedContinuation<Void, any Error>] = []
+    init(stopAfter limit: Int = .max, parks: Bool = false) { self.limit = limit; self.parks = parks }
+    var parkedCount: Int { parked.count }
+    func sleep(_ duration: Duration) async throws {
         let parts = duration.components
         seconds.append(TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18)
-        if seconds.count >= limit { throw CancellationError() }
+        if isStopped || seconds.count >= limit { throw CancellationError() }
+        guard parks else { return }
+        try await withCheckedThrowingContinuation { parked.append($0) }
+    }
+    func releaseAll() { resumeParked(with: .success(())) }
+    func stop() {
+        isStopped = true
+        resumeParked(with: .failure(CancellationError()))
+    }
+    private func resumeParked(with result: Result<Void, any Error>) {
+        let waiting = parked
+        parked.removeAll()
+        waiting.forEach { $0.resume(with: result) }
     }
 }
 
