@@ -132,6 +132,7 @@ Mac 补装 Xcode 27.1 的 CoreSimulator 组件后，在 iPhone 18 Pro（iOS 27�
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
 |---|---|---|---|---|
 | S3-06 | 余额核对与写入结果判定 Core | ✅ | `d2dbc57` | 与规格不同的取舍：①旧记录用同一编号重试后从 lastSentAt 起算 40 秒宽限（30 §3.4 写旧记录不做宽限判断，这里按 BACKLOG 的要求）；②已发出过的记录只有由请求体决定的 400 判未执行，404 / 401 / 403 / 423 / 429 等保持待核对；③退路页被截断或发不了退路查询时判 notFound（S3-07 按 ambiguous 呈现）；④KEY_CONFLICT 保留待核对，新编号由 S3-08 处理；⑤X34 按默认口径（同地址旧 id 计入门控，可用当前身份核对或放弃，同编号重试只限同地址同一发起人）。签名差异：PendingRetryPermission 按记录的重载加了 sameAddress 参数并改为转调五参数版，其他站点、没有发起人的记录由 allowedActorUnknown 改为 otherActor；graceStart 放在 BalanceReconciliation.swift。APIClient.updateBalance(_:sameAddress:) 只查地址，调用前必须先经 checkSender（S3-07 的 AppModel+Users.updateBalance 负责）。未做：界面、旧 updateBalance 与 BalanceView（S3-01 / S3-07 / S3-08 / S3-16）。UI 测试：已运行 SettingsUITests、Sub2MobileUITests，共 32 个全部通过（审查修正 a882036）审查修正 a882036：余额写 404 只认 USER_NOT_FOUND，其他 404 保留待核对；retrying 时无 reason 的 400 也保留待核对（与方案取舍不同）；KeyedWriteFlow 在结果不明的尝试之后，非 JSON 回复也转 unconfirmed，影响所有带 key 的写；删除站点时 requestIDUnreliable 标记交给同地址其他站点 id。 |
+| S3-00 | 共用小组件：ReadOnlyGate、DeleteConfirmationSheet、SensitivePasteboard、AmountKeypad、UserChangeSignal | ✅ | `68de60c` | 只建组件与单测，未接页面；删除确认用 sheet（设计稿是 alert，为执行中转圈与禁止下滑关闭）；输入框允许粘贴；输入框上方标签与占位分开；Face ID 打开时正文加“确认后验证 Face ID。”，回执不带“已通过 Face ID”前缀；“Key”等拉丁字母对象名与汉字之间加空格；没有小数位时键盘的“.”位留空；UserChangeSignal 按 S3D1-03 分资料与余额两种计数；组件 UI 测试随首个消费方写；check：AppNavigationUITests 与退出、删除当前站点两个用例共 19 个全部通过 |
 
 ## 阶段 4 · 日志与统计
 

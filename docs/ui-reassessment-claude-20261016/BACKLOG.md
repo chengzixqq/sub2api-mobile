@@ -247,6 +247,8 @@
 | 余额重试后的执行宽限 | S3-06（d2dbc57）已完成：lastSentAt 与 graceStart = max(createdAt, lastSentAt)，AppModel.persisted 在重发时自动写入；退路时间窗仍从 createdAt 起算。S3-07 的 retrySameNumber 不用再自己写 lastSentAt |
 | requestIDUnreliable 标记的残留与丢失 | 标记按站点 id 存在 UserDefaults。留档站点的标记在它的记录核对完后不会清除（只多几个键）。删掉同地址里唯一被标记的站点后，这个地址的标记就没了，要等下一次余额写回显不一致才会重新标记。以后决定是否在 profileArchive 清理时一并清除，或改为按地址存 |
 | 旧记录按用户 ID 查询的截断 | 旧记录的退路查询用 keyword=用户 ID 子串匹配、不带开始时间，可能超过 200 行被截断。截断且没有命中时判 notFound，不下结论；以后可以考虑翻页或加 user_id 筛选（旧服务端会忽略） |
+| 删除确认输入框禁止粘贴 | S3-00 按规格允许粘贴（SwiftUI 的 TextField 没有禁止粘贴的接口）；如果用户要禁止，需要换成 UIKit 的 UITextField 子类。待用户拍板（_decisions-S3“需要用户拍板”第 2 条，同时拍板删除确认用 sheet 而不是 alert） |
+| 敏感值复制的剪贴板类型真机验证 | SensitivePasteboard 用 UTType.plainText 作键；S3-13 首次接入时在真机把复制的 Key 粘贴到备忘录和 Safari 验证一次，不行就把键换成 UTType.utf8PlainText（只改这一处） |
 
 ### App 与设计 · 阶段 4
 
