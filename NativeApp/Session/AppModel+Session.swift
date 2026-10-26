@@ -59,6 +59,8 @@ extension AppModel {
         persistProfiles()
         let pushIDs = pushRecords.teardownCandidates(serverID: profile.id)
         pushRecords.removeAll(serverID: profile.id)
+        // An archived site's records are still checked with its request-id flag.
+        if profileArchive[profile.id] == nil { siteFlags.removeAll(serverID: profile.id) }
         do { try await credentials.remove(serverID: profile.id) } catch { report(error) }
         let result = await teardown(ended, of: profile, mode: .removeSite, pushDeviceIDs: pushIDs)
         switch SiteRemovalNotice.after(removingCurrent: isActive, hasReceiptHost: activeProfile != nil, notes: result?.notes ?? []) {

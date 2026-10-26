@@ -86,8 +86,10 @@ struct PendingMoneyLedger: Sendable {
         unreadable.isEmpty ? nil : PendingMoneyKind.allCases.filter(unreadable.contains).map(\.unreadableMessage).joined(separator: "\n")
     }
 
+    /// A copy taken before a reply keeps the action id and last send saved since (PendingBalanceOperation.merging).
     func remembering(_ record: PendingBalanceOperation, in files: PendingMoneyFiles) throws -> PendingMoneyLedger {
-        try remembering(record, at: \.balances, kind: .balance, in: files)
+        let merged = balances.first { $0.id == record.id }.map(record.merging(stored:)) ?? record
+        return try remembering(merged, at: \.balances, kind: .balance, in: files)
     }
     func remembering(_ record: PendingRedeemBatch, in files: PendingMoneyFiles) throws -> PendingMoneyLedger {
         try remembering(record, at: \.redeemBatches, kind: .redeemBatch, in: files)
@@ -109,13 +111,21 @@ struct PendingMoneyLedger: Sendable {
 
     func record(id: UUID) -> (any PendingMoneyWrite)? { writes(serverID: nil).first { $0.id == id } }
     /// One site's records (all sites for nil), oldest first; legacy balance records without createdAt come first (D16).
-    func writes(serverID: UUID?) -> [any PendingMoneyWrite] {
-        let kinds: [[any PendingMoneyWrite]] = [balances, redeemBatches, compensations]
-        return kinds.joined().filter { serverID == nil || $0.serverID == serverID }
-            .sorted { ($0.summary.createdAt ?? .distantPast) < ($1.summary.createdAt ?? .distantPast) }
-    }
+    func writes(serverID: UUID?) -> [any PendingMoneyWrite] { writes { serverID == nil || $0.serverID == serverID } }
+    /// The records of these site ids (one address, C-26), ordered like `writes(serverID:)`.
+    func writes(serverIDs: Set<UUID>) -> [any PendingMoneyWrite] { writes { serverIDs.contains($0.serverID) } }
     /// D17: a site keeps its id for a new login only without records; an unreadable file may hold some.
     func mayHaveRecords(serverID: UUID) -> Bool { !unreadable.isEmpty || !writes(serverID: serverID).isEmpty }
+    /// A record already saved goes out again: the execution grace restarts now (BACKLOG “余额重试后的执行宽限”), the fallback
+    /// window stays at createdAt. A first send is returned unchanged.
+    func resendStamped(_ operation: PendingBalanceOperation, at date: Date) -> PendingBalanceOperation {
+        balances.contains { $0.id == operation.id } ? operation.with(lastSentAt: date) : operation
+    }
+
+    private func writes(where included: (any PendingMoneyWrite) -> Bool) -> [any PendingMoneyWrite] {
+        let kinds: [[any PendingMoneyWrite]] = [balances, redeemBatches, compensations]
+        return kinds.joined().filter(included).sorted { ($0.summary.createdAt ?? .distantPast) < ($1.summary.createdAt ?? .distantPast) }
+    }
 
     /// Adds the record, or replaces the one with the same id when its request bytes are unchanged (for example to save the
     /// action id before the result is known).

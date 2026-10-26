@@ -577,14 +577,17 @@ public struct PendingBalanceOperation: PendingMoneyWrite, Equatable {
     /// X-Admin-Adjustment-Action-ID from any reply, saved before the result is known (30 §3.4 step 4).
     public private(set) var actionID: UUID?
     public let idempotencyExpiresAt: Date?
+    /// When “用同一编号重试” last sent it; the execution grace starts here too (BACKLOG “余额重试后的执行宽限”). nil until a retry.
+    public private(set) var lastSentAt: Date?
     public init(id: UUID = UUID(), serverID: UUID, userID: Int, amount: Decimal, operation: BalanceOperation, notes: String = "",
                 actorUserID: Int? = nil, createdAt: Date = Date(), userDisplayName: String? = nil, userEmail: String? = nil) {
         self.id = id; self.serverID = serverID; self.userID = userID; self.amount = amount; self.operation = operation; self.notes = notes
         requestID = id.uuidString.lowercased(); self.actorUserID = actorUserID; self.createdAt = createdAt
-        self.userDisplayName = userDisplayName; self.userEmail = userEmail; actionID = nil; idempotencyExpiresAt = nil
+        self.userDisplayName = userDisplayName; self.userEmail = userEmail; actionID = nil; idempotencyExpiresAt = nil; lastSentAt = nil
     }
     enum CodingKeys: String, CodingKey {
         case id, serverID, userID, amount, operation, notes, requestID, actorUserID, createdAt, userDisplayName, userEmail, actionID, idempotencyExpiresAt
+        case lastSentAt
     }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -596,11 +599,25 @@ public struct PendingBalanceOperation: PendingMoneyWrite, Equatable {
         userDisplayName = try c.decodeIfPresent(String.self, forKey: .userDisplayName); userEmail = try c.decodeIfPresent(String.self, forKey: .userEmail)
         actionID = try c.decodeIfPresent(UUID.self, forKey: .actionID)
         idempotencyExpiresAt = try c.decodeIfPresent(Date.self, forKey: .idempotencyExpiresAt)
+        lastSentAt = try c.decodeIfPresent(Date.self, forKey: .lastSentAt)
     }
     public var isLegacy: Bool { requestID == nil }
     public func with(actionID: UUID?) -> PendingBalanceOperation {
         var copy = self
         copy.actionID = actionID
+        return copy
+    }
+    public func with(lastSentAt: Date?) -> PendingBalanceOperation {
+        var copy = self
+        copy.lastSentAt = lastSentAt
+        return copy
+    }
+    /// This record over the saved copy of the same id: the action id and the last send only ever move forward, so a copy taken
+    /// before a reply cannot erase what was saved since.
+    public func merging(stored: PendingBalanceOperation) -> PendingBalanceOperation {
+        var copy = self
+        copy.actionID = actionID ?? stored.actionID
+        copy.lastSentAt = [lastSentAt, stored.lastSentAt].compactMap { $0 }.max()
         return copy
     }
     public var summary: PendingMoneyWriteSummary {

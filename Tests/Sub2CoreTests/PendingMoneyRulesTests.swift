@@ -75,7 +75,7 @@ private func codePage(_ items: String...) -> HTTPResponse {
 @Test func balanceGateOnlyInterceptsSameDirection() {
     let site = UUID()
     func gate(_ records: [PendingBalanceOperation], _ direction: BalanceDirection, userID: Int = 42) -> PendingMoneyGate {
-        .evaluate(.balance(userID: userID, direction: direction), serverID: site, balances: records, redeemBatches: [], compensations: [], unavailable: [])
+        .evaluate(.balance(userID: userID, direction: direction), serverIDs: [site], balances: records, redeemBatches: [], compensations: [], unavailable: [])
     }
     let credit = balance(serverID: site, .add, 50)
     #expect(gate([credit], .credit) == .overridable([credit.id]))
@@ -95,12 +95,12 @@ private func codePage(_ items: String...) -> HTTPResponse {
     let site = UUID()
     let pendingBatch = batch(serverID: site), pendingGrant = grant(serverID: site), credit = balance(serverID: site, .add, 1)
     func gate(_ intent: MoneyWriteIntent, unavailable: Set<PendingMoneyKind> = []) -> PendingMoneyGate {
-        .evaluate(intent, serverID: site, balances: [credit], redeemBatches: [pendingBatch], compensations: [pendingGrant], unavailable: unavailable)
+        .evaluate(intent, serverIDs: [site], balances: [credit], redeemBatches: [pendingBatch], compensations: [pendingGrant], unavailable: unavailable)
     }
     #expect(gate(.redeemGenerate) == .overridable([pendingBatch.id]))
     #expect(gate(.compensation(userID: 42)) == .blocked([pendingGrant.id]))
     #expect(gate(.compensation(userID: 43)) == .clear)
-    #expect(PendingMoneyGate.evaluate(.redeemGenerate, serverID: UUID(), balances: [], redeemBatches: [pendingBatch], compensations: [], unavailable: []) == .clear)
+    #expect(PendingMoneyGate.evaluate(.redeemGenerate, serverIDs: [UUID()], balances: [], redeemBatches: [pendingBatch], compensations: [], unavailable: []) == .clear)
     #expect(gate(.compensation(userID: 43), unavailable: [.compensation]) == .paused(.compensation))
     #expect(gate(.redeemGenerate, unavailable: [.redeemBatch]) == .paused(.redeemBatch))
     // Another kind's unreadable file does not pause this one.
@@ -170,6 +170,136 @@ private func codePage(_ items: String...) -> HTTPResponse {
     #expect(PendingRetryPermission.evaluate(mine, activeServerID: nil, currentUserID: 7) == .otherActor)
     let unknown = PendingBalanceOperation(serverID: site, userID: 42, amount: 5, operation: .add)
     #expect(PendingRetryPermission.evaluate(unknown, activeServerID: site, currentUserID: 7) == .allowedActorUnknown)
-    #expect(PendingRetryPermission.evaluate(unknown, activeServerID: other, currentUserID: 7) == .allowedActorUnknown)
+    // Another site's record without a sender is never retried here (C-26: only the same address and the same sender).
+    #expect(PendingRetryPermission.evaluate(unknown, activeServerID: other, currentUserID: 7) == .otherActor)
+    #expect(PendingRetryPermission.evaluate(mine, activeServerID: other, currentUserID: 7, sameAddress: [other, site]) == .allowed)
     #expect(PendingRetryPermission.evaluate(grant(serverID: other), activeServerID: site, currentUserID: 7) == .otherActor)
+}
+
+// MARK: Records of an older login at the same address (X34 / C-26; BACKLOG “待核对门控跨站点 id”)
+
+private func profile(_ address: String) -> ServerProfile {
+    ServerProfile(name: "站点", baseURL: URL(string: address)!, authentication: .password)
+}
+
+@Test func gateCountsSameAddressRecordsByKind() {
+    let current = UUID(), oldLogin = UUID(), elsewhere = UUID()
+    let credit = balance(serverID: oldLogin, .add, 50), refund = balance(serverID: oldLogin, .subtract, 5), farCredit = balance(serverID: elsewhere, .add, 50)
+    let oldBatch = batch(serverID: oldLogin), oldGrant = grant(serverID: oldLogin), farGrant = grant(serverID: elsewhere)
+    func gate(_ intent: MoneyWriteIntent, serverIDs: Set<UUID>, unavailable: Set<PendingMoneyKind> = []) -> PendingMoneyGate {
+        .evaluate(intent, serverIDs: serverIDs, balances: [credit, refund, farCredit], redeemBatches: [oldBatch], compensations: [oldGrant, farGrant],
+                  unavailable: unavailable)
+    }
+    let same: Set<UUID> = [current, oldLogin]
+    #expect(gate(.balance(userID: 42, direction: .credit), serverIDs: same) == .overridable([credit.id]))
+    #expect(gate(.balance(userID: 42, direction: .debit), serverIDs: same) == .overridable([refund.id]))
+    #expect(gate(.balance(userID: 43, direction: .credit), serverIDs: same) == .clear)
+    #expect(gate(.redeemGenerate, serverIDs: same) == .overridable([oldBatch.id]))
+    #expect(gate(.compensation(userID: 42), serverIDs: same) == .blocked([oldGrant.id]))
+    #expect(gate(.compensation(userID: 43), serverIDs: same) == .clear)
+    #expect(gate(.compensation(userID: 42), serverIDs: same, unavailable: [.compensation]) == .paused(.compensation))
+    // Records of another address hold nothing back.
+    #expect(gate(.balance(userID: 42, direction: .credit), serverIDs: [current]) == .clear)
+    #expect(gate(.redeemGenerate, serverIDs: [current]) == .clear)
+    #expect(gate(.compensation(userID: 42), serverIDs: [current]) == .clear)
+}
+
+@Test func addressKeyDropsDefaultPortOnly() throws {
+    func key(_ address: String) throws -> String? { MoneyRecordOrigin.addressKey(of: try #require(URL(string: address))) }
+    let base = try #require(try key("https://sub2.example.com"))
+    #expect(try key("https://Sub2.Example.com/") == base)
+    #expect(try key("https://sub2.example.com:443") == base)
+    #expect(try key("https://A.example.com:443") == key("https://a.example.com"))
+    #expect(try key("https://sub2.example.com:8443") != base)
+    #expect(try key("https://other.example.com") != base)
+    #expect(try key("http://sub2.example.com") == nil)
+}
+
+@Test func sameAddressIDsCoverOlderLoginsOfOneAddress() {
+    let current = profile("https://sub2.example.com"), older = profile("https://SUB2.example.com:443/"), archived = profile("https://sub2.example.com")
+    let otherPort = profile("https://sub2.example.com:8443"), otherHost = profile("https://ops.example.com")
+    #expect(MoneyRecordOrigin.sameAddressIDs(of: current, among: [current, older, archived, otherPort, otherHost]) == [current.id, older.id, archived.id])
+    #expect(MoneyRecordOrigin.sameAddressIDs(of: current, among: []) == [current.id])
+    let unusable = profile("http://sub2.example.com")
+    #expect(MoneyRecordOrigin.sameAddressIDs(of: unusable, among: [unusable, current, profile("http://sub2.example.com")]) == [unusable.id])
+}
+
+@Test func kindCoversThreeOrigins() {
+    let current = UUID(), oldLogin = UUID(), same: Set<UUID> = [current, oldLogin]
+    #expect(MoneyRecordOrigin.Kind(recordServerID: current, currentServerID: current, sameAddress: []) == .currentSite)
+    #expect(MoneyRecordOrigin.Kind(recordServerID: current, currentServerID: current, sameAddress: same) == .currentSite)
+    #expect(MoneyRecordOrigin.Kind(recordServerID: oldLogin, currentServerID: current, sameAddress: same) == .sameAddressOldLogin)
+    #expect(MoneyRecordOrigin.Kind(recordServerID: UUID(), currentServerID: current, sameAddress: same) == .otherAddress)
+    #expect(MoneyRecordOrigin.Kind(recordServerID: oldLogin, currentServerID: nil, sameAddress: same) == .otherAddress)
+    #expect(MoneyRecordOrigin.oldLoginNote == "本站点的旧登录下发起")
+}
+
+@Test func moneyRecordOriginAllowsOnlySameAddress() {
+    let current = UUID(), oldLogin = UUID()
+    #expect(throws: Never.self) { try MoneyRecordOrigin.check(recordServerID: current, currentServerID: current, sameAddress: []) }
+    #expect(throws: Never.self) { try MoneyRecordOrigin.check(recordServerID: oldLogin, currentServerID: current, sameAddress: [current, oldLogin]) }
+    #expect(throws: APIError.stationMismatch) { try MoneyRecordOrigin.check(recordServerID: UUID(), currentServerID: current, sameAddress: [current, oldLogin]) }
+    #expect(throws: APIError.stationMismatch) { try MoneyRecordOrigin.check(recordServerID: oldLogin, currentServerID: current, sameAddress: []) }
+}
+
+@Test func retryPermissionAcrossSiteIDs() {
+    let current = UUID(), oldLogin = UUID()
+    func permission(_ actor: Int?, _ me: Int?, record: UUID, active: UUID? = current) -> PendingRetryPermission {
+        .evaluate(actorUserID: actor, currentUserID: me, recordServerID: record, currentServerID: active, sameAddress: [current, oldLogin])
+    }
+    #expect(permission(nil, 7, record: current) == .allowedActorUnknown)
+    #expect(permission(7, 7, record: current) == .allowed)
+    #expect(permission(7, 8, record: current) == .otherActor)
+    // An older login of the same address: only a known sender who is the current administrator.
+    #expect(permission(7, 7, record: oldLogin) == .allowed)
+    #expect(permission(nil, 7, record: oldLogin) == .otherActor)
+    #expect(permission(7, 8, record: oldLogin) == .otherActor)
+    #expect(permission(7, nil, record: oldLogin) == .otherActor)
+    #expect(permission(7, 7, record: UUID()) == .otherActor)
+    #expect(permission(nil, 7, record: UUID()) == .otherActor)
+    #expect(permission(7, 7, record: current, active: nil) == .otherActor)
+}
+
+/// S3D1-16: the server derives action_id from the sender, so another administrator's same key would run the write again.
+@Test func checkSenderRefusesOtherActorEvenAtSameAddress() {
+    let current = UUID(), oldLogin = UUID(), same: Set<UUID> = [current, oldLogin]
+    func check(_ actor: Int?, record: UUID) throws {
+        try MoneyRecordOrigin.checkSender(actorUserID: actor, currentUserID: 1, recordServerID: record, currentServerID: current, sameAddress: same)
+    }
+    #expect(throws: APIError.otherActorWrite) { try check(7, record: oldLogin) }
+    #expect(throws: APIError.otherActorWrite) { try check(nil, record: oldLogin) }
+    #expect(throws: APIError.otherActorWrite) { try check(1, record: UUID()) }
+    #expect(throws: Never.self) { try check(nil, record: current) }
+    #expect(throws: Never.self) { try check(1, record: oldLogin) }
+    #expect(throws: Never.self) { try check(1, record: current) }
+    #expect(APIError.otherActorWrite.localizedDescription == "这笔由其他管理员发起，不能用同一编号重试。")
+    #expect(APIError.otherActorWrite.kind == .validation)
+}
+
+@Test func reconcileAcceptsSameAddressRecordsOfEveryKind() async throws {
+    let server = stubServer(), oldLogin = UUID()
+    let op = balance(serverID: oldLogin, .add, 50), oldBatch = batch(serverID: oldLogin), oldGrant = grant(serverID: oldLogin)
+    let ledgerRow = #"{"id":8,"kind":"balance","user_id":42,"request_id":"\#(op.key)","before_value":"1","after_value":"51"}"#
+    let transport = ScriptedTransport { request in
+        let query = fields(request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? [])
+        switch request.url?.path {
+        case "/api/v1/admin/user-adjustments": return okReply(#"{"items":[\#(ledgerRow)],"total":1,"page":1,"page_size":20,"pages":1}"#)
+        case "/api/v1/admin/redeem-codes" where query["batch_id"] != nil:
+            return codePage(codeJSON(1, code: "a"), codeJSON(2, code: "b"), codeJSON(3, code: "c"))
+        case "/api/v1/admin/redeem-codes": return codePage(codeJSON(9, status: "used", usedBy: 42, batch: nil))
+        default: return errorReply(404)
+        }
+    }
+    let client = APIClient(server: server, credential: stubTokens(), deviceID: stubDeviceID, transport: transport, requestClock: .immediate)
+    let same: Set<UUID> = [server.id, oldLogin]
+    let balanceOutcome = try await client.reconcile(op, sameAddress: same)
+    let batchOutcome = try await client.reconcile(oldBatch, sameAddress: same)
+    let grantOutcome = try await client.reconcile(oldGrant, sameAddress: same)
+    #expect(balanceOutcome.confirmsExecution); #expect(batchOutcome.confirmsExecution); #expect(grantOutcome.confirmsExecution)
+    #expect(await transport.requests.count == 3)
+    for record: any PendingMoneyWrite in [op, oldBatch, oldGrant] {
+        #expect(await thrownAPIError { _ = try await client.reconcile(record) } == .stationMismatch)
+        #expect(await thrownAPIError { _ = try await client.reconcile(record, sameAddress: [server.id]) } == .stationMismatch)
+    }
+    #expect(await transport.requests.count == 3)
 }
