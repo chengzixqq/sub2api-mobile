@@ -42,7 +42,7 @@ typealias LenientDecoded<Value: Decodable> = Lossy<Value>
 extension APIClient {
     /// Requests go one after another (.readBatch: retried like a read, conditional per 00 §4.2). A 503 ACCOUNT_STATS_UNAVAILABLE
     /// marks that request's ids failed; any other error fails the whole call. `group_id` is sent only when positive, and whether the
-    /// site supports it (`accounts.today_stats_group`) is the caller's check. The old `accountTodayStats(ids:)` goes in S2-04.
+    /// site supports it (`accounts.today_stats_group`) is the caller's check.
     public func accountTodayStatsBatch(ids: [Int], groupID: Int? = nil) async throws -> AccountTodayStatsBatch {
         let group = groupID.flatMap { $0 > 0 ? $0 : nil }
         var parts = [TodayStatsPart]()

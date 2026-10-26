@@ -30,8 +30,9 @@ final class Sub2MobileUITests: XCTestCase {
         login(name: "站点 A", url: "https://a.example.com")
         app.tabBars.buttons["账号"].tap()
         XCTAssertTrue(app.buttons["account.1"].waitForExistence(timeout: 10))
-        app.buttons["accounts.more"].tap()
-        XCTAssertTrue(app.buttons["account.2"].waitForExistence(timeout: 10))
+        // S2-04: the list reads every page itself; both accounts sit in the Anthropic section.
+        reveal(app.buttons["account.2"])
+        reveal(app.buttons["account.1"], towardBottom: false)
         app.buttons["account.1"].tap()
         reveal(app.buttons["account.test"])
         app.buttons["account.test"].tap()
