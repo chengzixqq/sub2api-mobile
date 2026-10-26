@@ -100,23 +100,6 @@ enum DemoData {
         return TrendPoint(date: date, requests: 100 + hour * 3, totalTokens: 1_000_000 + hour * 12_345,
                           cost: actual + 9, actualCost: actual)
     }
-    static let allAccounts = [
-        UpstreamAccount(id: 1, name: "测试上游 A", platform: "openai", type: "apikey", concurrency: 4,
-                        priority: 7, rateMultiplier: Decimal(string: "0.5"), notes: "工作日上游",
-                        lastUsedAt: "2026-10-15T08:00:00Z", expiresAt: 1_800_000_000,
-                        createdAt: "2026-10-01T00:00:00Z", baseRPM: 60, quotaUsed: Decimal(string: "12.3456"),
-                        groupIDs: [10, 11], groups: [.init(id: 10, name: "标准分组"), .init(id: 11, name: "高级分组")],
-                        currentConcurrency: 2, probeConcurrency: 1, currentRPM: 37,
-                        quotaLimit: 100, quotaDailyLimit: 20, quotaDailyUsed: Decimal(string: "3.45"),
-                        quotaWeeklyLimit: 80, quotaWeeklyUsed: Decimal(string: "8.90")),
-        UpstreamAccount(id: 2, name: "测试上游 B", platform: "anthropic", type: "oauth", concurrency: 2)
-    ]
-    static let accountStats = AccountTodayStats(requests: 12, tokens: 4200, cost: Decimal(string: "0.12")!, userCost: Decimal(string: "0.31"), standardCost: Decimal(string: "0.62"))
-
-    static func accounts(page: Int, search: String, status: String?, platform: String?) -> Page<UpstreamAccount> {
-        let matches = allAccounts.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && (status == nil || status == $0.status) && (platform == nil || platform == $0.platform) }
-        return Page(items: Array(matches.dropFirst(max(0, page - 1)).prefix(1)), total: matches.count, page: page, pageSize: 1, pages: matches.count)
-    }
 }
 
 /// The login page's `-ui-testing` site (60 §4). `settings/public` needs no captcha and names the site “Sub2 演示站” unless

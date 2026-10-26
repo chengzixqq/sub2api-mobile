@@ -43,6 +43,50 @@ extension AppModel {
         })
     }
 
+    // MARK: 账号 Tab 徽标（20 §1.6）
+
+    /// The badge loop of one session: AppModel starts it in `publish` and cancels it in `endActiveSession`.
+    func runAccountBadgeRefresh(generation: UUID) async {
+        let refresher = AccountBadgeRefresher(badge: accountBadge, isActive: { [weak self] in
+            guard let self else { return false }
+            return self.sessionGeneration == generation && !self.isSuspended
+        }, fetch: { [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.accountErrorCount()
+        })
+        await refresher.run()
+    }
+    /// status-summary's totals.error; without `accounts.status_summary`, dashboard/stats' error_accounts (20 §0.1).
+    func accountErrorCount() async throws -> Int {
+        let generation = sessionGeneration
+        let count: Int
+        if sessionContext?.has(.accountsStatusSummary) == true { count = try await accountStatusSummary().totals.error }
+        else { count = try await dashboard().stats.errorAccounts }
+        guard generation == sessionGeneration else { throw CancellationError() }
+        return count
+    }
+
+    // MARK: 旧详情（S2-08 前）
+
+    /// `-ui-testing` reads the session's demo accounts; an id they lack is the server's 404.
+    func account(id: Int) async throws -> UpstreamAccount {
+        if isUITesting {
+            guard let account = accountDemo.account(id: id) else { throw APIError.server(status: 404, reason: "ACCOUNT_NOT_FOUND") }
+            return account
+        }
+        return try await requireClient().account(id: id)
+    }
+    /// `-ui-testing` takes the id from the demo batch, which fails under `-ui-accounts-today-error`.
+    func accountTodayStats(id: Int) async throws -> AccountTodayStats {
+        if isUITesting {
+            guard let stats = accountDemo.todayStats(ids: [id]).stats[id] else {
+                throw APIError.server(status: 503, reason: "ACCOUNT_STATS_UNAVAILABLE")
+            }
+            return stats
+        }
+        return try await requireClient().accountTodayStats(id: id)
+    }
+
     /// This session's fixture accounts.
     var accountDemo: AccountDemoStore { AccountDemoStore.current(for: sessionGeneration, base: accountFixtureNow()) }
     /// The site clock (20 §0.6) the fixtures derive states with.

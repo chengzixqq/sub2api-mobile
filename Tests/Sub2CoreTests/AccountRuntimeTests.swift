@@ -120,9 +120,9 @@ private actor AccountRuntimeTransport: HTTPTransport {
     let page = try await client.accounts(page: 1, search: "", status: nil, platform: nil)
     #expect(page.items.first?.currentConcurrency == 3 && page.items.first?.currentRPM == 47)
     #expect(await transport.requests().count == 1)
-    #expect(try await client.accountTodayStats(ids: []).isEmpty)
-    #expect(try await client.accountTodayStats(ids: [-1, 0]).isEmpty)
-    let today = try await client.accountTodayStats(ids: [9, 2, 9, 0])
+    #expect(try await client.accountTodayStatsBatch(ids: []).stats.isEmpty)
+    #expect(try await client.accountTodayStatsBatch(ids: [-1, 0]).stats.isEmpty)
+    let today = try await client.accountTodayStatsBatch(ids: [9, 2, 9, 0]).stats
     #expect(today[9]?.userCost == Decimal(string: "12.34"))
     #expect(today[2] == nil && today[99] == nil)
     let sent = await transport.requests()

@@ -159,7 +159,7 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["站点 A"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.tabBars.buttons["概览"].isSelected)
         app.tabBars.buttons["账号"].tap()
-        openSiteMenu(title: "上游账号")
+        openSiteMenu(title: "账号")
         XCTAssertTrue(menuItem("站点 B").waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(menuItem("站点 A").isSelected, app.debugDescription)
     }

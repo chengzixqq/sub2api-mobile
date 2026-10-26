@@ -206,19 +206,6 @@ public actor APIClient {
     }
     public func account(id: Int) async throws -> UpstreamAccount { try await request("admin/accounts/\(validID(id))") }
     public func accountTodayStats(id: Int) async throws -> AccountTodayStats { try await request("admin/accounts/\(validID(id))/today-stats") }
-    public func accountTodayStats(ids: [Int]) async throws -> [Int: AccountTodayStats] {
-        let requested = Array(Set(ids.filter { $0 > 0 })).sorted()
-        guard !requested.isEmpty else { return [:] }
-        struct Batch: Decodable, Sendable { let stats: [String: AccountTodayStats] }
-        let result: Batch = try await request("admin/accounts/today-stats/batch", method: "POST", body: encode(["account_ids": requested]), requestClass: .readBatch)
-        let allowed = Set(requested)
-        var stats = [Int: AccountTodayStats]()
-        for (rawID, value) in result.stats {
-            guard let id = Int(rawID), allowed.contains(id) else { continue }
-            stats[id] = value
-        }
-        return stats
-    }
     public func setSchedulable(id: Int, enabled: Bool) async throws -> UpstreamAccount {
         try await request("admin/accounts/\(validID(id))/schedulable", method: "POST", body: encode(["schedulable": enabled]))
     }

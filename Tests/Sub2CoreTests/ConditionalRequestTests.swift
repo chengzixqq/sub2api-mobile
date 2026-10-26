@@ -95,10 +95,10 @@ func everyListedReadRevalidatesTransparently(path: String) async throws {
         return sentHeader(request, "If-None-Match") == "\"t1\"" ? notModified("\"t1\"") : okReply(todayStatsJSON, headers: ["etag": "\"t1\""])
     }
     let client = cachingClient(transport)
-    let first = try await client.accountTodayStats(ids: [2, 1, 1])
-    let second = try await client.accountTodayStats(ids: [1, 2])
-    _ = try await client.accountTodayStats(ids: [3])
-    #expect(first.keys.sorted() == [1, 2]); #expect(second.keys.sorted() == [1, 2]); #expect(second[2]?.requests == 5)
+    let first = try await client.accountTodayStatsBatch(ids: [2, 1, 1])
+    let second = try await client.accountTodayStatsBatch(ids: [1, 2])
+    _ = try await client.accountTodayStatsBatch(ids: [3])
+    #expect(first.stats.keys.sorted() == [1, 2]); #expect(second.stats.keys.sorted() == [1, 2]); #expect(second.stats[2]?.requests == 5)
     let requests = await transport.requests
     #expect(requests.allSatisfy { $0.httpMethod == "POST" }); #expect(requests[0].httpBody == requests[1].httpBody)
     #expect(await validators(transport) == [nil, "\"t1\"", nil])
