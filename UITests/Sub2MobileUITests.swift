@@ -53,8 +53,10 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.scrollUntilExists(app.buttons["user.1"], towardBottom: false, maxSwipes: 16))
         app.buttons["user.1"].tap()
         reveal(app.staticTexts["开发密钥"])
-        XCTAssertTrue(app.staticTexts["••••••••cret"].exists)
+        // S3-03: the server's key_masked, never a plaintext cut locally.
+        XCTAssertTrue(app.staticTexts["sk-…cret"].exists)
         XCTAssertFalse(app.staticTexts["sk-fixture-secret"].exists)
+        XCTAssertFalse(app.staticTexts["••••••••cret"].exists)
         reveal(app.buttons["user.balance"])
     }
 

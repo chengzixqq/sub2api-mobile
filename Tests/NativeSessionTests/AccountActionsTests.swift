@@ -8,6 +8,10 @@ private let actionNow = Date(timeIntervalSince1970: 1_800_000_000)
 private let transportError = APIError(kind: .transport, message: "无法连接站点")
 private let unconfirmedWrite = KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: "k", actionID: nil, lastError: nil)
 private let siteDown = APIError.server(status: 500, reason: nil)
+/// 503 IDEMPOTENCY_STORE_UNAVAILABLE as KeyedWriteFlow ends it: the same number may go again ten seconds later.
+private let storeBusyUntil = actionNow.addingTimeInterval(10)
+private let storeUnavailable = KeyedWriteFailure(disposition: .unconfirmed(.storeUnavailable, retryNotBefore: storeBusyUntil), key: "k",
+                                                 actionID: nil, lastError: nil)
 
 private func account(_ id: Int, name: String = "账号", status: String = "active", schedulable: Bool = true,
                      rateLimit: TimeInterval? = nil) -> UpstreamAccount {
@@ -91,20 +95,24 @@ private func versionConflict(currentETag: String) -> APIError {
     }
 }
 
-/// One AccountActions with its receipts (they stay up: the timer sleeps for an hour) and what it reported.
+/// One AccountActions with its receipts (they stay up: the timer sleeps for an hour) and what it reported. A same-number
+/// retry's wait returns at once, recording how many calls had gone out by then.
 @MainActor private final class Harness {
+    struct Wait: Equatable { let until: Date; let calls: Int }
     let source: ScriptedAccountSource
     let receipts = ReceiptCenter(sleep: { try await Task.sleep(for: $0 * 1_000) })
     private(set) var changed: [UpstreamAccount] = []
     private(set) var missing: [Int] = []
     private(set) var keys: [UUID] = []
+    private(set) var waits: [Wait] = []
     private(set) var actions: AccountActions!
 
     init(_ source: ScriptedAccountSource = ScriptedAccountSource()) {
         self.source = source
         actions = AccountActions(source: source, receipts: receipts, onChange: { [weak self] in self?.changed.append($0) },
                                  onMissing: { [weak self] in self?.missing.append($0) },
-                                 makeKey: { [weak self] in let key = UUID(); self?.keys.append(key); return key })
+                                 makeKey: { [weak self] in let key = UUID(); self?.keys.append(key); return key },
+                                 waitUntil: { [weak self] in self?.waits.append(Wait(until: $0, calls: source.calls.count)) })
     }
     var generation: UUID { source.generation }
     var receiptText: String? { receipts.current?.text }
@@ -202,6 +210,24 @@ private func arrived(_ gate: SessionGate) async {
     #expect(h.changed.map(\.schedulable) == [true])
     #expect(h.receiptText == "停止调度结果未确认，可用同一编号重试" && h.receiptButton == "重试")
     await h.tapReceipt(id: 4)
+    #expect(h.keys.count == 1 && h.waits.isEmpty)
+    #expect(source.calls.last == .schedulable(id: 4, enabled: false, key: h.keys[0], generation: h.generation))
+    #expect(h.receiptText == "已停止调度")
+}
+
+/// 00 §2.5.3: STORE_UNAVAILABLE ran nothing; the read-back comes first, and 重试 sends the same number only after the cooldown.
+@MainActor @Test func storeUnavailableReadsBackAndRetriesSameKeyAfterCooldown() async {
+    let source = ScriptedAccountSource()
+    source.schedulableReplies = [.failure(storeUnavailable)]
+    source.readReplies = [.success(versioned(account(4, schedulable: true), nil))]
+    let h = Harness(source)
+    #expect(await h.actions.setSchedulable(account(4), enabled: false) == .notApplied)
+    #expect(source.calls == [.schedulable(id: 4, enabled: false, key: h.keys.first, generation: h.generation), .read(id: 4)])
+    #expect(h.changed.map(\.schedulable) == [true])
+    #expect(h.receiptText == "停止调度没有生效：服务器暂时无法受理，稍后用同一编号重试" && h.receiptButton == "重试")
+    #expect(h.waits.isEmpty)
+    await h.tapReceipt(id: 4)
+    #expect(h.waits == [Harness.Wait(until: storeBusyUntil, calls: 2)])
     #expect(h.keys.count == 1)
     #expect(source.calls.last == .schedulable(id: 4, enabled: false, key: h.keys[0], generation: h.generation))
     #expect(h.receiptText == "已停止调度")
@@ -491,6 +517,32 @@ private let grok = account(10, name: "Grok-旧-01", status: "inactive")
     let unkeyed = Harness(ScriptedAccountSource(idempotentWrites: false, patch: false))
     await unkeyed.actions.enableAccount(grok)
     #expect(unkeyed.source.calls == [.put(id: 10, status: .active, key: nil, generation: unkeyed.generation)])
+}
+
+@MainActor @Test func enableAccountFullUpdateStoreUnavailableRetriesSameKeyAfterCooldown() async {
+    let source = ScriptedAccountSource(patch: false)
+    source.putReplies = [.failure(storeUnavailable)]
+    source.readReplies = [.success(versioned(grok, nil))]
+    let h = Harness(source)
+    #expect(await h.actions.enableAccount(grok) == .notApplied)
+    #expect(h.receiptText == "启用账号没有生效：服务器暂时无法受理，稍后用同一编号重试" && h.receiptButton == "重试")
+    await h.tapReceipt(id: 10)
+    #expect(h.waits == [Harness.Wait(until: storeBusyUntil, calls: 2)])
+    #expect(h.keys.count == 1)
+    #expect(source.calls.last == .put(id: 10, status: .active, key: h.keys[0], generation: h.generation))
+}
+
+/// A site that sends no ETag takes the PUT fallback; its 重试 keeps the number that PUT carried.
+@MainActor @Test func enableAccountFullUpdateWithoutETagRetriesUnderSameKey() async {
+    let source = ScriptedAccountSource()
+    source.readReplies = Array(repeating: .success(versioned(grok, nil)), count: 3)
+    source.putReplies = [.failure(unconfirmedWrite)]
+    let h = Harness(source)
+    #expect(await h.actions.enableAccount(grok) == .unconfirmed)
+    #expect(h.receiptText == "启用账号结果未确认，可用同一编号重试" && h.receiptButton == "重试")
+    await h.tapReceipt(id: 10)
+    #expect(h.keys.count == 1)
+    #expect(source.calls.last == .put(id: 10, status: .active, key: h.keys[0], generation: h.generation))
 }
 
 @MainActor @Test func enableAccountTransportReadsBack() async {
