@@ -139,6 +139,8 @@ final class UserListUITests: XCTestCase {
         launchAndLogin(arguments: ["-ui-users-refresh-error"])
         defer { diagnostics("users-list-stale-final") }
         openUsers()
+        // The 60-second timer counts from the first read, so the fixture's failing second read waits for the pull (30 §1.6).
+        XCTAssertFalse(element("users.banner").waitForExistence(timeout: 3), app.debugDescription)
         app.pullToRefresh(from: app.buttons["user.1"])
         XCTAssertTrue(element("users.banner").waitForExistence(timeout: 10), app.debugDescription)
         let title = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@ AND label ENDSWITH %@", "刷新失败 · ", "的数据")).firstMatch
