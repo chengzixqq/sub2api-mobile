@@ -233,6 +233,8 @@
 
 | 事项 | 说明 |
 |---|---|
+| ConditionalCache 缓存账号列表原始响应体 | S2-01 解码时剔除了凭据敏感键，但 ConditionalCache 按 00 §4.2 缓存原始响应体；2026-05 以前未脱敏的旧服务端，明文凭据会留在内存缓存里（登出、切站、401 时清空）。是否对 admin/accounts 的缓存体做脱敏或不缓存，由 S2-23 的凭据专项复核决定 |
+| UpstreamAccount.credentials 可直接赋值 | credentials 是 public var，只在解码和 init 时剔除敏感键；之后代码直接赋值可以绕过。目前没有这种调用点，S2-05 / S2-10 / S2-12 的夹具若要在本地套用 credentials_patch，应经 init 重建或另加一个会剔除敏感键的辅助方法 |
 
 ### App 与设计 · 阶段 3
 

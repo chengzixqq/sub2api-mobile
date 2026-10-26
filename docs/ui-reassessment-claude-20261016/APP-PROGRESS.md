@@ -124,6 +124,7 @@ Mac 补装 Xcode 27.1 的 CoreSimulator 组件后，在 iPhone 18 Pro（iOS 27�
 
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
 |---|---|---|---|---|
+| S2-01 | 账号模型与列表查询：JSONValue、UpstreamAccount 补字段、AccountListQuery / managedAccounts、分组排序 | ✅ | `9882ca6` | credentials 只含非敏感键且不参与编码（S0-17 用例要求编码不含凭据值），解码与 init 时按后端 17 个敏感键剔除并补 has_<key>，另加 credentialsArrivedUnredacted（S2D1-09）与 parentAccountID（S2D1-21）；extra 整份保留为 JSONValue，不是对象时账号照常解码；AccountProxy 保留地址（scheme 对应 JSON 的 protocol），不解码登录信息；契约按 S2D1-11：search / platform / type 为 String、supportsListQuery 是属性、多 schedulableNow，lite / include_counts / include_scheduler_score 统一发 1；allGroups(includeInactive:) 带 platform 时本地过滤；改了 AccountRuntimeTests 一个旧用例的断言（代理地址与 extra 现在保留）；旧 AccountsView 只做类型适配，状态 / 分组 Picker 未在模拟器手动点验；check 已跑 AccountManagement / AccountListCustomization / Sub2Mobile / AppNavigation 四类，38/38 通过 |
 
 ## 阶段 3 · 用户
 
