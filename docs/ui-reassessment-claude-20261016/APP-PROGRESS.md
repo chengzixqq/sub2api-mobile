@@ -154,6 +154,7 @@ Mac 补装 Xcode 27.1 的 CoreSimulator 组件后，在 iPhone 18 Pro（iOS 27�
 
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
 |---|---|---|---|---|
+| S5-01 | 分组模型、读接口与带幂等键的写接口 | ✅ | `af0c7df`、`2c8f401` | 分读、写两次提交（S5D1-11）。删除遇 404 GROUP_NOT_FOUND / RESOURCE_NOT_FOUND 在 Core 映射为 alreadyGone；groupList 最多 20 页；usage-summary 与 dashboard/groups 超时 45 秒；Core 拒绝 composite；旧分组页提示去掉“用同一编号重试”；容量分批复用 readInBatches，serverFiltered 时结果按 id 升序。页面（S5-04 起）、成员批量（S5-03）、groupAPIKeys / groupSubscriptions（S5-12）不在本条。GroupsUITests 两次各 2/2 通过 |
 
 ## 阶段 6 · 其他模块
 

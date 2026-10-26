@@ -284,6 +284,7 @@
 
 | 事项 | 说明 |
 |---|---|
+| AccountsView 手写 composite 过滤改用 GroupPlatform.concrete | AccountsView.swift 约 220 行还自己写了 values.filter { $0 != "composite" }，不在 S5-01 的文件范围内；留给后续改 AccountsView 的条目，或 S5-13 收口时统一 grep 替换 |
 
 ### App 与设计 · 阶段 6
 
