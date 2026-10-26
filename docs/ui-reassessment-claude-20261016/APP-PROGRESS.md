@@ -162,3 +162,4 @@ Mac 补装 Xcode 27.1 的 CoreSimulator 组件后，在 iPhone 18 Pro（iOS 27�
 
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
 |---|---|---|---|---|
+| S6-01 | 登录设备页（A07） | ✅ | `ca8d54f` | 按 X02 只改 SettingsDestinations.swift 的 .sessions 段；activityLine 带 timeZone，“今天 09:41 活跃”数字结尾时加空格；撤销返回本机时走 forgetActiveSession，新定文案“本机已下线，请重新登录。”，不走 logout；“让其他所有设备下线”在非本机条数不少于 1 时显示，N 取非本机条数，按钮为“下线”“全部下线”，全部下线后不出回执、只重载（覆盖 BACKLOG“让其他设备下线可能连本机一起下线”，有 UI 测试）；登录于 / 到期写 MM/dd HH:mm 与 MM/dd 补零，私有实现待 S6-26 收口；设置页数量改为每次出现都重读；DemoData.authSessionCount 已不再被引用，留给 S6-26 删除；check 跑了 SessionsUITests、SettingsUITests、AppNavigationUITests，34/34 通过（审查修正 763cb8b）审查修正 763cb8b：60 秒自动刷新醒来后重新核对是否到期，进入 Tab、回前台、首次加载后约 1 秒不再重复整轮刷新；刷新第 1 页时保留被顶部新增用户挤出第 1 页的边界行，删除场景仍按原规则去掉。 |
