@@ -4,8 +4,7 @@ import Sub2Core
 // Stage 3's user wrappers and their -ui-testing branches (S3-01, D11): later items add to the MARK of their topic.
 extension AppModel {
     // MARK: - 列表
-    /// `status` only filters the fixture list: the old status picker stays until S3-02, and a real site is never sent it (U29).
-    func users(query: UserListQuery, status: String? = nil) async throws -> Page<AdminUser> {
+    func users(query: UserListQuery) async throws -> Page<AdminUser> {
         if isUITesting {
             if ProcessInfo.processInfo.arguments.contains("-ui-session-revoked"), let profile = activeProfile,
                let invalidation = SessionInvalidation(error: APIError.server(status: 401, reason: "TOKEN_REVOKED")) {
@@ -13,13 +12,51 @@ extension AppModel {
                 await invalidateSession(invalidation, serverID: profile.id, generation: sessionGeneration)
                 throw CancellationError()
             }
-            let page = DemoData.userPage(demoUsersBySession[sessionGeneration] ?? DemoData.allUsers, query: query, status: status)
+            let page = try await userListFixture(query: query)
             guard ProcessInfo.processInfo.arguments.contains("-ui-count-user-loads") else { return page }
             demoUserLoads += 1
             let label = "读取 \(demoUserLoads) 次"
             return page.mapItems { var user = $0; user.username = label; return user }
         }
         return try await requireClient().users(query: query)
+    }
+    /// 30 §1.3 头像条; whether the site has `users.quick_topup` is the list's check.
+    func quickTopup() async throws -> QuickTopupReply {
+        if isUITesting {
+            let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains(UserListFixtureArgument.quickTopupError) { throw APIError.server(status: 503, reason: "QUICK_TOPUP_UNAVAILABLE") }
+            if arguments.contains(UserListFixtureArgument.empty) { return QuickTopupReply(lowBalanceEnabled: true) }
+            return DemoData.quickTopupFixture(users: demoUsersBySession[sessionGeneration] ?? DemoData.allUsers)
+        }
+        return try await requireClient().quickTopup()
+    }
+    /// One users-usage batch; a read-only token never calls it (R14), and the fixture refuses it the way the server does.
+    func usersTodayUsage(ids: [Int]) async throws -> [Int: UserTodayUsage] {
+        if isUITesting {
+            if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+            if ProcessInfo.processInfo.arguments.contains(UserListFixtureArgument.usageError) { throw APIError.server(status: 500, reason: nil) }
+            return DemoData.todayUsage(ids: ids)
+        }
+        return try await requireClient().usersTodayUsage(ids: ids)
+    }
+    /// settings/public's global low-balance reminder (30 §1.2), read once per session by the list.
+    func userListLowBalanceGlobal() async throws -> UserLowBalanceGlobal {
+        if isUITesting { return DemoData.lowBalanceGlobalFixture }
+        return UserLowBalanceGlobal(settings: try await requireClient().publicSettings())
+    }
+    /// UserListFixtureArgument over the session's users; first-page reads are counted per session.
+    private func userListFixture(query: UserListQuery) async throws -> Page<AdminUser> {
+        let arguments = ProcessInfo.processInfo.arguments, generation = sessionGeneration
+        if query.page == 1 {
+            let loads = DemoData.userListFirstPageLoads[generation, default: 0] + 1
+            DemoData.userListFirstPageLoads[generation] = loads
+            if arguments.contains(UserListFixtureArgument.slow), loads == 1 { try await Task.sleep(for: .seconds(6)) }
+            if arguments.contains(UserListFixtureArgument.refreshError), loads > 1 { throw APIError.server(status: 500, reason: nil) }
+        }
+        if arguments.contains(UserListFixtureArgument.forbidden) { throw APIError.server(status: 403, reason: "FORBIDDEN") }
+        if arguments.contains(UserListFixtureArgument.error) { throw APIError.server(status: 500, reason: nil) }
+        let users = arguments.contains(UserListFixtureArgument.empty) ? [] : demoUsersBySession[generation] ?? DemoData.allUsers
+        return DemoData.userPage(users, query: query)
     }
 
     // MARK: - 详情

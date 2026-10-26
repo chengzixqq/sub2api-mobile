@@ -61,6 +61,30 @@ extension XCUIApplication {
         coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: start))
             .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: end)))
     }
+
+    /// S3-02: drags a list a bounded number of times until the element exists and sits between the navigation bar and the
+    /// floating tab bar; reaching the last rows of a paged list loads the next page on the way.
+    @MainActor @discardableResult
+    func scrollUntilExists(_ element: XCUIElement, towardBottom: Bool = true, maxSwipes: Int = 12,
+                           file: StaticString = #filePath, line: UInt = #line) -> Bool {
+        for _ in 0..<maxSwipes {
+            if element.exists && element.isHittable && isBetweenBars(element) { element.waitUntilSettled(); return true }
+            if towardBottom { drag(from: 0.72, to: 0.38) } else { drag(from: 0.38, to: 0.72) }
+        }
+        let found = element.exists && element.isHittable
+        XCTAssertTrue(found, "\(element) not reached\n\(debugDescription)", file: file, line: line)
+        return found
+    }
+    /// Pull to refresh from a row: dragged down to 85% of the screen, past the always-shown search field.
+    @MainActor func pullToRefresh(from element: XCUIElement) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+    }
+    @MainActor private func isBetweenBars(_ element: XCUIElement) -> Bool {
+        let top = navigationBars.firstMatch.exists ? navigationBars.firstMatch.frame.maxY : frame.minY
+        let bottom = tabBars.firstMatch.exists ? tabBars.firstMatch.frame.minY : frame.maxY
+        return element.frame.minY >= top && element.frame.maxY <= bottom
+    }
 }
 
 extension XCUIElement {

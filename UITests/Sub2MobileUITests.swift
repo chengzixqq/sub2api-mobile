@@ -45,8 +45,11 @@ final class Sub2MobileUITests: XCTestCase {
         login(name: "站点 A", url: "https://a.example.com")
         app.tabBars.buttons["用户"].tap()
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
-        app.buttons["users.more"].tap()
-        XCTAssertTrue(app.buttons["user.2"].waitForExistence(timeout: 10))
+        // 30 §1.4: the second page loads when its last row scrolls in; there is no “加载更多” button.
+        XCTAssertFalse(app.buttons["users.more"].exists)
+        XCTAssertFalse(app.buttons["user.26"].exists)
+        XCTAssertTrue(app.scrollUntilExists(app.buttons["user.26"], maxSwipes: 16))
+        XCTAssertTrue(app.scrollUntilExists(app.buttons["user.1"], towardBottom: false, maxSwipes: 16))
         app.buttons["user.1"].tap()
         reveal(app.staticTexts["开发密钥"])
         XCTAssertTrue(app.staticTexts["••••••••cret"].exists)
@@ -479,8 +482,10 @@ final class Sub2MobileUITests: XCTestCase {
         login(name: "站点 A", url: "https://a.example.com")
         app.tabBars.buttons["用户"].tap()
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
-        let loads = app.descendants(matching: .any)["user.1.field.username"].firstMatch
-        XCTAssertTrue(loads.waitForExistence(timeout: 10), app.debugDescription)
+        // The row reads its name first, and the fixture names every user “读取 N 次”; today's spend arrives after the rows.
+        let loads = app.buttons["user.1"]
+        let settled = NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "读取 ", "今日 $")
+        XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: settled, evaluatedWith: loads)], timeout: 10), .completed, loads.label)
         let before = loads.label
         XCTAssertTrue(before.contains("读取 "), before)
         XCUIDevice.shared.press(.home)

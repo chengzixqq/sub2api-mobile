@@ -1,123 +1,6 @@
 import SwiftUI
 import Sub2Core
 
-struct UsersView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.sessionContext) private var session
-    @State private var users: [AdminUser] = []
-    @State private var search = ""
-    @State private var status = ""
-    @State private var page = 0
-    @State private var hasMore = false
-    @State private var loading = false
-    @State private var error: String?
-    @State private var failedPage: Int?
-    @State private var requestID = UUID()
-    @State private var fieldSelection = ListFieldSelection<UserListField>()
-    @State private var editingFields = false
-    @State private var fieldProfileID: UUID?
-    @State private var editorTarget: UserEditorTarget?
-    private var query: String { search + "|" + status }
-    var body: some View {
-        List {
-            Section {
-                Picker("状态", selection: $status) {
-                    Text("全部状态").tag(""); Text("正常").tag("active"); Text("已禁用").tag("disabled")
-                }
-            }
-            Section("用户") {
-                ForEach(users) { user in
-                    NavigationLink { UserDetailView(initial: user) } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(user.email).font(.headline)
-                            ListFieldFlow {
-                                ForEach(fieldSelection.visibleFields, id: \.rawValue) { field in
-                                    Text("\(field.title)：\(userFieldValue(field, user: user))")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .accessibilityIdentifier("user.\(user.id).field.\(field.rawValue)")
-                                }
-                            }
-                        }.padding(.vertical, 4)
-                    }.accessibilityIdentifier("user.\(user.id)")
-                }
-                if users.isEmpty && !loading && error == nil { Text("没有符合条件的用户").foregroundStyle(.secondary) }
-                if hasMore { Button("加载更多用户") { Task { await load(nextPage: page + 1) } }.disabled(loading).frame(minHeight: 44).accessibilityIdentifier("users.more") }
-                if loading { ProgressView("正在加载…") }
-                if let error { Text(error).foregroundStyle(.red); Button("重试") { Task { await load(nextPage: failedPage ?? 1, replace: (failedPage ?? 1) == 1) } }.frame(minHeight: 44) }
-            }
-        }
-        .navigationTitle("用户")
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button("显示字段", systemImage: "line.3.horizontal.decrease") { editingFields = true }
-                    .accessibilityIdentifier("users.fields")
-                Button("创建用户", systemImage: "plus") {
-                    if let session, session.generation == model.sessionGeneration {
-                        editorTarget = UserEditorTarget(user: nil, context: session, siteName: model.activeProfile?.name ?? "")
-                    }
-                }.accessibilityIdentifier("users.create")
-            }
-        }
-        .sheet(isPresented: $editingFields) { ListFieldEditor(title: "用户列表字段", selection: $fieldSelection) }
-        .sheet(item: $editorTarget, onDismiss: { Task { await load(nextPage: 1, replace: true) } }) { UserEditorView(target: $0) }
-        .task(id: model.activeProfile?.id) {
-            fieldProfileID = model.activeProfile?.id
-            fieldSelection = ListFieldSelection(rawValue: UserDefaults.standard.string(forKey: ListFieldSelection<UserListField>.storageKey(profileID: fieldProfileID)))
-        }
-        .onChange(of: fieldSelection) { _, value in
-            guard fieldProfileID == model.activeProfile?.id else { return }
-            UserDefaults.standard.set(value.rawValue, forKey: ListFieldSelection<UserListField>.storageKey(profileID: fieldProfileID))
-        }
-        .searchable(text: $search, prompt: "搜索邮箱或用户名")
-        .refreshable { await load(nextPage: 1, replace: true) }
-        // A load cancelled by going to the background ends silently; reload on return (D18).
-        .onChange(of: model.foregroundRevision) { _, _ in Task { await load(nextPage: 1, replace: true) } }
-        // A list that failed while compliance was pending reads again once it is accepted (00 §1.10).
-        .onChange(of: model.securityPrompts.complianceRevision) { _, _ in Task { await load(nextPage: 1, replace: true) } }
-        .task(id: query) {
-            requestID = UUID(); loading = false
-            page = 0; hasMore = false; users = []; error = nil; failedPage = nil
-            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
-            await load(nextPage: 1, replace: true)
-        }
-    }
-    private func userFieldValue(_ field: UserListField, user: AdminUser) -> String {
-        switch field {
-        case .username: return user.username.flatMap { $0.isEmpty ? nil : $0 } ?? "未设置"
-        case .role: return AdminUserRole(rawValue: user.role ?? "")?.title ?? user.role ?? "未知"
-        case .status: return user.status == "active" ? "正常" : user.status == "disabled" ? "已禁用" : user.status
-        case .balance: return DisplayFormat.money(user.balance)
-        case .concurrency:
-            if let maximum = user.concurrency {
-                let limit = maximum == 0 ? "不限制" : DisplayFormat.grouped(maximum)
-                if let current = user.currentConcurrency { return "\(DisplayFormat.grouped(current)) / \(limit)" }
-                return limit
-            }
-            return DisplayFormat.missing
-        case .createdAt: return ListFieldPresentation.timestamp(user.createdAt)
-        case .lastUsedAt: return ListFieldPresentation.timestamp(user.lastUsedAt)
-        case .lastActiveAt: return ListFieldPresentation.timestamp(user.lastActiveAt)
-        case .notes: return user.notes.flatMap { $0.isEmpty ? nil : $0 } ?? "无"
-        case .rpm: return user.rpmLimit.map { $0 == 0 ? "不限制" : DisplayFormat.grouped($0) } ?? DisplayFormat.missing
-        }
-    }
-    private func load(nextPage: Int, replace: Bool = false) async {
-        guard !loading else { return }
-        let ticket = UUID(); requestID = ticket
-        let generation = session?.generation ?? UUID()
-        guard generation == model.sessionGeneration else { return }
-        loading = true; error = nil
-        defer { if requestID == ticket { loading = false } }
-        do {
-            let result = try await model.users(query: UserListQuery(search: search, page: nextPage), status: status.isEmpty ? nil : status)
-            guard generation == model.sessionGeneration, requestID == ticket, !Task.isCancelled else { return }
-            users = replace ? result.items : users + result.items.filter { next in !users.contains { $0.id == next.id } }
-            page = result.page; hasMore = result.hasMore; failedPage = nil
-        } catch { if generation == model.sessionGeneration && requestID == ticket && !(error is CancellationError) { self.error = error.localizedDescription; failedPage = nextPage } }
-    }
-}
-
 struct UserDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sessionContext) private var session
@@ -199,6 +82,7 @@ struct UserDetailView: View {
         do {
             let result = try await model.user(id: user.id)
             guard generation == model.sessionGeneration, !Task.isCancelled else { return }; user = result
+            model.userList?.replace(result)
             let statistics = try await model.userUsage(id: user.id)
             guard generation == model.sessionGeneration, !Task.isCancelled else { return }; usage = statistics
             error = nil
@@ -227,6 +111,7 @@ struct UserDetailView: View {
             guard let client = session?.client else { return }
             let result = try await client.setUserStatus(id: user.id, status: user.status == "active" ? "disabled" : "active")
             guard generation == model.sessionGeneration else { return }; user = result; error = nil
+            model.userList?.replace(result)
         } catch {
             guard generation == model.sessionGeneration else { return }
             self.error = error.localizedDescription
@@ -236,14 +121,15 @@ struct UserDetailView: View {
     }
 }
 
-private struct UserEditorTarget: Identifiable {
+/// The old editor's target; the list's + and empty state open it until S3-10 / S3-11 replace the editor.
+struct UserEditorTarget: Identifiable {
     let id = UUID()
     let user: AdminUser?
     let context: SessionContext
     let siteName: String
 }
 
-private enum PreparedUserMutation {
+enum PreparedUserMutation {
     case create(PendingUserCreateOperation)
     case update(PendingUserUpdateOperation)
     var id: UUID {
@@ -261,7 +147,7 @@ private enum PreparedUserMutation {
     }
 }
 
-private struct UserEditorView: View {
+struct UserEditorView: View {
     let target: UserEditorTarget
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -594,6 +480,7 @@ struct BalanceView: View {
             // Resolve the exact server-bound operation even if the user has switched sites.
             try model.resolve(item)
             guard generation == model.sessionGeneration else { return }
+            updateList(after: currentBalance)
             let balance = DisplayFormat.money(outcome.value.balance)
             message = outcome.replayed ? "这笔此前已入账，没有重复执行。余额为 \(balance)。" : "操作成功，余额为 \(balance)。"
             prepared = nil; amount = ""; notes = ""
@@ -641,6 +528,12 @@ struct BalanceView: View {
             try? model.remember(item.with(actionID: id))
         }
     }
+    /// 30 §1.4: the list shows only a balance this write confirmed; a replayed or recovered result may be stale, so the list
+    /// reads again instead. The strip is read again either way.
+    private func updateList(after balance: Decimal?) {
+        if let balance { model.userList?.updateBalance(id: user.id, balance: balance) } else { model.userList?.setNeedsRefresh() }
+        Task { await model.userList?.refreshQuickTopup() }
+    }
     private func definitelyRejected(_ error: Error) -> Bool {
         guard let failure = error as? APIError else { return false }
         // Compliance, step-up and read-only refusals are all answered before the handler (00 §0 rules 5–6).
@@ -648,5 +541,45 @@ struct BalanceView: View {
         if failure.statusCode == 401 || failure.statusCode == 403 { return true }
         let reason = failure.reason?.uppercased() ?? ""
         return failure.statusCode == 400 && ["VALIDATION_ERROR", "INVALID_REQUEST", "INVALID_AMOUNT", "BAD_REQUEST"].contains(reason)
+    }
+}
+
+/// `.balanceKeypad` until S3-08's keypad (removed with BalanceView): reads the user by id, then shows the old balance sheet,
+/// which has its own NavigationStack. The mode is not applied; the old sheet starts on “增加”.
+struct LegacyBalanceSheet: View {
+    let userID: Int
+    @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
+    @Environment(\.dismiss) private var dismiss
+    @State private var user: AdminUser?
+    @State private var failure: String?
+    @State private var attempt = 0
+
+    var body: some View {
+        if let user {
+            BalanceView(user: user)
+        } else {
+            NavigationStack {
+                Group {
+                    if let failure { FailureView(message: failure) { self.failure = nil; attempt += 1 } }
+                    else { ProgressView("正在读取用户…") }
+                }
+                .navigationTitle("调整余额")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.accessibilityIdentifier("sheet.close") } }
+            }
+            .task(id: attempt) { await load() }
+        }
+    }
+    private func load() async {
+        guard let session, session.generation == model.sessionGeneration else { return }
+        do {
+            let result = try await model.user(id: userID)
+            guard session.generation == model.sessionGeneration, !Task.isCancelled else { return }
+            user = result
+        } catch {
+            guard session.generation == model.sessionGeneration, !(error is CancellationError), !Task.isCancelled else { return }
+            failure = error.localizedDescription
+        }
     }
 }

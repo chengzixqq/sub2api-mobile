@@ -27,7 +27,7 @@ struct UserSheetDestination: View {
     var body: some View {
         switch sheet {
         // .balanceKeypad：S3-02（临时）→ S3-08
-        case .balanceKeypad: ComingSoonSheet(title: sheet.placeholderTitle)
+        case .balanceKeypad(let userID, _): LegacyBalanceSheet(userID: userID)
         // 其他区域：SheetDestination 不会分派到这里
         default: ComingSoonSheet(title: sheet.placeholderTitle)
         }

@@ -18,8 +18,9 @@ final class UserManagementUITests: XCTestCase {
         set("60", field: "user-editor.rpm")
         set("12.50", field: "user-editor.initial-balance")
         confirmWrite(email: "created@example.invalid")
-        XCTAssertTrue(app.buttons["user.3"].waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["user.3"].tap()
+        // The fixture holds 26 users (S3-02); the new one is 27 and the newest, so it is the list's first row.
+        XCTAssertTrue(app.buttons["user.27"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["user.27"].tap()
         openEditor()
         assertField("user-editor.email", equals: "created@example.invalid")
         assertField("user-editor.username", equals: "新建用户")
@@ -81,37 +82,6 @@ final class UserManagementUITests: XCTestCase {
         XCTAssertTrue(app.buttons["user.edit"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    @MainActor func testUserFieldSelectionAndOrderRemainAfterReopening() {
-        launchAndLogin()
-        defer { diagnostics("users-fields-final") }
-        app.tabBars.buttons["用户"].tap()
-        XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
-        XCTAssertTrue(element("user.1.field.balance").label.contains("$12.50"), app.debugDescription)
-        app.buttons["users.fields"].tap()
-        reveal(app.buttons["list-fields.users.reset"])
-        app.buttons["list-fields.users.reset"].tap()
-        setField("createdAt", enabled: true, towardBottom: false)
-        setField("notes", enabled: true)
-        let moveDown = app.buttons["list-fields.users.username.down"]
-        reveal(moveDown, towardBottom: false)
-        moveDown.tap()
-        app.buttons["完成"].tap()
-        let username = element("user.1.field.username"), role = element("user.1.field.role")
-        XCTAssertTrue(username.waitForExistence(timeout: 5) && role.exists, app.debugDescription)
-        XCTAssertTrue(role.frame.minY < username.frame.minY || (abs(role.frame.minY - username.frame.minY) < 1 && role.frame.minX < username.frame.minX), "Moved role should precede username")
-        XCTAssertTrue(element("user.1.field.createdAt").exists)
-        XCTAssertTrue(element("user.1.field.notes").label.contains("常用测试用户"))
-        app.tabBars.buttons["账号"].tap()
-        app.tabBars.buttons["用户"].tap()
-        app.buttons["users.fields"].tap()
-        reveal(app.switches["list-fields.users.createdAt"])
-        XCTAssertEqual(app.switches["list-fields.users.createdAt"].value as? String, "1")
-        reveal(app.switches["list-fields.users.notes"])
-        XCTAssertEqual(app.switches["list-fields.users.notes"].value as? String, "1")
-        app.buttons["完成"].tap()
-        XCTAssertTrue(role.frame.minY < username.frame.minY || (abs(role.frame.minY - username.frame.minY) < 1 && role.frame.minX < username.frame.minX))
-    }
-
     @MainActor private func launchAndLogin() {
         continueAfterFailure = false
         app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launch()
@@ -144,22 +114,6 @@ final class UserManagementUITests: XCTestCase {
     @MainActor private func assertField(_ identifier: String, equals value: String) {
         let field = element(identifier); reveal(field)
         XCTAssertEqual(field.value as? String, value, app.debugDescription)
-    }
-    @MainActor private func setField(_ name: String, enabled: Bool, towardBottom: Bool = true) {
-        let toggle = app.switches["list-fields.users.\(name)"]
-        reveal(toggle, towardBottom: towardBottom)
-        toggle.waitUntilSettled()
-        let expected = enabled ? "1" : "0"
-        if (toggle.value as? String == "1") != enabled {
-            // The switch's AX bounds include its title; tap the trailing track.
-            toggle.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
-                .withOffset(CGVector(dx: -20, dy: 0)).tap()
-        }
-        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
-        let result = XCTWaiter.wait(for: [changed], timeout: 3)
-        if result != .completed { diagnostics("user-field-\(name)-after-\(expected)") }
-        XCTAssertEqual(result, .completed, "The rendered user field switch did not change value.")
-        XCTAssertEqual(toggle.value as? String, expected)
     }
     @MainActor private func set(_ value: String, field identifier: String, towardBottom: Bool = true) {
         let field = element(identifier); reveal(field, towardBottom: towardBottom); field.tap()
