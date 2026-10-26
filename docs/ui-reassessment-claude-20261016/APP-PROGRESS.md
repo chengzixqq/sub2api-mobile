@@ -142,6 +142,7 @@ Mac 补装 Xcode 27.1 的 CoreSimulator 组件后，在 iPhone 18 Pro（iOS 27�
 
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
 |---|---|---|---|---|
+| S4-01 | 日志接口层：LogTimeWindow / RequestLogFilter、Page<T>、记录新字段、errorCount 与 searchUsageUsers | ✅ | `e760dd5` | 按 C-28 定型签名实现，另有：LogTimeWindow / RequestLogFilter / UsageUserMatch 为 Hashable（超集）；key_view 只由 requestRecords 的必填参数 maskedView 决定；errorCount 固定带 view=all（与日志页同口径，比 SLA 口径多算业务限制）；pageSize 超出 1–1000 抛 .validation；provider_cost_recorded 键缺失按已记录处理；超时仍 20 秒（R07）。旧日志页只做编译适配：每页 30 → 100 条，usage 时区改为站点时区，成本优先用 account_cost；上游段仍套 upstreamErrorFilter()，留给 S4-05。Sources 里的 TimeZone.current 只剩 ServerTimeZone.device 与 AnalyticsQuery 默认值。UI：check RequestLogsUITests、AppNavigationUITests 共 19 个全部通过 |
 
 ## 阶段 5 · 分组
 
