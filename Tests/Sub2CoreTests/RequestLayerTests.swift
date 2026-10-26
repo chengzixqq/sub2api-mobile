@@ -202,7 +202,7 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     let hour = AnalyticsQuery(start: Date(timeIntervalSince1970: 1_792_022_400), end: Date(timeIntervalSince1970: 1_792_026_000))
     _ = try? await client.publicSettings()
     _ = try? await client.user(id: 7)
-    _ = try? await client.users(page: 1, search: "", status: nil)
+    _ = try? await client.users(query: UserListQuery())
     _ = try? await client.accountTodayStats(ids: [9])
     _ = try? await client.setUserStatus(id: 7, status: "active")
     _ = try? await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)))
@@ -243,7 +243,7 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
 @Test func paginationDefaultsToTwentyAndAcceptsUpToOneThousand() async throws {
     let transport = ScriptedTransport { _ in okReply(#"{"items":[],"total":0,"page":1,"page_size":20}"#) }
     let client = layerClient(transport)
-    _ = try await client.users(page: 1, search: "", status: nil)
+    _ = try await client.users(query: UserListQuery())
     let url = try #require(await transport.requests.first?.url)
     #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "page_size", value: "20")) == true)
     let wide = try await client.pagination(1, pageSize: 1_000, search: "", status: nil)

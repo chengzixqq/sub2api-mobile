@@ -212,3 +212,61 @@ func userWritesCarryIdempotencyKeyOnlyWithCapability(capable: Bool) async throws
                                                sendsIdempotencyKey: true)
     #expect(empty.initialBalance == nil)
 }
+
+/// S3-01 moved these from APIClient.swift to UserManagement.swift: routes, request classes and numbers stay as they were.
+@Test func movedUserMethodsKeepRoutesAndClasses() async throws {
+    let transport = ScriptedTransport { request in
+        switch request.url?.path ?? "" {
+        case "/api/v1/admin/usage/stats": okReply(#"{"total_requests":1,"total_tokens":2,"total_cost":"0.5"}"#)
+        case "/api/v1/admin/users/24/api-keys": okReply(#"{"items":[],"total":0,"page":2,"page_size":20}"#)
+        default: okReply(managedUserJSON)
+        }
+    }
+    let client = APIClient(server: userServer(), credential: .adminKey("fixture-key"), transport: transport, requestClock: .immediate,
+                           serverTimeZone: ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00")!)
+    let identity = await client.userWriteIdentity(), serverID = client.server.id
+    let create = try PendingUserCreateOperation(serverID: serverID, identity: identity, request: UserCreateRequest(email: "new@example.invalid", password: "abcdef"),
+                                                sendsIdempotencyKey: true)
+    let update = try PendingUserUpdateOperation(serverID: serverID, identity: identity, userID: 24, request: UserUpdateRequest(username: "新名称"))
+    let balance = PendingBalanceOperation(serverID: serverID, userID: 24, amount: 1, operation: .add)
+    _ = try await client.createUser(create)
+    _ = try await client.updateUser(update)
+    #expect(try await client.userUsage(id: 24).totalCost == Decimal(string: "0.5"))
+    _ = try await client.userKeys(id: 24, page: 2)
+    _ = try await client.setUserStatus(id: 24, status: "disabled")
+    _ = try await client.updateBalance(stubPersisted(balance))
+    let sent = await transport.requests
+    #expect(sent.map { "\($0.httpMethod ?? "") \($0.url?.path ?? "")" } == [
+        "POST /api/v1/admin/users", "PUT /api/v1/admin/users/24", "GET /api/v1/admin/usage/stats", "GET /api/v1/admin/users/24/api-keys",
+        "PUT /api/v1/admin/users/24", "POST /api/v1/admin/users/24/balance"])
+    #expect(sent.map(\.timeoutInterval) == [35, 30, 45, 20, 30, 35])
+    #expect(sent.map { sentHeader($0, "Idempotency-Key") } == [create.key, nil, nil, nil, nil, balance.id.uuidString.lowercased()])
+    #expect(sentHeader(sent[0], "X-Request-ID") == create.key && sentHeader(sent[1], "X-Request-ID") == update.key)
+    #expect(sentHeader(sent[5], "X-Request-ID") == balance.id.uuidString.lowercased())
+    let usageQuery = sent[2].url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
+    #expect(usageQuery.contains(URLQueryItem(name: "user_id", value: "24")) && usageQuery.contains(URLQueryItem(name: "timezone", value: "Asia/Shanghai")))
+    let keysQuery = sent[3].url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
+    #expect(keysQuery == [URLQueryItem(name: "page", value: "2"), URLQueryItem(name: "page_size", value: "20")])
+    #expect(String(decoding: sent[4].httpBody ?? Data(), as: UTF8.self) == #"{"status":"disabled"}"#)
+}
+
+/// The old entry forwards to `updateBalance(_:sameAddress: [])` (R19) and still refuses a record of another site.
+@Test func legacyUpdateBalanceStillRejectsOtherStation() async throws {
+    let transport = ScriptedTransport { _ in okReply(managedUserJSON) }
+    let client = APIClient(server: userServer(), credential: .adminKey("fixture-key"), transport: transport, requestClock: .immediate)
+    let other = PendingBalanceOperation(serverID: UUID(), userID: 24, amount: 1, operation: .add)
+    #expect(await thrownAPIError { _ = try await client.updateBalance(stubPersisted(other)) } == .stationMismatch)
+    #expect(await transport.requests.isEmpty)
+    let own = PendingBalanceOperation(serverID: client.server.id, userID: 24, amount: 1, operation: .add)
+    #expect(try await client.updateBalance(stubPersisted(own)).value.id == 24)
+    let request = try #require(await transport.requests.first)
+    let key = own.id.uuidString.lowercased()
+    #expect(sentHeader(request, "Idempotency-Key") == key && sentHeader(request, "X-Request-ID") == key)
+}
+
+/// 30 §0.3: “用户 / 供应商 / 管理员”, also in the settings identity line.
+@Test func roleTitlesUseUserVendorAdmin() {
+    #expect(AdminUserRole.allCases.map(\.title) == ["用户", "供应商", "管理员"])
+    #expect(SettingsPresentation.identityLine(email: "x@example.invalid", role: "vendor") == "x@example.invalid · 供应商")
+    #expect(SettingsPresentation.identityLine(email: "x@example.invalid", role: "user") == "x@example.invalid · 用户")
+}

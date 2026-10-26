@@ -111,21 +111,10 @@ enum DemoData {
                         quotaWeeklyLimit: 80, quotaWeeklyUsed: Decimal(string: "8.90")),
         UpstreamAccount(id: 2, name: "测试上游 B", platform: "anthropic", type: "oauth", concurrency: 2)
     ]
-    static let allUsers = [
-        AdminUser(id: 1, email: "alice@example.com", username: "Alice", balance: Decimal(string: "12.50")!, role: "user", concurrency: 2,
-                  notes: "常用测试用户", rpmLimit: 120, currentConcurrency: 1, createdAt: "2026-10-01T00:00:00Z",
-                  updatedAt: "2026-10-15T08:00:00Z", lastUsedAt: "2026-10-15T08:00:00Z", lastActiveAt: "2026-10-15T07:00:00Z"),
-        AdminUser(id: 2, email: "bob@example.com", username: "Bob", balance: 20, role: "user", concurrency: 2)
-    ]
-    static let keys = [UserAPIKey(id: 1, name: "开发密钥", key: "sk-fixture-secret", status: "active", quota: 100, quotaUsed: 2)]
     static let accountStats = AccountTodayStats(requests: 12, tokens: 4200, cost: Decimal(string: "0.12")!, userCost: Decimal(string: "0.31"), standardCost: Decimal(string: "0.62"))
 
     static func accounts(page: Int, search: String, status: String?, platform: String?) -> Page<UpstreamAccount> {
         let matches = allAccounts.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && (status == nil || status == $0.status) && (platform == nil || platform == $0.platform) }
-        return Page(items: Array(matches.dropFirst(max(0, page - 1)).prefix(1)), total: matches.count, page: page, pageSize: 1, pages: matches.count)
-    }
-    static func users(page: Int, search: String, status: String?) -> Page<AdminUser> {
-        let matches = allUsers.filter { (search.isEmpty || $0.email.localizedCaseInsensitiveContains(search)) && (status == nil || status == $0.status) }
         return Page(items: Array(matches.dropFirst(max(0, page - 1)).prefix(1)), total: matches.count, page: page, pageSize: 1, pages: matches.count)
     }
 }

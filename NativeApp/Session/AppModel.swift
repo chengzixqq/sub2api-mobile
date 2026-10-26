@@ -56,10 +56,10 @@ final class AppModel {
     let credentials: KeychainCredentialStore
     let pushRecords: PushDeviceRecords
     private let defaults: UserDefaults
-    @ObservationIgnored private var demoUsersBySession: [UUID: [AdminUser]] = [:]
+    @ObservationIgnored var demoUsersBySession: [UUID: [AdminUser]] = [:]
     /// `-ui-count-user-loads`: the user list's username field reads “读取 N 次”, so a reload is visible (D18).
-    @ObservationIgnored private var demoUserLoads = 0
-    @ObservationIgnored private var demoUserUpdates: [UUID: AdminUser] = [:]
+    @ObservationIgnored var demoUserLoads = 0
+    @ObservationIgnored var demoUserUpdates: [UUID: AdminUser] = [:]
     @ObservationIgnored private var connectionAttempt = UUID()
     @ObservationIgnored private var pendingCandidate: APIClient?
     @ObservationIgnored private var activeLease: UUID?
@@ -448,79 +448,7 @@ final class AppModel {
     }
 
     // MARK: - 用户
-    func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser> {
-        if isUITesting {
-            if ProcessInfo.processInfo.arguments.contains("-ui-session-revoked"), let profile = activeProfile,
-               let invalidation = SessionInvalidation(error: APIError.server(status: 401, reason: "TOKEN_REVOKED")) {
-                // Stands in for the client's report of a revoked session (D06).
-                await invalidateSession(invalidation, serverID: profile.id, generation: sessionGeneration)
-                throw CancellationError()
-            }
-            var matches = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).filter {
-                (search.isEmpty || $0.email.localizedCaseInsensitiveContains(search) || ($0.username?.localizedCaseInsensitiveContains(search) ?? false)) && (status == nil || status == $0.status)
-            }
-            if ProcessInfo.processInfo.arguments.contains("-ui-count-user-loads") {
-                demoUserLoads += 1
-                let label = "读取 \(demoUserLoads) 次"
-                matches = matches.map { var user = $0; user.username = label; return user }
-            }
-            return Page(items: Array(matches.dropFirst(max(0, page - 1)).prefix(1)), total: matches.count, page: page, pageSize: 1, pages: matches.count)
-        }
-        return try await requireClient().users(page: page, search: search, status: status)
-    }
-    func user(id: Int) async throws -> AdminUser {
-        if isUITesting {
-            guard let result = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).first(where: { $0.id == id }) else { throw APIError.invalidResponse }
-            return result
-        }
-        return try await requireClient().user(id: id)
-    }
-    func createUser(_ operation: PendingUserCreateOperation) async throws -> WriteOutcome<AdminUser> {
-        let client = try requireClient()
-        if !isUITesting { return try await client.createUser(operation) }
-        let generation = sessionGeneration
-        guard operation.identity == (await client.userWriteIdentity()), generation == sessionGeneration else { throw CancellationError() }
-        if let refusal = await fixtureSecurityRefusal(body: operation.body) { throw refusal }
-        var payload = try JSONSerialization.jsonObject(with: operation.body) as! [String: Any]
-        payload.removeValue(forKey: "password")
-        var users = demoUsersBySession[generation] ?? DemoData.allUsers
-        guard !users.contains(where: { $0.email == operation.email }) else {
-            throw APIError(kind: .validation, message: "此邮箱已经存在。")
-        }
-        payload["id"] = (users.map(\.id).max() ?? 0) + 1
-        payload["balance"] = payload["balance"] ?? 0
-        payload["status"] = "active"
-        payload["created_at"] = ISO8601DateFormatter().string(from: Date())
-        let user = try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
-        users.insert(user, at: 0); demoUsersBySession[generation] = users
-        return WriteOutcome(value: user)
-    }
-    func updateUser(_ operation: PendingUserUpdateOperation) async throws -> WriteOutcome<AdminUser> {
-        let client = try requireClient()
-        if !isUITesting { return try await client.updateUser(operation) }
-        let generation = sessionGeneration
-        guard operation.serverID == activeProfile?.id, operation.identity == (await client.userWriteIdentity()), generation == sessionGeneration else {
-            throw APIError.stationMismatch
-        }
-        if let refusal = await fixtureSecurityRefusal(body: operation.body) { throw refusal }
-        if let result = demoUserUpdates[operation.id] { return WriteOutcome(value: result, replayed: true) }
-        var users = demoUsersBySession[generation] ?? DemoData.allUsers
-        guard let index = users.firstIndex(where: { $0.id == operation.userID }) else { throw APIError.invalidResponse }
-        var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(users[index])) as! [String: Any]
-        let changes = try JSONSerialization.jsonObject(with: operation.body) as! [String: Any]
-        for (key, value) in changes where key != "password" && key != "adjustment_notes" { payload[key] = value }
-        let user = try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
-        users[index] = user; demoUsersBySession[generation] = users; demoUserUpdates[operation.id] = user
-        return WriteOutcome(value: user)
-    }
-    func userUsage(id: Int) async throws -> UserUsageSummary {
-        if isUITesting { return UserUsageSummary(totalRequests: 12, totalTokens: 4200, totalCost: Decimal(string: "0.12")!) }
-        return try await requireClient().userUsage(id: id)
-    }
-    func userKeys(id: Int, page: Int) async throws -> Page<UserAPIKey> {
-        if isUITesting { return Page(items: DemoData.keys, total: 1, page: 1, pageSize: 20, pages: 1) }
-        return try await requireClient().userKeys(id: id, page: page)
-    }
+    // The user wrappers and their fixture branches live in AppModel+Users.swift (S3-01).
 
     // MARK: - 站点列表保存
     func persistProfiles() {

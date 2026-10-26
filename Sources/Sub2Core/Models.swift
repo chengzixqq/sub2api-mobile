@@ -181,47 +181,6 @@ public struct Page<T: Decodable & Sendable>: Decodable, Sendable {
     }
 }
 
-public struct AdminUser: Identifiable, Codable, Sendable {
-    public let id: Int
-    public let email: String
-    public var username: String?
-    public var balance: Decimal
-    public var status: String
-    public var role: String?
-    public var concurrency: Int?
-    public var notes: String?
-    public var rpmLimit: Int?
-    public var currentConcurrency: Int?
-    public var createdAt: String?
-    public var updatedAt: String?
-    public var lastUsedAt: String?
-    public var lastActiveAt: String?
-    public init(id: Int, email: String, username: String? = nil, balance: Decimal = 0, status: String = "active", role: String? = nil, concurrency: Int? = nil, notes: String? = nil, rpmLimit: Int? = nil, currentConcurrency: Int? = nil, createdAt: String? = nil, updatedAt: String? = nil, lastUsedAt: String? = nil, lastActiveAt: String? = nil) {
-        self.id = id; self.email = email; self.username = username; self.balance = balance; self.status = status; self.role = role; self.concurrency = concurrency
-        self.notes = notes; self.rpmLimit = rpmLimit; self.currentConcurrency = currentConcurrency
-        self.createdAt = createdAt; self.updatedAt = updatedAt; self.lastUsedAt = lastUsedAt; self.lastActiveAt = lastActiveAt
-    }
-    enum CodingKeys: String, CodingKey {
-        case id, email, username, balance, status, role, concurrency, notes
-        case rpmLimit = "rpm_limit", currentConcurrency = "current_concurrency"
-        case createdAt = "created_at", updatedAt = "updated_at", lastUsedAt = "last_used_at", lastActiveAt = "last_active_at"
-    }
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(Int.self, forKey: .id); email = try c.decode(String.self, forKey: .email)
-        username = try c.decodeIfPresent(String.self, forKey: .username); balance = try c.decimal(.balance)
-        status = try c.decode(String.self, forKey: .status); role = try c.decodeIfPresent(String.self, forKey: .role)
-        concurrency = try c.decodeIfPresent(Int.self, forKey: .concurrency)
-        notes = try c.decodeIfPresent(String.self, forKey: .notes)
-        rpmLimit = try c.decodeIfPresent(Int.self, forKey: .rpmLimit)
-        currentConcurrency = try c.decodeIfPresent(Int.self, forKey: .currentConcurrency)
-        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
-        updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
-        lastUsedAt = try c.decodeIfPresent(String.self, forKey: .lastUsedAt)
-        lastActiveAt = try c.decodeIfPresent(String.self, forKey: .lastActiveAt)
-    }
-}
-
 public struct DashboardSummary: Sendable {
     public let stats: DashboardStats
     public let trend: [TrendPoint]
@@ -320,35 +279,6 @@ public struct AccountTodayStats: Codable, Sendable {
         userCost = try c.optionalDecimal(.userCost); standardCost = try c.optionalDecimal(.standardCost)
     }
 }
-public struct UserUsageSummary: Codable, Sendable {
-    public let totalRequests: Int
-    public let totalTokens: Int
-    public let totalCost: Decimal
-    public init(totalRequests: Int, totalTokens: Int, totalCost: Decimal) { self.totalRequests = totalRequests; self.totalTokens = totalTokens; self.totalCost = totalCost }
-    enum CodingKeys: String, CodingKey { case totalRequests = "total_requests", totalTokens = "total_tokens", totalCost = "total_cost" }
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        totalRequests = try c.decode(Int.self, forKey: .totalRequests); totalTokens = try c.decode(Int.self, forKey: .totalTokens); totalCost = try c.decimal(.totalCost)
-    }
-}
-public struct UserAPIKey: Identifiable, Codable, Sendable {
-    public let id: Int
-    public let name: String
-    public let key: String?
-    public let status: String
-    public let quota: Decimal
-    public let quotaUsed: Decimal
-    public init(id: Int, name: String, key: String? = nil, status: String, quota: Decimal, quotaUsed: Decimal) {
-        self.id = id; self.name = name; self.key = key; self.status = status; self.quota = quota; self.quotaUsed = quotaUsed
-    }
-    enum CodingKeys: String, CodingKey { case id, name, key, status, quota, quotaUsed = "quota_used" }
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(Int.self, forKey: .id); name = try c.decode(String.self, forKey: .name)
-        key = try c.decodeIfPresent(String.self, forKey: .key); status = try c.decode(String.self, forKey: .status)
-        quota = try c.decimal(.quota); quotaUsed = try c.decimal(.quotaUsed)
-    }
-}
 public struct LoginAgreementDocument: Decodable, Sendable, Equatable, Identifiable {
     public let id: String
     public let title: String
@@ -382,8 +312,13 @@ public struct PublicSettings: Decodable, Sendable {
     public let channelMonitorMode: String?
     public let paymentEnabled: Bool?
     public let subscriptionEnabled: Bool?
+    /// The global low-balance reminder (30 §1.3); read leniently so a malformed value cannot fail the sign-in page.
+    private let lowBalanceNotify: LenientValue<Bool>?
+    private let lowBalanceThreshold: LenientValue<Decimal>?
 
     public var loginAgreementDocuments: [LoginAgreementDocument] { agreementDocuments?.items ?? [] }
+    public var balanceLowNotifyEnabled: Bool? { lowBalanceNotify?.value }
+    public var balanceLowNotifyThreshold: Decimal? { lowBalanceThreshold?.value }
     public var hasCaptchaProviderKey: Bool { rawCaptchaProvider != nil }
     /// nil, turnstile, tencent, aliyun, conflict, or an unknown value from a newer server. Without the
     /// provider key the three legacy switches decide, and more than one enabled is a conflict.
@@ -406,6 +341,7 @@ public struct PublicSettings: Decodable, Sendable {
         case agreementDocuments = "login_agreement_documents"
         case channelMonitorEnabled = "channel_monitor_enabled", channelMonitorMode = "channel_monitor_mode"
         case paymentEnabled = "payment_enabled", subscriptionEnabled = "subscription_enabled"
+        case lowBalanceNotify = "balance_low_notify_enabled", lowBalanceThreshold = "balance_low_notify_threshold"
     }
 }
 
@@ -491,14 +427,6 @@ public struct PendingBalanceOperation: PendingMoneyWrite, Equatable {
         return try encoder.encode(BalanceBody(balance: NSDecimalNumber(decimal: amount).stringValue, operation: operation, notes: notes))
     }
     private struct BalanceBody: Encodable { let balance: String; let operation: BalanceOperation; let notes: String }
-}
-
-extension AdminUser {
-    /// 30 §0.3: the trimmed username, otherwise the part of the email before “@”.
-    public var displayName: String {
-        if let name = username?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-        return String(email.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false).first ?? Substring(email))
-    }
 }
 
 extension Decimal {

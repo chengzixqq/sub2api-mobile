@@ -12,7 +12,7 @@ final class UserManagementUITests: XCTestCase {
         set("created@example.invalid", field: "user-editor.email", towardBottom: false)
         set("新建用户", field: "user-editor.username")
         set("fixture-create-password", field: "user-editor.password")
-        chooseRole("代运营")
+        chooseRole("供应商")
         set("创建备注", field: "user-editor.notes")
         set("3", field: "user-editor.concurrency")
         set("60", field: "user-editor.rpm")
