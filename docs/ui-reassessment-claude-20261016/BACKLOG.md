@@ -279,6 +279,9 @@
 | 用户行余额坏值显示“—” | 30 §1.3 右列“解码失败 —”未做：AdminUser.balance 不可缺失，余额坏值会让整页解码失败。由 S3-01 / S3-16 决定是否改为可缺失；UserRow 已按 DisplayFormat.money 的可选值画“—” |
 | 头像条待核对读屏按方向写 | 规格原文只写“上一笔充值待核对”，S3-02 按 R02 写“充值 / 退款 / 余额设置”，需确认是否回写规格 |
 | 缺失值“—”的读屏（用户列表部分已处理） | BACKLOG 原有一行；用户列表的余额、今日消费、头像余额已统一读“无数据”（DisplayFormat.missingSpoken），其余页面仍待处理，请集成者在原行备注 |
+| 读类 POST 的安全重发（更新已有行） | S3-03 已处理 reveal：revealAPIKey 显式声明为 RequestClass.read，step-up 通过后自动重发一次；代价是它也会按读类请求在 502 / 504 时自动重试、进入后台时被取消（最多多一条审计）。阶段 6 其他语义是读的 POST 仍要各自声明。 |
+| Key 名称按反转义显示 | 后端存 html.EscapeString(name)。App 统一显示 AdminAPIKey.displayName（反转义 & < > ' " 五个实体），删除确认也按它输入；Web 显示实体原文（A&amp;B）。如要与 Web 一致，只改 S3-03 的 displayName 一处，并撤掉删除比对的反转义（S3D1-12）。 |
+| userAPIKeys 翻页期间新建的 Key | 按 id 升序翻页、去重；翻页过程中新建的 Key 最多漏掉几个，下次刷新补上。上限 50 页 × 100 个，超过就当作响应异常抛 invalidResponse。 |
 
 ### App 与设计 · 阶段 4
 
