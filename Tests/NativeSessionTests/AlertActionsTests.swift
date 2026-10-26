@@ -272,7 +272,7 @@ func writeFailureLeavesLocalStateAndShowsReason(index: Int) async {
     #expect(await bench.actions.silence(firing(id: 42), for: .hour) == .ignored)
 }
 
-@MainActor @Test func undoFailureShowsUndoFailedReceipt() async {
+@MainActor @Test func silenceUndoFailureShowsUndoFailedReceipt() async {
     let bench = Bench(.init(read: { _ in firing() }, delete: { throw APIError.server(status: 404, reason: "OPS_ALERT_SILENCE_NOT_FOUND") }))
     #expect(await bench.actions.silence(firing(), for: .hour) == .succeeded)
     let before = bench.host.calls.count
