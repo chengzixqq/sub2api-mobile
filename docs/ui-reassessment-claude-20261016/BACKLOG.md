@@ -237,6 +237,10 @@
 | 告警乐观更新与在途刷新竞争 | markResolved / applySilence 不取消在途的 firing 刷新，迟到的旧列表可能把已解决事件带回；靠 S1-06 写成功后立即重拉校正（D06） |
 | 告警计数读取失败不单独标记 | alert-events/counts 失败时 LiveOpsStore 保留上次计数（并发的列表请求会报失败）；S1-13 若要在监控分段计数旁显示“更新失败”，需要另给计数加状态 |
 | LiveOpsFixtures.swift 体量 | 本条约 300 行；S1-06…S1-17 继续扩充时按主题拆到 LiveOpsFixtures+Monitor.swift 等新文件（Session 目录新文件自动进入 NativeSessionSupport，只需重新生成工程），避免超过 800 行 |
+| 旧服务端告警静默 | 10 §7.1 退路在缺 ops_alert_silences 表的服务端上必然 500（迁移 247 与事件 silence 键同时上线），阶段 1 改为不提供静默（S1D1-15）；如用户要求按规格实现，加 LegacyAlertSilences 一个文件与 availableActions 一个分支 |
+| 告警静默与规则 region | 规则过滤条件带 region 时，App 按规格不传 region 新建的静默匹配不到事件，读回后显示“操作没有生效，可以重试”；需要后端在事件 dimensions 或 rule 摘要里带上 region，或由 App 读取规则后再发 |
+| INVALID_RULE_ID 文案 | 后端只在 rule_id ≤ 0 时返回 INVALID_RULE_ID，规则已删除时新建静默照样成功（没有外键，静默无效但无害）；App 已在 rule_id 无效时不给静默，收到时照表显示“规则已删除，无法静默”并在本会话隐藏该规则的静默；文案是否要改，需用户确认 |
+| 告警夹具 #35 与 24h 窗口 | FixtureAlertBook 已按 time_range 过滤（相对会话开始的 base）；S1-05 的 #35 在昨天 21:52 触发，服务器时间 21:52 之后不在 24h 列表里。S1-16 等 UI 用例若断言最近结束含 #35，会随运行时段失败，应改用 #37，或把 #35 改为相对 base 的时间 |
 
 ### App 与设计 · 阶段 2
 
