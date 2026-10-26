@@ -408,22 +408,26 @@ final class AppModel {
         }
         return try await requireClient().dashboardMonitoring()
     }
-    func dashboardPerformanceTrend(hours: Int) async throws -> PerformanceTrend {
+    func dashboardPerformanceTrend(hours: Int, groupID: Int? = nil, model: String? = nil,
+                                   modelSource: ModelSource? = nil) async throws -> PerformanceTrend {
         if isUITesting {
             if ProcessInfo.processInfo.arguments.contains("-ui-performance-error") {
                 throw APIError.server(status: 404, reason: "OPS_DISABLED")
             }
-            let bucket: PerformanceTrend.Bucket = hours == 1 ? .minute : .fiveMinutes
-            let end = Date(timeIntervalSince1970: 1_792_026_000)
-            let start = end.addingTimeInterval(-Double(hours) * 3_600)
-            let count = Int(Double(hours) * 3_600 / bucket.seconds)
-            return PerformanceTrend(bucket: bucket, points: (0..<count).map { index in
-                PerformanceTrend.Point(date: start.addingTimeInterval(Double(index) * bucket.seconds), requestCount: 10 + index,
-                                       tokenConsumed: 100_000 + index * 10_000)
-            })
+            // “Now” is 23 seconds past a minute: 6 and 24 hours get a partial first and last bucket, 1 hour stays 60 full ones.
+            let window = OpsQuery.trailingWindow(hours: hours, endingAt: Date(timeIntervalSince1970: 1_792_026_083))
+            let bucket = OpsBucket.forWindow(window.end.timeIntervalSince(window.start))
+            let points = bucket.starts(from: window.start, to: window.end).enumerated().map { index, date in
+                PerformanceTrend.Point(date: date, requestCount: 10 + index, tokenConsumed: 100_000 + index * 10_000)
+            }
+            return PerformanceTrend(bucket: bucket, windowStart: window.start, windowEnd: window.end, points: points)
         }
-        let end = Date()
-        return try await requireClient().dashboardPerformanceTrend(start: end.addingTimeInterval(-Double(hours) * 3_600), end: end)
+        // Read together before the await (D13), so a site switch cannot pair one site's capability with another's client.
+        let client = try requireClient()
+        let supportsModelFilter = siteSession?.has(.opsDashboardModelFilter) ?? false
+        let query = OpsQuery.trailingWindow(hours: hours, endingAt: client.serverClock.now(), groupID: groupID, model: model,
+                                            modelSource: modelSource)
+        return try await client.dashboardPerformanceTrend(query, supportsModelFilter: supportsModelFilter)
     }
 
     // MARK: - 账号
