@@ -1,0 +1,374 @@
+import Foundation
+import Observation
+import Sub2Core
+
+/// One query's rows (at most 2,000), the page-1 counts, and what the 2,000-row note compares.
+struct AccountListSnapshot: Sendable {
+    var rows: [UpstreamAccount]
+    /// The server's total for the query (an old server: before the chip is applied).
+    var total: Int
+    var counts: AccountListCounts?
+    /// Rows read (an old server: before the chip is applied).
+    var loadedCount: Int
+}
+
+/// 20 §1.2–§1.6: the account tab's data. Layout and timing are the Sub2Core rules (AccountListLayout, AccountListRefresh); this
+/// runs the requests. States, list times and fixtures use the site clock (20 §0.6, D03); refresh marks use the device clock, which
+/// only measures elapsed time. The page keeps one per session (the tabs are rebuilt with it), calls `setVisible` on appear and
+/// disappear, `foregroundResumed` when `foregroundRevision` changes and `reload` when `securityPrompts.complianceRevision` does.
+@MainActor @Observable
+final class AccountListModel {
+    let generation: UUID
+    private(set) var chip: AccountListChip
+    /// Empty = every platform.
+    private(set) var platform: String
+    /// The group page's transitional entry (X32; removed with it in S5-13).
+    let groupID: Int?
+    /// No value + loading = first load; value + loading = “正在刷新…”; value + failed = the stale-data banner; failed alone = error page.
+    private(set) var list: BlockState<AccountListSnapshot> = .idle
+    /// Pages after the first are still coming (“正在加载更多账号…”).
+    private(set) var isLoadingMore = false
+    private(set) var listRefresh = BlockRefresh()
+    private(set) var summary: BlockState<AccountStatusSummary> = .idle
+    private(set) var today: BlockState<AccountTodayStatsBatch> = .idle
+    private(set) var catalog: MetaCatalog = .builtin
+    private(set) var sections: [AccountPlatformSection] = []
+    private(set) var collapsed: Set<String>
+
+    @ObservationIgnored private weak var app: AppModel?
+    @ObservationIgnored private let serverNow: @Sendable () -> Date
+    @ObservationIgnored private let siteID: UUID?
+    @ObservationIgnored private var isVisible = false
+    @ObservationIgnored private var isSelecting = false
+    @ObservationIgnored private var hasSheet = false
+    @ObservationIgnored private var marks = AccountListRefresh.Marks()
+    @ObservationIgnored private var frozenOrder: [String]?
+    /// Sections are ranked again until a full refresh after opening or a pull has its summary (20 §1.3).
+    @ObservationIgnored private var reordersSections = true
+    @ObservationIgnored private var loadedQuery: AccountListQuery?
+    /// Every row an old server sent; the chip, counts and order are derived from them here.
+    @ObservationIgnored private var legacyRows: [UpstreamAccount]?
+    /// 400 INVALID_ACCOUNT_STATUS_FILTER: this session reads the list as an old server's (20 §0.5).
+    @ObservationIgnored private var forcesLegacy = false
+    @ObservationIgnored private var listTask: Task<Void, Never>?
+    @ObservationIgnored private var listTicket = UUID()
+    @ObservationIgnored private var runtimeTicket = UUID()
+    @ObservationIgnored private var summaryTicket = UUID()
+    @ObservationIgnored private var todayTicket = UUID()
+    @ObservationIgnored private var timer: Task<Void, Never>?
+    /// Collapsed platforms by site, kept while the App runs.
+    private static var collapsedBySite: [UUID: Set<String>] = [:]
+
+    var rows: [UpstreamAccount] { list.value?.rows ?? [] }
+    var counts: AccountListCounts? { list.value?.counts }
+    /// U15; not while pages are still coming or after a failed read.
+    var overflowNote: String? {
+        guard !isLoadingMore, let snapshot = list.value else { return nil }
+        if case .failed = list { return nil }
+        return AccountListLayout.overflowNote(total: snapshot.total, loaded: snapshot.loadedCount)
+    }
+
+    init(model: AppModel, chip: AccountListChip = .all, platform: String = "", groupID: Int? = nil) {
+        app = model
+        generation = model.sessionGeneration
+        self.chip = chip
+        self.platform = platform.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.groupID = groupID
+        let clock = model.sessionContext?.client.serverClock, site = model.activeProfile?.id
+        serverNow = { clock?.now() ?? Date() }
+        siteID = site
+        collapsed = site.flatMap { Self.collapsedBySite[$0] } ?? []
+    }
+
+    // MARK: - Entry points
+
+    /// Entering the tab: a full refresh, the group directory (loaded once, then refreshed in the background) and the catalog.
+    func activate() async {
+        async let groups: Void = refreshGroups()
+        async let names: Void = loadCatalog()
+        await reload()
+        _ = await (groups, names)
+    }
+    /// Retry, compliance accepted, a write elsewhere: a full refresh replacing any running one.
+    func reload() async { await runFull(replacing: true) }
+    /// Pull to refresh also ranks the sections again.
+    func pullToRefresh() async {
+        reordersSections = true
+        await runFull(replacing: true)
+    }
+    /// 20 §1.6: runtime merged over the rows, then status-summary and today. A changed status or switch, or a row the reply left
+    /// out, makes it a full refresh; without runtime_batch it is one. A failed runtime read keeps the last values silently.
+    func refreshLight() async {
+        guard supportsRuntime, list.value != nil else { return await runFull(replacing: false) }
+        marks = marks.recording(.light, at: Date())
+        guard let app, listTask == nil, isLive else { return }
+        let current = legacyRows ?? rows
+        let ticket = UUID()
+        runtimeTicket = ticket
+        if !current.isEmpty, let runtime = try? await app.accountRuntime(ids: current.map(\.id)) {
+            guard runtimeTicket == ticket, listTask == nil, isLive, !Task.isCancelled else { return }
+            if AccountListRefresh.needsFullRefresh(current, runtime: runtime) { return await runFull(replacing: false) }
+            merge(runtime)
+        }
+        await refreshCompanions()
+    }
+    /// A row's countdown reached zero: derive again now; a light refresh follows, at most once in 10 seconds and not while paused.
+    func countdownElapsed() async {
+        rederive()
+        let now = Date()
+        guard let kind = AccountListRefresh.countdownRefresh(at: now, gate: gate, marks: marks, supportsRuntime: supportsRuntime,
+                                                            throttle: listRefresh) else { return }
+        marks = marks.recordingCountdown(at: now)
+        await perform(kind)
+    }
+    /// Back in the foreground: a light refresh at once, and the timer again.
+    func foregroundResumed() async {
+        restartTimer()
+        guard gate.isOpen else { return }
+        await perform(AccountListRefresh.resolved(.light, supportsRuntime: supportsRuntime))
+    }
+    /// The old list stays until the new one arrives; an old server's rows are filtered again without a request.
+    func select(_ chip: AccountListChip) async {
+        guard chip != self.chip else { return }
+        self.chip = chip
+        if let legacyRows, loadedQuery == currentQuery() {
+            list = list.updatingValue { legacySnapshot(legacyRows, total: $0.total) }
+            relayout()
+            return
+        }
+        await reload()
+    }
+    func select(platform: String) async {
+        let trimmed = platform.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != self.platform else { return }
+        self.platform = trimmed
+        await reload()
+    }
+    func setVisible(_ visible: Bool) { isVisible = visible; restartTimer() }
+    func setSelecting(_ selecting: Bool) { isSelecting = selecting; restartTimer() }
+    func setSheetPresented(_ presented: Bool) { hasSheet = presented; restartTimer() }
+
+    func toggleCollapsed(_ platform: String) {
+        collapsed = collapsed.symmetricDifference([platform])
+        if let siteID { Self.collapsedBySite[siteID] = collapsed }
+    }
+    func isCollapsed(_ platform: String) -> Bool { collapsed.contains(platform) }
+    func chipCount(_ chip: AccountListChip) -> Int? { counts.flatMap(chip.count(in:)) }
+    /// nil when the read failed or has no figures for the account: the row shows “—” (20 §1.5).
+    func todayStats(for id: Int) -> AccountTodayStats? {
+        isTodayUnavailable(for: id) ? nil : today.value?.stats[id]
+    }
+    /// S2D1-18: a failed read, a failed id, or an id the loaded batch has no figures for.
+    func isTodayUnavailable(for id: Int) -> Bool {
+        if case .failed = today { return true }
+        guard let batch = today.value else { return false }
+        return batch.failedIDs.contains(id) || batch.stats[id] == nil
+    }
+
+    // MARK: - Full refresh
+
+    /// Timer and light refreshes skip while one runs; the user's replace it.
+    private func runFull(replacing: Bool) async {
+        if !replacing, listTask != nil { return }
+        guard isLive, listRefresh.allowsRequest(at: Date()) else { return }
+        listTask?.cancel()
+        marks = marks.recording(.full, at: Date())
+        let ticket = UUID()
+        listTicket = ticket
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.fullRefresh(ticket: ticket)
+        }
+        listTask = task
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        if listTicket == ticket { listTask = nil }
+    }
+    private func fullRefresh(ticket: UUID) async {
+        let query = currentQuery()
+        list = list.withLoading()
+        defer {
+            if listTicket == ticket {
+                isLoadingMore = false
+                if list.isLoading { list = list.withCancelledLoad() }
+            }
+        }
+        do {
+            let result = try await readPages(query, ticket: ticket, progressive: query.supportsListQuery && loadedQuery != query)
+            guard listTicket == ticket, isLive, !Task.isCancelled else { return }
+            show(result, for: query)
+            listRefresh = listRefresh.recordingSuccess()
+        } catch {
+            guard listTicket == ticket, isLive, !(error is CancellationError), !Task.isCancelled else { return }
+            if query.supportsListQuery, AccountListQuery.shouldFallBackToLegacy(after: error) {
+                forcesLegacy = true
+                return await fullRefresh(ticket: ticket)
+            }
+            list = list.withFailure(error.localizedDescription)
+            listRefresh = listRefresh.recordingFailure(error, at: Date())
+            relayout()
+            return
+        }
+        await refreshCompanions()
+        if listTicket == ticket { reordersSections = false }
+    }
+
+    private struct PageResult { var rows: [UpstreamAccount]; var total: Int; var counts: AccountListCounts? }
+
+    /// Page 1, then the next pages up to 2,000 rows. `progressive` (a new query) shows each page as it comes; a refresh of the
+    /// shown query gathers the pages first and replaces the list once.
+    private func readPages(_ query: AccountListQuery, ticket: UUID, progressive: Bool) async throws -> PageResult {
+        guard let app else { throw CancellationError() }
+        let limit = AccountListLayout.rowLimit
+        var page = try await app.managedAccounts(page: 1, query: query)
+        var result = PageResult(rows: AccountListRefresh.appending(page.items, to: [], limit: limit), total: page.total, counts: page.counts)
+        while let next = AccountListRefresh.nextPage(after: page, loaded: result.rows.count, limit: limit) {
+            guard listTicket == ticket, isLive, !Task.isCancelled else { throw CancellationError() }
+            if progressive { show(result, for: query, morePages: true) }
+            page = try await app.managedAccounts(page: next, query: query)
+            result.rows = AccountListRefresh.appending(page.items, to: result.rows, limit: limit)
+        }
+        return result
+    }
+    private func show(_ result: PageResult, for query: AccountListQuery, morePages: Bool = false) {
+        loadedQuery = query
+        if query.supportsListQuery {
+            legacyRows = nil
+            let snapshot = AccountListSnapshot(rows: result.rows, total: result.total, counts: result.counts, loadedCount: result.rows.count)
+            list = .loaded(snapshot, at: serverNow())
+        } else {
+            legacyRows = result.rows
+            list = .loaded(legacySnapshot(result.rows, total: result.total), at: serverNow())
+        }
+        isLoadingMore = morePages
+        relayout()
+    }
+    /// An old server's rows through the chip, D02 counts and the urgency order (20 §1.2).
+    private func legacySnapshot(_ all: [UpstreamAccount], total: Int) -> AccountListSnapshot {
+        let now = serverNow()
+        let rows = AccountListLocal.urgencySorted(AccountListLocal.filter(all, chip: chip, now: now), now: now)
+        return AccountListSnapshot(rows: rows, total: total, counts: AccountListLocal.counts(all, now: now), loadedCount: all.count)
+    }
+
+    // MARK: - Companions
+
+    /// status-summary and today, side by side after each list or runtime read.
+    private func refreshCompanions() async {
+        async let summaryRead: Void = loadSummary()
+        async let todayRead: Void = loadToday()
+        _ = await (summaryRead, todayRead)
+    }
+    /// A failure falls back to local header counts silently. The badge takes the site's error count with the device time it was read.
+    private func loadSummary() async {
+        guard let app, has(.accountsStatusSummary) else { summary = .idle; return }
+        let ticket = UUID(), readAt = Date()
+        summaryTicket = ticket
+        summary = summary.withLoading()
+        do {
+            let result = try await app.accountStatusSummary()
+            guard summaryTicket == ticket, isLive else { return }
+            summary = .loaded(result, at: serverNow())
+            app.accountBadge.update(errorCount: result.totals.error, at: readAt)
+        } catch {
+            guard summaryTicket == ticket, isLive else { return }
+            summary = error is CancellationError ? summary.withCancelledLoad() : summary.withFailure(error.localizedDescription)
+        }
+        relayout()
+    }
+    /// Every loaded row (an old server's whole list, so a chip change needs no new read); S2-02 splits the ids by 200.
+    private func loadToday() async {
+        let ids = (legacyRows ?? rows).map(\.id)
+        guard let app, !ids.isEmpty else { today = .idle; return }
+        let ticket = UUID()
+        todayTicket = ticket
+        today = today.withLoading()
+        do {
+            let result = try await app.accountTodayStatsBatch(ids: ids)
+            guard todayTicket == ticket, isLive else { return }
+            today = .loaded(result, at: serverNow())
+        } catch {
+            guard todayTicket == ticket, isLive else { return }
+            today = error is CancellationError ? today.withCancelledLoad() : today.withFailure(error.localizedDescription)
+        }
+    }
+    private func refreshGroups() async {
+        guard let directory = app?.groupDirectory else { return }
+        if directory.state.value == nil { await directory.ensureLoaded() } else { await directory.refresh() }
+        if isLive { relayout() }
+    }
+    private func loadCatalog() async {
+        guard let app else { return }
+        let result = await app.metaCatalog()
+        if isLive { catalog = result }
+    }
+
+    // MARK: - Layout and timer
+
+    private func merge(_ runtime: [Int: AccountRuntime]) {
+        if let legacyRows {
+            let merged = AccountListRefresh.merging(legacyRows, runtime: runtime)
+            self.legacyRows = merged
+            list = list.updatingValue { legacySnapshot(merged, total: $0.total) }
+        } else {
+            list = list.updatingValue { snapshot in
+                var next = snapshot
+                next.rows = AccountListRefresh.merging(snapshot.rows, runtime: runtime)
+                return next
+            }
+        }
+        relayout()
+    }
+    private func rederive() {
+        if let legacyRows { list = list.updatingValue { legacySnapshot(legacyRows, total: $0.total) } }
+        relayout()
+    }
+    private func relayout() {
+        guard let rows = list.value?.rows else { sections = []; return }
+        let result = AccountListLayout.sections(rows: rows, chip: chip, summary: usableSummary, groups: app?.groupDirectory?.groups ?? [],
+                                                frozenOrder: reordersSections ? nil : frozenOrder, now: serverNow())
+        sections = result.sections
+        frozenOrder = result.frozenOrder
+    }
+    /// A failed summary falls back to local counts; one being refreshed keeps its last value (20 §1.5).
+    private var usableSummary: AccountStatusSummary? {
+        if case .failed = summary { return nil }
+        return summary.value
+    }
+
+    private func perform(_ kind: AccountListRefresh.Kind) async {
+        switch kind {
+        case .light: await refreshLight()
+        case .full: await runFull(replacing: false)
+        }
+    }
+    /// One loop while the gate is open: sleep until `nextCheck`, run what is due. A closed gate or a released model ends it.
+    private func restartTimer() {
+        timer?.cancel()
+        timer = nil
+        guard gate.isOpen, isLive else { return }
+        timer = Task { [weak self] in
+            while let delay = self?.nextTimerDelay() {
+                try? await Task.sleep(for: .seconds(max(delay, 1)))
+                guard !Task.isCancelled else { return }
+                await self?.timerFired()
+            }
+        }
+    }
+    private func nextTimerDelay() -> TimeInterval? {
+        isLive ? AccountListRefresh.nextCheck(at: Date(), gate: gate, marks: marks, throttle: listRefresh) : nil
+    }
+    private func timerFired() async {
+        guard let kind = AccountListRefresh.due(at: Date(), gate: gate, marks: marks, supportsRuntime: supportsRuntime,
+                                                throttle: listRefresh) else { return }
+        await perform(kind)
+    }
+
+    private var gate: AccountListRefresh.Gate {
+        AccountListRefresh.Gate(isForeground: app.map { !$0.isSuspended } ?? false, isVisible: isVisible, isSelecting: isSelecting, hasSheet: hasSheet)
+    }
+    private func currentQuery() -> AccountListQuery {
+        AccountListLayout.listQuery(chip: chip, platform: platform, groupID: groupID, supportsListQuery: !forcesLegacy && has(.accountsListQuery))
+    }
+    private var supportsRuntime: Bool { has(.accountsRuntimeBatch) }
+    private func has(_ capability: Capability) -> Bool { isLive && app?.sessionContext?.has(capability) == true }
+    private var isLive: Bool { app?.sessionGeneration == generation }
+}
