@@ -117,9 +117,9 @@ extension AppModel {
     // MARK: - 核对
 
     // MARK: - Key
-    func userKeys(id: Int, page: Int) async throws -> Page<UserAPIKey> {
-        if isUITesting { return Page(items: DemoData.keys, total: 1, page: 1, pageSize: 20, pages: 1) }
-        return try await requireClient().userKeys(id: id, page: page)
+    func userAPIKeys(userID: Int) async throws -> [AdminAPIKey] {
+        if isUITesting { return DemoData.apiKeys(userID: userID) }
+        return try await requireClient().userAPIKeys(userID: userID, maskedView: siteSession?.has(.apiKeysMaskedView) == true)
     }
 
     // MARK: - 限额

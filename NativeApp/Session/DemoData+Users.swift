@@ -25,7 +25,6 @@ extension DemoData {
     /// fields for the older tests; 4, 7, 11 and 12 are low by a fixed, a percentage, the global and a percentage-of-zero
     /// threshold, 6 is disabled and 8 an administrator.
     static let allUsers = namedUsers + numberedUsers + largeCustomers
-    static let keys = [UserAPIKey(id: 1, name: "开发密钥", key: "sk-fixture-secret", status: "active", quota: 100, quotaUsed: 2)]
     private static let namedUsers: [AdminUser] = [
         AdminUser(id: 1, email: "alice@example.com", username: "Alice", balance: Decimal(string: "12.50")!, role: "user", concurrency: 2,
                   notes: "常用测试用户", rpmLimit: 120, currentConcurrency: 1, createdAt: "2026-10-01T00:00:00Z",
@@ -73,6 +72,14 @@ extension DemoData {
             users.first { $0.id == id }.map { QuickTopupUser(userID: $0.id, email: $0.email, username: $0.username, status: $0.status, balance: $0.balance) }
         }
         return QuickTopupReply(recent: [3, 10, 1, 4].compactMap(item), lowBalance: [4, 7, 11, 12].compactMap(item), lowBalanceEnabled: true)
+    }
+    /// S3D1-04's key table: only masks, never a plaintext; a user without a row has no keys. Later items add keys, not change these.
+    static func apiKeys(userID: Int, now: Date = Date()) -> [AdminAPIKey] {
+        switch userID {
+        case 1: [AdminAPIKey(id: 1, userID: 1, keyMasked: "sk-…cret", name: "开发密钥", groupID: 2, status: "active", effectiveStatus: "active",
+                             lastUsedAt: now.addingTimeInterval(-180), quota: 100, quotaUsed: 2)]
+        default: []
+        }
     }
     /// users-usage: ids without spend today are left out of the reply, as the server does.
     static func todayUsage(ids: [Int]) -> [Int: UserTodayUsage] {

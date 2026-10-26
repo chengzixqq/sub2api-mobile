@@ -58,7 +58,7 @@ private actor AlertSourceFake: AlertActionSource {
 
     func markResolved(eventID: Int, at date: Date) { calls.append(.resolved(eventID, date)) }
     func applySilence(eventID: Int, _ silence: AlertSilenceRef?) { calls.append(.silence(eventID, silence)) }
-    func upsertAlert(_ event: AlertEvent) { calls.append(.upsert(event)) }
+    func upsertAlert(_ event: AlertEvent) async { calls.append(.upsert(event)) }
     func removeAlert(eventID: Int) { calls.append(.remove(eventID)) }
     func refreshAlertsAfterWrite() async { calls.append(.refresh) }
     func noteOpsDisabled() async { calls.append(.opsDisabled) }
@@ -298,6 +298,23 @@ func writeFailureLeavesLocalStateAndShowsReason(index: Int) async {
     #expect(await bench.source.writes == [.resolve(41, "manual_resolved")])
 }
 
+@MainActor @Test func undoTappedWhileReadBackIsPendingIsSentAfterIt() async {
+    let gate = Gate()
+    let until = now.addingTimeInterval(3_600)
+    let silenced = firing().withSilence(AlertSilenceRef(id: 77, until: until))
+    let bench = Bench(.init(read: { _ in await gate.wait(); return silenced }))
+    let first = Task { await bench.actions.silence(firing(), for: .hour) }
+    await waitUntil { await gate.waiters == 1 }
+    #expect(bench.receipt?.action?.title == "撤销")
+    bench.tapReceiptButton()
+    #expect(bench.receipt == nil && bench.actions.isRunning(41))
+    await gate.open()
+    #expect(await first.value == .succeeded)
+    await waitUntil { bench.host.refreshes == 2 }
+    #expect(await bench.source.writes == [.create(rule: 11, platform: nil, group: 2, until: until), .delete(77)])
+    #expect(bench.host.calls.contains(.silence(41, nil)) && !bench.actions.isRunning(41))
+}
+
 @MainActor @Test func cancelledOrStaleWritesShowNothing() async {
     let cancelled = Bench(.init(resolve: { throw CancellationError() }))
     #expect(await cancelled.actions.resolve(firing()) == .ignored)
@@ -354,11 +371,11 @@ func writeFailureLeavesLocalStateAndShowsReason(index: Int) async {
     let (store, _) = await storeWithTwoFiring()
     let silence = AlertSilenceRef(id: 501, until: Date().addingTimeInterval(3_600))
     let silenced = firingEvent(2, severity: "P2").withSilence(silence)
-    store.upsertAlert(silenced)
+    await store.upsertAlert(silenced)
     #expect(store.firingAlerts.first { $0.id == 2 } == silenced && store.home.alerts.value?.top.first { $0.id == 2 } == silenced)
     #expect(store.alertCounts?.firing == 2 && store.recentAlerts.isEmpty)
     let ended = firingEvent(1, severity: "P1").resolvedLocally(at: Date())
-    store.upsertAlert(ended)
+    await store.upsertAlert(ended)
     #expect(store.firingAlerts.map(\.id) == [2] && store.home.alerts.value?.top.map(\.id) == [2])
     #expect(store.alertCounts?.firing == 1 && store.alertCounts?.count(severity: "P1") == 0 && store.home.alerts.value?.firingCount == 1)
     #expect(store.recentAlerts == [ended])

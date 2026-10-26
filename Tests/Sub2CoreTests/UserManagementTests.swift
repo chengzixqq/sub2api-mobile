@@ -232,7 +232,7 @@ func userWritesCarryIdempotencyKeyOnlyWithCapability(capable: Bool) async throws
     _ = try await client.createUser(create)
     _ = try await client.updateUser(update)
     #expect(try await client.userUsage(id: 24).totalCost == Decimal(string: "0.5"))
-    _ = try await client.userKeys(id: 24, page: 2)
+    _ = try await client.userAPIKeys(userID: 24, maskedView: false)
     _ = try await client.setUserStatus(id: 24, status: "disabled")
     _ = try await client.updateBalance(stubPersisted(balance))
     let sent = await transport.requests
@@ -246,7 +246,8 @@ func userWritesCarryIdempotencyKeyOnlyWithCapability(capable: Bool) async throws
     let usageQuery = sent[2].url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
     #expect(usageQuery.contains(URLQueryItem(name: "user_id", value: "24")) && usageQuery.contains(URLQueryItem(name: "timezone", value: "Asia/Shanghai")))
     let keysQuery = sent[3].url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
-    #expect(keysQuery == [URLQueryItem(name: "page", value: "2"), URLQueryItem(name: "page_size", value: "20")])
+    #expect(keysQuery == [URLQueryItem(name: "page", value: "1"), URLQueryItem(name: "page_size", value: "100"), URLQueryItem(name: "sort_by", value: "id"),
+                          URLQueryItem(name: "sort_order", value: "asc")])
     #expect(String(decoding: sent[4].httpBody ?? Data(), as: UTF8.self) == #"{"status":"disabled"}"#)
 }
 

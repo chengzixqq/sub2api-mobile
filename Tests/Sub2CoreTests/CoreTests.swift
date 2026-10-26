@@ -52,9 +52,6 @@ private actor MockTransport: HTTPTransport {
     let stats = try JSONDecoder().decode(DashboardStats.self, from: Data(dashboardJSON.utf8))
     #expect(stats.todayRequests == 12)
     #expect(stats.todayCost == Decimal(string: "0.12345678"))
-    let key = try JSONDecoder().decode(UserAPIKey.self, from: Data(#"{"id":1,"name":"test","key":null,"status":"active","quota":"100.00000001","quota_used":1.2}"#.utf8))
-    #expect(key.quota == Decimal(string: "100.00000001"))
-    #expect(key.quotaUsed == Decimal(string: "1.2"))
 }
 
 @Test func paginationKeepsServerPageAndComputesMissingPageCount() throws {
