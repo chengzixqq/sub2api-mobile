@@ -237,6 +237,8 @@
 |---|---|
 | ConditionalCache 缓存账号列表原始响应体 | S2-01 解码时剔除了凭据敏感键，但 ConditionalCache 按 00 §4.2 缓存原始响应体；2026-05 以前未脱敏的旧服务端，明文凭据会留在内存缓存里（登出、切站、401 时清空）。是否对 admin/accounts 的缓存体做脱敏或不缓存，由 S2-23 的凭据专项复核决定 |
 | UpstreamAccount.credentials 可直接赋值 | credentials 是 public var，只在解码和 init 时剔除敏感键；之后代码直接赋值可以绕过。目前没有这种调用点，S2-05 / S2-10 / S2-12 的夹具若要在本地套用 credentials_patch，应经 init 重建或另加一个会剔除敏感键的辅助方法 |
+| 账号平台显示名口径待用户确认 | S2D1-12 采用“App 已知平台用内置中文名（智谱 GLM），目录 display_name 只给后端新登记的平台”，与 20 §0.3 字面“目录 display_name 优先”不同；用户若坚持目录优先，只改 AccountNaming.platformName 一处与 accountNamingPlatformNames 一行断言 |
+| MetaCatalog.builtin 需随后端同步重抄 | 内置平台清单是 sub2 main 70116315d 的 platformCatalog.builtin.json 与站长口径 platform_auth 的手抄快照（单测 builtinCatalogMatchesSub2BuiltinJSON 锁住当前值）；后端登记新平台或改官方端点时要重抄 |
 
 ### App 与设计 · 阶段 3
 

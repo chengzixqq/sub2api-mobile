@@ -126,6 +126,7 @@ Mac 补装 Xcode 27.1 的 CoreSimulator 组件后，在 iPhone 18 Pro（iOS 27�
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
 |---|---|---|---|---|
 | S2-01 | 账号模型与列表查询：JSONValue、UpstreamAccount 补字段、AccountListQuery / managedAccounts、分组排序 | ✅ | `9882ca6` | credentials 只含非敏感键且不参与编码（S0-17 用例要求编码不含凭据值），解码与 init 时按后端 17 个敏感键剔除并补 has_<key>，另加 credentialsArrivedUnredacted（S2D1-09）与 parentAccountID（S2D1-21）；extra 整份保留为 JSONValue，不是对象时账号照常解码；AccountProxy 保留地址（scheme 对应 JSON 的 protocol），不解码登录信息；契约按 S2D1-11：search / platform / type 为 String、supportsListQuery 是属性、多 schedulableNow，lite / include_counts / include_scheduler_score 统一发 1；allGroups(includeInactive:) 带 platform 时本地过滤；改了 AccountRuntimeTests 一个旧用例的断言（代理地址与 extra 现在保留）；旧 AccountsView 只做类型适配，状态 / 分组 Picker 未在模拟器手动点验；check 已跑 AccountManagement / AccountListCustomization / Sub2Mobile / AppNavigation 四类，38/38 通过 |
+| S2-02 | 账号读接口与平台目录：今日批量、运行时批量、5 小时窗口、带版本号的账号详情、MetaCatalog 与显示名 | ✅ | `9a0448b` | 与规格不同的取舍：平台显示名按 S2D1-12，App 已知 id 用 GroupPlatform.title（zhipu 显示“智谱 GLM”），其余才用目录名，与 20 §0.3 字面“目录优先”不同，待用户确认；今日批量的 stats 不含失败占位；runtime/batch 默认 include_window_cost=0，只对它做 TOO_MANY_IDS 再拆，sampled_at 记入 serverClock、返回类型不变；metaCatalog() 遇非 JSON 404 / 423 返回内置清单，其余错误抛给 S2-03 包装；LenientDecoded 是已有 Lossy 的别名；内置清单并入 MetaCatalog.swift（191 行，没有拆出 +Builtin 文件）。未做：页面接入与 AppModel 包装（S2-03）、删除旧 accountTodayStats(ids:)（S2-04）。UI 测试未涉及（只跑了 check 的单元与编译）。 |
 
 ## 阶段 3 · 用户
 
