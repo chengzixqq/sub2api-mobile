@@ -172,7 +172,8 @@ public enum RedeemPresentation {
 
     // MARK: Expanded card
 
-    /// “10/23 09:12 · 还剩 7 天” for an unused or disabled code, “· 今天到期” on its last day; an expired one adds “（已过期）”.
+    /// “10/23 09:12 · 还剩 7 天” for an unused or disabled code, “· 今天到期” on its last day; one past its date adds “（已过期）”
+    /// (the server maps only an unused one to `expired`: a disabled code keeps its status).
     public static func expiry(_ code: AdminRedeemCode, now: Date, timeZone: TimeZone) -> RedeemExpiryText {
         guard let expiresAt = code.expiresAt else { return RedeemExpiryText(text: "永不过期", tone: nil) }
         let stamp = timestamp(expiresAt, now: now, timeZone: timeZone)
@@ -180,6 +181,7 @@ public enum RedeemPresentation {
         switch code.codeStatus {
         case .expired?: return RedeemExpiryText(text: stamp + "（已过期）", tone: nil)
         case .unused?, .disabled?:
+            guard expiresAt > now else { return RedeemExpiryText(text: stamp + "（已过期）", tone: nil) }
             let days = daysUntil(expiresAt, now: now, timeZone: timeZone)
             let tone: Tone? = code.codeStatus == .unused && days <= 1 ? .caution : nil
             return RedeemExpiryText(text: stamp + " · " + (days <= 0 ? "今天到期" : "还剩 \(days) 天"), tone: tone)

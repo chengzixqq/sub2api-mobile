@@ -41,12 +41,15 @@ public struct AdminRedeemCode: Identifiable, Decodable, Sendable, Equatable {
         self.createdAt = createdAt; self.expiresAt = expiresAt; self.groupID = groupID; self.validityDays = validityDays; self.notes = notes
         self.batchID = batchID; self.createdBy = createdBy; self.user = user; self.group = group
     }
-    /// A card refreshed through GET :id keeps the user and group the list gave it; its own win when it has them.
+    /// A card refreshed through GET :id keeps the user and group the list gave it while they still match its `used_by` and
+    /// `group_id` (an edit may move or clear the group); its own win when it has them.
     public func keepingRelations(of listed: AdminRedeemCode?) -> AdminRedeemCode {
         guard let listed, listed.id == id, user == nil || group == nil else { return self }
+        let listedUser = listed.user.flatMap { $0.id == usedBy ? $0 : nil }
+        let listedGroup = listed.group.flatMap { $0.id == groupID ? $0 : nil }
         return AdminRedeemCode(id: id, code: code, type: type, value: value, status: status, usedBy: usedBy, usedAt: usedAt, createdAt: createdAt,
                                expiresAt: expiresAt, groupID: groupID, validityDays: validityDays, notes: notes, batchID: batchID,
-                               createdBy: createdBy, user: user ?? listed.user, group: group ?? listed.group)
+                               createdBy: createdBy, user: user ?? listedUser, group: group ?? listedGroup)
     }
 
     enum CodingKeys: String, CodingKey {
