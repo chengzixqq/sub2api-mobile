@@ -161,13 +161,18 @@ extension AnnouncementDemoStore {
         return AnnouncementReadSummary(announcementID: id, totalUsers: DemoData.AnnouncementFixture.totalUsers, eligibleCount: stats?.eligibleCount ?? 0,
                                        readCount: stats?.readCount ?? 0, eligibleReadCount: stats?.eligibleReadCount ?? 0, computedAt: now)
     }
-    /// `PUT :id`: the status for now (S6-18 adds the other keys here); returned without read_stats like the server.
+    /// `PUT :id`: the keys sent, checked like the server (the merged start and end too); returned without read_stats like the
+    /// server.
     func update(id: Int, _ request: AnnouncementUpdateRequest, now: Date) throws -> Announcement {
         let item = try existing(id)
-        let updated = Announcement(id: item.id, title: item.title, content: item.content, status: request.status ?? item.status,
-                                   notifyMode: item.notifyMode, targeting: item.targeting, startsAt: item.startsAt, endsAt: item.endsAt,
-                                   createdBy: item.createdBy, updatedBy: item.updatedBy, createdAt: item.createdAt, updatedAt: now,
-                                   readStats: item.readStats)
+        _ = try request.requestBody()
+        let startsAt = Self.applying(request.startsAt, to: item.startsAt), endsAt = Self.applying(request.endsAt, to: item.endsAt)
+        if let startsAt, let endsAt, startsAt >= endsAt { throw APIError.server(status: 400, reason: "ANNOUNCEMENT_TIME_RANGE_INVALID") }
+        let updated = Announcement(id: item.id, title: request.title.map(Self.trimmed) ?? item.title,
+                                   content: request.content.map(Self.trimmed) ?? item.content, status: request.status ?? item.status,
+                                   notifyMode: request.notifyMode ?? item.notifyMode, targeting: request.targeting ?? item.targeting,
+                                   startsAt: startsAt, endsAt: endsAt, createdBy: item.createdBy, updatedBy: item.updatedBy,
+                                   createdAt: item.createdAt, updatedAt: now, readStats: item.readStats)
         replace(items.map { $0.id == id ? updated : $0 })
         return Self.withoutReadStats(updated)
     }
@@ -191,5 +196,46 @@ extension AnnouncementDetailSource {
                                  summary: { id in try await store.readSummary(id: id, now: Date()) },
                                  update: { try await store.update(id: $0, $1, now: Date()) },
                                  delete: { await store.delete(id: $0) })
+    }
+}
+
+// MARK: - 编辑 / 新建（S6-18）
+
+extension AnnouncementDemoStore {
+    /// `POST admin/announcements`: checked like the server, then the next id, created and updated now; read_stats once it is
+    /// not a draft.
+    func create(_ request: AnnouncementCreateRequest, now: Date) throws -> Announcement {
+        _ = try request.requestBody()
+        let stats = request.status == .draft ? nil : AnnouncementReadStats(eligibleCount: 0, readCount: 0, eligibleReadCount: 0)
+        let item = Announcement(id: (items.map(\.id).max() ?? 0) + 1, title: Self.trimmed(request.title), content: Self.trimmed(request.content),
+                                status: request.status, notifyMode: request.notifyMode, targeting: request.targeting, startsAt: request.startsAt.map(Self.whole),
+                                endsAt: request.endsAt.map(Self.whole), createdAt: now, updatedAt: now, readStats: stats)
+        replace(items + [item])
+        return Self.withoutReadStats(item)
+    }
+    /// `GET admin/announcements?search=` for H07: title or body contains it, newest first, five at most.
+    func recent(title: String) -> [Announcement] {
+        let term = Self.trimmed(title)
+        return Array(items.filter { $0.title.localizedCaseInsensitiveContains(term) || $0.content.localizedCaseInsensitiveContains(term) }.prefix(5))
+            .map(Self.withoutReadStats)
+    }
+
+    fileprivate static func trimmed(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    fileprivate static func whole(_ date: Date) -> Date { Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down)) }
+    fileprivate static func applying(_ schedule: AnnouncementUpdateRequest.Schedule?, to date: Date?) -> Date? {
+        switch schedule {
+        case nil: date
+        case .clear?: nil
+        case .at(let value)?: whole(value)
+        }
+    }
+}
+
+extension AnnouncementEditSource {
+    static func fixture(_ store: AnnouncementDemoStore) -> AnnouncementEditSource {
+        AnnouncementEditSource(create: { request, _, _, _ in WriteOutcome(value: try await store.create(request, now: Date())) },
+                               update: { try await store.update(id: $0, $1, now: Date()) },
+                               load: { try await store.announcement(id: $0, includeReadStats: false) },
+                               recent: { await store.recent(title: $0) })
     }
 }
