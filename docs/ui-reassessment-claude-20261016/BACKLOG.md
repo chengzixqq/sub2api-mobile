@@ -291,6 +291,8 @@
 | 测试输出脱敏规则是否扩展 | 现只覆盖规格列的 Bearer、sk-…、URL（20 §4.3）；x-api-key 原值、JWT、sat_ 令牌、AKIA… 不在规则内。后端 error_message 已做 logredact，残留风险低（S2-13） |
 | Bedrock / Vertex 账号 401 的失败原因文案 | 暂按 20 §7.3 写“API Key 无效或已撤销”，措辞不准确，待用户看效果图后再定（S2-13） |
 | 老服务端测试结果比对的精度 | AccountTestOutcome.legacy 用 error_summary / error_kind 判断错误是否被改写，App 的快照里没有 error_message / error_at；清除限流按测试前限流或临时不可调度有效、测试后没有来判断（S2-13） |
+| 保存遇到 GROUP_NOT_FOUND 时刷新分组目录 | S2-10 的分区 sheet 遇到 404 GROUP_NOT_FOUND 只显示目录文案“对象不存在或已删除”，不进已删除页，但没有自动调用 GroupDirectory.refresh()，分组页要等下次刷新才去掉已删除的分组；需要的话让 AccountPatchFlow 在 failed 里带上 reason，sheet 据此刷新 |
+| 密钥账号详情暂时没有 ⋯ 菜单 | S2-10 删掉过渡的“编辑账号”后，⋯ 只剩令牌账号的“刷新令牌”，密钥账号暂不显示 ⋯；S2-11（在 Web 中编辑、删除账号…）和 S2-16（更换 API Key…）加项时恢复，并按 20 §3.4 的顺序排 |
 
 ### App 与设计 · 阶段 3
 
