@@ -241,6 +241,10 @@
 | 告警静默与规则 region | 规则过滤条件带 region 时，App 按规格不传 region 新建的静默匹配不到事件，读回后显示“操作没有生效，可以重试”；需要后端在事件 dimensions 或 rule 摘要里带上 region，或由 App 读取规则后再发 |
 | INVALID_RULE_ID 文案 | 后端只在 rule_id ≤ 0 时返回 INVALID_RULE_ID，规则已删除时新建静默照样成功（没有外键，静默无效但无害）；App 已在 rule_id 无效时不给静默，收到时照表显示“规则已删除，无法静默”并在本会话隐藏该规则的静默；文案是否要改，需用户确认 |
 | 告警夹具 #35 与 24h 窗口 | FixtureAlertBook 已按 time_range 过滤（相对会话开始的 base）；S1-05 的 #35 在昨天 21:52 触发，服务器时间 21:52 之后不在 24h 列表里。S1-16 等 UI 用例若断言最近结束含 #35，会随运行时段失败，应改用 #37，或把 #35 改为相对 base 的时间 |
+| 旧服务端事件缺 group_name | （补充已有行说明末尾）S1-07 已在收事件处补规则与分组名（会话内各取一次） |
+| 首页退路本地分档的边界 | 站点既没有 dashboard.home 也没有 accounts.status_summary 时：账号只取第一页 1000 个，totals 偏小并标 accounts_truncated；按告警规则判定 shortage 的分组退回默认 0.5 判定，可能与服务端不同；是否分页拉全待定 |
+| 首页退路的告警 500 条上限 | 没有 ops.alert_event_counts 时 firing 超过 500 条只显示 500，没有“≥”标记；是否要加待定 |
+| 首页退路的渠道 UNSUPPORTED 显示 | 比渠道监控更早的站点，channels 段为 disabled(UNSUPPORTED)；S1-09b 决定运行区写“渠道监控未开启”还是隐藏该行 |
 
 ### App 与设计 · 阶段 2
 
@@ -262,6 +266,10 @@
 | :id/models 不存在时的 404 | 后端用 response.NotFound 返回无 reason 的 JSON 404，App 照抛（kind .notFound）；S2-12 / S2-14 应按 kind 处理，不依赖 reason |
 | 错误账号的列表右滑 | 开关关着的错误账号，右滑按 20 §1.4 字面给“启用调度”。打开开关并不清除错误，账号仍不参与调度，回执“已启用调度”可能让人误以为修好了。可改为右滑给“恢复状态…”（打开 AccountRecoverDialog），只需改 AccountActionCopy.swipeAction 一处。需要用户拍板 |
 | 账号动作的等待进度 | AccountActions 不订阅 KeyedWriteEvent，带 key 的写最长等待约 35 秒 × 3，期间只靠 isRunning 表示进行中。如果 S2-08 的按钮行要显示“正在确认结果… / 已等待 N 秒”，需要 S2-05 的包装把 onEvent 透传过来，AccountActions 再加一个 confirming 状态 |
+| 批量调度“稍后核对” | 带 key 的 bulk-update 最坏要等约 3–4 分钟（65 秒 × 3 次 + 退避 + IN_PROGRESS 最多 30 秒），期间坞锁定、“完成”不可点，坞左侧显示“正在确认结果…”。是否加“稍后核对”（放弃等待、直接 runtime/batch 读回），对应 D31，待定 |
+| 批量撤销依据的操作前状态 | 撤销用列表快照里的 schedulable 判断哪些账号真正被改动；选择模式期间轻刷新暂停，快照可能已过时。规格没要求执行前再读一次 runtime，本条没加 |
+| 批量选择数量不设上限 | 规格只限每次请求 50 个；全选 2000 行会变成 40 次顺序请求，期间坞一直显示进度。是否要上限或提示，待定 |
+| S2-23 首页刷新接入点 | 批量有成功时让首页刷新（model.liveOps?.noteExternalWrite()）要加在 NativeApp/Features/Accounts/AccountBatchRunner.swift 的 run / undo 里，不是 items.json 写的 AccountBatchDock.swift，请集成者告知 S2-23 |
 
 ### App 与设计 · 阶段 3
 

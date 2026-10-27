@@ -158,3 +158,19 @@ private actor ManualSleeper {
     await waitForTimers(sleeper, count: 2)
     await sleeper.wakeAll()
 }
+
+/// C-15 (S2-07): a page's own bottom bar lifts the receipt above it; showing or clearing receipts leaves the clearance alone.
+@MainActor @Test func bottomClearanceClampsInvalidValuesAndSurvivesClear() {
+    let receipts = ReceiptCenter(sleep: { _ in try await Task.sleep(for: .seconds(3_600)) })
+    #expect(receipts.bottomClearance == 0)
+    receipts.setBottomClearance(64)
+    #expect(receipts.bottomClearance == 64)
+    receipts.show(Receipt(text: "已停止调度 1 个账号"))
+    receipts.clear()
+    #expect(receipts.bottomClearance == 64)
+    for invalid in [-1, Double.nan, Double.infinity, -Double.infinity] {
+        receipts.setBottomClearance(64)
+        receipts.setBottomClearance(invalid)
+        #expect(receipts.bottomClearance == 0, "\(invalid)")
+    }
+}

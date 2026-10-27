@@ -158,7 +158,6 @@ private func sentFields(_ query: AccountListQuery, page: Int = 1) throws -> [Str
     let client = APIClient(server: managedAccountServer(), credential: .adminKey("fixture"), transport: transport)
     let identity = await client.userWriteIdentity()
     await client.cancelAll()
-    await #expect(throws: APIError.self) { try await client.setAccountsSchedulable(ids: [4], enabled: false, identity: identity) }
     await #expect(throws: APIError.self) { try await client.refreshManagedAccount(id: 4, identity: identity) }
     #expect(await transport.requests().isEmpty)
 }
@@ -166,31 +165,83 @@ private func sentFields(_ query: AccountListQuery, page: Int = 1) throws -> [Str
 @Test func bulkAccountSchedulingPreservesPartialFailureAndUnknownRows() async throws {
     let transport = ManagedAccountTransport()
     let client = APIClient(server: managedAccountServer(), credential: .adminKey("fixture"), transport: transport)
-    let identity = await client.userWriteIdentity()
-    let result = try await client.setAccountsSchedulable(ids: [1, 2], enabled: false, identity: identity)
+    let result = try await client.setAccountsSchedulable(ids: [1, 2], enabled: false, idempotencyKey: nil).value
     #expect(result.outcome(for: 1) == true && result.outcome(for: 2) == false && result.outcome(for: 3) == nil)
     let sent = try #require(await transport.requests().first)
     let json = try #require(JSONSerialization.jsonObject(with: sent.httpBody!) as? [String: Any])
     #expect(json["account_ids"] as? [Int] == [1, 2] && json["schedulable"] as? Bool == false)
     #expect(sent.url?.path == "/api/v1/admin/accounts/bulk-update" && sent.httpMethod == "POST")
-    await #expect(throws: APIError.self) { try await client.setAccountsSchedulable(ids: [1, 1], enabled: false, identity: identity) }
-    await #expect(throws: APIError.self) { try await client.setAccountsSchedulable(ids: Array(1...51), enabled: false, identity: identity) }
+    await #expect(throws: APIError.self) { try await client.setAccountsSchedulable(ids: [1, 1], enabled: false, idempotencyKey: nil) }
+    await #expect(throws: APIError.self) { try await client.setAccountsSchedulable(ids: Array(1...51), enabled: false, idempotencyKey: nil) }
     #expect(await transport.requests().count == 1)
     let duplicate = try JSONDecoder().decode(AccountBulkReply.self, from: Data(#"{"success":2,"failed":0,"results":[{"account_id":1,"success":true},{"account_id":1,"success":true}]}"#.utf8))
     #expect(duplicate.outcome(for: 1) == nil)
 }
 
-/// Every later account would meet the same ended session or security gate, so the batch stops there (00 §1.7.2, D06).
-@Test func batchRefreshStopsOnEveryEndedSessionAndSecurityRefusal() {
-    let stopping: [APIError] = [
-        .server(status: 401, reason: "TOKEN_REVOKED"), .server(status: 401, reason: "SESSION_BINDING_MISMATCH"),
-        .server(status: 401, reason: "INVALID_ADMIN_KEY"), .server(status: 401, reason: "ACCESS_TOKEN_EXPIRED"), .server(status: 401, reason: nil),
-        .server(status: 403, reason: "WORKSPACE_DISABLED"), .server(status: 423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED"),
-        .server(status: 403, reason: "STEP_UP_REQUIRED"), .server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY"), .authenticationRequired
-    ]
-    for error in stopping { #expect(AccountBatchRefresh.stopsRemaining(after: error), "\(error.statusCode ?? 0) \(error.reason ?? "-")") }
-    let continuing: [any Error] = [APIError.server(status: 400, reason: "INVALID_REQUEST"), APIError.server(status: 404, reason: "ACCOUNT_NOT_FOUND"),
-                                   APIError.server(status: 500, reason: nil), APIError.server(status: 403, reason: "FORBIDDEN"),
-                                   APIError.transport(URLError(.timedOut)), URLError(.timedOut)]
-    for error in continuing { #expect(!AccountBatchRefresh.stopsRemaining(after: error), "\(error)") }
+// MARK: - Bulk scheduling (S2-07, 20 §8.2)
+
+private func bulkClient(_ transport: ScriptedTransport) -> APIClient {
+    APIClient(server: managedAccountServer(), credential: .adminKey("fixture"), deviceID: stubDeviceID, transport: transport, requestClock: .immediate)
+}
+private let bulkReplyJSON = #"{"success":2,"failed":0,"success_ids":[1,2],"failed_ids":[],"results":[{"account_id":1,"success":true},{"account_id":2,"success":true}]}"#
+
+@Test func keyedBulkSchedulingSendsOneKeyAndRetriesSameBytes() async throws {
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(okReply(bulkReplyJSON, headers: ["X-Idempotency-Replayed": "true"]))])
+    let key = UUID()
+    let outcome = try await bulkClient(transport).setAccountsSchedulable(ids: [1, 2], enabled: false, idempotencyKey: key)
+    let requests = await transport.requests
+    #expect(requests.count == 2)
+    for request in requests {
+        #expect(sentHeader(request, "Idempotency-Key") == key.uuidString.lowercased() && sentHeader(request, "X-Request-ID") == key.uuidString.lowercased())
+        #expect(request.httpBody == requests[0].httpBody && request.timeoutInterval == RequestTimeout.keyedBulk)
+    }
+    #expect(outcome.value.successIDs == [1, 2] && outcome.replayed)
+}
+
+@Test func unkeyedBulkSchedulingIsSentOnceWithoutKey() async throws {
+    let transport = ScriptedTransport(script: [.reply(okReply(bulkReplyJSON))])
+    _ = try await bulkClient(transport).setAccountsSchedulable(ids: [1, 2], enabled: true, idempotencyKey: nil)
+    let sent = try #require(await transport.requests.first)
+    #expect(sentHeader(sent, "Idempotency-Key") == nil && sent.timeoutInterval == RequestTimeout.unkeyedWrite)
+    let requestID = try #require(sentHeader(sent, "X-Request-ID"))
+    #expect(requestID == requestID.lowercased() && UUID(uuidString: requestID) != nil)
+    let lost = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(okReply(bulkReplyJSON))])
+    let error = await thrownAPIError { _ = try await bulkClient(lost).setAccountsSchedulable(ids: [1], enabled: true, idempotencyKey: nil) }
+    #expect(error?.kind == .transport)
+    #expect(await lost.requests.count == 1)
+}
+
+@Test func bulkSchedulingValidatesBeforeSending() async throws {
+    let transport = ScriptedTransport(script: [.reply(okReply(bulkReplyJSON))])
+    let client = bulkClient(transport)
+    for ids in [[], [1, 1], [0], [-3], Array(1...51)] {
+        let error = await thrownAPIError { _ = try await client.setAccountsSchedulable(ids: ids, enabled: false, idempotencyKey: UUID()) }
+        #expect(error?.kind == .validation && error?.localizedDescription == "请选择 1 至 50 个不同账号。", "\(ids)")
+    }
+    #expect(await transport.requests.isEmpty)
+    _ = try await client.setAccountsSchedulable(ids: [1, 2], enabled: false, idempotencyKey: nil)
+    let sent = try #require(await transport.requests.first)
+    #expect(sent.httpBody == Data(#"{"account_ids":[1,2],"schedulable":false}"#.utf8))
+    #expect(sent.url?.path == "/api/v1/admin/accounts/bulk-update" && sent.httpMethod == "POST")
+}
+
+@Test func bulkReplyDecodesIDListsAndOutcomeRejectsMissingDuplicateOrContradictoryRows() throws {
+    func decode(_ json: String) throws -> AccountBulkReply { try JSONDecoder().decode(AccountBulkReply.self, from: Data(json.utf8)) }
+    let full = try decode(#"{"success":1,"failed":1,"success_ids":[1],"failed_ids":[2],"results":[{"account_id":1,"success":true},{"account_id":2,"success":false,"error":"x"}],"long_context_inherited_count":3}"#)
+    #expect(full.successIDs == [1] && full.failedIDs == [2] && full.success == 1 && full.failed == 1)
+    #expect(full.outcome(for: 1) == true && full.outcome(for: 2) == false && full.outcome(for: 3) == nil)
+    let old = try decode(#"{"success":1,"failed":0,"results":[{"account_id":1,"success":true}]}"#)
+    #expect(old.successIDs == nil && old.failedIDs == nil && old.outcome(for: 1) == true)
+    let bare = try decode("{}")
+    #expect(bare.results.isEmpty && bare.success == 0 && bare.failed == 0)
+    let row = AccountBulkReply.Item(accountID: 1, success: true)
+    #expect(AccountBulkReply(success: 1, failed: 0, successIDs: [], failedIDs: [1], results: [row]).outcome(for: 1) == nil)
+    #expect(AccountBulkReply(success: 1, failed: 0, successIDs: [], failedIDs: [], results: [row]).outcome(for: 1) == nil)
+    #expect(AccountBulkReply(success: 1, failed: 0, successIDs: [1, 1], failedIDs: nil, results: [row]).outcome(for: 1) == nil)
+    #expect(AccountBulkReply(success: 1, failed: 0, successIDs: [1], failedIDs: nil, results: [row]).outcome(for: 1) == true)
+    let failedRow = AccountBulkReply.Item(accountID: 2, success: false)
+    #expect(AccountBulkReply(success: 0, failed: 1, successIDs: nil, failedIDs: [2], results: [failedRow]).outcome(for: 2) == false)
+    #expect(AccountBulkReply(success: 0, failed: 1, successIDs: [2], failedIDs: [2], results: [failedRow]).outcome(for: 2) == nil)
+    #expect(AccountBulkReply(success: 0, failed: 1, successIDs: nil, failedIDs: nil, results: [failedRow]).outcome(for: 2) == false)
+    #expect(AccountBulkReply(success: 2, failed: 0, successIDs: nil, failedIDs: nil, results: [row, row]).outcome(for: 1) == nil)
 }

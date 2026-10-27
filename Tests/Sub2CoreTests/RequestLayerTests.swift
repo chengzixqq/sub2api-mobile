@@ -198,7 +198,6 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
 @Test func timeoutsFollowRequestCategories() async throws {
     let transport = ScriptedTransport { request in isRefresh(request) ? okReply(stubRefreshJSON) : okReply("{}") }
     let client = layerClient(transport, credential: stubTokens(expiresAt: Date().addingTimeInterval(-60)))
-    let identity = await client.userWriteIdentity()
     let hour = AnalyticsQuery(start: Date(timeIntervalSince1970: 1_792_022_400), end: Date(timeIntervalSince1970: 1_792_026_000))
     _ = try? await client.publicSettings()
     _ = try? await client.user(id: 7)
@@ -206,7 +205,7 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     _ = try? await client.accountTodayStatsBatch(ids: [9])
     _ = try? await client.setUserStatus(id: 7, status: "active")
     _ = try? await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)))
-    _ = try? await client.setAccountsSchedulable(ids: [9], enabled: true, identity: identity)
+    _ = try? await client.setAccountsSchedulable(ids: [9], enabled: true, idempotencyKey: UUID())
     _ = try? await client.refreshAccount(id: 9)
     _ = try? await client.dashboard()
     _ = try? await client.dashboardTrend()

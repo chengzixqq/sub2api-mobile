@@ -37,12 +37,14 @@ final class AccountListModel {
     private(set) var catalog: MetaCatalog = .builtin
     private(set) var sections: [AccountPlatformSection] = []
     private(set) var collapsed: Set<String>
+    /// 20 §8.1 (S2-07): selection mode pauses the light refresh (20 §1.6).
+    private(set) var isSelecting = false
+    private(set) var selection = AccountSelection()
 
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private let serverNow: @Sendable () -> Date
     @ObservationIgnored private let siteID: UUID?
     @ObservationIgnored private var isVisible = false
-    @ObservationIgnored private var isSelecting = false
     @ObservationIgnored private var hasSheet = false
     @ObservationIgnored private var marks = AccountListRefresh.Marks()
     @ObservationIgnored private var frozenOrder: [String]?
@@ -147,7 +149,6 @@ final class AccountListModel {
         await reload()
     }
     func setVisible(_ visible: Bool) { isVisible = visible; restartTimer() }
-    func setSelecting(_ selecting: Bool) { isSelecting = selecting; restartTimer() }
     func setSheetPresented(_ presented: Bool) { hasSheet = presented; restartTimer() }
 
     /// 20 §5.6: an account a write returned or read back replaces its row at once (the platform order stays), then the list is
@@ -194,6 +195,26 @@ final class AccountListModel {
         guard let batch = today.value else { return false }
         return batch.failedIDs.contains(id) || batch.stats[id] == nil
     }
+
+    // MARK: 选择模式（S2-07）
+
+    func beginSelecting() {
+        selection = AccountSelection()
+        isSelecting = true
+        restartTimer()
+    }
+    /// “完成”, or a batch that went through: the selection is cleared and the list read again at once (20 §8.6).
+    func endSelecting() {
+        selection = AccountSelection()
+        isSelecting = false
+        restartTimer()
+        Task { await reload() }
+    }
+    func toggleSelection(_ id: Int) { selection = selection.toggling(id) }
+    /// 全选 / 取消全选 over a section's loaded rows, collapsed or not.
+    func toggleSectionSelection(_ sectionIDs: [Int]) { selection = selection.togglingAll(sectionIDs) }
+    /// In the order the list shows them.
+    var selectedAccounts: [UpstreamAccount] { sections.flatMap(\.rows).filter { selection.contains($0.id) } }
 
     // MARK: - Full refresh
 
@@ -393,6 +414,8 @@ final class AccountListModel {
                                                 frozenOrder: reordersSections ? nil : frozenOrder, now: serverNow())
         sections = result.sections
         frozenOrder = result.frozenOrder
+        // A chip or a refresh that dropped a row drops its tick too, so 已选 N never counts a hidden account.
+        if list.value?.isPartial != true, !selection.isEmpty { selection = selection.keeping(Set(rows.map(\.id))) }
     }
     /// A failed summary falls back to local counts; one being refreshed keeps its last value (20 §1.5).
     var usableSummary: AccountStatusSummary? {

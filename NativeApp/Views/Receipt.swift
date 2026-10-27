@@ -18,7 +18,7 @@ struct ReceiptOverlay: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 12)
+        .padding(.bottom, 12 + model.receipts.bottomClearance)
         .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.28), value: model.receipts.current?.id)
     }
 }

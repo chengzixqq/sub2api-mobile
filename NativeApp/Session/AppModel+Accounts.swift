@@ -134,6 +134,13 @@ extension AppModel: AccountWriteSource {
         return try await accountWriteClient(generation).fullUpdate(id: id, patch: patch, base: base, idempotencyKey: idempotencyKey)
     }
 
+    /// 20 §8.2, one request of a batch (S2-07); `-ui-testing` writes AccountDemoStore.bulkSetSchedulable.
+    func setAccountsSchedulable(ids: [Int], enabled: Bool, idempotencyKey: UUID?, onEvent: KeyedWriteEventHandler? = nil,
+                                generation: UUID) async throws -> WriteOutcome<AccountBulkReply> {
+        if isUITesting { return WriteOutcome(value: try accountDemoWrite(generation) { try $0.bulkSetSchedulable(ids: ids, enabled: enabled) }) }
+        return try await accountWriteClient(generation).setAccountsSchedulable(ids: ids, enabled: enabled, idempotencyKey: idempotencyKey, onEvent: onEvent)
+    }
+
     private func accountDemoWrite<T>(_ generation: UUID, _ write: (AccountDemoStore) throws -> T) throws -> T {
         guard generation == sessionGeneration else { throw CancellationError() }
         if ProcessInfo.processInfo.arguments.contains(DemoData.AccountFixture.writeFail) { throw APIError.server(status: 500, reason: nil) }

@@ -22,6 +22,10 @@ extension DemoData {
         static let intent = "-ui-accounts-intent"
         /// Every account write through AppModel+Accounts answers 500 (“站点暂时不可用”); reads still work.
         static let writeFail = "-ui-account-write-fail"
+        /// bulk-update fails each account in error one by one (S2-07).
+        static let bulkPartial = "-ui-accounts-bulk-partial"
+        /// bulk-update answers 500 as a whole (S2-07).
+        static let bulkFail = "-ui-accounts-bulk-fail"
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -263,6 +267,26 @@ final class AccountDemoStore {
         versions[id] = (versions[id] ?? 1) + 1
         replace(account)
         return account
+    }
+
+    /// `POST bulk-update {account_ids, schedulable}` (S2-07): ids the site does not have are left out of the reply, as a vendor's
+    /// out-of-scope ids are; with `bulkPartial` an account in error fails on its own and keeps its switch.
+    func bulkSetSchedulable(ids: [Int], enabled: Bool) throws -> AccountBulkReply {
+        if arguments.contains(DemoData.AccountFixture.bulkFail) { throw APIError.server(status: 500, reason: nil) }
+        let refuses = arguments.contains(DemoData.AccountFixture.bulkPartial)
+        var items: [AccountBulkReply.Item] = []
+        for id in ids {
+            guard var account = account(id: id) else { continue }
+            if refuses, account.status == "error" {
+                items.append(AccountBulkReply.Item(accountID: id, success: false, error: "fixture"))
+                continue
+            }
+            account.schedulable = enabled
+            replace(account)
+            items.append(AccountBulkReply.Item(accountID: id, success: true))
+        }
+        let succeeded = items.filter(\.success).map(\.accountID), failed = items.filter { !$0.success }.map(\.accountID)
+        return AccountBulkReply(success: succeeded.count, failed: failed.count, successIDs: succeeded, failedIDs: failed, results: items)
     }
 
     private func existing(_ id: Int) throws -> UpstreamAccount {
