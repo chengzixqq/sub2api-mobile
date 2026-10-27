@@ -134,15 +134,27 @@ private func encoded(_ fields: RedeemBatchUpdateFields) throws -> String {
 
 @Test func keepingRelationsFillsMissingUserAndGroupFromListedCode() {
     let user = RedeemCodeUser(id: 42, email: "wang@example.invalid", username: "小王"), group = RedeemCodeGroup(id: 3, name: "企业专线")
-    let listed = AdminRedeemCode(id: 1, code: fullCode, type: "subscription", status: "unused", groupID: 3, user: user, group: group)
-    let fresh = AdminRedeemCode(id: 1, code: fullCode, type: "subscription", status: "disabled", groupID: 3, notes: "新备注")
+    let listed = AdminRedeemCode(id: 1, code: fullCode, type: "subscription", status: "used", usedBy: 42, groupID: 3, user: user, group: group)
+    let fresh = AdminRedeemCode(id: 1, code: fullCode, type: "subscription", status: "used", usedBy: 42, groupID: 3, notes: "新备注")
     let merged = fresh.keepingRelations(of: listed)
-    #expect(merged.user == user); #expect(merged.group == group); #expect(merged.status == "disabled"); #expect(merged.notes == "新备注")
+    #expect(merged.user == user); #expect(merged.group == group); #expect(merged.status == "used"); #expect(merged.notes == "新备注")
     let own = RedeemCodeUser(id: 43, email: nil, username: "小李")
-    let withUser = AdminRedeemCode(id: 1, code: fullCode, type: "subscription", status: "used", usedBy: 43, user: own)
+    let withUser = AdminRedeemCode(id: 1, code: fullCode, type: "subscription", status: "used", usedBy: 43, groupID: 3, user: own)
     #expect(withUser.keepingRelations(of: listed).user == own); #expect(withUser.keepingRelations(of: listed).group == group)
     let other = AdminRedeemCode(id: 2, code: fullCode, type: "subscription", status: "unused", user: user, group: group)
     #expect(fresh.keepingRelations(of: other) == fresh); #expect(fresh.keepingRelations(of: nil) == fresh)
+}
+
+@Test func keepingRelationsDropsListedGroupOrUserThatNoLongerMatches() {
+    let listed = AdminRedeemCode(id: 1, code: fullCode, type: "subscription", status: "unused", groupID: 3,
+                                 group: RedeemCodeGroup(id: 3, name: "企业专线"))
+    let moved = AdminRedeemCode(id: 1, code: fullCode, type: "subscription", status: "unused", groupID: 5).keepingRelations(of: listed)
+    #expect(moved.groupID == 5); #expect(moved.group == nil)
+    #expect(AdminRedeemCode(id: 1, code: fullCode, type: "subscription", status: "unused").keepingRelations(of: listed).group == nil)
+    let redeemed = AdminRedeemCode(id: 1, code: fullCode, type: "balance", status: "used", usedBy: 42,
+                                   user: RedeemCodeUser(id: 42, email: nil, username: "小王"))
+    #expect(AdminRedeemCode(id: 1, code: fullCode, type: "balance", status: "used", usedBy: 43).keepingRelations(of: redeemed).user == nil)
+    #expect(AdminRedeemCode(id: 1, code: fullCode, type: "balance", status: "unused").keepingRelations(of: redeemed).user == nil)
 }
 
 @Test func listQueryWithCapabilitySendsAllFourTypesOrOne() throws {

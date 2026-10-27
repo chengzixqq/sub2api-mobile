@@ -119,6 +119,14 @@ private func expiry(_ code: AdminRedeemCode, timeZone: TimeZone = shanghai) -> R
     #expect(expiry(boundary, timeZone: utc) == RedeemExpiryText(text: "10/16 20:00 · 今天到期", tone: .caution))
 }
 
+@Test func expiryPastItsDateSaysExpiredWhateverTheStatus() {
+    // The server maps only an unused code past expires_at to expired: a disabled one keeps its status.
+    #expect(expiry(code("disabled", expiresAt: instant("2026-10-01T09:00:00+08:00"))) == RedeemExpiryText(text: "10/01 09:00（已过期）", tone: nil))
+    #expect(expiry(code("disabled", expiresAt: instant("2026-10-16T08:00:00+08:00"))) == RedeemExpiryText(text: "10/16 08:00（已过期）", tone: nil))
+    #expect(expiry(code("unused", expiresAt: now)) == RedeemExpiryText(text: "10/16 09:41（已过期）", tone: nil))
+    #expect(expiry(code("unused", expiresAt: now.addingTimeInterval(60))) == RedeemExpiryText(text: "10/16 09:42 · 今天到期", tone: .caution))
+}
+
 @Test func timestampAndDayKeepYearOnlyWhenDifferent() {
     #expect(RedeemPresentation.timestamp(instant("2026-10-16T09:20:00+08:00"), now: now, timeZone: shanghai) == "10/16 09:20")
     #expect(RedeemPresentation.timestamp(instant("2027-01-31T09:20:00+08:00"), now: now, timeZone: shanghai) == "2027/01/31 09:20")
