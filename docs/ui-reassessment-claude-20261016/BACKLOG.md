@@ -245,6 +245,9 @@
 | 首页退路本地分档的边界 | 站点既没有 dashboard.home 也没有 accounts.status_summary 时：账号只取第一页 1000 个，totals 偏小并标 accounts_truncated；按告警规则判定 shortage 的分组退回默认 0.5 判定，可能与服务端不同；是否分页拉全待定 |
 | 首页退路的告警 500 条上限 | 没有 ops.alert_event_counts 时 firing 超过 500 条只显示 500，没有“≥”标记；是否要加待定 |
 | 首页退路的渠道 UNSUPPORTED 显示 | 比渠道监控更早的站点，channels 段为 disabled(UNSUPPORTED)；S1-09b 决定运行区写“渠道监控未开启”还是隐藏该行 |
+| 没有 /admin/me 的旧站点不能在 App 里开启运维监控 | 2026-07-25（0b5903d45）之前的服务端把 PUT admin/settings 当整份文档，只带 ops_monitoring_enabled 会清空注册开关、SMTP、验证码等设置；App 拿不到 /admin/me 时无法判断版本，所以 OpsDisabledNotice 在这类站点不显示开启按钮（标题仍是“运维监控未开启”），与 10 §7.2“读不到 → 「开启运维监控」”不同（S1D1-07、S1-08）。请用户确认 |
+| 关闭运维监控两步确认的文案 | S1-08 的 opsDisableConfirmation 先用动作表“关闭运维监控？”（正文写明错误率、告警、监控各段不可用，关闭期间的数据不会补回，按钮「关闭运维监控」），再弹“确认关闭「站点名」的运维监控？ / 这会关闭整个站点的运维监控，对所有管理员生效。 / 「仍要关闭」”。规格只说“二次确认”，没给文案，等 S1-13 接入后请用户看效果图再定 |
+| config_off 时首页提示行是否补“RPM 只计成功请求” | 10 §1.3.1 规定 config_off 整句换成“运维监控已在服务器配置中关闭”，这样就没有 U12 要求的 RPM 口径说明；S1-08 按字面实现，退路③时末尾仍接“ · TPM 不含缓存 Tokens”。是否也补 RPM 说明，请用户在 S1-09 截图时决定（只改 OpsDisabledPresentation.inlineText 一处） |
 
 ### App 与设计 · 阶段 2
 
