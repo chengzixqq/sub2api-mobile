@@ -224,7 +224,7 @@
 
 | 事项 | 说明 |
 |---|---|
-| 缺失值“—”的读屏 | 替换 App 与设计表中“缺失值“—”的读屏”原行：默认读“无数据”（S1-00 定）。Sources/Sub2Core/DisplayFormat.swift 的 DisplayFormat.missingSpoken 与 DisplayFormat.spoken(_:) 只做整值替换；各页重写时 accessibilityValue 套用，尚未重写的旧页面仍读显示文字。 S3-02（2fba3df）已处理用户列表：余额、今日消费、头像余额读“无数据”，见阶段 3 表同名行。 |
+| 缺失值“—”的读屏 | 替换 App 与设计表中“缺失值“—”的读屏”原行：默认读“无数据”（S1-00 定）。Sources/Sub2Core/DisplayFormat.swift 的 DisplayFormat.missingSpoken 与 DisplayFormat.spoken(_:) 只做整值替换；各页重写时 accessibilityValue 套用，尚未重写的旧页面仍读显示文字。 S3-02（2fba3df）已处理用户列表：余额、今日消费、头像余额读“无数据”，见阶段 3 表同名行。 S2-09（cfc6947）已处理账号详情三节：容量“— / y”读“无数据 / y”，今日各项与记录区的“—”读“无数据”，首次加载读“正在加载”，见阶段 2 表同名行。 |
 | APP-PROGRESS 中的旧 UI 用例名 | APP-PROGRESS.md 第 73 行“完成标志的 UI 测试”还写着 AppNavigationUITests.testFourTabsAndSearchTabReplaceManagementAndSettings 和 testSearchDirectoryOpensExistingPagesAndPlaceholders。S1-00 已把它们拆成 testTabBarAndTodayTab、testAccountsTabShowsAccounts、testUsersTabShowsUsers、testMonitorTabShowsSegments、testSearchTabShowsDirectory 与 7 个 testSearchDirectory*；Sub2MobileUITests.testLoginDashboardAccountPaginationAndDetails 已拆成 testLoginShowsDashboard 与 testAccountPaginationAndDetails。集成者写入进度行时可顺带更新这些名字。 |
 | 首页被拒时区的记忆 | dashboardHome 每次调用都先带 timezone，被 400 INVALID_TIMEZONE 拒绝后再去掉重发，不记住结果。若 S1-05 实测某站点频繁出现，由 LiveOpsStore 记住被拒的时区，改传不带 timezone 的请求（需要再加一个重载）。 |
 | 下拉刷新 nocache 的 ETag 键 | nocache=1 的请求与普通轮询是两个 ConditionalCache 键，第一次下拉刷新拿完整响应体，普通轮询的条目也不会因下拉刷新而更新。目前接受；若要让两者共用，需要在 S0-05 的缓存键规则里对 nocache 特判。 |
@@ -282,6 +282,12 @@
 | 详情里写操作后返回列表的即时刷新 | 列表回到可见时不立刻轻刷新，在详情里停止 / 启用调度后返回列表，最多 60 秒内仍显示旧状态；交 S2-23 收口（noteExternalWrite，或列表 setVisible(true) 时按 marks 补一次轻刷新） |
 | 分组页旧夹具与账号夹具的分组 id 不一致 | GroupsView 旧夹具的分组 10、11 在 AccountDemoStore 里没有成员，S2-08 加了 -ui-account-group-transition 让账号 4、7 归入分组 10，供过渡入口用例使用；S5-04 / S5-13 重写分组页、删除过渡入口时一并删掉这个参数和对应用例 |
 | 按 id 进入账号详情的 UI 用例路径 | AccountDetailUITests 里两个按 id 进入的用例走旧 RequestLogsView 的“查看账号”视图式链接；S4-05 / S4-08 重写日志页后要改路径（入口应 push .account(id:)） |
+| 区块 429 倒计时（账号详情今日已处理） | S2-09 的账号详情今日节已显示“请求过于频繁，N 秒后自动重试”，等待期间重试置灰，到时自动重发一次。用的是自建小块 AccountTodayStatusLine / todayStatusLine，与 BlockFailureRow 的“加载失败”文案不同。S2-23 换成 BlockFailureRow 时删掉这块，并更新原来那行 BACKLOG 的账号部分 |
+| 缺失值读屏（账号详情三节已处理） | 容量“— / y”读成“无数据 / y”，今日各项和记录区右侧的“—”读成“无数据”，首次加载时读“正在加载”。请集成者在原来的“缺失值读屏”行加备注 |
+| 运维关闭后上游错误计数的恢复 | 账号详情遇到 404 OPS_DISABLED 后，60 秒轻刷新不再请求上游错误。在 Web 开启运维监控后，要下拉刷新、回前台或重新进入详情才会显示计数。如果要自动恢复，可以改成每 N 分钟再试一次 |
+| 账号详情 UI 测试对旧日志页与占位页的断言 | 两个用例断言旧 RequestLogsView 的 logs.mode / logs.account-filter：testRecordsRowsOpenLogsFilteredByAccount、testOpsDisabledShowsNoticeRowAndErroredAtLine；testErrorAccountLatestUpstreamErrorOpensRequestRoute 断言 route.placeholder。S4-05 / S4-08 重写日志页和请求详情时要同步改这几处 |
+| 日志页旧夹具与账号详情上游错误计数不一致 | RequestLogsView 私有的 LogFixtures 里账号 1 有 1 条错误、账号 7 没有；AccountDemoStore.upstreamErrorPage 给 #1 0 条、#7 3 条。S4-05 重写日志页夹具时按 AccountDemoStore 统一，让“近 24 小时 N 条”与点进去看到的列表一致 |
+| 首页轮询重启后第一拍被跳过（残余） | LiveOpsStore.pollHomeBlocks 第一拍遇到 isHomeLoading 为真时跳过，并按 nextHomeDelay 等 60 秒。一次被取消的在途读取也算在途：LoadState 的 onCancel 只取消内层 Task，状态要等退栈后才回到 idle；退路的 fallbackCycle 和今日 SLA 的 todayOps.isLoading 也一样。S1-09 审查修正已经去掉概览 task 的多余重启（合规确认、foregroundRevision），只剩一种情况：在途读取期间可见性极短地抖动（Tab 切走马上切回、控制中心一拉一放），首页仍可能晚一个周期刷新。要彻底修，需要让 LoadState 识别“已被取消的在途读取”（task.isCancelled），并同时覆盖退路轮次和今日 SLA。 |
 
 ### App 与设计 · 阶段 3
 
