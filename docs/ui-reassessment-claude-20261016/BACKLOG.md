@@ -273,6 +273,11 @@
 | 批量撤销依据的操作前状态 | 撤销用列表快照里的 schedulable 判断哪些账号真正被改动；选择模式期间轻刷新暂停，快照可能已过时。规格没要求执行前再读一次 runtime，本条没加 |
 | 批量选择数量不设上限 | 规格只限每次请求 50 个；全选 2000 行会变成 40 次顺序请求，期间坞一直显示进度。是否要上限或提示，待定 |
 | S2-23 首页刷新接入点 | 批量有成功时让首页刷新（model.liveOps?.noteExternalWrite()）要加在 NativeApp/Features/Accounts/AccountBatchRunner.swift 的 run / undo 里，不是 items.json 写的 AccountBatchDock.swift，请集成者告知 S2-23 |
+| 到期自动暂停账号的详情主按钮 | S2D1-20 默认“修改过期时间…”，与 20 §2.3 字面的“启用调度”不同；S2-08 暂时打开旧编辑页，S2-10 改为 beginEdit(.sched)。用户若要照字面，只改 AccountDetailPresentation.actionRow 和 AccountActionCopy.swipeAction 两处 |
+| 账号详情错误态牌旁的原因 | 按 spec_issues 写“上游 {error_status_code}”，没有时不写；设计稿是 a.cause 或“上游返回错误”。等用户看过效果图再定 |
+| 详情里写操作后返回列表的即时刷新 | 列表回到可见时不立刻轻刷新，在详情里停止 / 启用调度后返回列表，最多 60 秒内仍显示旧状态；交 S2-23 收口（noteExternalWrite，或列表 setVisible(true) 时按 marks 补一次轻刷新） |
+| 分组页旧夹具与账号夹具的分组 id 不一致 | GroupsView 旧夹具的分组 10、11 在 AccountDemoStore 里没有成员，S2-08 加了 -ui-account-group-transition 让账号 4、7 归入分组 10，供过渡入口用例使用；S5-04 / S5-13 重写分组页、删除过渡入口时一并删掉这个参数和对应用例 |
+| 按 id 进入账号详情的 UI 用例路径 | AccountDetailUITests 里两个按 id 进入的用例走旧 RequestLogsView 的“查看账号”视图式链接；S4-05 / S4-08 重写日志页后要改路径（入口应 push .account(id:)） |
 
 ### App 与设计 · 阶段 3
 
