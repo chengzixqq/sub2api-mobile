@@ -322,4 +322,125 @@ final class HomeUITests: XCTestCase {
             XCTAssertFalse(skeleton.label.contains("无数据"), skeleton.label)
         }
     }
+
+    // MARK: S1-09b 今日区与运行区
+
+    /// LiveOpsFixtures' default home in the today and run sections (from LiveOpsFixtures.stats / opsOverview / home; change both
+    /// together). Values as VoiceOver reads them.
+    private enum TodayExpected {
+        static let chartLabel = "每小时实际扣费，今天与昨天对比"
+        static let figures = [("accountCost", "$512.08"), ("standardCost", "$1,610.14"), ("profit", "$772.42"), ("tokens", "96.4M"),
+                              ("successRate", "99.2%")]
+        static let health = "94，良好"
+        static let rates = [("errorRate", "0.8%"), ("upstream429", "12"), ("upstream529", "3")]
+        static let channels = "可用 7 · 性能下降 1 · 不可用 1 · 未知 1"
+        static let missing = "无数据"
+    }
+
+    @MainActor private func todayFigure(_ kind: String) -> XCUIElement { element("home.today." + kind) }
+    @MainActor private func assertValue(_ item: XCUIElement, _ value: String, file: StaticString = #filePath, line: UInt = #line) {
+        reveal(item, file: file, line: line)
+        XCTAssertEqual(item.value as? String, value, item.debugDescription, file: file, line: line)
+    }
+
+    @MainActor func testHomeTodaySectionShowsChartCellsAndSuccessRate() {
+        launchAndLogin()
+        defer { diagnostics("home-today-final") }
+        _ = loadedCell("actualCost")
+        let header = element("home.today.header")
+        reveal(header)
+        XCTAssertEqual(header.label, "今日")
+        XCTAssertEqual(header.value as? String, "00:00 起")
+        let chart = element("home.today.chart")
+        reveal(chart)
+        XCTAssertEqual(chart.label, TodayExpected.chartLabel)
+        for (kind, value) in TodayExpected.figures { assertValue(todayFigure(kind), value) }
+        diagnostics("home-today")
+        let more = element("home.today.more")
+        reveal(more)
+        // 今日 sits above 运行.
+        let run = element("home.run.header")
+        reveal(run)
+        XCTAssertEqual(run.label, "运行")
+        if more.exists { XCTAssertLessThanOrEqual(more.frame.maxY, run.frame.minY, "\(more.frame) \(run.frame)") }
+    }
+
+    /// 10 §1.3.4: hourly timed out, so only the chart has its failure row; the cells under it, the six cells and 运行 stay.
+    @MainActor func testHomeHourlyTimeoutOnlyAffectsChart() {
+        launchAndLogin(arguments: ["-ui-home-hourly-timeout"])
+        defer { diagnostics("home-hourly-timeout-final") }
+        let values = [Expected.actualCost, Expected.requests, Expected.errorRate, Expected.profit, Expected.rpm, Expected.tpm]
+        for (kind, value) in zip(Expected.kinds, values) {
+            XCTAssertTrue(waitForLabel(tickerCell(kind), containing: value), tickerCell(kind).label)
+        }
+        let failed = element("home.today.hourly.failed")
+        reveal(failed)
+        XCTAssertTrue(text(containing: "每小时数据加载失败").exists, app.debugDescription)
+        XCTAssertTrue(element("home.today.hourly.retry").exists, app.debugDescription)
+        XCTAssertFalse(element("home.today.chart").exists, app.debugDescription)
+        diagnostics("home-hourly-timeout")
+        for (kind, value) in TodayExpected.figures where ["accountCost", "tokens", "successRate"].contains(kind) {
+            assertValue(todayFigure(kind), value)
+        }
+        assertValue(element("home.run.health"), TodayExpected.health)
+    }
+
+    @MainActor func testHomeMoreStatsOpensAnalytics() {
+        launchAndLogin()
+        defer { diagnostics("home-more-stats-final") }
+        _ = loadedCell("actualCost")
+        let more = element("home.today.more")
+        reveal(more)
+        XCTAssertTrue(more.label.contains("更多统计") && more.label.contains("模型 · 用户 · 分组排行"), more.label)
+        more.tap()
+        XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.tabBars.buttons["概览"].isSelected)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(more.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor func testHomeRunSectionShowsHealthErrorRateAndUpstreamCounts() {
+        launchAndLogin()
+        defer { diagnostics("home-run-final") }
+        _ = loadedCell("actualCost")
+        let health = element("home.run.health")
+        assertValue(health, TodayExpected.health)
+        XCTAssertEqual(health.label, "健康分")
+        for (kind, value) in TodayExpected.rates { assertValue(element("home.run." + kind), value) }
+        XCTAssertEqual(element("home.run.upstream529").label, "上游 529")
+        XCTAssertFalse(element("home.run.health.failed").exists, app.debugDescription)
+        diagnostics("home-run")
+    }
+
+    /// 10 §1.1: the channel row switches to 监控 · 渠道 (the stage-0 placeholder segment until S1-15).
+    @MainActor func testHomeChannelRowSelectsMonitorChannelsSegment() {
+        launchAndLogin()
+        defer { diagnostics("home-channels-final") }
+        _ = loadedCell("actualCost")
+        let channels = element("home.run.channels")
+        assertValue(channels, TodayExpected.channels)
+        channels.tap()
+        let monitorTab = app.tabBars.buttons["监控"]
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: monitorTab)
+        XCTAssertEqual(XCTWaiter().wait(for: [selected], timeout: 10), .completed, app.debugDescription)
+        let segment = app.segmentedControls["monitor.segment"]
+        XCTAssertTrue(segment.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(segment.buttons["渠道"].isSelected, app.debugDescription)
+        app.tabBars.buttons["概览"].tap()
+        XCTAssertTrue(element("home.regular").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 10 §1.3.5 and appendix B L23 with ops monitoring off: 健康分 “—” with 运维监控未开启, the rates and 成功率 “—” (never 0 or
+    /// 100%); the chart and the other cells stay.
+    @MainActor func testHomeOpsDisabledRunSectionAndSuccessRate() {
+        launchAndLogin(arguments: ["-ui-ops-disabled"])
+        defer { diagnostics("home-ops-disabled-run-final") }
+        XCTAssertTrue(element("ops.disabled.inline").waitForExistence(timeout: 10), app.debugDescription)
+        reveal(element("home.today.chart"))
+        assertValue(todayFigure("accountCost"), "$512.08")
+        assertValue(todayFigure("successRate"), TodayExpected.missing)
+        assertValue(element("home.run.health"), TodayExpected.missing + "，运维监控未开启")
+        for (kind, _) in TodayExpected.rates { assertValue(element("home.run." + kind), TodayExpected.missing) }
+        diagnostics("home-ops-disabled-run")
+    }
 }
