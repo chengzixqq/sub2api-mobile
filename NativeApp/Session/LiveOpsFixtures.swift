@@ -36,15 +36,19 @@ enum LiveOpsFixtures {
         static let alertWriteFails = "-ui-alert-write-fails"
         /// S1-06, S1D1-15: events without the `silence` key, so only 手动解决 is offered.
         static let alertLegacySilence = "-ui-alert-legacy-silence"
+        /// S1-07: dashboard/home answers a non-JSON 404 (a site without it), so the overview takes the per-endpoint fallback.
+        static let homeLegacy = "-ui-home-legacy"
     }
     struct Options: Equatable, Sendable {
         var variant: HomeVariant
         var opsDisabled: Bool
         var alertWritesFail: Bool
         var alertsWithoutSilenceKey: Bool
-        init(variant: HomeVariant = .allOK, opsDisabled: Bool = false, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false) {
+        var homeLegacy: Bool
+        init(variant: HomeVariant = .allOK, opsDisabled: Bool = false, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
+             homeLegacy: Bool = false) {
             self.variant = variant; self.opsDisabled = opsDisabled
-            self.alertWritesFail = alertWritesFail; self.alertsWithoutSilenceKey = alertsWithoutSilenceKey
+            self.alertWritesFail = alertWritesFail; self.alertsWithoutSilenceKey = alertsWithoutSilenceKey; self.homeLegacy = homeLegacy
         }
         /// The most specific variant wins (calm-limited, calm, hourly timeout, availability error); ops off goes with any.
         init(arguments: [String]) {
@@ -53,7 +57,7 @@ enum LiveOpsFixtures {
                                                                      (Argument.availabilityError, .availabilityError)]
             self.init(variant: order.first { arguments.contains($0.argument) }?.variant ?? .allOK,
                       opsDisabled: arguments.contains(Argument.opsDisabled), alertWritesFail: arguments.contains(Argument.alertWriteFails),
-                      alertsWithoutSilenceKey: arguments.contains(Argument.alertLegacySilence))
+                      alertsWithoutSilenceKey: arguments.contains(Argument.alertLegacySilence), homeLegacy: arguments.contains(Argument.homeLegacy))
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -247,8 +251,9 @@ actor FixtureLiveOpsSource: LiveOpsSource {
                                 writesFail: options.alertWritesFail)
     }
 
-    func dashboardHome(timezone: ServerTimeZone, include: [HomeSectionKey]?, noCache: Bool) -> DashboardHome {
+    func dashboardHome(timezone: ServerTimeZone, include: [HomeSectionKey]?, noCache: Bool) throws -> DashboardHome {
         homeCalls += 1
+        if options.homeLegacy { throw APIError.server(status: 404, envelope: nil) }
         return LiveOpsFixtures.home(options, base: base, events: book.events)
     }
     func dashboardRates(window: LiveRatesWindow) -> LiveRates { LiveOpsFixtures.rates(base: base, opsDisabled: options.opsDisabled) }
@@ -256,9 +261,10 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         try requireOps()
         return LiveOpsFixtures.opsOverview(start: start, end: end)
     }
-    /// The same figures for every window.
+    /// The same figures for every window, except the home's last five minutes (S1-07's fallback reads them).
     func opsOverview(timeRange: String) throws -> OpsOverview {
         try requireOps()
+        if timeRange == HomeFallback.opsWindow { return LiveOpsFixtures.fiveMinuteOverview(base: base) }
         return LiveOpsFixtures.opsOverview(start: base.addingTimeInterval(-300), end: base)
     }
     func errorAccounts() -> [UpstreamAccount] {

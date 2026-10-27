@@ -32,14 +32,15 @@ private func isOverview(_ call: StubLiveOpsSource.Call) -> Bool { if case .overv
     #expect(store.home.rates.value?.rpm == 2 && store.home.rates.failureReason == nil)
 }
 
+/// A 5xx keeps every block (S1-07 sends only a 404 or a network failure to the fallback).
 @MainActor @Test func wholeHomeFailureOnlyMarksFailure() async {
     let source = StubLiveOpsSource(.init(home: { _ in homeReply() }))
     let store = LiveOpsHarness(source).store
     await store.refreshHome(noCache: false)
     let before = store.home
-    await source.update { $0.home = { _ in throw APIError(kind: .transport, message: "无法连接站点") } }
+    await source.update { $0.home = { _ in throw serverFailure } }
     await store.refreshHome(noCache: false)
-    #expect(store.home == before && store.homeFailed && !store.needsFallback && store.lastFullSuccessAt == before.lastFullSuccessAt)
+    #expect(store.home == before && store.homeFailed && !store.isOnFallback && store.lastFullSuccessAt == before.lastFullSuccessAt)
 }
 
 @MainActor @Test func lateOlderReplyDoesNotOverwriteNewer() async {
@@ -309,11 +310,12 @@ private func isOverview(_ call: StubLiveOpsSource.Call) -> Bool { if case .overv
     #expect(await source.homeCalls == [true, false, true])
 }
 
+/// S1-07 reads the blocks endpoint by endpoint (LiveOpsStoreFallbackTests); home is never asked.
 @MainActor @Test func withoutHomeCapabilityMarksFallback() async {
     let source = StubLiveOpsSource(.init(home: { _ in homeReply() }))
     let store = LiveOpsHarness(source, site: liveOpsSite([.accountsStructuredError])).store
     await store.refreshHome(noCache: false)
-    #expect(store.needsFallback && store.home == HomeBlocks())
+    #expect(store.isOnFallback && store.home.stats.failureReason == HomeBlockText.failed)
     #expect(await source.homeCalls.isEmpty)
 }
 

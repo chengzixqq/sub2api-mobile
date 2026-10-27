@@ -43,8 +43,8 @@ final class LiveOpsStore {
     let recent = LoadState<RecentAlerts>()
     /// The monitor's channel list (S1-15); the home page's channel counts are `home.channels`.
     let channels = LoadState<ChannelOverview>()
-    /// No `dashboard.home`: S1-07's per-endpoint fallback takes over.
-    private(set) var needsFallback = false
+    /// The blocks come from S1-07's per-endpoint fallback: no `dashboard.home`, or home answered 404 or the network failed.
+    private(set) var isOnFallback = false
     private(set) var isCalmVisible = false
     private var countsValue: AlertCounts?
     /// What the latest reply said about ops monitoring (10 §7.2); nil until one says. Only the three entries below set it (S1D1-02).
@@ -85,14 +85,15 @@ final class LiveOpsStore {
     /// The local time of the last home reply without a failed block (S0-05).
     var lastFullSuccessAt: Date? { home.lastFullSuccessAt }
     var homeFailed: Bool { homeRequest.error != nil }
-    /// The block's 429 wait and backoff; S1-07 answers per block while on the fallback.
-    func homeRefresh(for key: HomeSectionKey) -> BlockRefresh { homeRequest.refresh }
+    /// The block's 429 wait and backoff; on the fallback each block keeps its own (S1-07).
+    func homeRefresh(for key: HomeSectionKey) -> BlockRefresh { isOnFallback ? fallbackStatus[key]?.refresh ?? BlockRefresh() : homeRequest.refresh }
 
     // MARK: - 首页（10 §1.2、§1.6）
 
     /// Home and the extra reads side by side (a pull passes `noCache`); an extra read already in flight is left to finish.
     func refreshHome(noCache: Bool) async {
         guard isCurrent(), site() != nil else { return }
+        if noCache { invalidateLegacyAlertLookups() }
         let skipsSLA = opsDisabled
         async let main: Void = refreshHomeBlocks(noCache: noCache)
         async let sla: Void = refreshTodaySLA(skipped: skipsSLA)
@@ -111,18 +112,18 @@ final class LiveOpsStore {
     /// The home request's own timer; its follow-ups (the structured errors) wait with it.
     func pollHomeBlocks() async {
         await poll {
-            if !homeRequest.isLoading { await refreshHomeBlocks(noCache: false) }
+            if !isHomeLoading { await refreshHomeBlocks(noCache: false) }
             return nextHomeDelay()
         }
     }
-    /// S1-07 answers for the fallback's blocks here.
-    func nextHomeDelay() -> TimeInterval { homeRequest.nextDelay(base: Self.pollInterval) }
+    /// On the fallback, the shortest wait of its blocks (S1D1-03).
+    func nextHomeDelay() -> TimeInterval { isOnFallback ? fallbackNextDelay() : homeRequest.nextDelay(base: Self.pollInterval) }
     /// A countdown on the page reached zero: at most one home read in ten seconds; the extra reads keep their own timers.
     func countdownElapsed() async {
         let now = localNow()
         if let last = lastCountdownRefreshAt, Self.isWithin(Self.countdownRefreshGap, since: last, now: now) { return }
         lastCountdownRefreshAt = now
-        guard !homeRequest.isLoading else { return }
+        guard !isHomeLoading else { return }
         await refreshHomeBlocks(noCache: false)
     }
     /// 10 §1.4, X17: another page wrote; the next home read bypasses the server cache.
@@ -160,14 +161,21 @@ final class LiveOpsStore {
         await refreshStructuredErrors(summary)
     }
 
-    /// The first read after another page wrote bypasses the cache too.
+    /// The first read after another page wrote bypasses the cache too. 10 §1.2: without `dashboard.home`, or when home answers
+    /// 404 (not asked again this session) or the network fails (home is tried again next time), the blocks come from the fallback.
     private func refreshHomeBlocks(noCache: Bool) async {
         guard isCurrent(), let site = site() else { return }
         let noCache = noCache || takeExternalWrite()
-        guard site.has(.dashboardHome) else { needsFallback = true; return }
-        needsFallback = false
-        let source = source, zone = site.serverTimeZone
-        await homeRequest.load(isCurrent: isCurrent) { try await source.dashboardHome(timezone: zone, include: nil, noCache: noCache) }
+        guard site.has(.dashboardHome), !homeEndpointMissing else { return await startFallback(noCache: noCache) }
+        let source = source, zone = site.serverTimeZone, failure = HomeFailure()
+        await homeRequest.load(isCurrent: isCurrent) {
+            do { return try await source.dashboardHome(timezone: zone, include: nil, noCache: noCache) } catch { failure.error = error; throw error }
+        }
+        if let error = failure.error, isCurrent(), !homeRequest.isLoading, HomeFallback.shouldFallBack(afterHomeError: error) {
+            if HomeFallback.isMissingEndpoint(error) { homeEndpointMissing = true }
+            homeRequest.reset()
+            return await startFallback(noCache: noCache)
+        }
         guard isCurrent(), case .loaded(let reply, let at) = homeRequest.state, at != appliedHomeAt else { return }
         appliedHomeAt = at
         await applyHome(reply, receivedAt: at)
@@ -177,6 +185,8 @@ final class LiveOpsStore {
         let top = reply.alerts.data?.top ?? []
         let normalized = top.isEmpty ? top : await normalizeReceivedAlerts(top)
         guard isCurrent(), appliedHomeAt == at else { return }
+        // A fallback round still on its way no longer lands.
+        isOnFallback = false; ratesSource = .home; fallbackCycle = nil
         var next = home.merging(reply, receivedAt: at)
         if reply.alerts.status == .ok {
             next.alerts = next.alerts.updatingValue { HomeAlerts(firingCount: $0.firingCount, bySeverity: $0.bySeverity, top: normalized) }
@@ -267,8 +277,16 @@ final class LiveOpsStore {
         home.alerts = home.alerts.updatingValue { $0.mapEvents(update) }
         recent.updateValue { $0.mapEvents(update) }
     }
-    /// S1D1-16: every event read passes here; S1-07 fills in rules and group names for servers without `ops.alert_event_details`.
-    func normalizeReceivedAlerts(_ events: [AlertEvent]) async -> [AlertEvent] { events }
+    /// S1D1-16: every event read passes here. Without `ops.alert_event_details` the server leaves out the rule and the group name;
+    /// `alert-rules` and `groups/all` are read once a session (again after a pull) and fill in what they know. A failed read fills
+    /// nothing and is tried again next time; the events themselves never fail.
+    func normalizeReceivedAlerts(_ events: [AlertEvent]) async -> [AlertEvent] {
+        guard site()?.has(.opsAlertEventDetails) == false else { return events }
+        let rules = events.contains { $0.rule == nil && $0.ruleID != nil } ? await legacyAlertRules() : [:]
+        let names = events.contains { $0.groupID != nil && ($0.groupName ?? "").isEmpty } ? await legacyGroupNames() : [:]
+        guard !rules.isEmpty || !names.isEmpty else { return events }
+        return events.map { HomeFallback.fillingLegacyDetails($0, rules: rules, groupNames: names) }
+    }
 
     private func loadFiring(limit: Int, countsFromList: Bool) async {
         let fetch = controlled { try await $0.alertEvents(status: "firing", timeRange: nil, limit: limit, before: nil, groupID: nil, platform: nil) }
@@ -323,11 +341,54 @@ final class LiveOpsStore {
         }
     }
 
+    // MARK: - 逐接口退路（S1-07，10 §1.2；LiveOpsStore+Fallback.swift）
+
+    /// Where the RPM / TPM shown came from; a home reply sets `.home`, only LiveOpsStore+Fallback.swift sets the rest (S1D1-23).
+    var ratesSource: HomeRatesSource = .home
+    var tpmExcludesCache: Bool { ratesSource.tpmExcludesCache }
+    /// Each block's 429 wait, backoff and last error on the fallback; only LiveOpsStore+Fallback.swift writes it (S1D1-03).
+    var fallbackStatus: [HomeSectionKey: FallbackBlockStatus] = [:]
+    /// The fallback round whose answers may still land; only LiveOpsStore+Fallback.swift sets it, a home reply clears it.
+    @ObservationIgnored var fallbackCycle: UUID?
+    /// Home answered 404: the rest of this session reads the fallback (the store is made again for a new session).
+    @ObservationIgnored private(set) var homeEndpointMissing = false
+    @ObservationIgnored private var legacyRuleTable: [Int: AlertEventRule]?
+    @ObservationIgnored private var legacyGroupNameTable: [Int: String]?
+    /// A home read or a fallback round is on its way; polling and countdowns leave it to finish.
+    var isHomeLoading: Bool { homeRequest.isLoading || fallbackCycle != nil }
+
+    /// A pull reads the rules and group names of a server without `ops.alert_event_details` again (S1D1-16); S1-12 calls it too.
+    func invalidateLegacyAlertLookups() { legacyRuleTable = nil; legacyGroupNameTable = nil }
+    /// The fallback's alerts block, as `applyHome` takes home's.
+    func recordAlertCounts(_ counts: AlertCounts) { countsValue = counts }
+
+    private func startFallback(noCache: Bool) async {
+        isOnFallback = true
+        await refreshFallback(noCache: noCache)
+    }
+    private func legacyAlertRules() async -> [Int: AlertEventRule] {
+        if let legacyRuleTable { return legacyRuleTable }
+        guard let rules = try? await source.alertRules() else { return [:] }
+        let table = Dictionary(rules.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if isCurrent() { legacyRuleTable = table }
+        return table
+    }
+    private func legacyGroupNames() async -> [Int: String] {
+        if let legacyGroupNameTable { return legacyGroupNameTable }
+        guard let groups = try? await source.allGroups(includeInactive: true) else { return [:] }
+        let table = Dictionary(groups.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        if isCurrent() { legacyGroupNameTable = table }
+        return table
+    }
+
     private static func isWithin(_ interval: TimeInterval, since start: Date, now: Date) -> Bool {
         let elapsed = now.timeIntervalSince(start)
         return elapsed >= 0 && elapsed < interval
     }
 }
+
+/// The error of this call's home read, so a 404 or a network failure can send it to the fallback.
+@MainActor private final class HomeFailure { var error: (any Error)? }
 
 // MARK: - 告警写后的本地更新（S1-06，10 §7.1）
 

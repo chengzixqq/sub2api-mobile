@@ -16,6 +16,9 @@ actor StubLiveOpsSource: LiveOpsSource {
         case ranking(limit: Int, timezone: String), summary, alertEvents(status: String?, limit: Int), alertCounts, alertEvent(Int)
         case alertRules, channels(range: String, refresh: Bool), monitoringStatus
         case setAlertStatus(Int, String), createSilence(rule: Int, until: Date), updateSilence(Int, Date), deleteSilence(Int)
+        // S1-07
+        case stats, costSnapshot, trend, trendRange(start: Date, end: Date, granularity: TrendGranularity), allGroups(includeInactive: Bool)
+        case accounts(page: Int, pageSize: Int)
     }
     struct Handlers: Sendable {
         var home: (@Sendable (_ noCache: Bool) async throws -> DashboardHome)?
@@ -34,6 +37,12 @@ actor StubLiveOpsSource: LiveOpsSource {
         var createSilence: (@Sendable (Int, Date) async throws -> AlertSilence)?
         var updateSilence: (@Sendable (Int, Date) async throws -> AlertSilence)?
         var deleteSilence: (@Sendable (Int) async throws -> Void)?
+        var stats: (@Sendable () async throws -> DashboardStats)?
+        var costSnapshot: (@Sendable () async throws -> DashboardCostSnapshot)?
+        var trend: (@Sendable () async throws -> DashboardTrendReply)?
+        var trendRange: (@Sendable (Date, Date, TrendGranularity) async throws -> DashboardTrendReply)?
+        var allGroups: (@Sendable () async throws -> [AdminGroup])?
+        var accounts: (@Sendable (Int, AccountListQuery) async throws -> AccountListPage)?
     }
     private var handlers: Handlers
     private(set) var calls: [Call] = []
@@ -129,6 +138,36 @@ actor StubLiveOpsSource: LiveOpsSource {
         calls.append(.deleteSilence(id))
         guard let handler = handlers.deleteSilence else { throw StubMissing() }
         try await handler(id)
+    }
+    func dashboardStats() async throws -> DashboardStats {
+        calls.append(.stats)
+        guard let handler = handlers.stats else { throw StubMissing() }
+        return try await handler()
+    }
+    func dashboardCostSnapshot() async throws -> DashboardCostSnapshot {
+        calls.append(.costSnapshot)
+        guard let handler = handlers.costSnapshot else { throw StubMissing() }
+        return try await handler()
+    }
+    func dashboardTrend() async throws -> DashboardTrendReply {
+        calls.append(.trend)
+        guard let handler = handlers.trend else { throw StubMissing() }
+        return try await handler()
+    }
+    func dashboardTrend(start: Date, end: Date, granularity: TrendGranularity) async throws -> DashboardTrendReply {
+        calls.append(.trendRange(start: start, end: end, granularity: granularity))
+        guard let handler = handlers.trendRange else { throw StubMissing() }
+        return try await handler(start, end, granularity)
+    }
+    func allGroups(includeInactive: Bool) async throws -> [AdminGroup] {
+        calls.append(.allGroups(includeInactive: includeInactive))
+        guard let handler = handlers.allGroups else { throw StubMissing() }
+        return try await handler()
+    }
+    func managedAccounts(page: Int, query: AccountListQuery) async throws -> AccountListPage {
+        calls.append(.accounts(page: page, pageSize: query.pageSize))
+        guard let handler = handlers.accounts else { throw StubMissing() }
+        return try await handler(page, query)
     }
 }
 
