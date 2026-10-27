@@ -248,6 +248,10 @@
 | 没有 /admin/me 的旧站点不能在 App 里开启运维监控 | 2026-07-25（0b5903d45）之前的服务端把 PUT admin/settings 当整份文档，只带 ops_monitoring_enabled 会清空注册开关、SMTP、验证码等设置；App 拿不到 /admin/me 时无法判断版本，所以 OpsDisabledNotice 在这类站点不显示开启按钮（标题仍是“运维监控未开启”），与 10 §7.2“读不到 → 「开启运维监控」”不同（S1D1-07、S1-08）。请用户确认 |
 | 关闭运维监控两步确认的文案 | S1-08 的 opsDisableConfirmation 先用动作表“关闭运维监控？”（正文写明错误率、告警、监控各段不可用，关闭期间的数据不会补回，按钮「关闭运维监控」），再弹“确认关闭「站点名」的运维监控？ / 这会关闭整个站点的运维监控，对所有管理员生效。 / 「仍要关闭」”。规格只说“二次确认”，没给文案，等 S1-13 接入后请用户看效果图再定 |
 | config_off 时首页提示行是否补“RPM 只计成功请求” | 10 §1.3.1 规定 config_off 整句换成“运维监控已在服务器配置中关闭”，这样就没有 U12 要求的 RPM 口径说明；S1-08 按字面实现，退路③时末尾仍接“ · TPM 不含缓存 Tokens”。是否也补 RPM 说明，请用户在 S1-09 截图时决定（只改 OpsDisabledPresentation.inlineText 一处） |
+| UI 测试 6 并发下的快照停顿 | （补充已有行）S1-09 删除 testDashboardSlowTrendDoesNotDelayCountersOrMonitoring，慢趋势夹具的用例退役；新首页用例只按元素状态等待，不依赖时间窗。趋势缩放用例已迁到 LegacyTrendUITests，阶段 4 随过渡页一起退役 |
+| 利润亏损的固定演示状态 | （补充已有行）首页部分由 LiveOpsFixtures 的 -ui-home-loss 兑现（S1-09，利润 −$115.50，HomeUITests.testLossFixtureShowsNegativeProfit）；统计分析的负值柱留给 S4-13b |
+| 路由参数在旧页面上不生效 | （补充已有行）.analytics 的 focus / metric 已在 S1-09 的过渡页 LegacyTrendPage 生效（默认显示性能页，并按 metric 预选 RPM / TPM）；range 仍未生效，留给 S4-12 / S4-13 |
+| AppModel 里随旧概览失去用途的夹具分支 | -ui-dashboard-slow-trend、-ui-missing-account-cost、-ui-cost-snapshot-error 在 S1-09 后已没有 UI 用例引用（-ui-trend-long-series、-ui-dashboard-detail-errors、-ui-performance-error 仍被 LegacyTrendUITests 或过渡页使用）；S1-09b 删旧包装时一并删除，S1-18 收口时 grep 核对 |
 
 ### App 与设计 · 阶段 2
 
