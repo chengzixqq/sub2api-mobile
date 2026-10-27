@@ -62,6 +62,11 @@ struct UserDetailView: View {
             }.disabled(busy)
             if busy { ProgressView("正在处理…") }
             if let error { Section { Text(error).foregroundStyle(.red) } }
+            // S3-04's way in until S3-05 puts “全部 N 条 ›” in the detail's record section under the same identifier.
+            Section {
+                NavigationLink(value: AppRoute.userLedger(userID: user.id)) { Text("充值与调整记录") }
+                    .frame(minHeight: 44).accessibilityIdentifier("user.ledger.all")
+            }
         }
         .navigationTitle(user.username ?? "用户 #\(user.id)")
         .task { await reload() }

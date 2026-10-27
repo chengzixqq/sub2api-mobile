@@ -103,3 +103,85 @@ extension DemoData {
     /// One day apart, older with every id, so the fixture's order is the server's created_at desc.
     private static func listCreatedAt(_ id: Int) -> String { String(format: "2026-09-%02dT00:00:00Z", 32 - id) }
 }
+
+/// 30 §4.5's `-ui-testing` launch arguments. Only page_size 20 reads count, so the detail's latest five (S3-05) never use them up.
+enum UserLedgerFixtureArgument {
+    /// `-ui-ledger-fail-once 1,2`: the first read of each listed page fails with 500.
+    static let failOnce = "-ui-ledger-fail-once"
+    /// The second read of page 1, a pull, fails with 500.
+    static let refreshFailOnce = "-ui-ledger-refresh-fail-once"
+}
+
+// 30 §4 (S3-04): balance-history. Alice has every type, adding up to her breakdown and total_recharged 70; 王小明 (3) has the
+// design's three rows and 60; everyone else, a missing id included, has an empty page as the server answers.
+extension DemoData {
+    /// Newest first. Redeemed 10 + 6 + 12 × 2 = 40, admin 20, grant 10 (101, no operator), affiliate 5 (the synthetic −7).
+    static let balanceHistoryAlice: [BalanceHistoryItem] = [
+        ledgerRow(124, "balance", "10", "2026-10-16T01:20:00Z", code: "e81c6a0f5d2b4c3a9e7f1a2b3c4d5e6f", notes: "社群活动 · 第 3 批"),
+        ledgerRow(123, "admin_balance", "20", "2026-10-12T06:02:00Z", notes: "月初预充", adjustment: (9001, "12.40000000", "32.40000000", "ops@example.com")),
+        ledgerRow(122, "admin_balance", "-5", "2026-10-08T01:15:00Z", notes: "退回未用额度", adjustment: (9002, "32.40000000", "27.40000000", "ops@example.com")),
+        ledgerRow(-7, "affiliate_balance", "5", "2026-10-07T12:30:00Z", code: "AFF-7"),
+        ledgerRow(121, "concurrency", "2", "2026-10-06T08:00:00Z", code: "c0ffee1234567890abcdef0123456789"),
+        ledgerRow(120, "admin_concurrency", "2", "2026-10-05T02:00:00Z", notes: "高峰期临时加并发", adjustment: (9003, "5.00000000", "7.00000000", "ops@example.com")),
+        ledgerRow(119, "admin_concurrency", "-1", "2026-10-04T02:00:00Z", adjustment: (9004, "7.00000000", "6.00000000", "ops@example.com")),
+        ledgerRow(118, "subscription", "30", "2026-10-03T05:12:00Z", code: "4e7c0b95aa11bb22cc33dd44ee55ff66", group: (4, "企业专线"), validityDays: 30),
+        // Migrated from an old code: no before and after.
+        ledgerRow(117, "admin_balance", "-3", "2026-10-02T03:00:00Z", notes: "旧版调整", adjustment: (9005, nil, nil, "ops@example.com")),
+        // The invitation used at sign-up is listed too (其他记录).
+        ledgerRow(116, "invitation", "0", "2026-10-01T09:00:00Z", code: "INVITE-2026"),
+        ledgerRow(115, "balance", "6", "2026-09-30T02:00:00Z", code: "9a8b7c6d5e4f30211203f4e5d6c7b8a9"),
+    ] + (103...114).reversed().map { id in
+        ledgerRow(id, "balance", "2", "2026-09-\(id - 85)T02:00:00Z", code: "5eed\(id)0c0de1234567890abcdef0123", notes: id % 3 == 0 ? "9 月活动" : "")
+    } + [
+        ledgerRow(101, "admin_balance", "10", "2026-09-01T00:00:00Z", notes: "注册赠送", adjustment: (9000, "0.00000000", "10.00000000", nil)),
+    ]
+    static let balanceHistoryWang: [BalanceHistoryItem] = [
+        ledgerRow(95, "balance", "10", "2026-10-16T01:20:00Z", code: "b7d41e0912ab34cd56ef78aa90bb12cc", notes: "社群活动 · 第 3 批"),
+        ledgerRow(94, "admin_balance", "50", "2026-10-12T06:02:00Z", notes: "月初预充", adjustment: (9101, "2.40000000", "52.40000000", "ops@example.com")),
+        ledgerRow(93, "admin_balance", "-20", "2026-10-08T01:15:00Z", notes: "退回未用额度", adjustment: (9102, "22.40000000", "2.40000000", "ops@example.com")),
+    ]
+    /// page_size 20 reads per page number in this process (each UI test launches a new one).
+    @MainActor static var balanceHistoryRequests: [Int: Int] = [:]
+
+    /// Pages after the first start one row early, as if a record was written while paging, so the list must drop the repeat.
+    @MainActor static func balanceHistory(userID: Int, page: Int, pageSize: Int,
+                                          arguments: [String] = ProcessInfo.processInfo.arguments) throws -> BalanceHistoryPage {
+        if pageSize == PageSize.standard { try failLedgerRead(page: page, arguments: arguments) }
+        let (items, breakdown) = ledgerFixture(userID: userID)
+        let size = max(pageSize, 1), start = page > 1 ? (page - 1) * size - 1 : 0
+        return BalanceHistoryPage(items: Array(items.dropFirst(start).prefix(size)), total: items.count, page: max(page, 1), pageSize: size,
+                                  pages: max((items.count + size - 1) / size, 1), totalRecharged: breakdown.redeem + breakdown.admin + breakdown.grant,
+                                  breakdown: breakdown)
+    }
+    /// The comma-separated page numbers after `-ui-ledger-fail-once`; a missing or dash-prefixed value yields [].
+    static func ledgerFailOncePages(arguments: [String]) -> Set<Int> {
+        guard let index = arguments.firstIndex(of: UserLedgerFixtureArgument.failOnce), arguments.indices.contains(index + 1),
+              !arguments[index + 1].hasPrefix("-") else { return [] }
+        return Set(arguments[index + 1].split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) })
+    }
+
+    private static func ledgerFixture(userID: Int) -> (items: [BalanceHistoryItem], breakdown: RechargeBreakdown) {
+        switch userID {
+        case 1: (balanceHistoryAlice, RechargeBreakdown(redeem: 40, admin: 20, grant: 10, affiliate: 5))
+        case 3: (balanceHistoryWang, RechargeBreakdown(redeem: 10, admin: 50))
+        default: ([], RechargeBreakdown())
+        }
+    }
+    @MainActor private static func failLedgerRead(page: Int, arguments: [String]) throws {
+        let reads = balanceHistoryRequests[page, default: 0] + 1
+        balanceHistoryRequests[page] = reads
+        let failsOnce = reads == 1 && ledgerFailOncePages(arguments: arguments).contains(page)
+        let failsPull = reads == 2 && page == 1 && arguments.contains(UserLedgerFixtureArgument.refreshFailOnce)
+        if failsOnce || failsPull { throw APIError.server(status: 500, reason: nil) }
+    }
+    private static func ledgerRow(_ id: Int, _ type: String, _ value: String, _ usedAt: String, code: String = "", notes: String = "",
+                                  group: (id: Int, name: String)? = nil, validityDays: Int = 0,
+                                  adjustment: (id: Int, before: String?, after: String?, operatorEmail: String?)? = nil) -> BalanceHistoryItem {
+        func amount(_ raw: String?) -> Decimal? { raw.flatMap { Decimal(string: $0, locale: Locale(identifier: "en_US_POSIX")) } }
+        let time = ServerTime.parseTimestamp(usedAt)
+        return BalanceHistoryItem(id: id, code: code, type: type, value: amount(value), usedAt: time, createdAt: time,
+                                  groupID: group?.id, groupName: group?.name, validityDays: validityDays, notes: notes,
+                                  adjustmentID: adjustment?.id, beforeValue: amount(adjustment?.before), afterValue: amount(adjustment?.after),
+                                  operatorEmail: adjustment?.operatorEmail)
+    }
+}

@@ -293,6 +293,10 @@
 | 读类 POST 的安全重发（更新已有行） | S3-03 已处理 reveal：revealAPIKey 显式声明为 RequestClass.read，step-up 通过后自动重发一次；代价是它也会按读类请求在 502 / 504 时自动重试、进入后台时被取消（最多多一条审计）。阶段 6 其他语义是读的 POST 仍要各自声明。 |
 | Key 名称按反转义显示 | 后端存 html.EscapeString(name)。App 统一显示 AdminAPIKey.displayName（反转义 & < > ' " 五个实体），删除确认也按它输入；Web 显示实体原文（A&amp;B）。如要与 Web 一致，只改 S3-03 的 displayName 一处，并撤掉删除比对的反转义（S3D1-12）。 |
 | userAPIKeys 翻页期间新建的 Key | 按 id 升序翻页、去重；翻页过程中新建的 Key 最多漏掉几个，下次刷新补上。上限 50 页 × 100 个，超过就当作响应异常抛 invalidResponse。 |
+| 充值与调整记录页回前台是否自动重拉 | 00 §4.6 要求回到前台时可见区块立即刷新，30 §4.6 又写本页不轮询。S3-04 只在首屏没加载成功时重拉第 1 页，并重新触发被打断的翻页；已加载过的页等下拉刷新。若评审要求严格按 00 §4.6，改为“只加载了第 1 页时静默重拉”，只动 UserLedgerView |
+| 记录页“用户不存在”态的 UI 用例 | -ui-testing 下 AppModel.user(id:) 对不存在的 id 抛 invalidResponse 而不是 404 USER_NOT_FOUND，balance-history 对不存在的用户又返回空页，所以这个分支只有 isUserNotFound 单测和代码覆盖；S3-05 把详情夹具改成 404 时补一个 UI 用例 |
+| 30 §4.3 拆分示例与“为 0 的项省略”矛盾 | 规格示例写了“站点赠送 $0.00”“优惠码 $0.00”；S3-04 按“为 0 的项省略”实现，两句各占一行，三项都为 0 时不显示小字；规格示例待更正 |
+| UserManagementUITests 的 scroll() 会在 sheet 动画中发出退化手势 | sheet 下滑途中 scroll() 按 sheet 的导航栏取 top，拖动高度退化成 40pt，被夹到屏幕底边成了一次点按。S3-04 只在 confirmWrite 里等 sheet 关闭；S3-11 迁移、删除这个类时，新写的滚动 helper 在高度退化时应不发手势 |
 
 ### App 与设计 · 阶段 4
 

@@ -50,6 +50,7 @@ final class AnnouncementListModel {
     @ObservationIgnored private var loadedPage = 0
     @ObservationIgnored private var appliedRevision: Int?
     @ObservationIgnored private var isVisible = false
+    /// A write or invalidation not read yet; a page-1 read cancelled before it lands (the page left again) sets it back.
     @ObservationIgnored private var isStale = false
 
     init(source: AnnouncementListSource, status: AnnouncementStatus?, includeReadStats: Bool, isCurrent: @escaping @MainActor () -> Bool,
@@ -74,10 +75,10 @@ final class AnnouncementListModel {
     /// First appearance, never loaded, shown again after 60 seconds, a write since (`revision`) or a pending invalidation.
     func appeared(revision: Int) async {
         isVisible = true
-        let revisionMoved = appliedRevision.map { $0 != revision } ?? false
+        if appliedRevision.map({ $0 != revision }) ?? false { isStale = true }
         appliedRevision = revision
         let isOld = loadedAt.map { now().timeIntervalSince($0) >= Self.staleInterval } ?? true
-        guard state.value == nil || isOld || isStale || revisionMoved else { return }
+        guard state.value == nil || isOld || isStale else { return }
         await reload()
     }
     func disappeared() { isVisible = false }
@@ -140,18 +141,23 @@ final class AnnouncementListModel {
     /// The rows arrive without waiting for the counts.
     private func show(_ first: Result<Page<Announcement>, any Error>, ticket: UUID) {
         guard ticket == self.ticket else { return }
-        guard isCurrent(), !Task.isCancelled else { state = state.withCancelledLoad(); return }
+        guard isCurrent(), !Task.isCancelled else { return cancelLoad() }
         switch first {
         case .success(let page):
             state = .loaded(page.items, at: now())
             firstPageTotal = page.total; hasMore = page.hasMore; loadedPage = 1
             refresh = refresh.recordingSuccess()
         case .failure(let error) where error is CancellationError:
-            state = state.withCancelledLoad()
+            cancelLoad()
         case .failure(let error):
             state = state.withFailure(error.localizedDescription)
             refresh = refresh.recordingFailure(error, at: now())
         }
+    }
+    /// The old rows stay, and whatever asked for this read still stands, so the next appearance reads again (60 §15.6).
+    private func cancelLoad() {
+        state = state.withCancelledLoad()
+        isStale = true
     }
     private func readNextPage() async {
         guard hasMore, loadedPage > 0, !state.isLoading, isCurrent() else { return }

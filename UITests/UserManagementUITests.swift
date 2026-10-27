@@ -110,6 +110,9 @@ final class UserManagementUITests: XCTestCase {
         XCTAssertTrue(app.buttons["确认发送"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", email)).firstMatch.exists, app.debugDescription)
         app.buttons["确认发送"].tap()
+        // A save closes the editor. Scrolling while it slides out measures its bar, and the clamped drag taps the bottom
+        // edge of the detail, where S3-04's “充值与调整记录” row now sits.
+        XCTAssertTrue(element("user-editor.email").waitForNonExistence(timeout: 10), app.debugDescription)
     }
     @MainActor private func assertField(_ identifier: String, equals value: String) {
         let field = element(identifier); reveal(field)
