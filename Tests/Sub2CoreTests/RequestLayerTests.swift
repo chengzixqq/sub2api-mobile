@@ -210,7 +210,7 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     _ = try? await client.dashboard()
     _ = try? await client.dashboardTrend()
     _ = try? await client.dashboardCostSnapshot()
-    _ = try? await client.dashboardMonitoring()
+    _ = try? await client.opsOverview(timeRange: "5m")
     _ = try? await client.requestRecords(page: 1, filter: RequestLogFilter(time: .range(hour.start, hour.end)), maskedView: false)
     _ = try? await client.usageAnalysis(hour)
     _ = try? await client.userMonthUsage(id: 7)
