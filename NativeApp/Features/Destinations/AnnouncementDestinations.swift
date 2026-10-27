@@ -7,7 +7,7 @@ struct AnnouncementRouteDestination: View {
     var body: some View {
         switch route {
         // .announcements：S6-16
-        case .announcements: ComingSoonView(title: route.placeholderTitle)
+        case .announcements(let segment): AnnouncementsView(status: AnnouncementSegments.status(route: segment))
         // .announcementDetail：S6-17
         case .announcementDetail: ComingSoonView(title: route.placeholderTitle)
         // .announcementReads：S6-19

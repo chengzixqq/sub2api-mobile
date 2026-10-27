@@ -83,10 +83,17 @@ public enum AnnouncementPresentation {
         default: nil
         }
     }
-    /// What the phone can edit (60 §17.3): everyone, or exactly one valid condition. Anything else is read-only.
+    /// What the phone can edit (60 §17.3, §17.4): everyone, or exactly one condition its form can save — a subscription, or a
+    /// balance > ≥ < ≤ an amount above 0. eq and an amount of 0 or less (0 arrives as no value) are Web-only, so read-only.
     public static func isSimpleTarget(_ targeting: AnnouncementTargeting) -> Bool {
         guard let group = targeting.anyOf.first else { return true }
-        return targeting.anyOf.count == 1 && group.allOf.count == 1 && group.allOf[0].isValid
+        return targeting.anyOf.count == 1 && group.allOf.count == 1 && isPhoneEditable(group.allOf[0])
+    }
+    private static let phoneBalanceOperators: Set<String> = ["gt", "gte", "lt", "lte"]
+    private static func isPhoneEditable(_ condition: AnnouncementCondition) -> Bool {
+        guard condition.isValid else { return false }
+        guard condition.type == AnnouncementCondition.balanceType else { return true }
+        return phoneBalanceOperators.contains(condition.operator) && condition.effectiveValue > 0
     }
 
     // MARK: Status and titles (15.1, 15.3, 16.1)
