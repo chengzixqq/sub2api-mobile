@@ -42,6 +42,8 @@ final class ReceiptCenter {
     nonisolated static let displayDuration: Duration = .milliseconds(4200)
 
     private(set) var current: Receipt?
+    /// C-15: points a page's own bottom bar (the account batch dock) lifts the receipt by; 0 without one.
+    private(set) var bottomClearance: Double = 0
     @ObservationIgnored private var timer: Task<Void, Never>?
     private let duration: Duration
     private let sleep: @Sendable (Duration) async throws -> Void
@@ -79,4 +81,6 @@ final class ReceiptCenter {
         timer?.cancel(); timer = nil
         current = nil
     }
+    /// Negative and non-finite values are 0. The bar sets it while shown and 0 when it leaves; receipts do not change it.
+    func setBottomClearance(_ value: Double) { bottomClearance = value.isFinite && value > 0 ? value : 0 }
 }

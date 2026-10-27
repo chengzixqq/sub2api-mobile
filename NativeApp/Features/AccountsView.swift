@@ -12,6 +12,8 @@ struct AccountsView: View {
     @State private var store: AccountListModel?
     /// 20 §1.4 row swipe; made with the store, whose rows it updates.
     @State private var actions: AccountActions?
+    /// 20 §8 batch writes over the store's selection (S2-07); the account tab only.
+    @State private var batch: AccountBatchRunner?
     @State private var hasActivated = false
     /// The root disappeared with an empty stack: the tab was left, so the next appearance enters it again (20 §1.6).
     @State private var leftTab = false
@@ -27,6 +29,7 @@ struct AccountsView: View {
         List {
             if let store { content(store) } else { AccountListSkeleton() }
         }
+        .modifier(AccountBatchModeSlot(store: store, batch: batch))
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Palette.canvas)
@@ -73,7 +76,7 @@ struct AccountsView: View {
         let menu = AccountListChrome.platformMenu(summary: summary?.platforms, loaded: store.rows, selected: selected,
                                                   allCount: summary?.totals.total ?? (selected == nil ? store.counts?.all : nil), catalog: store.catalog)
         let counts = Dictionary(uniqueKeysWithValues: AccountListChip.allCases.compactMap { chip in store.chipCount(chip).map { (chip, $0) } })
-        return AccountChipsBar(chip: store.chip, counts: counts, platform: selected,
+        return AccountChipsBar(chip: store.chip, counts: counts, platform: selected, isSelecting: store.isSelecting,
                                platformName: selected.map { AccountNaming.platformName($0, catalog: store.catalog) }, menu: menu,
                                onChip: { chip in Task { await store.select(chip) } },
                                onPlatform: { platform in Task { await store.select(platform: platform ?? "") } })
@@ -95,11 +98,16 @@ struct AccountsView: View {
     @ViewBuilder
     private func platformSection(_ store: AccountListModel, _ section: AccountPlatformSection, names: [Int: String]) -> some View {
         let collapsed = store.isCollapsed(section.platform)
+        let name = AccountNaming.platformName(section.platform, catalog: store.catalog)
         Section {
-            AccountSectionHeader(title: AccountNaming.platformName(section.platform, catalog: store.catalog), section: section, isCollapsed: collapsed) {
-                withAnimation(.snappy) { store.toggleCollapsed(section.platform) }
+            HStack(spacing: 0) {
+                AccountSectionHeader(title: name, section: section, isCollapsed: collapsed,
+                                     picked: store.isSelecting ? store.selection.pickedCount(in: section.rows.map(\.id)) : 0) {
+                    withAnimation(.snappy) { store.toggleCollapsed(section.platform) }
+                }
+                .accessibilityIdentifier("accounts.section.\(section.platform)")
+                if store.isSelecting { sectionSelect(store, section, name: name, collapsed: collapsed) }
             }
-            .accessibilityIdentifier("accounts.section.\(section.platform)")
             .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
             if !collapsed {
                 ForEach(railRows(section.rows)) { row($0, store: store, names: names) }
@@ -107,19 +115,36 @@ struct AccountsView: View {
         }
     }
 
+    private func sectionSelect(_ store: AccountListModel, _ section: AccountPlatformSection, name: String, collapsed: Bool) -> some View {
+        let ids = section.rows.map(\.id)
+        return AccountSectionSelectControl(platform: section.platform, platformName: name, picked: store.selection.pickedCount(in: ids),
+                                           allSelected: store.selection.allSelected(ids), isCollapsed: collapsed,
+                                           isEnabled: batch?.isRunning != true) { store.toggleSectionSelection(ids) }
+            .padding(.trailing, 12)
+    }
+
+    /// Selection mode: a tap ticks the row; no rail, chevron or swipe (20 §1.3, §8.1).
     private func row(_ entry: AccountRailRow, store: AccountListModel, names: [Int: String]) -> some View {
-        Button { open(entry.account) } label: {
+        let selected = store.isSelecting ? store.selection.contains(entry.id) : nil
+        return Button { tapped(entry.account, store: store) } label: {
             AccountRow(account: entry.account,
                        today: AccountTodayCell(stats: store.todayStats(for: entry.id), unavailable: store.isTodayUnavailable(for: entry.id)),
-                       context: AccountRowContext(omit: .platform), railPosition: entry.position, groupName: { names[$0] },
-                       catalog: store.catalog, onCountdownElapsed: { Task { await store.countdownElapsed() } })
+                       context: AccountRowContext(omit: .platform), railPosition: store.isSelecting ? nil : entry.position, groupName: { names[$0] },
+                       catalog: store.catalog, onCountdownElapsed: { Task { await store.countdownElapsed() } }, selected: selected)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected == true ? .isSelected : [])
         .accessibilityIdentifier("account.\(entry.id)")
-        .accountScheduleSwipe(entry.account, actions: actions, now: serverNow, isReadOnly: session?.isReadOnlyToken ?? true)
+        .accountScheduleSwipe(entry.account, actions: store.isSelecting ? nil : actions, now: serverNow,
+                              isReadOnly: session?.isReadOnlyToken ?? true)
         .listRowInsets(EdgeInsets())
-        .listRowBackground(Palette.surface)
+        .listRowBackground(selected == true ? Palette.accentWash : Palette.surface)
         .listRowSeparatorTint(Palette.hairline)
+    }
+    /// S2D1-18: the selection takes the tap while selecting, and stays put while a batch runs (20 §8.5).
+    private func tapped(_ account: UpstreamAccount, store: AccountListModel) {
+        guard store.isSelecting else { return open(account) }
+        if batch?.isRunning != true { store.toggleSelection(account.id) }
     }
 
     @ViewBuilder
@@ -177,11 +202,14 @@ struct AccountsView: View {
         // 20 §5.6: a write's account replaces its row, then the list is read again.
         actions = AccountActions(model: model, onChange: { [weak made] in made?.applyWrite($0) },
                                  onMissing: { [weak made] in made?.noteMissing(id: $0) })
+        // The group page's transitional entry has no selection mode.
+        if initialGroupID == nil { batch = AccountBatchRunner(model: model, list: made) }
         return made
     }
     /// 10 §0.7-4: the tab's root takes the intent once. `-ui-testing` may start the session with one (DemoData.AccountFixture.intent).
     private func applyIntent() {
         guard initialGroupID == nil, let store, let selection = takeSelection(fixture: false) else { return }
+        if store.isSelecting, batch?.isRunning != true { store.endSelecting() }
         Task { await store.select(selection.chip, platform: selection.platform ?? "") }
     }
     private func takeSelection(fixture: Bool) -> AccountsListSelection? {
@@ -213,6 +241,16 @@ struct AccountsView: View {
     private var serverZone: TimeZone { session?.site.serverTimeZone.timeZone ?? .current }
 }
 
+/// The batch chrome needs the store, made on first appearance; until then the page shows only its skeleton.
+private struct AccountBatchModeSlot: ViewModifier {
+    let store: AccountListModel?
+    let batch: AccountBatchRunner?
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if let store, let batch { content.accountBatchMode(list: store, runner: batch) } else { content }
+    }
+}
+
 private struct AccountRailRow: Identifiable {
     let account: UpstreamAccount
     let position: RailPosition?
@@ -225,6 +263,7 @@ private struct AccountChipsBar: View {
     let chip: AccountListChip
     let counts: [AccountListChip: Int]
     let platform: String?
+    let isSelecting: Bool
     let platformName: String?
     let menu: [AccountListChrome.PlatformMenuItem]
     let onChip: @MainActor (AccountListChip) -> Void
@@ -279,6 +318,9 @@ private struct AccountChipsBar: View {
         } label: {
             AccountChipLabel(title: "平台", count: nil, isOn: false, alerts: false, trailingSymbol: "chevron.down")
         }
+        // The design opens no platform menu while selecting; the chips still filter, and the selection follows the rows.
+        .disabled(isSelecting)
+        .opacity(isSelecting ? 0.4 : 1)
         .accessibilityLabel("平台")
         .accessibilityIdentifier("accounts.chip.platform")
     }
@@ -321,6 +363,8 @@ private struct AccountSectionHeader: View {
     let title: String
     let section: AccountPlatformSection
     let isCollapsed: Bool
+    /// Selection mode's picked rows, read after the state (design VaSection).
+    let picked: Int
     let toggle: @MainActor () -> Void
 
     var body: some View {
@@ -340,7 +384,7 @@ private struct AccountSectionHeader: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(title)，\(section.spokenSummary)，\(isCollapsed ? "已收起" : "已展开")")
+        .accessibilityLabel("\(title)，\(section.spokenSummary)，\(isCollapsed ? "已收起" : "已展开")" + (picked > 0 ? "，已选 \(picked) 个" : ""))
     }
 }
 
