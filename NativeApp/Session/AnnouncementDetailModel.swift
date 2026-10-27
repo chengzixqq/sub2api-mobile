@@ -59,6 +59,14 @@ final class AnnouncementDetailModel {
 
     // MARK: - Reads
 
+    /// Shown (again): the first read. Back on the page (from 已读情况 or another tab) only a summary that leaving cancelled
+    /// before it arrived is read, so the read line does not stay on the no-capability hint (60 §16.3).
+    func loadIfNeeded() async {
+        guard !isGone else { return }
+        guard let announcement else { return await load() }
+        guard case .idle = summary, !detail.isLoading, isCurrent() else { return }
+        await loadSummary(for: announcement, ticket: ticket)
+    }
     /// The detail (with read_stats under the capability), then the summary unless it is a draft. A failed refresh keeps the
     /// shown detail (00 §4.6).
     func load() async {

@@ -126,6 +126,37 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(bench.model.announcement?.id == 31 && bench.model.detail.failureReason == nil && !bench.model.isGone)
 }
 
+/// 60 §16.3: leaving the page (已读情况, another tab) cancels the entry read after the detail arrived; back on the page only the
+/// summary is read, so the read line does not stay on the no-capability hint.
+@MainActor @Test func detailSummaryCancelledByLeavingIsReadOnReturn() async {
+    let gate = SessionGate()
+    let stub = DetailStub(summary: { call in
+        if call == 1 { await gate.wait() }
+        return sampleSummary
+    })
+    let bench = makeBench(stub)
+    let entry = Task { await bench.model.loadIfNeeded() }
+    #expect(await eventually { await gate.arrived })
+    entry.cancel()
+    await gate.open()
+    await entry.value
+    #expect(bench.model.announcement?.id == 31 && bench.model.summary == .idle)
+
+    await bench.model.loadIfNeeded()
+    #expect(await stub.loadCount == 1)
+    #expect(await stub.summaries == 2)
+    #expect(bench.model.summaryForDisplay == sampleSummary)
+    await bench.model.loadIfNeeded()
+    #expect(await stub.summaries == 2)
+
+    let draftStub = DetailStub(load: { _, id, _ in sample(id, status: .draft) })
+    let draft = makeBench(draftStub, id: 29)
+    await draft.model.loadIfNeeded()
+    await draft.model.loadIfNeeded()
+    #expect(await draftStub.loadCount == 1)
+    #expect(await draftStub.summaries == 0)
+}
+
 @MainActor @Test func detailNotFoundMarksGoneAndOtherFailuresKeepShownContent() async {
     let missing = makeBench(DetailStub(load: { _, _, _ in throw notFound }))
     let before = missing.signal.revision
