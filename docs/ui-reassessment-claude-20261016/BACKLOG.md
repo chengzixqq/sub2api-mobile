@@ -252,6 +252,8 @@
 | 利润亏损的固定演示状态 | （补充已有行）首页部分由 LiveOpsFixtures 的 -ui-home-loss 兑现（S1-09，利润 −$115.50，HomeUITests.testLossFixtureShowsNegativeProfit）；统计分析的负值柱留给 S4-13b |
 | 路由参数在旧页面上不生效 | （补充已有行）.analytics 的 focus / metric 已在 S1-09 的过渡页 LegacyTrendPage 生效（默认显示性能页，并按 metric 预选 RPM / TPM）；range 仍未生效，留给 S4-12 / S4-13 |
 | AppModel 里随旧概览失去用途的夹具分支 | -ui-dashboard-slow-trend、-ui-missing-account-cost、-ui-cost-snapshot-error 在 S1-09 后已没有 UI 用例引用（-ui-trend-long-series、-ui-dashboard-detail-errors、-ui-performance-error 仍被 LegacyTrendUITests 或过渡页使用）；S1-09b 删旧包装时一并删除，S1-18 收口时 grep 核对 |
+| 账号角标的 dashboard/stats 退路 | AppModel.dashboard() 只剩 AppModel+Accounts.accountErrorCount() 一个调用方（没有 accounts.status_summary 的站点取账号角标数），S1-09b 因此没有删除它。以后可以把这条退路移进账号段自己的包装，再删 AppModel 概览段的 dashboard() 和 DemoData.dashboard.stats |
+| 运行区渠道“更新失败”的写法 | 首页渠道行有旧值但刷新失败时，S1-09b 保留摘要，并在行内用灰字写“更新失败”（不可点，重试靠下次轮询或下拉刷新）。规格没写，等看模拟器截图再定是否改成区块头附件 |
 
 ### App 与设计 · 阶段 2
 
