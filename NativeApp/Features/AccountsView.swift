@@ -176,8 +176,9 @@ struct AccountsView: View {
 
     // MARK: - Navigation, intents and lifecycle
 
+    /// The row goes along, so the detail opens on it (20 §2.1); the transitional entry reads by id (S2D1-18).
     private func open(_ account: UpstreamAccount) {
-        if initialGroupID == nil { router.push(.account(id: account.id)) } else { openedAccountID = account.id }
+        if initialGroupID == nil { router.push(.account(id: account.id, preload: RoutePreload(account))) } else { openedAccountID = account.id }
     }
 
     private func appeared() {

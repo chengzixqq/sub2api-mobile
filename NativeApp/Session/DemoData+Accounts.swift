@@ -26,6 +26,13 @@ extension DemoData {
         static let bulkPartial = "-ui-accounts-bulk-partial"
         /// bulk-update answers 500 as a whole (S2-07).
         static let bulkFail = "-ui-accounts-bulk-fail"
+        /// `GET :id` fails like a lost site (S2-08): the detail keeps the list's snapshot, or shows its failure page by id.
+        static let detailError = "-ui-account-detail-error"
+        /// `GET :id` answers 404 ACCOUNT_NOT_FOUND for every account while the list still has them (S2-08).
+        static let removed = "-ui-account-removed"
+        /// OpenAI-主力-01 and OpenAI-备用-A also belong to group 10, which the group page's old fixture lists (GroupsView), so its
+        /// transitional “查看与管理分组账号” has rows (S2-08).
+        static let groupTransition = "-ui-account-group-transition"
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -156,8 +163,17 @@ final class AccountDemoStore {
 
     init(base: Date, arguments: [String] = ProcessInfo.processInfo.arguments) {
         self.base = base; self.arguments = arguments
-        accounts = arguments.contains(DemoData.AccountFixture.empty)
+        let demo = arguments.contains(DemoData.AccountFixture.empty)
             ? [] : DemoData.demoAccounts(base: base, longWindows: arguments.contains(DemoData.AccountFixture.longWindows))
+        accounts = arguments.contains(DemoData.AccountFixture.groupTransition) ? Self.joiningGroupTen(demo) : demo
+    }
+    private static func joiningGroupTen(_ rows: [UpstreamAccount]) -> [UpstreamAccount] {
+        rows.map { row in
+            guard [4, 7].contains(row.id) else { return row }
+            var member = row
+            member.groupIDs.append(10)
+            return member
+        }
     }
     /// Only the newest session's store is kept.
     static func current(for generation: UUID, base: @autoclosure () -> Date) -> AccountDemoStore {
@@ -249,8 +265,12 @@ final class AccountDemoStore {
         replace(account)
         return account
     }
-    /// `GET :id` with its ETag.
-    func versioned(id: Int) throws -> VersionedAccount { VersionedAccount(account: try existing(id), etag: etag(id)) }
+    /// `GET :id` with its ETag; `detailError` and `removed` fail it (S2-08).
+    func versioned(id: Int) throws -> VersionedAccount {
+        if arguments.contains(DemoData.AccountFixture.removed) { throw APIError.server(status: 404, reason: AccountWriteReason.notFound) }
+        if arguments.contains(DemoData.AccountFixture.detailError) { throw Self.failure }
+        return VersionedAccount(account: try existing(id), etag: etag(id))
+    }
     /// `PATCH :id`, status only; If-Match must name the current version (412 ACCOUNT_VERSION_CONFLICT with current_etag).
     func patch(id: Int, body: AccountPatchRequest, ifMatch: String) throws -> VersionedAccount {
         _ = try existing(id)

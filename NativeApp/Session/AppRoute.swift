@@ -137,7 +137,8 @@ enum AppRoute: Hashable, Sendable {
     // 10
     case alert(id: Int)
     // 20
-    case account(id: Int, focus: AccountDetailFocus? = nil)
+    /// From the list the row comes along and the detail shows it first (20 §2.1); it compares by instance, not by value.
+    case account(id: Int, focus: AccountDetailFocus? = nil, preload: RoutePreload<UpstreamAccount>? = nil)
     case accountScheduledTests(accountID: Int)
     // 30
     case user(id: Int)

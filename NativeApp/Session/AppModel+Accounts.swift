@@ -66,7 +66,7 @@ extension AppModel {
         return count
     }
 
-    // MARK: 旧详情（S2-08 前）
+    // MARK: 按 id 读取（旧编辑页；S2-09 起详情的今日）
 
     /// `-ui-testing` reads the session's demo accounts; an id they lack is the server's 404.
     func account(id: Int) async throws -> UpstreamAccount {

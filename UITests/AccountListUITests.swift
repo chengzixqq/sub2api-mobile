@@ -32,8 +32,7 @@ final class AccountListUITests: XCTestCase {
         XCTAssertTrue(app.buttons["account.1"].waitForExistence(timeout: 5), app.debugDescription)
         // Opening a detail and coming back keeps the order (frozen while the list lives).
         app.buttons["account.4"].tap()
-        // The old detail (LegacyAccountDetailView) until S2-08.
-        XCTAssertTrue(element("account.detail.capacity").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
         goBack()
         XCTAssertTrue(zhipu.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertLessThan(openai.frame.minY, zhipu.frame.minY)
@@ -180,8 +179,7 @@ final class AccountListUITests: XCTestCase {
         let row = app.buttons["account.1"]
         reveal(row)
         row.tap()
-        // The old detail (LegacyAccountDetailView) until S2-08.
-        XCTAssertTrue(element("account.detail.capacity").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
         goBack()
         XCTAssertTrue(element("accounts.chip.all").waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.tabBars.buttons["账号"].isSelected, app.debugDescription)
@@ -365,9 +363,10 @@ final class AccountListUITests: XCTestCase {
         let submit = app.buttons["login.submit"]; reveal(submit); submit.tap()
         XCTAssertTrue(app.tabBars.buttons["账号"].waitForExistence(timeout: 10), app.debugDescription)
     }
-    /// System swipe buttons are found by their title; the identifier does not always reach them.
+    /// System swipe buttons are found by their title; the identifier does not always reach them. A swipe taken as a tap opens
+    /// the detail, whose button row has the same titles (S2-08).
     @MainActor private func swipeButton(_ title: String) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
+        app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'account.action.')", title)).firstMatch
     }
     @MainActor private func tapSwipeAction(on row: XCUIElement, titled title: String, file: StaticString = #filePath, line: UInt = #line) {
         row.swipeLeft()

@@ -34,8 +34,10 @@ final class Sub2MobileUITests: XCTestCase {
         reveal(app.buttons["account.2"])
         reveal(app.buttons["account.1"], towardBottom: false)
         app.buttons["account.1"].tap()
-        reveal(app.buttons["account.test"])
-        app.buttons["account.test"].tap()
+        // S2-08: the new detail; 测试连接 still opens the old test page until S2-14.
+        XCTAssertTrue(app.descendants(matching: .any)["account.detail.card"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        reveal(app.buttons["account.action.test"])
+        app.buttons["account.action.test"].tap()
         XCTAssertTrue(app.buttons["account.test.start"].waitForExistence(timeout: 5))
         // Opening the screen never launches a test or performs a server write.
         XCTAssertFalse(app.staticTexts["测试成功"].exists)

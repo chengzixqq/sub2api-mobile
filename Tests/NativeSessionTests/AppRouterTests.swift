@@ -85,7 +85,7 @@ import Sub2Core
     #expect(AppRoute.settings() == .settings(focus: .interface))
     #expect(AppRoute.redeem() == .redeem(open: nil, query: nil, status: nil, type: nil, reconcile: false))
     #expect(AppRoute.groups() == .groups(segment: nil))
-    #expect(AppRoute.account(id: 4) == .account(id: 4, focus: nil))
+    #expect(AppRoute.account(id: 4) == .account(id: 4, focus: nil, preload: nil))
     #expect(AppRoute.userEdit(id: 4) == .userEdit(id: 4, segment: .basic))
     #expect(AppRoute.analyticsModel(model: "gpt-x") == .analyticsModel(model: "gpt-x", source: .requested))
     let logs = LogsRoute()
@@ -135,4 +135,21 @@ import Sub2Core
     #expect(sheets.allSatisfy { !$0.placeholderTitle.isEmpty })
     #expect(AppSheet.addSite.placeholderTitle == "添加站点")
     #expect(AppSheet.accountTest(id: 1).placeholderTitle == "测试连接")
+}
+
+/// S2-08: the list pushes its row with the route; the route compares by the preload's instance, never by the account.
+@MainActor @Test func accountRoutePreloadComparesByIdentity() {
+    let preload = RoutePreload(UpstreamAccount(id: 7, name: "a", platform: "openai", type: "apikey"))
+    let first = AppRoute.account(id: 7, preload: preload), second = AppRoute.account(id: 7, preload: preload)
+    #expect(first == second)
+    #expect(first.hashValue == second.hashValue)
+    #expect(Set([first, second]).count == 1)
+    #expect(AppRoute.account(id: 7, preload: RoutePreload(preload.value)) != first)
+    #expect(first != AppRoute.account(id: 7))
+    #expect(preload.value.id == 7)
+    let router = AppRouter()
+    router.selectedTab = .accounts
+    router.push(first)
+    guard case .account(_, _, let pushed)? = router.path(for: .accounts).last else { Issue.record("no account route"); return }
+    #expect(pushed?.value.name == "a")
 }
