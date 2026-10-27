@@ -10,12 +10,15 @@ struct PerformanceTrendView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var history = LoadState<PerformanceTrend>()
     @State private var hours = 1
-    @State private var metric = PerformanceMetric.rpm
+    @State private var metric: PerformanceMetric
     @State private var selectedDate: Date?
     @State private var showingDetails = false
     @State private var visible = false
     private var polling: Bool { visible && scenePhase == .active }
     private var taskID: String { "\(polling)-\(hours)" }
+
+    /// S1-09: the overview's RPM or TPM cell opens on its own metric.
+    init(initialMetric: PerformanceMetric = .rpm) { _metric = State(initialValue: initialMetric) }
 
     var body: some View {
         let shouldPoll = polling

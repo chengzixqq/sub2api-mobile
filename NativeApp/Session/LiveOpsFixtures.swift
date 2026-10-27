@@ -53,6 +53,12 @@ enum LiveOpsFixtures {
         static let alertLegacySilence = "-ui-alert-legacy-silence"
         /// S1-07: dashboard/home answers a non-JSON 404 (a site without it), so the overview takes the per-endpoint fallback.
         static let homeLegacy = "-ui-home-legacy"
+        /// S1-09: today's account cost above the actual cost, so 利润 is a loss (−$115.50); the other cells stay as in the default.
+        static let profitLoss = "-ui-home-loss"
+        /// S1-09: the first home read answers 503, before any value, so the overview shows 无法连接到站点; later reads succeed.
+        static let homeUnreachableOnce = "-ui-home-unreachable-once"
+        /// S1-09: home reads never answer (until cancelled), so the first load's skeleton stays.
+        static let homePending = "-ui-home-pending"
     }
     struct Options: Equatable, Sendable {
         var variant: HomeVariant
@@ -61,6 +67,10 @@ enum LiveOpsFixtures {
         var alertWritesFail: Bool
         var alertsWithoutSilenceKey: Bool
         var homeLegacy: Bool
+        // S1-09: these three go with any variant.
+        var profitLoss = false
+        var failsFirstRound = false
+        var pendingHome = false
         var opsDisabled: Bool { ops != .on }
         init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
@@ -75,6 +85,9 @@ enum LiveOpsFixtures {
             self.init(variant: order.first { arguments.contains($0.argument) }?.variant ?? .allOK,
                       ops: OpsFixtureSwitch.from(arguments: arguments), alertWritesFail: arguments.contains(Argument.alertWriteFails),
                       alertsWithoutSilenceKey: arguments.contains(Argument.alertLegacySilence), homeLegacy: arguments.contains(Argument.homeLegacy))
+            profitLoss = arguments.contains(Argument.profitLoss)
+            failsFirstRound = arguments.contains(Argument.homeUnreachableOnce)
+            pendingHome = arguments.contains(Argument.homePending)
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -93,7 +106,8 @@ enum LiveOpsFixtures {
         let ops = HomeOps(healthScore: 94, sla: 0.992, errorRate: 0.008, upstream429Count: 12, upstream529Count: 3, requestCountTotal: 230,
                           tokenConsumed: 1_200_000)
         return DashboardHome(
-            generatedAt: base, stats: .ok(stats(base)), rates: .ok(rates(base: base, opsDisabled: options.opsDisabled)),
+            generatedAt: base, stats: .ok(stats(base, profitLoss: options.profitLoss)),
+            rates: .ok(rates(base: base, opsDisabled: options.opsDisabled)),
             hourly: options.variant == .hourlyTimeout ? HomeSection(status: .timeout, reason: "SECTION_TIMEOUT") : .ok(hourly(base)),
             ops: options.opsDisabled ? opsOff() : .ok(ops), alerts: options.opsDisabled ? opsOff() : .ok(alerts),
             availability: options.variant == .availabilityError ? HomeSection(status: .error, reason: "INTERNAL_ERROR")
@@ -101,11 +115,12 @@ enum LiveOpsFixtures {
             channels: .ok(HomeChannels(total: 10, healthy: 7, warning: 1, critical: 1, unknown: 1, coverageState: "complete",
                                        collectorState: "healthy")))
     }
-    /// The design's DEMO.today.
-    static func stats(_ base: Date) -> HomeStats {
+    /// The design's DEMO.today; `profitLoss` raises today's account cost to $1,400.00 (BACKLOG 利润亏损的固定演示状态).
+    static func stats(_ base: Date, profitLoss: Bool = false) -> HomeStats {
         HomeStats(todayRequests: 18_204, todayTokens: 96_400_000, todayCost: money(161_014), todayActualCost: money(128_450),
-                  todayAccountCost: money(51_208), statsUpdatedAt: base.addingTimeInterval(-30), yesterdaySameTimeActualCost: money(118_830),
-                  yesterdaySameTimeRequests: 16_920, yesterdaySameTimeAccountCost: money(48_912), yesterdaySameTimeUntil: base.addingTimeInterval(-86_400))
+                  todayAccountCost: money(profitLoss ? 140_000 : 51_208), statsUpdatedAt: base.addingTimeInterval(-30),
+                  yesterdaySameTimeActualCost: money(118_830), yesterdaySameTimeRequests: 16_920, yesterdaySameTimeAccountCost: money(48_912),
+                  yesterdaySameTimeUntil: base.addingTimeInterval(-86_400))
     }
     /// With ops monitoring off the error figures are null (10 §1.2).
     static func rates(base: Date, opsDisabled: Bool) -> LiveRates {
@@ -266,6 +281,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     private(set) var book: FixtureAlertBook
     private(set) var homeCalls = 0
     var events: [AlertEvent] { book.events }
+    static let unreachableError = APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE")
 
     init(options: LiveOpsFixtures.Options, base: Date = Date()) {
         self.options = options; self.base = base
@@ -273,8 +289,10 @@ actor FixtureLiveOpsSource: LiveOpsSource {
                                 writesFail: options.alertWritesFail)
     }
 
-    func dashboardHome(timezone: ServerTimeZone, include: [HomeSectionKey]?, noCache: Bool) throws -> DashboardHome {
+    func dashboardHome(timezone: ServerTimeZone, include: [HomeSectionKey]?, noCache: Bool) async throws -> DashboardHome {
         homeCalls += 1
+        if options.pendingHome { try await Task.sleep(for: .seconds(3_600)) }
+        if options.failsFirstRound, homeCalls == 1 { throw Self.unreachableError }
         if options.homeLegacy { throw APIError.server(status: 404, envelope: nil) }
         return LiveOpsFixtures.home(options, base: base, events: book.events)
     }
