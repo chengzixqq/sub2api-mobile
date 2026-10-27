@@ -178,7 +178,7 @@ struct AnnouncementDetailView: View {
         AnnouncementPresentation.targetText(announcement.targeting, groupNames: { model.groupDirectory?.name(for: $0) })
     }
 
-    /// A new session gets a new model; it reads unless it already shows the announcement (back from 已读情况).
+    /// A new session gets a new model; back from 已读情况 it reads only what leaving cancelled.
     private func appeared() async {
         guard let session, session.generation == model.sessionGeneration else { return }
         if detailGeneration != session.generation {
@@ -188,8 +188,7 @@ struct AnnouncementDetailView: View {
                                              signal: model.announcementChanges, isCurrent: { [weak model] in model?.sessionGeneration == generation })
             detailGeneration = generation
         }
-        guard let detail, detail.announcement == nil, !detail.isGone else { return }
-        await detail.load()
+        await detail?.loadIfNeeded()
     }
 }
 
