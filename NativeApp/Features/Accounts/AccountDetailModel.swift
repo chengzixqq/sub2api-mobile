@@ -240,4 +240,64 @@ final class AccountDetailModel {
         let parts = duration.components
         return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
     }
+
+    // MARK: 内联编辑（S2-10）
+
+    /// The open edit sheet with its own base; the page does not poll meanwhile (20 §2.6).
+    var editor: AccountEditorRequest?
+    private(set) var isPreparingEdit = false
+    /// The last “编辑” could not read the version: the section headers say “先刷新账号”.
+    private(set) var editNeedsRefresh = false
+}
+
+extension AccountDetailModel {
+    /// S2D1-06: an account the page has read from the server can be edited; the version is read first when needed.
+    var canEdit: Bool { loadedFromServer && !isRemoved }
+
+    /// The account and its version for a PATCH: `GET :id` first while the page only has the list's copy, or when the site has
+    /// `accounts.patch` and the version is missing or stale after a write without one (S2D1-06). nil when it cannot be read; the
+    /// headers then say “先刷新账号”.
+    func editVersion() async -> AccountEditBase? {
+        guard let app, isLive, !isRemoved, let account else { return nil }
+        let versionMissing = app.accountWriteSession?.patch == true && (etag == nil || etagNeedsRefresh)
+        guard !loadedFromServer || versionMissing else { return AccountEditBase(account: account, etag: etag) }
+        do {
+            let versioned = try await app.accountWithVersion(id: accountID)
+            guard isLive else { return nil }
+            invalidateReads()
+            apply(versioned)
+            editNeedsRefresh = false
+            return AccountEditBase(versioned)
+        } catch {
+            guard isLive, !(error is CancellationError) else { return nil }
+            if AccountDetailPresentation.isRemoved(error) { noteMissing() } else { editNeedsRefresh = true }
+            return nil
+        }
+    }
+    /// Opens the section's sheet on the account's current version (also 修改过期时间…, S2D1-20).
+    func beginEdit(_ section: AccountEditSection) async {
+        guard editor == nil, !isPreparingEdit else { return }
+        isPreparingEdit = true
+        defer { isPreparingEdit = false }
+        guard let base = await editVersion(), let flow = makePatchFlow() else { return }
+        editor = AccountEditorRequest(section: section, base: base, flow: flow)
+    }
+    /// C-14 for this account: what it saves or reads back replaces the page's account and version; a deleted account closes the
+    /// sheet and shows “已删除”; 重新载入 reads the whole page again.
+    func makePatchFlow() -> AccountPatchFlow? {
+        guard let app else { return nil }
+        return AccountPatchFlow(model: app, accountID: accountID, onChange: { [weak self] in self?.applyEdit($0) },
+                                onRemoved: { [weak self] in
+                                    self?.editor = nil
+                                    self?.noteMissing()
+                                },
+                                onReload: { [weak self] in
+                                    guard let self else { return }
+                                    Task { await self.refreshAll() }
+                                })
+    }
+    func applyEdit(_ base: AccountEditBase) {
+        invalidateReads()
+        apply(VersionedAccount(account: base.account, etag: base.etag))
+    }
 }

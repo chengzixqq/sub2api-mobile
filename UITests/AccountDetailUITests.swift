@@ -145,17 +145,13 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertFalse(element("account.detail.card").exists, app.debugDescription)
     }
 
-    /// ⋯ keeps the old edit page for every account and the old token refresh for token accounts until S2-10 / S2-16.
+    /// The sections edit the account (S2-10), so ⋯ has no 编辑账号; it keeps the old token refresh for token accounts until S2-16
+    /// and is not shown for a key account meanwhile.
     @MainActor func testMoreMenuKeepsTransitionalItems() {
         openDetail(4)
         defer { diagnostics("account-detail-more-final") }
-        app.buttons["account.detail.more"].tap()
-        XCTAssertTrue(menuButton("编辑账号").waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertFalse(menuButton("刷新令牌").exists, app.debugDescription)
-        menuButton("编辑账号").tap()
-        XCTAssertTrue(element("account.edit.name").waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["取消"].tap()
-        XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["account.section.basic.edit"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["account.detail.more"].exists, app.debugDescription)
         goBack()
         let row = app.buttons["account.1"]
         reveal(row, towardBottom: false)
@@ -163,6 +159,7 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["account.detail.more"].tap()
         XCTAssertTrue(menuButton("刷新令牌").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(menuButton("编辑账号").exists, app.debugDescription)
         menuButton("刷新令牌").tap()
         XCTAssertTrue(dialogButton("刷新令牌").waitForExistence(timeout: 5), app.debugDescription)
         dismissDialog()
@@ -299,6 +296,82 @@ final class AccountDetailUITests: XCTestCase {
         diagnostics("account-detail-today-throttled")
         waitForValue(actual, equals: "$409.38", timeout: 20)
         XCTAssertTrue(retry.waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    // MARK: - 基础 · 调度（S2-10）
+
+    /// OpenAI-主力-01's rows as the fixture holds them; an OAuth account has no 配额, a stopped one reads 停用.
+    @MainActor func testBasicAndScheduleSectionsShowReadOnlyValues() {
+        openDetail(4)
+        defer { diagnostics("account-detail-edit-sections-final") }
+        let name = element("account.basic.name")
+        reveal(name)
+        waitForValue(name, equals: "OpenAI-主力-01")
+        XCTAssertEqual(element("account.basic.status").value as? String, "正常")
+        XCTAssertEqual(element("account.basic.platform").value as? String, "OpenAI · API Key")
+        XCTAssertEqual(element("account.basic.notes").value as? String, "无数据")
+        let expected = ["concurrency": "8", "priority": "1", "loadFactor": "默认", "groups": "标准组", "expiry": "不过期",
+                        "quota.daily": "$150.00"]
+        for (id, value) in expected {
+            let row = element("account.sched.\(id)")
+            reveal(row)
+            XCTAssertEqual(row.value as? String, value, id)
+        }
+        XCTAssertFalse(element("account.sched.quota.none").exists, app.debugDescription)
+        diagnostics("account-detail-edit-sections")
+        goBack()
+        let oauth = app.buttons["account.1"]
+        reveal(oauth, towardBottom: false)
+        oauth.tap()
+        let priority = element("account.sched.priority")
+        reveal(priority)
+        XCTAssertFalse(element("account.sched.quota.none").exists || element("account.sched.quota.daily").exists, app.debugDescription)
+        goBack()
+        let stopped = app.buttons["account.10"]
+        reveal(stopped)
+        stopped.tap()
+        let status = element("account.basic.status")
+        reveal(status)
+        waitForValue(status, equals: "停用")
+    }
+
+    /// Without a `GET :id` the page shows the list's copy: both 编辑 are greyed with “先刷新账号”.
+    @MainActor func testEditNeedsFreshDetail() {
+        openDetail(4, arguments: [Fixture.detailError])
+        defer { diagnostics("account-detail-edit-needs-refresh-final") }
+        let edit = app.buttons["account.section.basic.edit"]
+        reveal(edit)
+        XCTAssertFalse(edit.isEnabled, app.debugDescription)
+        XCTAssertTrue(element("account.section.basic.needsRefresh").waitForExistence(timeout: 5), app.debugDescription)
+        let sched = app.buttons["account.section.sched.edit"]
+        reveal(sched)
+        XCTAssertFalse(sched.isEnabled, app.debugDescription)
+        XCTAssertTrue(element("account.section.sched.needsRefresh").exists, app.debugDescription)
+    }
+
+    /// C-1: a read-only admin access token greys 编辑 with “只读令牌” under it.
+    @MainActor func testReadOnlyTokenGreysEditButtons() {
+        continueAfterFailure = false
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launch()
+        XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
+        enter(Fixture.site, in: "login.name")
+        enter("https://account-detail.example.invalid", in: "login.url")
+        let method = element("login.method.accessToken"); reveal(method); method.tap()
+        enter("sat_fixture-readonly", in: "login.key")
+        let submit = app.buttons["login.submit"]; reveal(submit); submit.tap()
+        XCTAssertTrue(app.tabBars.buttons["账号"].waitForExistence(timeout: 10), app.debugDescription)
+        app.tabBars.buttons["账号"].tap()
+        defer { diagnostics("account-detail-edit-readonly-final") }
+        let row = app.buttons["account.4"]
+        reveal(row)
+        row.tap()
+        let edit = app.buttons["account.section.basic.edit"]
+        reveal(edit)
+        XCTAssertFalse(edit.isEnabled, app.debugDescription)
+        let sched = app.buttons["account.section.sched.edit"]
+        reveal(sched)
+        XCTAssertFalse(sched.isEnabled, app.debugDescription)
+        XCTAssertTrue(element("readonly.caption").exists, app.debugDescription)
     }
 
     // MARK: - Helpers

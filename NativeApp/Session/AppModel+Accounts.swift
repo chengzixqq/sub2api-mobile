@@ -140,12 +140,18 @@ extension AppModel: AccountWriteSource {
         return try await requireClient().accountWithVersion(id: id)
     }
     func patchAccount(id: Int, body: AccountPatchRequest, ifMatch: String, generation: UUID) async throws -> VersionedAccount {
-        if isUITesting { return try accountDemoWrite(generation) { try $0.patch(id: id, body: body, ifMatch: ifMatch) } }
+        if isUITesting {
+            let arguments = ProcessInfo.processInfo.arguments
+            return try accountDemoWrite(generation) { try $0.patch(id: id, request: body, ifMatch: ifMatch, arguments: arguments) }
+        }
         return try await accountWriteClient(generation).patchAccount(id: id, body: body, ifMatch: ifMatch)
     }
     func fullUpdateAccount(id: Int, patch: AccountPatchRequest, base: UpstreamAccount?, idempotencyKey: UUID?,
                            generation: UUID) async throws -> UpstreamAccount {
-        if isUITesting { return try accountDemoWrite(generation) { try $0.fullUpdate(id: id, patch: patch) } }
+        if isUITesting {
+            let arguments = ProcessInfo.processInfo.arguments
+            return try accountDemoWrite(generation) { try $0.fullUpdate(id: id, patch: patch, base: base, arguments: arguments) }
+        }
         return try await accountWriteClient(generation).fullUpdate(id: id, patch: patch, base: base, idempotencyKey: idempotencyKey)
     }
 
@@ -160,5 +166,19 @@ extension AppModel: AccountWriteSource {
         guard generation == sessionGeneration else { throw CancellationError() }
         if ProcessInfo.processInfo.arguments.contains(DemoData.AccountFixture.writeFail) { throw APIError.server(status: 500, reason: nil) }
         return try write(accountDemo)
+    }
+}
+
+// MARK: - S2-10 内联编辑
+
+/// C-14: the save flow's pre-check; `-ui-testing` asks the session's AccountDemoStore by the backend's rule.
+extension AppModel: AccountPatchSource {
+    var hasMixedChannelDetails: Bool { sessionContext?.has(.accountsMixedChannelDetails) == true }
+    func checkMixedChannel(platform: String, groupIDs: [Int], accountID: Int?, generation: UUID) async throws -> MixedChannelCheck {
+        if isUITesting {
+            let arguments = ProcessInfo.processInfo.arguments
+            return try accountDemoWrite(generation) { $0.mixedChannelCheck(platform: platform, groupIDs: groupIDs, accountID: accountID, arguments: arguments) }
+        }
+        return try await accountWriteClient(generation).checkMixedChannel(platform: platform, groupIDs: groupIDs, accountID: accountID)
     }
 }

@@ -37,6 +37,19 @@ extension DemoData {
         static let groupTransition = "-ui-account-group-transition"
         /// The detail's first `GET :id/today-stats` answers 429 with retry_after 8 (S2-09); later reads work.
         static let todayThrottled = "-ui-account-today-throttled"
+        /// Before each account's first PATCH another administrator changes its notes to `otherAdminNotes`, so that PATCH meets
+        /// 412 ACCOUNT_VERSION_CONFLICT (S2-10).
+        static let patchConflict = "-ui-account-patch-conflict"
+        static let otherAdminNotes = "另一位管理员改了备注"
+        /// Any write whose groups include 1 (高级组) meets the mixed-channel risk, on top of the members' own rule (S2D1-14).
+        static let mixedChannel = "-ui-account-mixed-channel"
+        /// The session's first PATCH is lost on the way: nothing is written and the reply never comes (S2-10).
+        static let patchTimeout = "-ui-account-patch-timeout"
+        /// `GET :id` reads like a server older than credential redaction: a secret in the clear and no ETag (S2D1-09). Tests
+        /// add `-ui-without-capabilities accounts.patch`, as such a site has no PATCH.
+        static let legacyServer = "-ui-account-legacy-server"
+        /// DeepSeek-01 expired an hour ago with auto_pause_on_expired, so it reads “暂停（已过期）” (S2D1-20).
+        static let expired = "-ui-account-expired"
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -171,7 +184,8 @@ final class AccountDemoStore {
         self.base = base; self.arguments = arguments
         let demo = arguments.contains(DemoData.AccountFixture.empty)
             ? [] : DemoData.demoAccounts(base: base, longWindows: arguments.contains(DemoData.AccountFixture.longWindows))
-        accounts = arguments.contains(DemoData.AccountFixture.groupTransition) ? Self.joiningGroupTen(demo) : demo
+        let grouped = arguments.contains(DemoData.AccountFixture.groupTransition) ? Self.joiningGroupTen(demo) : demo
+        accounts = arguments.contains(DemoData.AccountFixture.expired) ? Self.expiringDeepSeek(grouped, base: base) : grouped
     }
     private static func joiningGroupTen(_ rows: [UpstreamAccount]) -> [UpstreamAccount] {
         rows.map { row in
@@ -248,6 +262,9 @@ final class AccountDemoStore {
 
     /// `config_version` by id (“cv-N”, from 1); PATCH and PUT move it on.
     private var versions: [Int: Int] = [:]
+    /// Accounts whose `patchConflict` edit already happened, and whether `patchTimeout` has lost its PATCH (S2-10).
+    private var conflictServed: Set<Int> = []
+    private var timeoutServed = false
 
     /// `POST :id/schedulable`.
     func setSchedulable(id: Int, enabled: Bool) throws -> UpstreamAccount {
@@ -271,30 +288,48 @@ final class AccountDemoStore {
         replace(account)
         return account
     }
-    /// `GET :id` with its ETag; `detailError` and `removed` fail it (S2-08).
+    /// `GET :id` with its ETag; `detailError` and `removed` fail it (S2-08), `legacyServer` answers like an old server (S2-10).
     func versioned(id: Int) throws -> VersionedAccount {
         if arguments.contains(DemoData.AccountFixture.removed) { throw APIError.server(status: 404, reason: AccountWriteReason.notFound) }
         if arguments.contains(DemoData.AccountFixture.detailError) { throw Self.failure }
+        if arguments.contains(DemoData.AccountFixture.legacyServer) { return VersionedAccount(account: Self.inTheClear(try existing(id)), etag: nil) }
         return VersionedAccount(account: try existing(id), etag: etag(id))
     }
     /// `slowDetail`'s wait before `GET :id` answers; cancelling the read ends it.
     var detailReadDelay: Duration? { arguments.contains(DemoData.AccountFixture.slowDetail) ? .seconds(8) : nil }
-    /// `PATCH :id`, status only; If-Match must name the current version (412 ACCOUNT_VERSION_CONFLICT with current_etag).
-    func patch(id: Int, body: AccountPatchRequest, ifMatch: String) throws -> VersionedAccount {
-        _ = try existing(id)
-        guard ifMatch == etag(id) else {
-            throw APIError.server(status: 412, envelope: ErrorEnvelope(reason: AccountWriteReason.versionConflict, metadata: ["current_etag": etag(id)]))
-        }
-        let account = try fullUpdate(id: id, patch: body)
-        return VersionedAccount(account: account, etag: etag(id))
-    }
-    /// `PUT :id`, status only.
-    func fullUpdate(id: Int, patch: AccountPatchRequest) throws -> UpstreamAccount {
+    /// `PATCH :id` (S2-10): If-Match must name the current version (412 ACCOUNT_VERSION_CONFLICT with current_etag), changed
+    /// groups meet the mixed-channel rule (409), and every key takes effect.
+    func patch(id: Int, request: AccountPatchRequest, ifMatch: String, arguments: [String]) throws -> VersionedAccount {
+        _ = try request.requestBody()
         var account = try existing(id)
-        if let status = patch.status { account.status = status.rawValue }
-        versions[id] = (versions[id] ?? 1) + 1
-        replace(account)
-        return account
+        if arguments.contains(DemoData.AccountFixture.patchConflict), conflictServed.insert(id).inserted {
+            account.notes = DemoData.AccountFixture.otherAdminNotes
+            replace(account)
+            bump(id)
+        }
+        if arguments.contains(DemoData.AccountFixture.patchTimeout), !timeoutServed {
+            timeoutServed = true
+            throw APIError(kind: .transport, message: "连接超时，请检查网络后重试。")
+        }
+        guard ifMatch == etag(id) else {
+            let metadata = ["current_etag": etag(id), "current_config_version": String(versions[id] ?? 1)]
+            throw APIError.server(status: 412, envelope: ErrorEnvelope(reason: AccountWriteReason.versionConflict, metadata: metadata))
+        }
+        try refuseMixedChannel(request, account: account, arguments: arguments)
+        let updated = Self.applying(request, to: account)
+        replace(updated)
+        bump(id)
+        return VersionedAccount(account: updated, etag: etag(id))
+    }
+    /// `PUT :id`, the fallback without `accounts.patch`: the body the client would build, then the same rules as PATCH.
+    func fullUpdate(id: Int, patch: AccountPatchRequest, base: UpstreamAccount?, arguments: [String]) throws -> UpstreamAccount {
+        _ = try patch.fullUpdateBody(base: base)
+        let account = try existing(id)
+        try refuseMixedChannel(patch, account: account, arguments: arguments)
+        let updated = Self.applying(patch, to: account)
+        replace(updated)
+        bump(id)
+        return updated
     }
 
     /// `POST bulk-update {account_ids, schedulable}` (S2-07): ids the site does not have are left out of the reply, as a vendor's
@@ -322,6 +357,7 @@ final class AccountDemoStore {
         return account
     }
     private func etag(_ id: Int) -> String { "\"cv-\(versions[id] ?? 1)\"" }
+    private func bump(_ id: Int) { versions[id] = (versions[id] ?? 1) + 1 }
 
     private static func byName(_ rows: [UpstreamAccount], descending: Bool) -> [UpstreamAccount] {
         let sorted = rows.sorted { ($0.name, $0.id) < ($1.name, $1.id) }
@@ -393,5 +429,97 @@ extension AccountDemoStore {
     private static func upstreamRow(_ id: Int, platform: String, status: Int, message: String, at createdAt: String) -> [String: Any] {
         ["id": id, "created_at": createdAt, "request_id": "req-upstream-\(id)", "phase": "upstream", "type": "upstream_error", "status_code": status,
          "platform": platform, "model": "demo-model", "resolved": false, "message": message]
+    }
+}
+
+// MARK: - S2-10 内联编辑
+
+extension AccountDemoStore {
+    /// S2D1-14, the backend's checkMixedChannelRisk: only Anthropic and Antigravity accounts; a group is at risk when another
+    /// member (not this account) is of the other one. `mixedChannel` also puts every request naming group 1 at risk.
+    func mixedChannelCheck(platform: String, groupIDs: [Int], accountID: Int?, arguments: [String]) -> MixedChannelCheck {
+        guard let mine = Self.mixedPlatform(platform) else { return MixedChannelCheck(hasRisk: false) }
+        let other = mine == "Anthropic" ? "Antigravity" : "Anthropic"
+        let forced = arguments.contains(DemoData.AccountFixture.mixedChannel)
+        let risky = groupIDs.first { id in
+            (forced && id == 1) || accounts.contains { $0.id != accountID && $0.groupIDs.contains(id) && Self.mixedPlatform($0.platform) == other }
+        }
+        guard let risky else { return MixedChannelCheck(hasRisk: false) }
+        let name = DemoData.accountGroups.first { $0.id == risky }?.name ?? "#\(risky)"
+        return MixedChannelCheck(hasRisk: true, details: .init(groupID: risky, groupName: name, currentPlatform: mine, otherPlatform: other))
+    }
+
+    /// 409 MIXED_CHANNEL_WARNING for changed groups not yet confirmed; without accounts.mixed_channel_details it has no metadata,
+    /// as an older server's.
+    fileprivate func refuseMixedChannel(_ request: AccountPatchRequest, account: UpstreamAccount, arguments: [String]) throws {
+        guard let groups = request.groupIDs, request.confirmMixedChannelRisk != true else { return }
+        let check = mixedChannelCheck(platform: account.platform, groupIDs: groups, accountID: account.id, arguments: arguments)
+        guard check.hasRisk, let details = check.details else { return }
+        let detailed = !DemoData.withheldCapabilities(arguments: arguments).contains(Capability.accountsMixedChannelDetails.rawValue)
+        let metadata = ["group_id": String(details.groupID ?? 0), "group_name": details.groupName,
+                        "current_platform": details.currentPlatform, "other_platform": details.otherPlatform]
+        throw APIError.server(status: 409, envelope: ErrorEnvelope(reason: AccountWriteReason.mixedChannelWarning, metadata: detailed ? metadata : nil))
+    }
+
+    /// Every key of 20 §3.2 the edit sheets send: ≤ 0 clears the load factor and the expiry, "" the notes; groups take their
+    /// fixture names; `extra_patch` merges into extra and the quota limits show on the account as the DTO flattens them.
+    fileprivate static func applying(_ request: AccountPatchRequest, to account: UpstreamAccount) -> UpstreamAccount {
+        var updated = account
+        if let name = request.name { updated.name = name.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let notes = request.notes { updated.notes = notes.isEmpty ? nil : notes }
+        if let status = request.status { updated.status = status.rawValue }
+        if let value = request.concurrency { updated.concurrency = value }
+        if let value = request.priority { updated.priority = value }
+        if let value = request.rateMultiplier { updated.rateMultiplier = value }
+        if let value = request.loadFactor { updated.loadFactor = value > 0 ? value : nil }
+        if let ids = request.groupIDs {
+            updated.groupIDs = ids
+            updated.groups = ids.map { id in .init(id: id, name: DemoData.accountGroups.first { $0.id == id }?.name ?? "#\(id)") }
+        }
+        if let value = request.expiresAt { updated.expiresAt = value > 0 ? value : nil }
+        if let value = request.autoPauseOnExpired { updated.autoPauseOnExpired = value }
+        return request.extraPatch.isEmpty ? updated : withExtra(request.extraPatch, on: updated)
+    }
+    private static func withExtra(_ patch: [String: JSONPatchValue], on account: UpstreamAccount) -> UpstreamAccount {
+        var updated = account
+        var fields = account.extra?.raw.objectValue ?? [:]
+        for (key, change) in patch {
+            if case .set(let value) = change, !change.isDeletion { fields[key] = value } else { fields[key] = nil }
+        }
+        updated.extra = try? AccountExtra(raw: .object(fields))
+        for quota in AccountQuota.allCases where patch[quota.extraKey] != nil {
+            let limit = fields[quota.extraKey]?.decimalValue
+            switch quota {
+            case .daily: updated.quotaDailyLimit = limit
+            case .weekly: updated.quotaWeeklyLimit = limit
+            case .total: updated.quotaLimit = limit
+            }
+        }
+        return updated
+    }
+    private static func mixedPlatform(_ platform: String) -> String? {
+        switch platform.lowercased() {
+        case "anthropic", "claude": "Anthropic"
+        case "antigravity": "Antigravity"
+        default: nil
+        }
+    }
+    /// The account as a server before credential redaction sends it: a key in the clear, which the decoder drops and marks.
+    fileprivate static func inTheClear(_ account: UpstreamAccount) -> UpstreamAccount {
+        guard let data = try? JSONEncoder().encode(account),
+              var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return account }
+        json["credentials"] = ["api_key": "legacy-fixture-key", "base_url": "https://api.example.invalid"]
+        guard let raw = try? JSONSerialization.data(withJSONObject: json),
+              let decoded = try? JSONDecoder().decode(UpstreamAccount.self, from: raw) else { return account }
+        return decoded
+    }
+    fileprivate static func expiringDeepSeek(_ rows: [UpstreamAccount], base: Date) -> [UpstreamAccount] {
+        rows.map { row in
+            guard row.id == 8 else { return row }
+            var expired = row
+            expired.expiresAt = Int64(base.timeIntervalSince1970) - 3_600
+            expired.autoPauseOnExpired = true
+            return expired
+        }
     }
 }
