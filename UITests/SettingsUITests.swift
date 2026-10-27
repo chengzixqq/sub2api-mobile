@@ -219,6 +219,39 @@ final class SettingsUITests: XCTestCase {
         XCTAssertFalse(element("settings.pending.check.0A000000-0000-4000-8000-000000000002").exists)
     }
 
+    /// S3-07, C-26: an older login at this address (another site id, same URL) is checked here with the current identity.
+    @MainActor func testSameAddressOldLoginRecordsAreCheckedHere() {
+        launchAndLogin(arguments: ["-ui-pending-old-site"])
+        defer { diagnostics("settings-pending-old-login-final") }
+        app.openSitesSettings()
+        for id in ["0B000000-0000-4000-8000-000000000001", "0B000000-0000-4000-8000-000000000002", "0B000000-0000-4000-8000-000000000003"] {
+            reveal(element("settings.pending.check.\(id)"))
+            XCTAssertFalse(element("settings.pending.web.\(id)").exists, id + "\n" + app.debugDescription)
+            XCTAssertEqual(element("settings.pending.origin.\(id)").label, "本站点的旧登录下发起", id)
+        }
+        diagnostics("settings-pending-old-login")
+        let topUp = element("settings.pending.check.0B000000-0000-4000-8000-000000000001")
+        reveal(topUp, towardBottom: false)
+        topUp.tap()
+        XCTAssertTrue(app.navigationBars["Alice"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("user.pending.0B000000-0000-4000-8000-000000000001").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// Only a record of another address still opens its own site (D17).
+    @MainActor func testOtherAddressRecordStillOpensItsSite() {
+        launchAndLogin(arguments: ["-ui-pending-money", "-ui-pending-old-site"])
+        defer { diagnostics("settings-pending-other-address-final") }
+        app.openSitesSettings()
+        let web = element("settings.pending.web.0A000000-0000-4000-8000-000000000003")
+        reveal(web)
+        XCTAssertFalse(element("settings.pending.check.0A000000-0000-4000-8000-000000000003").exists, app.debugDescription)
+        XCTAssertFalse(element("settings.pending.origin.0A000000-0000-4000-8000-000000000003").exists, app.debugDescription)
+        let grant = element("settings.pending.check.0B000000-0000-4000-8000-000000000003")
+        reveal(grant, towardBottom: false)
+        grant.tap()
+        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
     // MARK: Helpers
 
     @MainActor private func launchAndLogin(arguments: [String] = [], name: String = "设置站点", url: String = "https://settings.example.invalid") {

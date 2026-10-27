@@ -21,6 +21,7 @@ let package = Package(
             "AppModel+Accounts.swift",
             "DemoData+Accounts.swift",
             // 阶段 3
+            "AppModel+BalanceReconcile.swift",
             "AppModel+Users.swift",
             "DemoData+Users.swift",
             // 阶段 4

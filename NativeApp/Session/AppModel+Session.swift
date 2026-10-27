@@ -21,6 +21,9 @@ extension AppModel {
         case .resume(let reprobe):
             forwardToClient { await $0.resume() }
             if reprobe { Task { await reprobeActiveSession() } }
+            // 30 §3.6 once the client is no longer paused (S3D1-19).
+            let resumed = sceneTask
+            Task { await resumed?.value; await reconcilePendingOnForeground() }
         }
     }
     /// Back after more than five minutes (00 §4.6). A failed probe keeps the previous site session; a session the server

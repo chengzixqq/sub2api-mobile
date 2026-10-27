@@ -244,3 +244,97 @@ extension DemoData {
         throw APIError.server(status: 500, reason: nil)
     }
 }
+
+/// S3-07's `-ui-testing` launch arguments: what a balance check finds, and more pending records (C-26).
+enum BalanceReconcileFixtureArgument {
+    /// The check finds the record by action_id / request_id.
+    static let executed = "-ui-reconcile-executed"
+    /// 服务器上没有这笔记录.
+    static let notExecuted = "-ui-reconcile-notfound"
+    static let candidate = "-ui-reconcile-candidate"
+    static let ambiguous = "-ui-reconcile-ambiguous"
+    /// The fallback could not conclude (S3-06's notFound).
+    static let inconclusive = "-ui-reconcile-inconclusive"
+    static let running = "-ui-reconcile-running"
+    /// The query fails with 500.
+    static let failed = "-ui-reconcile-failed"
+    /// An older login at the connected address (another site id): Alice 充值 $50.00, a redeem batch and Bob's compensation.
+    static let oldSite = "-ui-pending-old-site"
+    /// A $10.00 balance compensation of Alice at the connected site.
+    static let compensationHere = "-ui-pending-compensation-here"
+    /// The records were sent by user 2 (Bob), not the fixture administrator 1; shared with `-ui-pending-money` (S0-15).
+    static let otherActor = "-ui-pending-other-actor"
+    /// With `-ui-step-up-required`, a balance write is refused with STEP_UP_REQUIRED until verified.
+    static let retryStepUp = "-ui-balance-retry-step-up"
+}
+
+// S3-07 (C-26): records of an older login at the same address and the reconciliation's ledger rows. Ids 0B… (older login),
+// 0C… (this site) and 0D… (the older login's site id) are not used elsewhere.
+extension DemoData {
+    struct PendingVariants {
+        let oldLoginSite: ServerProfile?
+        let balances: [PendingBalanceOperation]
+        let batches: [PendingRedeemBatch]
+        let compensations: [PendingCompensation]
+        var ids: Set<UUID> { Set(balances.map(\.id) + batches.map(\.id) + compensations.map(\.id)) }
+    }
+    static let oldLoginSiteID = UUID(uuidString: "0D000000-0000-4000-8000-000000000001")!
+
+    /// The older login's records are ten minutes old, before `-ui-pending-money`'s refund, so Alice's banner shows them first.
+    static func pendingVariants(current: ServerProfile, now: Date, arguments: [String]) -> PendingVariants? {
+        let oldSite = arguments.contains(BalanceReconcileFixtureArgument.oldSite), here = arguments.contains(BalanceReconcileFixtureArgument.compensationHere)
+        guard oldSite || here else { return nil }
+        let actor = arguments.contains(BalanceReconcileFixtureArgument.otherActor) ? 2 : 1, old = now.addingTimeInterval(-600)
+        var balances: [PendingBalanceOperation] = [], batches: [PendingRedeemBatch] = [], compensations: [PendingCompensation] = []
+        if oldSite {
+            balances.append(PendingBalanceOperation(id: fixtureID("0B000000-0000-4000-8000-000000000001"), serverID: oldLoginSiteID, userID: 1, amount: 50,
+                                                    operation: .add, notes: "补偿 10/16 故障", actorUserID: actor, createdAt: old,
+                                                    userDisplayName: "Alice", userEmail: "alice@example.com"))
+            batches.append(PendingRedeemBatch(id: fixtureID("0B000000-0000-4000-8000-000000000002"), serverID: oldLoginSiteID, actorUserID: actor,
+                                              createdAt: old, spec: RedeemGenerateSpec(type: .balance, value: 5, count: 10)))
+            compensations.append(PendingCompensation(id: fixtureID("0B000000-0000-4000-8000-000000000003"), serverID: oldLoginSiteID, actorUserID: actor,
+                                                     createdAt: old, userID: 2, userDisplayName: "Bob", userEmail: "bob@example.com",
+                                                     code: "FIXTURE-GRANT-0B03", type: .balance, value: 8))
+        }
+        if here {
+            compensations.append(PendingCompensation(id: fixtureID("0C000000-0000-4000-8000-000000000001"), serverID: current.id, actorUserID: 1,
+                                                     createdAt: now.addingTimeInterval(-120), userID: 1, userDisplayName: "Alice",
+                                                     userEmail: "alice@example.com", code: "FIXTURE-GRANT-0C01", type: .balance, value: 10))
+        }
+        let site = oldSite ? ServerProfile(id: oldLoginSiteID, name: current.name, baseURL: current.baseURL, authentication: current.authentication) : nil
+        return PendingVariants(oldLoginSite: site, balances: balances, batches: batches, compensations: compensations)
+    }
+
+    /// What `-ui-reconcile-*` makes the check find; nil without one. `balance` is the user's in this session: an add ends above
+    /// it, a refund or set ends at it.
+    static func reconcileOutcome(for op: PendingBalanceOperation, balance: Decimal, arguments: [String]) throws -> BalanceReconcileOutcome? {
+        typealias Argument = BalanceReconcileFixtureArgument
+        if arguments.contains(Argument.failed) { throw APIError.server(status: 500, reason: nil) }
+        if arguments.contains(Argument.running) { return .stillRunning }
+        if arguments.contains(Argument.notExecuted) { return .notExecuted }
+        if arguments.contains(Argument.inconclusive) { return .notFound }
+        let row = try adjustmentRow(id: 9201, for: op, balance: balance)
+        if arguments.contains(Argument.executed) { return .executed(row) }
+        if arguments.contains(Argument.candidate) { return .candidate(row) }
+        if arguments.contains(Argument.ambiguous) { return .ambiguous([row, try adjustmentRow(id: 9202, for: op, balance: balance)]) }
+        return nil
+    }
+
+    private static func fixtureID(_ text: String) -> UUID { UUID(uuidString: text)! }
+    /// A `GET admin/user-adjustments` row of this write, as the server writes it.
+    private static func adjustmentRow(id: Int, for op: PendingBalanceOperation, balance: Decimal) throws -> UserAdjustment {
+        let (before, after): (Decimal, Decimal) = switch op.operation {
+        case .add: (balance, balance + op.amount)
+        case .subtract: (balance + op.amount, balance)
+        case .set: (balance, op.amount)
+        }
+        func amount(_ value: Decimal) -> String { NSDecimalNumber(decimal: value).stringValue }
+        let fields: [String: Any] = [
+            "id": id, "kind": "balance", "operation": op.operation.rawValue, "requested_value": amount(op.amount), "delta": amount(after - before),
+            "before_value": amount(before), "after_value": amount(after), "user_id": op.userID, "user_email": op.userEmail ?? "",
+            "operator_user_id": op.actorUserID ?? 0, "notes": op.notes, "request_id": op.key, "source": "admin",
+            "created_at": ServerTime.utcTimestamp((op.createdAt ?? Date()).addingTimeInterval(5)),
+        ]
+        return try JSONDecoder().decode(UserAdjustment.self, from: JSONSerialization.data(withJSONObject: fields))
+    }
+}

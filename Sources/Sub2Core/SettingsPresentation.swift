@@ -112,14 +112,25 @@ public enum SettingsPresentation {
         tokens.filter { token in ServerTime.parseTimestamp(token.expiresAt).map { $0 > now } ?? true }.count
     }
 
+    /// C-26: a record of this address is checked here with the current identity (“去核对 ›”); only another address's opens
+    /// that site (“打开原站点核对”), whose credential may be gone (D17).
+    public enum PendingRowAction: Sendable, Equatable { case check, openOriginalSite }
+    /// The note of a row from an older login at this address; S6-04 / S6-06 reuse it (S3D1-08).
+    public static var oldLoginRowNote: String { MoneyRecordOrigin.oldLoginNote }
+
     public struct PendingRow: Equatable, Sendable {
         public let title: String
         public let detail: String
         public let amount: String?
-        public init(title: String, detail: String, amount: String?) { self.title = title; self.detail = detail; self.amount = amount }
+        public let originNote: String?
+        public let action: PendingRowAction
+        public init(title: String, detail: String, amount: String?, originNote: String? = nil, action: PendingRowAction = .check) {
+            self.title = title; self.detail = detail; self.amount = amount; self.originNote = originNote; self.action = action
+        }
     }
     /// The shared title and detail line (00 §2.5.5) with the record's site in front; amounts echo what was typed.
-    public static func pendingRow(siteName: String, summary: PendingMoneyWriteSummary, now: Date, timeZone: TimeZone) -> PendingRow {
+    public static func pendingRow(siteName: String, summary: PendingMoneyWriteSummary, now: Date, timeZone: TimeZone,
+                                  origin: PendingRecordOrigin = .currentSite) -> PendingRow {
         let line = PendingMoneyWriteLine(summary)
         let time = summary.createdAt.map { DisplayFormat.relativeTime($0, now: now, timeZone: timeZone) }
         let amount: String? = switch line.amount {
@@ -127,6 +138,8 @@ public enum SettingsPresentation {
         case .allBalance: PendingMoneyWriteLine.allBalanceText
         case nil: nil
         }
-        return PendingRow(title: line.title, detail: siteName + " · " + line.detail(relativeTime: time), amount: amount)
+        return PendingRow(title: line.title, detail: siteName + " · " + line.detail(relativeTime: time), amount: amount,
+                          originNote: origin == .sameAddressOldLogin ? oldLoginRowNote : nil,
+                          action: origin == .otherAddress ? .openOriginalSite : .check)
     }
 }

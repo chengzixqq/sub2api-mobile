@@ -164,7 +164,39 @@ extension AppModel {
     }
 
     // MARK: - 余额写
-
+    /// The only sender of a balance write (S3D1-16; S3-07's retry, S3-08's keypad): another administrator's record is refused
+    /// before anything goes out, because the server derives action_id from the sender. Records of an older login at this
+    /// address are accepted (C-26); a reply echoing another X-Request-ID marks the site (30 §3.4).
+    func updateBalance(_ write: PersistedMoneyWrite<PendingBalanceOperation>, onEvent: @escaping KeyedWriteEventHandler) async throws -> WriteOutcome<AdminUser> {
+        let record = write.record, sameAddress = sameAddressServerIDs()
+        try MoneyRecordOrigin.checkSender(actorUserID: record.actorUserID, currentUserID: siteSession?.me.user?.id, recordServerID: record.serverID,
+                                          currentServerID: activeProfile?.id, sameAddress: sameAddress)
+        if isUITesting { return try await fixtureUpdateBalance(record, onEvent: onEvent) }
+        let outcome = try await requireClient().updateBalance(write, sameAddress: sameAddress, onEvent: onEvent)
+        noteRequestIDEcho(outcome.requestID, for: record)
+        return outcome
+    }
+    /// Runs the write on the session's users. `-ui-balance-retry-step-up` with `-ui-step-up-required` refuses it until verified,
+    /// through the same interception as a real refusal.
+    private func fixtureUpdateBalance(_ record: PendingBalanceOperation, onEvent: KeyedWriteEventHandler) async throws -> WriteOutcome<AdminUser> {
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        if ProcessInfo.processInfo.arguments.contains(BalanceReconcileFixtureArgument.retryStepUp), stepUpRequirement() == .verify {
+            let refusal = APIError.server(status: 403, reason: "STEP_UP_REQUIRED")
+            throw refusal.withSecurityOutcome(await interceptSecurity(refusal, isRead: false, generation: sessionGeneration))
+        }
+        let generation = sessionGeneration, actionID = UUID()
+        await onEvent(.actionID(actionID))
+        guard generation == sessionGeneration else { throw CancellationError() }
+        var users = demoUsersBySession[generation] ?? DemoData.allUsers
+        guard let index = users.firstIndex(where: { $0.id == record.userID }) else { throw APIError.server(status: 404, reason: "USER_NOT_FOUND") }
+        users[index].balance = switch record.operation {
+        case .add: users[index].balance + record.amount
+        case .subtract: users[index].balance - record.amount
+        case .set: record.amount
+        }
+        demoUsersBySession[generation] = users
+        return WriteOutcome(value: users[index], actionID: actionID, requestID: record.key)
+    }
     // MARK: - 核对
 
     // MARK: - Key
