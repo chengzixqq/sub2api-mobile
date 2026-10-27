@@ -1,13 +1,13 @@
 import SwiftUI
 import Sub2Core
 
-/// 30 §2.3, R02: at the top of the detail, before the disabled banner. The user's earliest pending balance write of this
-/// address (C-26) and every compensation, one caution banner each; a record of an older login says so. “核对” checks a
-/// balance record here (a progress while it runs) and opens a compensation's result page (60 §19). One settled, the next
-/// shows.
+/// 30 §2.3, R02: at the top of the detail, before the disabled banner, and over a deleted user or a failed profile. The user's
+/// earliest pending balance write of this address (C-26) and every compensation, one caution banner each; a record of an
+/// older login says so. “核对” checks a balance record here (a progress while it runs) and opens a compensation's result page
+/// (60 §19). One settled, the next shows.
 struct PendingBalanceBanner: View {
     let userID: Int
-    /// The balance on the page, for the Face ID amount of a set (D26).
+    /// The balance on the page, for the Face ID amount of a set (D26); nil without a profile.
     let balance: Decimal?
     let flow: BalanceReconcileFlow
     @Environment(AppModel.self) private var model

@@ -55,13 +55,13 @@ struct UserDetailView: View {
     @ViewBuilder private var content: some View {
         if let detail {
             if detail.isMissing {
-                notFound
+                pendingBanner(over: notFound)
             } else {
                 switch detail.profile.state.display {
                 case .placeholder, .disabled:
                     UserDetailSkeleton()
                 case .failed(let reason):
-                    failure(reason, detail: detail)
+                    pendingBanner(over: failure(reason, detail: detail))
                 case .value(let user, _, _, _):
                     UserDetailContent(detail: detail, user: user, timeZone: session?.site.serverTimeZone ?? .device, reconcileFlow: reconcileFlow,
                                       onEnable: { Task { await detail.setStatus(enable: true) } },
@@ -125,6 +125,16 @@ struct UserDetailView: View {
             Label(UserDetailPresentation.notFound, systemImage: "person.crop.circle.badge.xmark").accessibilityIdentifier("user.detail.not-found")
         } actions: {
             Button("返回") { dismiss() }.frame(minHeight: 44).accessibilityIdentifier("user.detail.back")
+        }
+    }
+    /// The banner is the only place a pending record is checked or abandoned, so it stays over a deleted user and a failed
+    /// profile; a set's Face ID amount is then unknown (D26).
+    private func pendingBanner(over state: some View) -> some View {
+        state.safeAreaInset(edge: .top, spacing: 0) {
+            if model.hasPendingBanner(userID: userID) {
+                PendingBalanceBanner(userID: userID, balance: nil, flow: reconcileFlow)
+                    .padding(.horizontal).padding(.top, 8)
+            }
         }
     }
 
