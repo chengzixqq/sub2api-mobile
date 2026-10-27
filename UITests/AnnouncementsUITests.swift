@@ -97,9 +97,9 @@ final class AnnouncementsUITests: XCTestCase {
         let create = app.buttons["announcements.empty.create"]
         XCTAssertTrue(create.exists && create.label == "新建公告", app.debugDescription)
         create.tap()
-        // S6-18 replaces the placeholder sheet.
+        // S6-18: the edit sheet; 取消 without changes closes it at once.
         XCTAssertTrue(app.navigationBars["新建公告"].waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["sheet.close"].tap()
+        app.buttons["announcement.edit.cancel"].tap()
         XCTAssertTrue(element("announcements.empty").waitForExistence(timeout: 10), app.debugDescription)
     }
 
@@ -107,9 +107,9 @@ final class AnnouncementsUITests: XCTestCase {
         launchAnnouncements()
         defer { diagnostics("announcements-compose-final") }
         app.buttons["announcements.compose"].tap()
-        // S6-18 replaces the placeholder sheet.
+        // S6-18: the edit sheet; 取消 without changes closes it at once.
         XCTAssertTrue(app.navigationBars["新建公告"].waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["sheet.close"].tap()
+        app.buttons["announcement.edit.cancel"].tap()
         XCTAssertTrue(row(31).waitForExistence(timeout: 10), app.debugDescription)
     }
 
@@ -294,9 +294,9 @@ final class AnnouncementsUITests: XCTestCase {
         openDetail(31)
         defer { diagnostics("announcement-detail-edit-final") }
         detailButton("edit").tap()
-        // S6-18 replaces the placeholder sheet.
+        // S6-18: the edit sheet; 取消 without changes closes it at once.
         XCTAssertTrue(app.navigationBars["编辑公告"].waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["sheet.close"].tap()
+        app.buttons["announcement.edit.cancel"].tap()
         XCTAssertTrue(element("announcement.detail").waitForExistence(timeout: 10), app.debugDescription)
     }
 
@@ -422,5 +422,154 @@ final class AnnouncementsUITests: XCTestCase {
     /// A ··· entry by its title, not the button row's button of the same name.
     @MainActor private func menuItem(_ title: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH %@)", title, "announcement.detail.")).firstMatch
+    }
+
+    // MARK: - 编辑 / 新建（S6-18）
+
+    @MainActor func testComposeSavesDraft() {
+        launchAnnouncements()
+        defer { diagnostics("announcement-edit-draft-final") }
+        XCTAssertTrue(segmentButton(labeled: "草稿 1").waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["announcements.compose"].tap()
+        XCTAssertTrue(app.navigationBars["新建公告"].waitForExistence(timeout: 10), app.debugDescription)
+        let save = editButton("trailing")
+        XCTAssertTrue(save.waitForExistence(timeout: 5) && save.label == "存草稿", app.debugDescription)
+        XCTAssertFalse(save.isEnabled, app.debugDescription)
+        XCTAssertEqual(editButton("primary").label, "发布")
+        fillEdit(title: "系统升级预告", content: "本周六凌晨升级")
+        XCTAssertTrue(save.isEnabled, app.debugDescription)
+        save.tap()
+        XCTAssertTrue(waitForLabel(app.staticTexts["receipt.text"], containing: "已存为草稿"), app.debugDescription)
+        XCTAssertTrue(segmentButton(labeled: "草稿 2").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.navigationBars["新建公告"].exists, app.debugDescription)
+    }
+
+    @MainActor func testBalanceConditionPublishShowsConfirmation() {
+        launchAnnouncements()
+        defer { diagnostics("announcement-edit-publish-final") }
+        app.buttons["announcements.compose"].tap()
+        XCTAssertTrue(app.navigationBars["新建公告"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("announcement.edit.targetFootnote").label.contains("所有用户都能看到。"), app.debugDescription)
+        let targetMode = app.segmentedControls["announcement.edit.targetMode"]
+        app.scrollUntilExists(targetMode)
+        targetMode.buttons["按条件"].tap()
+        let below = app.buttons["announcement.edit.operator.lt"]
+        XCTAssertTrue(below.waitForExistence(timeout: 5) && below.isSelected, app.debugDescription)
+        XCTAssertEqual(app.textFields["announcement.edit.amount"].value as? String, "5")
+        XCTAssertTrue(element("announcement.edit.targetFootnote").label.contains("手机上设一个条件"), app.debugDescription)
+        fillEdit(title: "余额提醒", content: "请及时充值")
+        editButton("primary").tap()
+        let alert = app.alerts["发布「余额提醒」？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        for part in ["余额 < $5.00 · 静默出现在通知里", "有效期 立即 – 永久"] {
+            XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", part)).firstMatch.exists, "\(part)\n\(app.debugDescription)")
+        }
+        alert.buttons["发布"].tap()
+        XCTAssertTrue(waitForLabel(app.staticTexts["receipt.text"], containing: "已发布公告"), app.debugDescription)
+        XCTAssertTrue(segmentButton(labeled: "展示中 5").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor func testMultiConditionAnnouncementIsReadOnly() {
+        launchAnnouncements()
+        openDetail(24)
+        defer { diagnostics("announcement-edit-locked-final") }
+        detailButton("edit").tap()
+        XCTAssertTrue(app.navigationBars["编辑公告"].waitForExistence(timeout: 10), app.debugDescription)
+        let first = element("announcement.edit.locked.0"), second = element("announcement.edit.locked.1")
+        XCTAssertTrue(first.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(first.label.hasPrefix("条件") && first.label.contains(" 且 "), first.label)
+        XCTAssertTrue(second.label.hasPrefix("或") && second.label.contains("余额 ≥ $500.00"), second.label)
+        XCTAssertTrue(element("announcement.edit.targetFootnote").label.contains("手机上只读；要修改请在 Web 编辑。"), app.debugDescription)
+        XCTAssertFalse(app.segmentedControls["announcement.edit.targetMode"].exists, app.debugDescription)
+        XCTAssertEqual(editButton("trailing").label, "保存")
+        XCTAssertEqual(editButton("primary").label, "重新发布")
+        let body = app.textViews["announcement.edit.content"]
+        body.tap()
+        body.typeText("补充说明")
+        editButton("trailing").tap()
+        XCTAssertTrue(waitForLabel(app.staticTexts["receipt.text"], containing: "已保存"), app.debugDescription)
+        XCTAssertTrue(element("announcement.detail").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.navigationBars["编辑公告"].exists, app.debugDescription)
+    }
+
+    @MainActor func testOverlongTitleDisablesSave() {
+        launchAnnouncements()
+        defer { diagnostics("announcement-edit-long-title-final") }
+        app.buttons["announcements.compose"].tap()
+        XCTAssertTrue(app.navigationBars["新建公告"].waitForExistence(timeout: 10), app.debugDescription)
+        // 201 bytes, as 67 汉字 would be.
+        fillEdit(title: String(repeating: "a", count: 201), content: "正文")
+        let footnote = element("announcement.edit.titleFootnote")
+        XCTAssertTrue(footnote.waitForExistence(timeout: 5) && footnote.label == "标题太长（最多约 66 个汉字）", app.debugDescription)
+        XCTAssertFalse(editButton("trailing").isEnabled || editButton("primary").isEnabled, app.debugDescription)
+        let title = app.textFields["announcement.edit.title"]
+        title.tap()
+        title.typeText(XCUIKeyboardKey.delete.rawValue)
+        XCTAssertTrue(footnote.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(editButton("trailing").isEnabled && editButton("primary").isEnabled, app.debugDescription)
+    }
+
+    @MainActor func testEditPreviewToggle() {
+        launchAnnouncements()
+        defer { diagnostics("announcement-edit-preview-final") }
+        app.buttons["announcements.compose"].tap()
+        XCTAssertTrue(app.navigationBars["新建公告"].waitForExistence(timeout: 10), app.debugDescription)
+        fillEdit(title: "预览测试", content: "## 计费\n- 第一条")
+        XCTAssertTrue(waitForLabel(element("announcement.edit.count"), containing: "11 字"), element("announcement.edit.count").label)
+        let mode = app.segmentedControls["announcement.edit.mode"]
+        mode.buttons["预览"].tap()
+        XCTAssertTrue(element("announcement.edit.preview").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(element("announcement.preview.title").label, "预览测试")
+        XCTAssertEqual(element("announcement.markdown.heading.0").label, "计费")
+        XCTAssertTrue(element("announcement.markdown.list.1.item.0").label.contains("第一条"), app.debugDescription)
+        XCTAssertFalse(element("announcement.preview.dismiss").exists, app.debugDescription)
+        mode.buttons["编辑"].tap()
+        let body = app.textViews["announcement.edit.content"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5) && (body.value as? String)?.contains("第一条") == true, app.debugDescription)
+        let notify = app.segmentedControls["announcement.edit.notify"]
+        app.scrollUntilExists(notify)
+        notify.buttons["弹窗"].tap()
+        XCTAssertTrue(waitForLabel(element("announcement.edit.notifyFootnote"), containing: "弹窗模式会自动弹出通知给用户。"), app.debugDescription)
+        mode.buttons["预览"].tap()
+        XCTAssertTrue(element("announcement.preview.dismiss").waitForExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testUnsavedChangesAskBeforeDiscard() {
+        launchAnnouncements()
+        defer { diagnostics("announcement-edit-discard-final") }
+        app.buttons["announcements.compose"].tap()
+        XCTAssertTrue(app.navigationBars["新建公告"].waitForExistence(timeout: 10), app.debugDescription)
+        editButton("cancel").tap()
+        XCTAssertTrue(app.navigationBars["新建公告"].waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+        app.buttons["announcements.compose"].tap()
+        let title = app.textFields["announcement.edit.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10), app.debugDescription)
+        title.tap()
+        title.typeText("草稿标题")
+        editButton("cancel").tap()
+        let discard = app.alerts["放弃修改？"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5), app.debugDescription)
+        discard.buttons["继续编辑"].tap()
+        XCTAssertEqual(title.value as? String, "草稿标题")
+        // Dragged from the bar towards the bottom: the sheet holds and asks instead of closing.
+        app.navigationBars["新建公告"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        XCTAssertTrue(discard.waitForExistence(timeout: 5), app.debugDescription)
+        discard.buttons["放弃修改"].tap()
+        XCTAssertTrue(app.navigationBars["新建公告"].waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(row(31).waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor private func editButton(_ name: String) -> XCUIElement { app.buttons["announcement.edit.\(name)"] }
+    /// Types into the title, then the body (the keyboard stays up).
+    @MainActor private func fillEdit(title: String, content: String) {
+        let titleField = app.textFields["announcement.edit.title"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), app.debugDescription)
+        titleField.tap()
+        titleField.typeText(title)
+        let body = app.textViews["announcement.edit.content"]
+        body.tap()
+        body.typeText(content)
     }
 }
