@@ -335,3 +335,4 @@
 | ReasonCatalog 缺公告 400 reason 文案 | ANNOUNCEMENT_TITLE_INVALID / ANNOUNCEMENT_CONTENT_REQUIRED / ANNOUNCEMENT_INVALID_TARGET / ANNOUNCEMENT_TIME_RANGE_INVALID 现在落到 400 兜底文案；S6-15 本地预检抛的是带 reason、文案取自 60 §17.4 的 APIError，但服务端返回同名 reason 时仍要由 S6-18 的文案表或目录补齐 |
 | 无 capability 新建公告是否带 key：00 与 60 口径不一 | 00 §5 capability 表（第 618 行）写“不带 key”，60 §0.2 写“照常带 key（老服务端忽略）”；S6-15 按 60 §0.2 与 00 §2.5.1 带 key、只发一次，规格待统一 |
 | 公告详情已读比例取整还是一位小数 | 规格 60 §16.3 示例写“40%”，按 00 §6.2 实现为一位小数“39.6%”；如果要取整，只改 AnnouncementPresentation.detailReadLine 一处和对应断言 |
+| 公告列表已读统计失败会拖垮整页 | 带 include_read_stats 时后端对本页每条公告各跑一次全用户 COUNT，任一失败整页报错。首版照规格走通用失败态，不自动去掉参数重发；生产实测若慢或常失败，再改为失败后去掉 include_read_stats 重取一次（S6-16）。 |
