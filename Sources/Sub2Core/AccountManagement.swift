@@ -152,20 +152,41 @@ public struct AccountListPage: Decodable, Sendable {
     }
 }
 
-public struct AccountBulkReply: Decodable, Sendable {
+/// `bulk-update`'s reply (20 §8.2). `success_ids` / `failed_ids` are nil from an older server; a missing count or result list
+/// reads as 0 or empty.
+public struct AccountBulkReply: Decodable, Sendable, Equatable {
     public let success: Int
     public let failed: Int
+    public let successIDs: [Int]?
+    public let failedIDs: [Int]?
     public let results: [Item]
-    public struct Item: Decodable, Sendable {
+    public struct Item: Decodable, Sendable, Equatable {
         public let accountID: Int
         public let success: Bool
+        /// Decoded only: never shown or logged (20 §8.3, 00 §3.4).
         public let error: String?
+        public init(accountID: Int, success: Bool, error: String? = nil) { self.accountID = accountID; self.success = success; self.error = error }
         enum CodingKeys: String, CodingKey { case accountID = "account_id", success, error }
     }
-    /// Missing, duplicate or unexpected rows must never be interpreted as success.
+    public init(success: Int, failed: Int, successIDs: [Int]?, failedIDs: [Int]?, results: [Item]) {
+        self.success = success; self.failed = failed; self.successIDs = successIDs; self.failedIDs = failedIDs; self.results = results
+    }
+    enum CodingKeys: String, CodingKey { case success, failed, results, successIDs = "success_ids", failedIDs = "failed_ids" }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(success: try c.decodeIfPresent(Int.self, forKey: .success) ?? 0, failed: try c.decodeIfPresent(Int.self, forKey: .failed) ?? 0,
+                  successIDs: try c.decodeIfPresent([Int].self, forKey: .successIDs), failedIDs: try c.decodeIfPresent([Int].self, forKey: .failedIDs),
+                  results: try c.decodeIfPresent([Item].self, forKey: .results) ?? [])
+    }
+    /// Missing, duplicate or unexpected rows must never be interpreted as success. With either id list (a missing one read as
+    /// empty) the row must also appear exactly once in its own list and not in the other.
     public func outcome(for id: Int) -> Bool? {
         let matches = results.filter { $0.accountID == id }
-        return matches.count == 1 ? matches.first?.success : nil
+        guard matches.count == 1, let row = matches.first else { return nil }
+        guard successIDs != nil || failedIDs != nil else { return row.success }
+        let listed = (successIDs ?? []).filter { $0 == id }.count, refused = (failedIDs ?? []).filter { $0 == id }.count
+        let consistent = row.success ? listed == 1 && refused == 0 : refused == 1 && listed == 0
+        return consistent ? row.success : nil
     }
 }
 
@@ -174,27 +195,23 @@ extension APIClient {
     public func managedAccounts(page: Int, query: AccountListQuery) async throws -> AccountListPage {
         try await request("admin/accounts", query: query.queryItems(page: page))
     }
-    public func setAccountsSchedulable(ids: [Int], enabled: Bool, identity: UUID) async throws -> AccountBulkReply {
-        guard identity == userWriteIdentity() else { throw APIError.stationMismatch }
-        guard !ids.isEmpty, ids.count <= 50, Set(ids).count == ids.count, ids.allSatisfy({ $0 > 0 }) else {
+    /// 20 §8.2: 1–50 different positive ids. With a key (admin.idempotent_writes, one per request, made at the tap, R05) the
+    /// keyed executor retries it within the bulk limit (65 seconds); without one it is sent once (00 §2.4). The session check
+    /// is the App's (S2D1-05).
+    public func setAccountsSchedulable(ids: [Int], enabled: Bool, idempotencyKey: UUID?,
+                                       onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AccountBulkReply> {
+        guard !ids.isEmpty, ids.count <= AccountBatchPlan.maxPerRequest, Set(ids).count == ids.count, ids.allSatisfy({ $0 > 0 }) else {
             throw APIError(kind: .validation, message: "请选择 1 至 50 个不同账号。")
         }
         struct Body: Encodable { let account_ids: [Int]; let schedulable: Bool }
-        return try await request("admin/accounts/bulk-update", method: "POST", body: encode(Body(account_ids: ids, schedulable: enabled)),
-                                 timeout: RequestTimeout.keyedBulk)
+        let path = "admin/accounts/bulk-update", body = try encode(Body(account_ids: ids, schedulable: enabled))
+        guard let key = idempotencyKey else { return try await performUnkeyedWrite(path, method: "POST", body: body, requestID: UUID().uuidString.lowercased()) }
+        return try await performKeyedWrite(KeyedWriteRequest(path: path, method: "POST", body: body, key: key, timeout: RequestTimeout.keyedBulk),
+                                           onEvent: onEvent)
     }
+    /// The list's batch 刷新凭据 is gone (20 §8.7, U21); S2-15 replaces this with a keyed refresh.
     public func refreshManagedAccount(id: Int, identity: UUID) async throws {
         guard identity == userWriteIdentity() else { throw APIError.stationMismatch }
         try await refreshAccount(id: id)
-    }
-}
-
-/// Batch “刷新凭据” sends one request per account (60 §3.4).
-public enum AccountBatchRefresh {
-    /// Every later account would meet the same ended session (D06's single source, binding mismatch included) or the same
-    /// security gate, so the rest are left unsent.
-    public static func stopsRemaining(after error: any Error) -> Bool {
-        guard let error = error as? APIError else { return false }
-        return SessionInvalidation(error: error) != nil || SecurityInterruption(error) != nil
     }
 }

@@ -10,7 +10,8 @@ struct AccountRowContext: Equatable, Sendable {
 
 /// 20 §1.3: three lines, the status capsule, the state glyph and badge, and a chevron. States use the site clock (20 §0.6) and
 /// absolute times the server's zone. A timed state redraws every second; when its window ends `onCountdownElapsed` runs once.
-/// The container wraps the row in its own button or link and gives it the identifier `account.<id>`.
+/// The container wraps the row in its own button or link and gives it the identifier `account.<id>`. With `selected` (selection
+/// mode, 20 §1.3) the state glyph becomes the check ring and the chevron goes; the caller passes no rail then.
 struct AccountRow: View {
     let account: UpstreamAccount
     let today: AccountTodayCell
@@ -19,13 +20,15 @@ struct AccountRow: View {
     let groupName: (Int) -> String?
     let catalog: MetaCatalog
     let onCountdownElapsed: (@MainActor () -> Void)?
+    let selected: Bool?
     private let input: AccountStateInput
     @Environment(\.sessionContext) private var session
 
     init(account: UpstreamAccount, today: AccountTodayCell, context: AccountRowContext = .init(), railPosition: RailPosition?,
-         groupName: @escaping (Int) -> String?, catalog: MetaCatalog = .builtin, onCountdownElapsed: (@MainActor () -> Void)? = nil) {
+         groupName: @escaping (Int) -> String?, catalog: MetaCatalog = .builtin, onCountdownElapsed: (@MainActor () -> Void)? = nil,
+         selected: Bool? = nil) {
         self.account = account; self.today = today; self.context = context; self.railPosition = railPosition
-        self.groupName = groupName; self.catalog = catalog; self.onCountdownElapsed = onCountdownElapsed
+        self.groupName = groupName; self.catalog = catalog; self.onCountdownElapsed = onCountdownElapsed; self.selected = selected
         input = AccountStateInput(account)
     }
 
@@ -46,7 +49,7 @@ struct AccountRow: View {
         let second = AccountRowPresentation.secondLine(account, omit: context.omit, home: context.home, catalog: catalog, directory: groupName)
         let third = AccountRowPresentation.thirdLine(account, display: display, today: today, timeZone: timeZone)
         return HStack(alignment: .top, spacing: 10) {
-            AccountStateGlyph(state: display.state)
+            if let selected { AccountSelectionRing(isOn: selected) } else { AccountStateGlyph(state: display.state) }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     AccountRowTitle(name: account.name, isIdle: AccountRowPresentation.isIdle(display.state))
@@ -57,9 +60,11 @@ struct AccountRow: View {
                 AccountRowThirdLineView(line: third, tone: display.tone)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold)).foregroundStyle(Palette.ink3)
-                .frame(minHeight: 22)
+            if selected == nil {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold)).foregroundStyle(Palette.ink3)
+                    .frame(minHeight: 22)
+            }
         }
         .padding(EdgeInsets(top: 12, leading: StatusCapsuleMetrics.contentLeadingInset, bottom: 12, trailing: 16))
         .contentShape(Rectangle())
@@ -118,6 +123,24 @@ private struct AccountStateGlyph: View {
             .foregroundStyle(state.tone.base)
             .frame(width: width, height: width)
             .accessibilityHidden(true)
+    }
+}
+
+/// S2-07, design `.select-ring`: 22pt, an ink3 edge, filled with the accent and a check when picked. The row's button reads the state.
+struct AccountSelectionRing: View {
+    let isOn: Bool
+    @ScaledMetric(relativeTo: .body) private var size = 22.0
+
+    var body: some View {
+        ZStack {
+            Circle().strokeBorder(isOn ? Palette.accentFill : Palette.ink3, lineWidth: 1.8)
+            if isOn {
+                Circle().fill(Palette.accentFill)
+                Image(systemName: "checkmark").font(.system(size: size * 0.55, weight: .bold)).foregroundStyle(Palette.onAccent)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 
