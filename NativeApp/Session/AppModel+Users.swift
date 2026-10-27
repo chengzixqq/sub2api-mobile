@@ -60,16 +60,67 @@ extension AppModel {
     }
 
     // MARK: - 详情
+    /// A user the fixture does not have answers 404 USER_NOT_FOUND, as the server does.
     func user(id: Int) async throws -> AdminUser {
         if isUITesting {
-            guard let result = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).first(where: { $0.id == id }) else { throw APIError.invalidResponse }
+            try DemoData.failUserDetailRead(.profile)
+            guard let result = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).first(where: { $0.id == id }) else {
+                throw APIError.server(status: 404, reason: "USER_NOT_FOUND")
+            }
             return result
         }
         return try await requireClient().user(id: id)
     }
-    func userUsage(id: Int) async throws -> UserUsageSummary {
-        if isUITesting { return UserUsageSummary(totalRequests: 12, totalTokens: 4200, totalCost: Decimal(string: "0.12")!) }
-        return try await requireClient().userUsage(id: id)
+    /// 30 §2.2 本月消费 (S3-05).
+    func userMonthUsage(id: Int) async throws -> UserUsageSummary {
+        if isUITesting {
+            try DemoData.failUserDetailRead(.month)
+            return UserUsageSummary(totalRequests: 12, totalTokens: 4200, totalCost: Decimal(string: "0.12")!, totalActualCost: DemoData.monthCostFixture[id] ?? 0)
+        }
+        return try await requireClient().userMonthUsage(id: id)
+    }
+    /// 30 §2.2 今日消费 of one user through the users-usage wrapper; no row means nothing spent today. The detail never calls it
+    /// for a read-only token (R14).
+    func userTodayCost(id: Int) async throws -> Decimal {
+        if isUITesting { try DemoData.failUserDetailRead(.today) }
+        return try await usersTodayUsage(ids: [id])[id]?.todayActualCost ?? 0
+    }
+    /// 30 §0.1 本人 (S3D1-14): `/admin/me`'s user. The fixtures name one only with `-ui-users-self <id>`, so by default no fixture user is self.
+    var currentAdminUserID: Int? {
+        if isUITesting { return UserDetailFixtureArgument.selfUserID(arguments: ProcessInfo.processInfo.arguments) }
+        return siteSession?.me.user?.id
+    }
+    /// 30 §2.4 启用 / 禁用: with admin.idempotent_writes under a new key, retried and waited for by the executor (00 §2.5).
+    func setUserStatus(id: Int, status: String) async throws -> WriteOutcome<AdminUser> {
+        if isUITesting { return try fixtureSetUserStatus(id: id, status: status) }
+        let client = try requireClient()
+        let key = siteSession?.has(.adminIdempotentWrites) == true ? UUID() : nil
+        return try await client.setUserStatus(id: id, status: status, idempotencyKey: key)
+    }
+    /// 30 §2.4 删除用户: `false` when the user was already gone (404 USER_NOT_FOUND), which the page treats as deleted.
+    func deleteUser(id: Int) async throws -> Bool {
+        if isUITesting {
+            if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+            let generation = sessionGeneration
+            var users = demoUsersBySession[generation] ?? DemoData.allUsers
+            guard let index = users.firstIndex(where: { $0.id == id }) else { return false }
+            users.remove(at: index); demoUsersBySession[generation] = users
+            return true
+        }
+        return try await requireClient().deleteUser(id: id)
+    }
+    /// `-ui-user-detail-fail status` answers every status write as the server answers one for an administrator: 500, no reason.
+    private func fixtureSetUserStatus(id: Int, status: String) throws -> WriteOutcome<AdminUser> {
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        if UserDetailFixtureArgument.failures(arguments: ProcessInfo.processInfo.arguments).contains(.status) {
+            throw APIError.server(status: 500, reason: nil)
+        }
+        let generation = sessionGeneration
+        var users = demoUsersBySession[generation] ?? DemoData.allUsers
+        guard let index = users.firstIndex(where: { $0.id == id }) else { throw APIError.server(status: 404, reason: "USER_NOT_FOUND") }
+        users[index].status = status
+        demoUsersBySession[generation] = users
+        return WriteOutcome(value: users[index])
     }
 
     // MARK: - 新建与编辑
@@ -118,7 +169,7 @@ extension AppModel {
 
     // MARK: - Key
     func userAPIKeys(userID: Int) async throws -> [AdminAPIKey] {
-        if isUITesting { return DemoData.apiKeys(userID: userID) }
+        if isUITesting { try DemoData.failUserDetailRead(.keys); return DemoData.apiKeys(userID: userID) }
         return try await requireClient().userAPIKeys(userID: userID, maskedView: siteSession?.has(.apiKeysMaskedView) == true)
     }
 
@@ -129,7 +180,10 @@ extension AppModel {
     // MARK: - 充值与调整记录（30 §4，S3-04）
     /// The full list reads 20 a page; the detail's latest five (S3-05) pass `pageSize: 5`.
     func balanceHistory(userID: Int, page: Int, pageSize: Int = PageSize.standard) async throws -> BalanceHistoryPage {
-        if isUITesting { return try DemoData.balanceHistory(userID: userID, page: page, pageSize: pageSize) }
+        if isUITesting {
+            if pageSize == UserDetailPresentation.ledgerPeekSize { try DemoData.failUserDetailRead(.ledger) }
+            return try DemoData.balanceHistory(userID: userID, page: page, pageSize: pageSize)
+        }
         return try await requireClient().balanceHistory(userID: userID, page: page, pageSize: pageSize)
     }
 }

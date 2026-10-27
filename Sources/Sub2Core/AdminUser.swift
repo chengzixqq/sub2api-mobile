@@ -76,15 +76,22 @@ extension AdminUser {
     public var displayName: String { UserPresentation.displayName(username: username, email: email) }
 }
 
-public struct UserUsageSummary: Codable, Sendable {
+public struct UserUsageSummary: Codable, Sendable, Equatable {
     public let totalRequests: Int
     public let totalTokens: Int
     public let totalCost: Decimal
-    public init(totalRequests: Int, totalTokens: Int, totalCost: Decimal) { self.totalRequests = totalRequests; self.totalTokens = totalTokens; self.totalCost = totalCost }
-    enum CodingKeys: String, CodingKey { case totalRequests = "total_requests", totalTokens = "total_tokens", totalCost = "total_cost" }
+    /// 30 §2.2 本月消费: what was actually charged; read leniently, so a server without it or a malformed value reads as nil.
+    public let totalActualCost: Decimal?
+    public init(totalRequests: Int, totalTokens: Int, totalCost: Decimal, totalActualCost: Decimal? = nil) {
+        self.totalRequests = totalRequests; self.totalTokens = totalTokens; self.totalCost = totalCost; self.totalActualCost = totalActualCost
+    }
+    enum CodingKeys: String, CodingKey {
+        case totalRequests = "total_requests", totalTokens = "total_tokens", totalCost = "total_cost", totalActualCost = "total_actual_cost"
+    }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         totalRequests = try c.decode(Int.self, forKey: .totalRequests); totalTokens = try c.decode(Int.self, forKey: .totalTokens); totalCost = try c.decimal(.totalCost)
+        totalActualCost = try? c.optionalDecimal(.totalActualCost)
     }
 }
 /// The user embedded in a key (50 §6.3) or a subscription (50 §7.3); a field that is missing or malformed reads as nil.

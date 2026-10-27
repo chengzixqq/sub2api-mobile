@@ -1,127 +1,6 @@
 import SwiftUI
 import Sub2Core
 
-struct UserDetailView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.sessionContext) private var session
-    @State private var user: AdminUser
-    @State private var usage: UserUsageSummary?
-    @State private var keys: [AdminAPIKey] = []
-    @State private var loadingKeys = false
-    @State private var error: String?
-    @State private var busy = false
-    @State private var confirmStatus = false
-    @State private var balanceSheet = false
-    @State private var editorTarget: UserEditorTarget?
-    init(initial: AdminUser) { _user = State(initialValue: initial) }
-    var body: some View {
-        List {
-            Section("用户详情") {
-                LabeledValue(label: "邮箱", value: user.email)
-                if let username = user.username { LabeledValue(label: "用户名", value: username) }
-                LabeledValue(label: "角色", value: user.role ?? "未知")
-                LabeledValue(label: "状态", value: user.status)
-                LabeledValue(label: "余额", value: DisplayFormat.money(user.balance))
-                if let concurrency = user.concurrency { LabeledValue(label: "并发", value: String(concurrency)) }
-                if let rpm = user.rpmLimit { LabeledValue(label: "RPM 限额", value: rpm == 0 ? "不限制" : String(rpm)) }
-                if let notes = user.notes, !notes.isEmpty { LabeledValue(label: "备注", value: notes) }
-                LabeledValue(label: "创建时间", value: ListFieldPresentation.timestamp(user.createdAt))
-                LabeledValue(label: "最后使用", value: ListFieldPresentation.timestamp(user.lastUsedAt))
-                LabeledValue(label: "最后活跃", value: ListFieldPresentation.timestamp(user.lastActiveAt))
-            }
-            Section("本月用量") {
-                if let usage {
-                    LabeledValue(label: "请求", value: DisplayFormat.grouped(usage.totalRequests))
-                    LabeledValue(label: "Tokens", value: DisplayFormat.compact(usage.totalTokens))
-                    LabeledValue(label: "费用", value: DisplayFormat.money(usage.totalCost))
-                } else { Text("暂未加载").foregroundStyle(.secondary) }
-            }
-            Section("API Key") {
-                ForEach(keys) { key in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(key.displayName).font(.headline)
-                        Text(key.keyMasked ?? DisplayFormat.missing)
-                            .font(.system(.caption, design: .monospaced)).privacySensitive()
-                        Text("\(key.status) · 已用 \(DisplayFormat.money(key.quotaUsed)) / 配额 \(DisplayFormat.money(key.quota))").font(.caption).foregroundStyle(.secondary)
-                    }.padding(.vertical, 4)
-                }
-                if keys.isEmpty && !loadingKeys { Text("暂无 API Key").foregroundStyle(.secondary) }
-                if loadingKeys { ProgressView() }
-            }
-            Section("管理操作") {
-                Button("编辑用户") {
-                    if let session, session.generation == model.sessionGeneration {
-                        editorTarget = UserEditorTarget(user: user, context: session, siteName: model.activeProfile?.name ?? "")
-                    }
-                }.frame(minHeight: 44).accessibilityIdentifier("user.edit")
-                Button(user.status == "active" ? "禁用用户" : "启用用户") { confirmStatus = true }.frame(minHeight: 44)
-                Button("调整余额") { balanceSheet = true }.frame(minHeight: 44).accessibilityIdentifier("user.balance")
-                if model.pendingBalances.contains(where: { $0.serverID == model.activeProfile?.id && $0.userID == user.id }) {
-                    Label("此用户存在结果待确认的余额请求，请打开余额页面处理原请求。", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                }
-            }.disabled(busy)
-            if busy { ProgressView("正在处理…") }
-            if let error { Section { Text(error).foregroundStyle(.red) } }
-            // S3-04's way in until S3-05 puts “全部 N 条 ›” in the detail's record section under the same identifier.
-            Section {
-                NavigationLink(value: AppRoute.userLedger(userID: user.id)) { Text("充值与调整记录") }
-                    .frame(minHeight: 44).accessibilityIdentifier("user.ledger.all")
-            }
-        }
-        .navigationTitle(user.username ?? "用户 #\(user.id)")
-        .task { await reload() }
-        .refreshable { await reload() }
-        .onChange(of: model.foregroundRevision) { _, _ in Task { await reload() } }
-        .confirmationDialog(user.status == "active" ? "禁用用户？" : "启用用户？", isPresented: $confirmStatus, titleVisibility: .visible) {
-            Button("确认操作", role: .destructive) { Task { await changeStatus() } }
-        } message: { Text("站点：\(model.activeProfile?.name ?? "")\n用户：\(user.email)（#\(user.id)）") }
-        .sheet(isPresented: $balanceSheet, onDismiss: { Task { await reload() } }) { BalanceView(user: user) }
-        .sheet(item: $editorTarget, onDismiss: { Task { await reload() } }) { UserEditorView(target: $0) }
-    }
-    private func reload() async {
-        let generation = session?.generation ?? UUID()
-        guard generation == model.sessionGeneration else { return }
-        do {
-            let result = try await model.user(id: user.id)
-            guard generation == model.sessionGeneration, !Task.isCancelled else { return }; user = result
-            model.userList?.replace(result)
-            let statistics = try await model.userUsage(id: user.id)
-            guard generation == model.sessionGeneration, !Task.isCancelled else { return }; usage = statistics
-            error = nil
-            await loadKeys()
-        } catch { if generation == model.sessionGeneration && !(error is CancellationError) { self.error = error.localizedDescription } }
-    }
-    private func loadKeys() async {
-        guard !loadingKeys else { return }; loadingKeys = true
-        defer { loadingKeys = false }
-        let generation = session?.generation ?? UUID()
-        guard generation == model.sessionGeneration else { return }
-        do {
-            let result = try await model.userAPIKeys(userID: user.id)
-            guard generation == model.sessionGeneration, !Task.isCancelled else { return }
-            keys = result
-        } catch { if generation == model.sessionGeneration && !(error is CancellationError) { self.error = error.localizedDescription } }
-    }
-    private func changeStatus() async {
-        guard !busy else { return }; busy = true
-        defer { busy = false }
-        let generation = session?.generation ?? UUID()
-        guard generation == model.sessionGeneration else { return }
-        do {
-            guard !model.isUITesting else { throw AppFailure("界面测试模式不执行服务器写操作。") }
-            guard let client = session?.client else { return }
-            let result = try await client.setUserStatus(id: user.id, status: user.status == "active" ? "disabled" : "active")
-            guard generation == model.sessionGeneration else { return }; user = result; error = nil
-            model.userList?.replace(result)
-        } catch {
-            guard generation == model.sessionGeneration else { return }
-            self.error = error.localizedDescription
-            // Cleared by the global sheet: the same change is confirmed again (00 §2.6.2 step 4).
-            if isClearedForReconfirmation(error) { confirmStatus = true }
-        }
-    }
-}
-
 /// The old editor's target; the list's + and empty state open it until S3-10 / S3-11 replace the editor.
 struct UserEditorTarget: Identifiable {
     let id = UUID()
@@ -482,6 +361,8 @@ struct BalanceView: View {
             try model.resolve(item)
             guard generation == model.sessionGeneration else { return }
             updateList(after: currentBalance)
+            // C-12: the detail under this sheet reads the user and the records again (S3-08's keypad keeps this).
+            model.userChanges?.bumpBalance(userID: user.id)
             let balance = DisplayFormat.money(outcome.value.balance)
             message = outcome.replayed ? "这笔此前已入账，没有重复执行。余额为 \(balance)。" : "操作成功，余额为 \(balance)。"
             prepared = nil; amount = ""; notes = ""

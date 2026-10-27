@@ -54,12 +54,10 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.scrollUntilExists(app.buttons["user.26"], maxSwipes: 16))
         XCTAssertTrue(app.scrollUntilExists(app.buttons["user.1"], towardBottom: false, maxSwipes: 16))
         app.buttons["user.1"].tap()
-        reveal(app.staticTexts["开发密钥"])
-        // S3-03: the server's key_masked, never a plaintext cut locally.
-        XCTAssertTrue(app.staticTexts["sk-…cret"].exists)
-        XCTAssertFalse(app.staticTexts["sk-fixture-secret"].exists)
-        XCTAssertFalse(app.staticTexts["••••••••cret"].exists)
+        // S3-05: the detail shows one key summary; the masks are checked on S3-12's key cards.
+        XCTAssertTrue(app.navigationBars["Alice"].waitForExistence(timeout: 10))
         reveal(app.buttons["user.balance"])
+        XCTAssertFalse(app.staticTexts["sk-fixture-secret"].exists)
     }
 
     @MainActor func testDashboardCountersSurviveDetailTimeouts() {
