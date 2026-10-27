@@ -113,8 +113,9 @@ public enum AccountDetailRefresh {
         return .merged(merged)
     }
     /// Seconds to wait before the next light refresh, from the device time since the last sync (20 §0.6); a clock that moved
-    /// back waits a whole interval.
-    public static func delay(sinceLastRefresh elapsed: TimeInterval?) -> TimeInterval {
+    /// back waits a whole interval, and so does a read still in flight, which the refresh would skip.
+    public static func delay(sinceLastRefresh elapsed: TimeInterval?, readInFlight: Bool = false) -> TimeInterval {
+        guard !readInFlight else { return interval }
         guard let elapsed else { return 0 }
         guard elapsed >= 0 else { return interval }
         return max(0, interval - elapsed)

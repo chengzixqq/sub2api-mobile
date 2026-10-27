@@ -121,7 +121,10 @@ extension AppModel: AccountWriteSource {
     }
     /// A read: no generation (S2D1-05).
     func accountWithVersion(id: Int) async throws -> VersionedAccount {
-        if isUITesting { return try accountDemo.versioned(id: id) }
+        if isUITesting {
+            if let delay = accountDemo.detailReadDelay { try await Task.sleep(for: delay) }
+            return try accountDemo.versioned(id: id)
+        }
         return try await requireClient().accountWithVersion(id: id)
     }
     func patchAccount(id: Int, body: AccountPatchRequest, ifMatch: String, generation: UUID) async throws -> VersionedAccount {
