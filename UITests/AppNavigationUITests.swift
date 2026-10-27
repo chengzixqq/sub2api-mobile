@@ -13,7 +13,7 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertFalse(app.tabBars.buttons["管理"].exists)
         XCTAssertFalse(app.tabBars.buttons["设置"].exists)
         app.tabBars.buttons["概览"].tap()
-        XCTAssertTrue(element("dashboard.today-requests").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("home.ticker.requests").waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor func testAccountsTabShowsAccounts() {

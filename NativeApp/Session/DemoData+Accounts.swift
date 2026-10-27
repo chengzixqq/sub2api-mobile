@@ -30,6 +30,8 @@ extension DemoData {
         static let detailError = "-ui-account-detail-error"
         /// `GET :id` answers 404 ACCOUNT_NOT_FOUND for every account while the list still has them (S2-08).
         static let removed = "-ui-account-removed"
+        /// `GET :id` answers eight seconds late, so something covering the detail meanwhile cancels it (S2-08).
+        static let slowDetail = "-ui-account-detail-slow"
         /// OpenAI-主力-01 and OpenAI-备用-A also belong to group 10, which the group page's old fixture lists (GroupsView), so its
         /// transitional “查看与管理分组账号” has rows (S2-08).
         static let groupTransition = "-ui-account-group-transition"
@@ -271,6 +273,8 @@ final class AccountDemoStore {
         if arguments.contains(DemoData.AccountFixture.detailError) { throw Self.failure }
         return VersionedAccount(account: try existing(id), etag: etag(id))
     }
+    /// `slowDetail`'s wait before `GET :id` answers; cancelling the read ends it.
+    var detailReadDelay: Duration? { arguments.contains(DemoData.AccountFixture.slowDetail) ? .seconds(8) : nil }
     /// `PATCH :id`, status only; If-Match must name the current version (412 ACCOUNT_VERSION_CONFLICT with current_etag).
     func patch(id: Int, body: AccountPatchRequest, ifMatch: String) throws -> VersionedAccount {
         _ = try existing(id)

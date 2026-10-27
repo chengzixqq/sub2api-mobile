@@ -5,8 +5,14 @@ import Sub2Core
 enum DemoData {
     /// The only server zone in UI fixtures (D30); trend buckets and the AdminMe fixture use it.
     static let serverTimeZone = ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00")!
-    /// The password login's fixture session; it never expires, so nothing is refreshed.
-    static let passwordTokens = TokenPair(accessToken: "ui-test-access", refreshToken: "ui-test-refresh", expiresAt: .distantFuture)
+    /// The password login's fixture session; it never expires, so nothing is refreshed. R18 (S1-09): `-ui-refresh-unavailable`
+    /// signs in without a refresh token, its access valid for two hours, so the overview shows the renewal banner.
+    static var passwordTokens: TokenPair {
+        guard ProcessInfo.processInfo.arguments.contains("-ui-refresh-unavailable") else {
+            return TokenPair(accessToken: "ui-test-access", refreshToken: "ui-test-refresh", expiresAt: .distantFuture)
+        }
+        return TokenPair(accessToken: "ui-test-access", refreshToken: "", expiresAt: Date().addingTimeInterval(2 * 3_600))
+    }
     static let passwordCredential = Credential.tokens(passwordTokens)
     /// Every capability, compliance accepted and step-up off, so all gated entries show (D30 zone). S0-13's launch
     /// arguments require compliance (`-ui-compliance-required`) or turn step-up on with TOTP (`-ui-step-up-required`) or

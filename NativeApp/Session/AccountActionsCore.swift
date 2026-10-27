@@ -98,12 +98,12 @@ final class AccountActions {
         return await body(session)
     }
     /// A receipt's button: sent in the session the receipt belongs to, whose writes AppModel refuses once it has ended, and
-    /// not before `notBefore`; the account stays busy meanwhile.
+    /// not before `notBefore`; the account stays busy meanwhile. The receipt holds these actions while it is up, and the write
+    /// until it ends, so its button still works after the page that made them (the account detail) has closed.
     private func relaunch(_ id: Int, notBefore: Date? = nil, _ body: @escaping @MainActor @Sendable (AccountActions) async -> AccountActionOutcome) {
         guard !inFlight.contains(id) else { return }
         inFlight.insert(id)
-        Task { [weak self] in
-            guard let self else { return }
+        Task {
             defer { self.inFlight.remove(id) }
             if let notBefore { do { try await self.waitUntil(notBefore) } catch { return } }
             _ = await body(self)
@@ -146,15 +146,14 @@ final class AccountActions {
     private func switched(_ account: UpstreamAccount, _ change: Switch, session: AccountWriteSession) -> AccountActionOutcome {
         onChange(account)
         guard !change.isUndo else { return .succeeded }
-        show(AccountActionCopy.scheduled(enabled: change.enabled)) { [weak self] in
-            guard let self else { return }
+        show(AccountActionCopy.scheduled(enabled: change.enabled)) {
             let undo = Switch(id: change.id, enabled: !change.enabled, key: self.newKey(session), isUndo: true)
             self.relaunch(change.id) { await $0.sendSchedulable(undo, session: session) }
         }
         return .succeeded
     }
     private func retrySwitch(_ change: Switch, _ session: AccountWriteSession, notBefore: Date? = nil) -> @MainActor @Sendable () -> Void {
-        { [weak self] in self?.relaunch(change.id, notBefore: notBefore) { await $0.sendSchedulable(change, session: session) } }
+        { self.relaunch(change.id, notBefore: notBefore) { await $0.sendSchedulable(change, session: session) } }
     }
 
     // MARK: - Recover
@@ -221,15 +220,14 @@ final class AccountActions {
     /// Still paused: “启用调度” is a new switch intent, whose own receipt offers 撤销.
     private func recoveredReceipt(id: Int, schedulable: Bool, session: AccountWriteSession) -> AccountActionOutcome {
         guard !schedulable else { show(AccountActionCopy.recovered(schedulable: true)); return .succeeded }
-        show(AccountActionCopy.recovered(schedulable: false)) { [weak self] in
-            guard let self else { return }
+        show(AccountActionCopy.recovered(schedulable: false)) {
             let change = Switch(id: id, enabled: true, key: self.newKey(session), isUndo: false)
             self.relaunch(id) { await $0.sendSchedulable(change, session: session) }
         }
         return .recoveredPaused
     }
     private func retryRecovery(_ recovery: Recovery, _ session: AccountWriteSession) -> @MainActor @Sendable () -> Void {
-        { [weak self] in self?.relaunch(recovery.id) { await $0.sendRecover(recovery, session: session) } }
+        { self.relaunch(recovery.id) { await $0.sendRecover(recovery, session: session) } }
     }
 
     // MARK: - Enable account
@@ -330,8 +328,7 @@ final class AccountActions {
             show(AccountActionCopy.accountEnabled(name: fresh.account.name, canUndo: false))
             return .succeeded
         }
-        show(AccountActionCopy.accountEnabled(name: fresh.account.name)) { [weak self] in
-            guard let self else { return }
+        show(AccountActionCopy.accountEnabled(name: fresh.account.name)) {
             let undo = StatusChange(id: change.id, target: undoTarget, isUndo: true, key: session.patch ? nil : self.newKey(session), undoTarget: nil)
             self.relaunch(change.id) { await $0.writeStatus(undo, base: fresh.account, etag: fresh.etag, session: session) }
         }
@@ -351,7 +348,7 @@ final class AccountActions {
     }
     private func retryStatus(_ change: StatusChange, base: UpstreamAccount?, etag: String?, _ session: AccountWriteSession,
                              notBefore: Date? = nil) -> @MainActor @Sendable () -> Void {
-        { [weak self] in self?.relaunch(change.id, notBefore: notBefore) { await $0.writeStatus(change, base: base, etag: etag, session: session) } }
+        { self.relaunch(change.id, notBefore: notBefore) { await $0.writeStatus(change, base: base, etag: etag, session: session) } }
     }
 
     // MARK: - Failures and read-back

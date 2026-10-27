@@ -10,6 +10,7 @@ final class AccountDetailUITests: XCTestCase {
         static let longWindows = "-ui-accounts-long-windows"
         static let detailError = "-ui-account-detail-error"
         static let removed = "-ui-account-removed"
+        static let slowDetail = "-ui-account-detail-slow"
         static let groupTransition = "-ui-account-group-transition"
         static let errorSummary = "401 凭据已失效（invalid_api_key）"
     }
@@ -185,6 +186,20 @@ final class AccountDetailUITests: XCTestCase {
         goBack()
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(element("account.detail.card").exists, app.debugDescription)
+    }
+
+    /// The first GET :id is still out (eight seconds here) when the recover dialog covers the page and cancels it: once the
+    /// dialog closes it goes out again at once, so its failure shows seconds later, not after the 60-second refresh.
+    @MainActor func testFirstReadCancelledByDialogIsSentAgainWhenPageIsBack() {
+        openDetail(7, arguments: [Fixture.slowDetail, Fixture.detailError])
+        defer { diagnostics("account-detail-cancelled-read-final") }
+        let banner = element("account.detail.snapshot-banner")
+        app.buttons["account.action.recover"].tap()
+        XCTAssertTrue(dialogButton("恢复并启用调度").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(banner.exists, "the first read answered before the dialog covered the page\n\(app.debugDescription)")
+        dismissDialog()
+        XCTAssertTrue(dialogButton("恢复并启用调度").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(banner.waitForExistence(timeout: 20), app.debugDescription)
     }
 
     // MARK: - Helpers

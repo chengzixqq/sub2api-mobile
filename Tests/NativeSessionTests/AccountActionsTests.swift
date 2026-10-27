@@ -190,6 +190,28 @@ private func arrived(_ gate: SessionGate) async {
     #expect(h.changed.count == 1 && h.receipts.current == nil)
 }
 
+/// The account detail's AccountActions go with the page, while its receipt stays up: 撤销 still sends, and the actions are
+/// let go once the receipt and its write are done.
+@MainActor @Test func receiptButtonStillSendsAfterThePageReleasedItsActions() async throws {
+    let source = ScriptedAccountSource()
+    let receipts = ReceiptCenter(sleep: { try await Task.sleep(for: $0 * 1_000) })
+    let key = UUID()
+    weak var released: AccountActions?
+    do {
+        let actions = AccountActions(source: source, receipts: receipts, onChange: { _ in }, makeKey: { key })
+        released = actions
+        #expect(await actions.setSchedulable(account(4), enabled: false) == .succeeded)
+    }
+    #expect(receipts.current?.action?.title == "撤销")
+    let receiptID = try #require(receipts.current?.id)
+    receipts.performAction(id: receiptID)
+    await settle { source.schedulableCalls == 2 }
+    #expect(source.calls == [.schedulable(id: 4, enabled: false, key: key, generation: source.generation),
+                             .schedulable(id: 4, enabled: true, key: key, generation: source.generation)])
+    await settle { released == nil }
+    #expect(released == nil)
+}
+
 @MainActor @Test func keyedUnconfirmedReadsBackAndConfirms() async {
     let source = ScriptedAccountSource()
     source.schedulableReplies = [.failure(unconfirmedWrite)]

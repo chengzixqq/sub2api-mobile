@@ -78,7 +78,7 @@ struct MainTabs: View {
     var body: some View {
         TabView(selection: $router.selectedTab) {
             // 概览 Tab：阶段 1 换根视图（S1-09）
-            Tab(MainTab.today.title, systemImage: MainTab.today.systemImage, value: MainTab.today) { stack(.today) { DashboardView().siteTitleMenu() } }
+            Tab(MainTab.today.title, systemImage: MainTab.today.systemImage, value: MainTab.today) { stack(.today) { HomeView().siteTitleMenu() } }
             // 账号 Tab：阶段 2 加 .badge（S2-04）
             Tab(MainTab.accounts.title, systemImage: MainTab.accounts.systemImage, value: MainTab.accounts) { stack(.accounts) { AccountsView().siteTitleMenu() } }
                 .badge(model.accountBadge.errorCount)

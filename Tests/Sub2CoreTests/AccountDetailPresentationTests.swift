@@ -218,6 +218,15 @@ private func expired() -> [String: Any] { ["auto_pause_on_expired": true, "expir
     #expect(AccountDetailRefresh.delay(sinceLastRefresh: -5) == 60)
 }
 
+/// A read still out (pull to refresh, the foreground, 重试) has the loop wait a whole interval, however long ago it started:
+/// a zero wait would spin the main actor while the read never gets to answer.
+@Test func refreshDelayWaitsAWholeIntervalWhileAReadIsInFlight() {
+    #expect(AccountDetailRefresh.delay(sinceLastRefresh: 75, readInFlight: true) == 60)
+    #expect(AccountDetailRefresh.delay(sinceLastRefresh: nil, readInFlight: true) == 60)
+    #expect(AccountDetailRefresh.delay(sinceLastRefresh: 20, readInFlight: true) == 60)
+    #expect(AccountDetailRefresh.delay(sinceLastRefresh: 20, readInFlight: false) == 40)
+}
+
 @Test func subtitleUsesCatalogAndTypeNames() throws {
     #expect(AccountDetailPresentation.subtitle(try account(), catalog: .builtin) == "Anthropic · OAuth")
     #expect(AccountDetailPresentation.subtitle(try account(platform: "antigravity", type: "apikey"), catalog: .builtin) == "Antigravity · 对接上游")
