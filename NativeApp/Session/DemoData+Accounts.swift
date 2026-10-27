@@ -35,6 +35,8 @@ extension DemoData {
         /// OpenAI-主力-01 and OpenAI-备用-A also belong to group 10, which the group page's old fixture lists (GroupsView), so its
         /// transitional “查看与管理分组账号” has rows (S2-08).
         static let groupTransition = "-ui-account-group-transition"
+        /// The detail's first `GET :id/today-stats` answers 429 with retry_after 8 (S2-09); later reads work.
+        static let todayThrottled = "-ui-account-today-throttled"
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -80,7 +82,8 @@ extension DemoData {
                                                                  "claude-sonnet-4-5": ["rate_limit_reset_at": window(300)]]]
         let rows: [[String: Any]] = [
             demoAccount(3, "Claude-官方-03", "anthropic", "oauth", groups: [1], concurrency: (0, 4), priority: 1, proxy: 1, fields: [
-                "rate_limit_reset_at": window(277), "current_rpm": 1, "base_rpm": 60, "active_sessions": 0, "max_sessions": 3,
+                "rate_limit_reset_at": window(277), "current_rpm": 1, "scheduling_rpm": 1, "base_rpm": 60, "active_sessions": 0, "max_sessions": 3,
+                "session_idle_timeout_minutes": 5,
                 "expires_at": Int(base.timeIntervalSince1970) + 36 * 86_400, "extra": claudeLimits]),
             demoAccount(7, "OpenAI-备用-A", "openai", "apikey", status: "error", schedulable: false, groups: [2, 4], concurrency: (0, 4), priority: 2,
                         proxy: 2, fields: ["error_message": "401 凭据已失效（invalid_api_key）", "error_summary": "401 凭据已失效（invalid_api_key）",
@@ -90,9 +93,9 @@ extension DemoData {
                 "temp_unschedulable_until": window(1_380), "temp_unschedulable_reason": temporaryReason(base: base, until: window(1_380))]),
             demoAccount(5, "Gemini-测试-B", "gemini", "apikey", schedulable: false, groups: [6], concurrency: (0, 2), priority: 5, proxy: 3),
             demoAccount(1, "Claude-官方-01", "anthropic", "oauth", groups: [1, 5], concurrency: (2, 4), priority: 1, proxy: 1, fields: [
-                "current_rpm": 14, "base_rpm": 60, "active_sessions": 2, "max_sessions": 3]),
+                "current_rpm": 14, "scheduling_rpm": 14, "base_rpm": 60, "active_sessions": 2, "max_sessions": 3, "session_idle_timeout_minutes": 5]),
             demoAccount(2, "Claude-官方-02", "anthropic", "oauth", groups: [1, 5], concurrency: (3, 4), priority: 1, proxy: 1, fields: [
-                "current_rpm": 12, "base_rpm": 60, "active_sessions": 3, "max_sessions": 3]),
+                "current_rpm": 12, "scheduling_rpm": 12, "base_rpm": 60, "active_sessions": 3, "max_sessions": 3, "session_idle_timeout_minutes": 5]),
             demoAccount(4, "OpenAI-主力-01", "openai", "apikey", groups: [2], concurrency: (2, 8), priority: 1, proxy: 2, fields: [
                 "quota_daily_used": 96.3, "quota_daily_limit": 150]),
             demoAccount(8, "DeepSeek-01", "deepseek", "apikey", groups: [3], concurrency: (0, 8), priority: 2, proxy: 4),
@@ -160,6 +163,7 @@ final class AccountDemoStore {
     private(set) var accounts: [UpstreamAccount]
     private let arguments: [String]
     private var listReads = 0
+    private var todayThrottleServed = false
     private static var latest: (generation: UUID, store: AccountDemoStore)?
     private static let failure = APIError.server(status: 502, reason: nil)
 
@@ -338,5 +342,56 @@ final class AccountDemoStore {
                               currentRPM: account.currentRPM, schedulingRPM: account.schedulingRPM, activeSessions: account.activeSessions,
                               rateLimitResetAt: input.rateLimitResetAt, overloadUntil: input.overloadUntil,
                               tempUnschedulableUntil: input.tempUnschedulableUntil)
+    }
+}
+
+// MARK: - 详情三节（S2-09）
+
+extension AccountDemoStore {
+    /// `GET :id/today-stats` from DemoData.accountToday: 503 under `todayError`; under `todayThrottled` the first read is a 429 with
+    /// retry_after 8.
+    func todayStats(id: Int) throws -> AccountTodayStats {
+        if arguments.contains(DemoData.AccountFixture.todayThrottled), !todayThrottleServed {
+            todayThrottleServed = true
+            throw APIError.server(status: 429, envelope: nil, retryAfter: 8)
+        }
+        guard let stats = todayStats(ids: [id]).stats[id] else { throw APIError.server(status: 503, reason: "ACCOUNT_STATS_UNAVAILABLE") }
+        return stats
+    }
+    /// `GET :id/usage?source=passive`: Claude-官方-01 at 42%, Claude-官方-03 full (the design's window5h 1.0), Claude-官方-02 without
+    /// a session window yet.
+    func passiveUsage(id: Int) -> AccountUsageWindow {
+        switch id {
+        case 1: AccountUsageWindow(fiveHour: .init(utilization: 42, resetsAt: base.addingTimeInterval(7_980), remainingSeconds: 7_980))
+        case 3: AccountUsageWindow(fiveHour: .init(utilization: 100, resetsAt: base.addingTimeInterval(1_980), remainingSeconds: 1_980))
+        default: AccountUsageWindow(fiveHour: nil)
+        }
+    }
+    /// `upstream-errors?account_id&time_range=24h&page_size=1`: OpenAI-备用-A has 3 (the newest a 401 at its `error_at`),
+    /// Claude-官方-03 2 (the newest recovered after a 429), the others none. The ops switch of `-ui-ops-disabled` /
+    /// `-ui-ops-config-off` (OpsFixtureSwitch) answers 404 OPS_DISABLED.
+    func upstreamErrorPage(id: Int) throws -> Page<RequestErrorRecord> {
+        if OpsFixtureSwitch.from(arguments: arguments) != .on { throw LiveOpsFixtures.opsDisabledError }
+        let newest: [String: Any]?, total: Int
+        switch id {
+        case 7:
+            newest = Self.upstreamRow(9_701, platform: "openai", status: 401, message: "Upstream authentication failed",
+                                      at: account(id: 7)?.errorAt ?? ServerTime.utcTimestamp(base.addingTimeInterval(-60)))
+            total = 3
+        case 3:
+            newest = Self.upstreamRow(9_703, platform: "anthropic", status: 200, message: "Recovered upstream error 429: rate limited",
+                                      at: ServerTime.utcTimestamp(base.addingTimeInterval(-300)))
+            total = 2
+        default:
+            newest = nil; total = 0
+        }
+        // try! only here: a row that no longer decodes stops the first UI test instead of showing a wrong count.
+        let items = newest.map { [try! JSONDecoder().decode(RequestErrorRecord.self, from: JSONSerialization.data(withJSONObject: $0))] } ?? []
+        return Page(items: items, total: total, page: 1, pageSize: 1, pages: max(1, total))
+    }
+
+    private static func upstreamRow(_ id: Int, platform: String, status: Int, message: String, at createdAt: String) -> [String: Any] {
+        ["id": id, "created_at": createdAt, "request_id": "req-upstream-\(id)", "phase": "upstream", "type": "upstream_error", "status_code": status,
+         "platform": platform, "model": "demo-model", "resolved": false, "message": message]
     }
 }

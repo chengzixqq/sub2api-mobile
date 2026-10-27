@@ -6,7 +6,7 @@ import Sub2Core
 /// keeps its ETag as the edit version. A write's account replaces it at once and leaves the version to be read again before the
 /// next PATCH (`etagNeedsRefresh`), since only GET and PATCH send one. Reads carry a ticket and the session's generation, as the
 /// old detail did: a reply for an older read or session is dropped. The page runs `poll()` only in the foreground, while it is
-/// visible and nothing covers it; later items add their sections' reads to `refreshAll()` and `lightRefresh()`.
+/// visible and nothing covers it; 容量 · 今日 · 记录's reads (S2-09) go out on the same ticks and with `refreshAll()`.
 @MainActor @Observable
 final class AccountDetailModel {
     let accountID: Int
@@ -24,8 +24,14 @@ final class AccountDetailModel {
     /// Site clock time of the last sync (S2-09's “更新于 HH:MM:SS”).
     private(set) var updatedAt: Date?
     private(set) var catalog: MetaCatalog = .builtin
+    /// 20 §2.2 (S2-09): 今日, the 5-hour window and the upstream errors; each fails on its own.
+    let today = LoadState<AccountTodayStats>()
+    let usageWindow = LoadState<AccountUsageWindow>()
+    let upstreamErrors = LoadState<AccountUpstreamErrors>()
 
     @ObservationIgnored private weak var app: AppModel?
+    /// Device time before which the light refresh skips a block still backing off after failures (00 §4.6).
+    @ObservationIgnored private var sectionDue: [AccountDetailBlock: Date] = [:]
     @ObservationIgnored private let generation: UUID
     @ObservationIgnored private var readTicket = UUID()
     /// Device time of the last sync: the light refresh only measures elapsed time (20 §0.6).
@@ -69,8 +75,13 @@ final class AccountDetailModel {
         }
         return true
     }
-    /// Pull to refresh: everything again (S2-09 adds today, the 5-hour window and the upstream errors).
-    func refreshAll() async { await load() }
+    /// Pull to refresh and the return to the foreground: the account and every section again.
+    func refreshAll() async {
+        async let sections: Void = refreshSections(userInitiated: true)
+        await load()
+        await sections
+        await refreshUsageWindowIfMissing()
+    }
     /// runtime/batch for this id; a changed status or switch, or an id the reply left out, reads the account again. Without
     /// `accounts.runtime_batch`, or while only the list's snapshot is shown, it is a `GET :id`. A failure keeps the last values.
     func lightRefresh() async {
@@ -83,7 +94,8 @@ final class AccountDetailModel {
             guard readTicket == ticket, isLive, !Task.isCancelled else { return }
             switch AccountDetailRefresh.apply(runtime, to: current) {
             case .merged(let merged):
-                account = merged
+                // 容量's counters too (S2-09); the list's merge covers only what its rows show.
+                account = runtime[accountID].map { AccountDetailPresentation.mergingCapacity($0, into: merged) } ?? merged
                 markSynced()
             case .reload:
                 await load()
@@ -99,9 +111,15 @@ final class AccountDetailModel {
         while !Task.isCancelled, isLive {
             let elapsed = lastSync.map { Self.seconds(ContinuousClock.Instant.now - $0) }
             let wait = AccountDetailRefresh.delay(sinceLastRefresh: elapsed, readInFlight: isLoading)
-            if wait > 0 { do { try await Task.sleep(for: .seconds(wait)) } catch { return } }
+            if wait > 0 {
+                await readUnreadSections()
+                do { try await Task.sleep(for: .seconds(wait)) } catch { return }
+            }
             guard !Task.isCancelled else { return }
+            async let sections: Void = refreshSections(userInitiated: false)
             await lightRefresh()
+            await sections
+            await refreshUsageWindowIfMissing()
         }
     }
     /// A countdown reached zero (20 §0.2): the account is read once for that window end, unless the page cancelled that read.
@@ -136,6 +154,7 @@ final class AccountDetailModel {
         guard isLive else { return }
         invalidateReads()
         isRemoved = true
+        today.cancel(); usageWindow.cancel(); upstreamErrors.cancel()
     }
     func loadCatalog() async {
         guard let app else { return }
@@ -146,6 +165,71 @@ final class AccountDetailModel {
         readTicket = UUID()
         isLoading = false
     }
+
+    // MARK: 容量 · 今日 · 记录（S2-09）
+
+    /// 20 §2.6: today, the 5-hour window (Anthropic token accounts only) and the upstream errors, side by side, each on its own.
+    /// `userInitiated` (pull, foreground) also asks after OPS_DISABLED and during a failure backoff; a block still loading is left be.
+    func refreshSections(userInitiated: Bool) async {
+        guard isLive, !isRemoved else { return }
+        var inFlight: Set<AccountDetailBlock> = []
+        if today.isLoading { inFlight.insert(.today) }
+        if usageWindow.isLoading { inFlight.insert(.usageWindow) }
+        if upstreamErrors.isLoading { inFlight.insert(.upstreamErrors) }
+        let blocks = AccountDetailPresentation.blocksToRefresh(account: account, upstream: upstreamErrors.value, userInitiated: userInitiated,
+                                                               inFlight: inFlight, dueDates: sectionDue, now: Date())
+        async let todayRead: Void = loadToday(if: blocks.contains(.today))
+        async let windowRead: Void = loadUsageWindow(if: blocks.contains(.usageWindow))
+        await loadUpstreamErrors(if: blocks.contains(.upstreamErrors))
+        _ = await (todayRead, windowRead)
+    }
+    /// 今日's 重试, and the read again once a 429 wait ends.
+    func reloadToday() async {
+        guard !today.isLoading else { return }
+        await loadToday(if: true)
+    }
+    /// An account opened by id is known only after `GET :id`: its 5-hour window is read then, once.
+    func refreshUsageWindowIfMissing() async {
+        guard let account, AccountUsageWindow.applies(to: account), Self.isUnread(usageWindow.state) else { return }
+        await loadUsageWindow(if: true)
+    }
+    /// A first read the page cancelled (something covered it) goes out again as soon as the page is back, not a minute later.
+    private func readUnreadSections() async {
+        async let todayRead: Void = loadToday(if: Self.isUnread(today.state))
+        async let windowRead: Void = refreshUsageWindowIfMissing()
+        await loadUpstreamErrors(if: Self.isUnread(upstreamErrors.state))
+        _ = await (todayRead, windowRead)
+    }
+    private static func isUnread<Value: Sendable>(_ state: BlockState<Value>) -> Bool {
+        if case .idle = state { true } else { false }
+    }
+
+    private func loadToday(if needed: Bool) async {
+        guard needed, let app, isLive, !isRemoved else { return }
+        let id = accountID
+        await today.load(isCurrent: { self.isLive && !self.isRemoved }) { try await app.accountTodayStats(id: id) }
+        noteBackoff(.today, today.refresh)
+    }
+    private func loadUsageWindow(if needed: Bool) async {
+        guard needed, let app, isLive, !isRemoved else { return }
+        let id = accountID
+        await usageWindow.load(isCurrent: { self.isLive && !self.isRemoved }) { try await app.accountPassiveUsage(id: id) }
+        noteBackoff(.usageWindow, usageWindow.refresh)
+    }
+    private func loadUpstreamErrors(if needed: Bool) async {
+        guard needed, let app, isLive, !isRemoved else { return }
+        let id = accountID
+        await upstreamErrors.load(isCurrent: { self.isLive && !self.isRemoved }) { try await app.accountUpstreamErrors(id: id) }
+        noteBackoff(.upstreamErrors, upstreamErrors.refresh)
+    }
+    /// After failures the light refresh waits out the backoff (60 → 120 → 240 → 300 seconds); a success clears it. The tolerance
+    /// keeps a block on the tick it is due on, since the ticks count from the account's sync, not from this block's answer.
+    private func noteBackoff(_ block: AccountDetailBlock, _ refresh: BlockRefresh) {
+        guard refresh.consecutiveFailures > 0 else { sectionDue[block] = nil; return }
+        let wait = refresh.nextDelay(base: AccountDetailRefresh.interval, at: Date()) - Self.backoffTolerance
+        sectionDue[block] = Date().addingTimeInterval(wait)
+    }
+    private static let backoffTolerance: TimeInterval = 5
 
     private func markSynced() {
         updatedAt = app?.serverNow()
