@@ -103,7 +103,7 @@ private final class LoggedLines: Sendable {
     let client = APIClient(server: stubServer(), credential: .accessToken("sat_fixture"), transport: transport, requestClock: .immediate)
     let logged = LoggedLines()
     await client.logRequests(to: logged.sink)
-    let error = await thrownAPIError { _ = try await client.testAccount(id: 7, model: nil) }
+    let error = await thrownAPIError { _ = try await client.testAccount(id: 7, model: nil, expectsTestResult: false) }
     #expect(error?.reason == "ACCESS_TOKEN_READ_ONLY")
     #expect(logged.all == ["POST admin/accounts/:id/test 403 ACCESS_TOKEN_READ_ONLY rid-sse"])
     #expect(logged.failures == [true])

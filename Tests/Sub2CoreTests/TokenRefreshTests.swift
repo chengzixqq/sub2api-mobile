@@ -163,7 +163,7 @@ func transientRefreshFailureKeepsSessionAndBacksOff(step: ScriptStep) async thro
     }) { request in isRefresh(request) ? okReply(stubRefreshJSON) : errorReply(500) }
     let client = refreshClient(transport, clock: ManualClock(), expiresIn: 3_600)
     var events = [AccountTestEvent]()
-    for try await event in try await client.testAccount(id: 9, model: "fixture-model") { events.append(event) }
+    for try await event in try await client.testAccount(id: 9, model: "fixture-model", expectsTestResult: false) { events.append(event) }
     #expect(events.count == 1); #expect(events.first?.isSuccess == true)
     let requests = await transport.requests
     let streams = requests.filter { !isRefresh($0) }
