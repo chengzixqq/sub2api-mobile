@@ -286,6 +286,23 @@ final class UserDetailUITests: XCTestCase {
         }
     }
 
+    /// 30 §2.6: back from the editor (here the key summary's push) the profile, the keys and the records are read again, so a
+    /// failed records block recovers without 重试.
+    @MainActor func testReturnFromEditorRereadsRecords() {
+        launchAndLogin(arguments: ["-ui-user-detail-fail", "ledger"])
+        defer { diagnostics("user-detail-editor-return-final") }
+        openUser(1, name: "Alice")
+        XCTAssertTrue(app.scrollUntilExists(element("user.ledger.peek.failure")))
+        let keys = app.buttons["user.keys"]
+        XCTAssertTrue(app.scrollUntilExists(keys, towardBottom: false))
+        keys.tap()
+        XCTAssertTrue(app.navigationBars["编辑用户"].waitForExistence(timeout: 10), app.debugDescription)
+        goBack()
+        XCTAssertTrue(app.navigationBars["Alice"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.scrollUntilExists(element("user.ledger.row.124")))
+        XCTAssertFalse(element("user.ledger.peek.failure").exists, app.debugDescription)
+    }
+
     // MARK: - Helpers
 
     /// Password sign-in, or the access-token method for `accessToken` (a `sat_` key selects it on its own, 60 §4.3), so
