@@ -322,6 +322,9 @@
 | 回到前台多条精确命中的回执合并 | 30 §3.6 的自动核对每条命中出一个回执，R17 新回执替换旧回执，多条命中时只看得到最后一条；是否合并为“已核对 N 笔”由 S3-16 决定（S3-07） |
 | 冷却中的重试按钮不会自己变可用 | STORE_UNAVAILABLE 的 10 秒冷却在对话弹出时判定，对话打开期间到期不会自动启用重试，需要取消后再核对一次（S3-07） |
 | 旧余额页绕过唯一发送口 | S3-07 已建余额写唯一发送口 AppModel+Users.updateBalance（含 checkSender 与回显检查），旧 BalanceView 仍直接调 APIClient.updateBalance；S3-08 删除旧页，S3-16 核对只剩这一处发送 |
+| 自定义属性的 validation 本地校验与 ATTRIBUTE_* 文案 | 后端属性定义带 min/max_length、pattern、number 范围、select 选项等校验，App 只校验必填；不合规时服务端返回 400 ATTRIBUTE_VALIDATION_FAILED、404 ATTRIBUTE_DEFINITION_NOT_FOUND，ReasonCatalog 里没有这两个 reason，目前按状态码兜底。规格未要求，是否补本地校验与文案待定（S3-09） |
+| 新建用户结果不明时的读回口径 | 30 §5.4 第 7 步只按邮箱找（S3-09 已提供 findUserByEmail）；00 §2.5.5 另要求初始余额 > 0 时再按 action_id 查 user-adjustments。后端用户与初始余额账本在同一事务里写，找到用户即说明已入账，建议只按邮箱，由 S3-10 决定并在进度表注明 |
+| findUserByEmail 只看第 1 页 20 条 | 后端 search 同时匹配用户名、备注与 Key，若同一检索词命中 20 个以上比新用户更新的用户，会误判“没有创建成功”；用户再次提交会得到 409 EMAIL_EXISTS，不会重复创建，暂接受（S3-09） |
 
 ### App 与设计 · 阶段 4
 
