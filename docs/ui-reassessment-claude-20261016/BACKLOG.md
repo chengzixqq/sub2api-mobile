@@ -375,3 +375,7 @@
 | 公告编辑 PUT 结果不明的读回 | 编辑保存结果不明时 GET :id 读回、逐键比对发出的值；不一致或读失败显示“结果未确认，请刷新核对后再操作”与“再次核对”，不重发；60 §17.4 未写，待确认（S6-18） |
 | ANNOUNCEMENT_* 收进 ReasonCatalog | ANNOUNCEMENT_TITLE_INVALID / CONTENT_REQUIRED / INVALID_TARGET / TIME_RANGE_INVALID 目前只在 AnnouncementEditFailure 映射规格文案，其他入口仍落 400 兜底；以后由目录修改者收进 ReasonCatalog（S6-18） |
 | 公告手机编辑不支持 eq 与余额 ≤ 0 | 手机比较符只有 > ≥ < ≤，Web 建的“余额 = X”或金额 ≤ 0 的单条件在手机只读、编辑不发 targeting；要支持需在表单加 eq（S6-18） |
+| 兑换码横幅“等 N 批”的写法 | 60 §11.3 只写“标题后加‘等 N 批’”；S6-04 实现为“兑换码生成结果待核对等 2 批”，不加分隔。如果要改成“ · 等 2 批”或单独一行，只改 RedeemPendingBanner.make 和对应测试 |
+| 筛选胶囊样式重复 | S6-04 的 RedeemChipLabel（RedeemCodesView.swift，私有）与账号页的 AccountChipLabel（AccountsView.swift，私有）几乎一样，S6-26 可以抽成共用的胶囊标签组件 |
+| 兑换码列表入口的 UI 测试 | 概览待处理行（S1-10）与补偿回执“查看兑换码”（S6-09）合入后，把 RedeemCodesUITests 里靠 -ui-redeem-open / -ui-redeem-reconcile 进入的两条用例改为从真实入口进入，再决定是否删掉这两个夹具参数 |
+| 查看同一批时的搜索 | 规格没有写；S6-04 的做法是进入同一批时清空搜索，在同一批里输入搜索词会退出同一批、回到原筛选再加搜索词。需要的话可以改为同一批内搜索（后端 batch_id 与 search 可以同时传） |
