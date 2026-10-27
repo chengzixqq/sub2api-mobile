@@ -205,13 +205,18 @@ public struct DashboardStats: Codable, Sendable {
     public let totalTokens: Int?
     public let totalRequests: Int?
     public let averageDurationMs: Double?
-    public init(todayRequests: Int, todayTokens: Int, todayCost: Decimal, totalUsers: Int, totalAccounts: Int, errorAccounts: Int, rpm: Double, tpm: Double, todayActualCost: Decimal? = nil, todayAccountCost: Decimal? = nil, totalActualCost: Decimal? = nil, totalAccountCost: Decimal? = nil, totalTokens: Int? = nil, averageDurationMs: Double? = nil, totalRequests: Int? = nil, rpmAvailable: Bool? = nil) {
+    /// `stats_updated_at` as sent (RFC3339 UTC), so the fixture's JSON round trip keeps it; HomeFallback parses it (S1-07).
+    public let statsUpdatedAt: String?
+    /// nil on a server before the stats aggregation.
+    public let statsStale: Bool?
+    public init(todayRequests: Int, todayTokens: Int, todayCost: Decimal, totalUsers: Int, totalAccounts: Int, errorAccounts: Int, rpm: Double, tpm: Double, todayActualCost: Decimal? = nil, todayAccountCost: Decimal? = nil, totalActualCost: Decimal? = nil, totalAccountCost: Decimal? = nil, totalTokens: Int? = nil, averageDurationMs: Double? = nil, totalRequests: Int? = nil, rpmAvailable: Bool? = nil, statsUpdatedAt: String? = nil, statsStale: Bool? = nil) {
         self.todayRequests = todayRequests; self.todayTokens = todayTokens; self.todayCost = todayCost; self.totalUsers = totalUsers
         self.totalAccounts = totalAccounts; self.errorAccounts = errorAccounts; self.rpm = rpm; self.tpm = tpm
         self.rpmAvailable = rpmAvailable
         self.todayActualCost = todayActualCost; self.todayAccountCost = todayAccountCost
         self.totalActualCost = totalActualCost; self.totalAccountCost = totalAccountCost
         self.totalTokens = totalTokens; self.totalRequests = totalRequests; self.averageDurationMs = averageDurationMs
+        self.statsUpdatedAt = statsUpdatedAt; self.statsStale = statsStale
     }
     enum CodingKeys: String, CodingKey {
         case todayRequests = "today_requests", todayTokens = "today_tokens", todayCost = "today_cost", totalUsers = "total_users"
@@ -220,6 +225,7 @@ public struct DashboardStats: Codable, Sendable {
         case todayActualCost = "today_actual_cost", todayAccountCost = "today_account_cost"
         case totalActualCost = "total_actual_cost", totalAccountCost = "total_account_cost"
         case totalTokens = "total_tokens", totalRequests = "total_requests", averageDurationMs = "average_duration_ms"
+        case statsUpdatedAt = "stats_updated_at", statsStale = "stats_stale"
     }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -233,6 +239,8 @@ public struct DashboardStats: Codable, Sendable {
         totalTokens = try c.decodeIfPresent(Int.self, forKey: .totalTokens)
         totalRequests = try c.decodeIfPresent(Int.self, forKey: .totalRequests)
         averageDurationMs = try c.decodeIfPresent(Double.self, forKey: .averageDurationMs)
+        statsUpdatedAt = try? c.decodeIfPresent(String.self, forKey: .statsUpdatedAt)
+        statsStale = try? c.decodeIfPresent(Bool.self, forKey: .statsStale)
     }
 }
 public struct TrendPoint: Identifiable, Codable, Sendable {

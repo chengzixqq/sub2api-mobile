@@ -27,6 +27,13 @@ protocol LiveOpsSource: AlertActionSource {
     func alertRules() async throws -> [AlertEventRule]
     func channelOverview(range: String, refresh: Bool) async throws -> ChannelOverview
     func opsMonitoringStatus() async throws -> OpsMonitoringStatus
+    // S1-07 · 逐接口退路（10 §1.2）
+    func dashboardStats() async throws -> DashboardStats
+    func dashboardCostSnapshot() async throws -> DashboardCostSnapshot
+    func dashboardTrend() async throws -> DashboardTrendReply
+    func dashboardTrend(start: Date, end: Date, granularity: TrendGranularity) async throws -> DashboardTrendReply
+    func allGroups(includeInactive: Bool) async throws -> [AdminGroup]
+    func managedAccounts(page: Int, query: AccountListQuery) async throws -> AccountListPage
 }
 
 /// The session's own client (D13): LiveOpsStore never makes an APIClient of its own.
@@ -63,4 +70,14 @@ struct ClientLiveOpsSource: LiveOpsSource {
     }
     func updateAlertSilence(id: Int, until: Date) async throws -> AlertSilence { try await client.updateAlertSilence(id: id, until: until) }
     func deleteAlertSilence(id: Int) async throws { try await client.deleteAlertSilence(id: id) }
+    func dashboardStats() async throws -> DashboardStats { try await client.dashboard().stats }
+    func dashboardCostSnapshot() async throws -> DashboardCostSnapshot { try await client.dashboardCostSnapshot() }
+    func dashboardTrend() async throws -> DashboardTrendReply { try await client.dashboardTrend() }
+    func dashboardTrend(start: Date, end: Date, granularity: TrendGranularity) async throws -> DashboardTrendReply {
+        try await client.dashboardTrend(start: start, end: end, granularity: granularity)
+    }
+    func allGroups(includeInactive: Bool) async throws -> [AdminGroup] { try await client.allGroups(platform: nil, includeInactive: includeInactive) }
+    func managedAccounts(page: Int, query: AccountListQuery) async throws -> AccountListPage {
+        try await client.managedAccounts(page: page, query: query)
+    }
 }
