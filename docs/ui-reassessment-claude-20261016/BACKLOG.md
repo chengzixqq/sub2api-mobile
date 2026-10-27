@@ -302,6 +302,9 @@
 | 记录页“用户不存在”态的 UI 用例 | -ui-testing 下 AppModel.user(id:) 对不存在的 id 抛 invalidResponse 而不是 404 USER_NOT_FOUND，balance-history 对不存在的用户又返回空页，所以这个分支只有 isUserNotFound 单测和代码覆盖；S3-05 把详情夹具改成 404 时补一个 UI 用例 |
 | 30 §4.3 拆分示例与“为 0 的项省略”矛盾 | 规格示例写了“站点赠送 $0.00”“优惠码 $0.00”；S3-04 按“为 0 的项省略”实现，两句各占一行，三项都为 0 时不显示小字；规格示例待更正 |
 | UserManagementUITests 的 scroll() 会在 sheet 动画中发出退化手势 | sheet 下滑途中 scroll() 按 sheet 的导航栏取 top，拖动高度退化成 40pt，被夹到屏幕底边成了一次点按。S3-04 只在 confirmWrite 里等 sheet 关闭；S3-11 迁移、删除这个类时，新写的滚动 helper 在高度退化时应不发手势 |
+| 用户详情只读拒绝文案 | 30 §0.2 / §2.5 写“当前登录的是只读令牌，不能修改”，S3-05 用的是 ReasonCatalog 通用文案“当前管理访问令牌只读，不能执行此操作”。要统一时改 ReasonCatalog 或规格其中一处 |
+| 用户详情删除后的返回顺序 | 规格写“先 pop 再从列表移除”。S3-05 为保证确认 sheet 先关，改为删除成功后先移除列表行并出回执，sheet 关闭后再返回列表；视觉上看不出差别，要严格按规格时再调整 |
+| 用户详情分区头 meta | NumberedSectionHeader 还没有 meta 参数（S1-09b），S3-05 先用私有分区头；S6-26 收口时换成 NumberedSectionHeader 的 meta 版（S3D1-25） |
 
 ### App 与设计 · 阶段 4
 
