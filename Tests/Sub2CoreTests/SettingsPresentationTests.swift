@@ -117,3 +117,27 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(SettingsPresentation.thresholdText(100) == "$100")
     #expect(SettingsPresentation.thresholdText(100_000) == "$100,000")
 }
+
+// S3-07, C-26: an older login's record at this address is checked here; only another address's opens its site.
+@Test func pendingRowOfSameAddressOldLoginIsCheckedHereWithNote() {
+    let refund = PendingMoneyWriteSummary(subject: .balance(.subtract, amount: Decimal(string: "12.5")!), createdAt: now.addingTimeInterval(-300),
+                                          userID: 1, userDisplayName: "Alice")
+    let row = SettingsPresentation.pendingRow(siteName: "主站", summary: refund, now: now, timeZone: shanghai, origin: .sameAddressOldLogin)
+    #expect(row.action == .check)
+    #expect(row.originNote == "本站点的旧登录下发起")
+    #expect(row.title == "退款结果待核对" && row.detail == "主站 · Alice · 5 分钟前 · 未确认是否入账" && row.amount == "$12.50")
+}
+
+@Test func pendingRowOfOtherAddressOpensOriginalSite() {
+    let grant = PendingMoneyWriteSummary(subject: .compensation(.balance, value: 10), createdAt: now, userID: 3, userDisplayName: "王小明")
+    let row = SettingsPresentation.pendingRow(siteName: "旧站", summary: grant, now: now, timeZone: shanghai, origin: .otherAddress)
+    #expect(row.action == .openOriginalSite)
+    #expect(row.originNote == nil)
+}
+
+@Test func pendingRowDefaultsToCurrentSite() {
+    let batch = PendingMoneyWriteSummary(subject: .redeemBatch(count: 20, total: 200), createdAt: now)
+    let row = SettingsPresentation.pendingRow(siteName: "主站", summary: batch, now: now, timeZone: shanghai)
+    #expect(row.action == .check && row.originNote == nil)
+    #expect(row == SettingsPresentation.PendingRow(title: "兑换码生成结果待核对", detail: "主站 · 20 个 · 刚刚 · 未确认是否生成", amount: "$200.00"))
+}

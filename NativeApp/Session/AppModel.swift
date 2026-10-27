@@ -92,6 +92,8 @@ final class AppModel {
     private(set) var userChanges: UserChangeSignal?
     /// 30 §1: the user tab's list; the detail, keypad, reconciliation and editor write back through it (S3D1-05).
     private(set) var userList: UserListModel?
+    /// S3-07: the foreground check's single flight and the retry cooldowns (S3D1-05); only AppModel+BalanceReconcile changes it.
+    @ObservationIgnored var pendingChecks = PendingCheckRegistry()
 
     // MARK: - 阶段 4 · 会话级状态
     // 阶段 4 的条目在这里追加
@@ -217,6 +219,7 @@ final class AppModel {
                                      securityInterceptor: makeSecurityInterceptor(generation: generation))
         publish(profile, generation: generation, site: site, client: next, lease: store.lease)
         seedPendingFixture(serverID: profile.id)
+        seedPendingVariants(for: profile)
         // Not awaited: connecting ends here while the compliance sheet waits for the administrator (S0-16).
         Task { await presentComplianceIfRequired() }
         await candidate.cancelAll()
@@ -301,6 +304,7 @@ final class AppModel {
         // 阶段 3 的条目在这里追加
         userChanges = UserChangeSignal()
         userList = UserListModel(app: self, generation: generation)
+        pendingChecks = PendingCheckRegistry()
         // MARK: - 阶段 4 · 会话级状态
         // 阶段 4 的条目在这里追加
         pageStates = PageStateRegistry()
@@ -340,6 +344,7 @@ final class AppModel {
         // 阶段 3 的条目在这里追加
         userChanges = nil
         userList = nil
+        pendingChecks = PendingCheckRegistry()
         // MARK: - 阶段 4 · 会话级状态
         // 阶段 4 的条目在这里追加
         pageStates = nil

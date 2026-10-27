@@ -18,6 +18,8 @@ struct UserDetailView: View {
     @State private var deleteRequest: DeleteRequest?
     /// This user's editor went onto the stack above; the next appearance reads the profile, the keys and the records (30 §2.6).
     @State private var returnsFromEditor = false
+    /// 30 §3.4: the pending banner's checks and their dialogs (S3-07).
+    @State private var reconcileFlow = BalanceReconcileFlow()
 
     private var shouldPoll: Bool { visible && scenePhase == .active && detail != nil }
     /// `.userEdit` of this user, any segment, on the stack in front: the key summary's push, and S3-11's ⋯ 编辑用户.
@@ -28,6 +30,7 @@ struct UserDetailView: View {
     var body: some View {
         content
             .confirmDelete($deleteRequest)
+            .balanceReconcileFlow(reconcileFlow)
             .navigationTitle(detail?.user?.displayName ?? UserDetailPresentation.loadingTitle)
             .navigationSubtitle(detail?.user?.email ?? "")
             .navigationBarTitleDisplayMode(.inline)
@@ -60,7 +63,7 @@ struct UserDetailView: View {
                 case .failed(let reason):
                     failure(reason, detail: detail)
                 case .value(let user, _, _, _):
-                    UserDetailContent(detail: detail, user: user, timeZone: session?.site.serverTimeZone ?? .device,
+                    UserDetailContent(detail: detail, user: user, timeZone: session?.site.serverTimeZone ?? .device, reconcileFlow: reconcileFlow,
                                       onEnable: { Task { await detail.setStatus(enable: true) } },
                                       onBalance: { router.present(.balanceKeypad(userID: userID, mode: $0)) })
                         .refreshable { await detail.loadAll() }
@@ -156,12 +159,13 @@ private struct UserDetailContent: View {
     let detail: UserDetailModel
     let user: AdminUser
     let timeZone: ServerTimeZone
+    let reconcileFlow: BalanceReconcileFlow
     let onEnable: () -> Void
     let onBalance: (BalanceKeypadMode) -> Void
 
     var body: some View {
         List {
-            // 待核对横幅：S3-07
+            PendingBalanceBanner(userID: user.id, balance: user.balance, flow: reconcileFlow)
             if user.status == "disabled" {
                 Section {
                     UserDisabledBanner(isWorking: detail.isWritingStatus, onEnable: onEnable)
