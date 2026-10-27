@@ -382,3 +382,36 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(model.state.isLoading == false)
     #expect(model.refresh.consecutiveFailures == 0)
 }
+
+/// 60 §15.6: a write made while the list was covered still reloads it even if leaving again cancelled the first try.
+@MainActor @Test func cancelledReloadLeavesThePendingWriteForTheNextAppearance() async {
+    for signalled in [true, false] {
+        let gate = SessionGate()
+        let stub = AnnouncementStub(page: { call, page, _ in
+            if call == 2 { await gate.wait() }
+            return announcementPage(1...3, page: page)
+        })
+        let clock = TestClock()
+        let model = makeModel(stub, clock: clock)
+        await model.appeared(revision: 0)
+        let loadedAt = model.loadedAt
+        model.disappeared()
+        // The detail's write reaches the list either through onChange or only as a moved revision on return.
+        if signalled { await model.revisionChanged(1) }
+        clock.advance(10)
+        let shown = Task { await model.appeared(revision: 1) }
+        #expect(await eventually { await gate.arrived })
+        shown.cancel()
+        model.disappeared()
+        await gate.open()
+        await shown.value
+        #expect(model.loadedAt == loadedAt)
+        clock.advance(10)
+        await model.appeared(revision: 1)
+        #expect(await stub.pages == [1, 1, 1])
+        #expect(model.loadedAt == clock.now)
+        model.disappeared()
+        await model.appeared(revision: 1)
+        #expect(await stub.pages == [1, 1, 1])
+    }
+}
