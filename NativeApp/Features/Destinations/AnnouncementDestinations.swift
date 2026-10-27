@@ -11,7 +11,7 @@ struct AnnouncementRouteDestination: View {
         // .announcementDetail：S6-17
         case .announcementDetail(let id): AnnouncementDetailView(id: id)
         // .announcementReads：S6-19
-        case .announcementReads: ComingSoonView(title: route.placeholderTitle)
+        case .announcementReads(let id): AnnouncementReadsView(announcementID: id)
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }

@@ -239,3 +239,110 @@ extension AnnouncementEditSource {
                                recent: { await store.recent(title: $0) })
     }
 }
+
+// MARK: - 已读情况（S6-19）
+
+extension DemoData.AnnouncementFixture {
+    /// The first page-1 roster read of each 已读情况 page fails with 502.
+    static let readsError = "-ui-announcement-reads-error"
+    /// The first page-2 roster read of each 已读情况 page fails with 502.
+    static let readsMoreError = "-ui-announcement-reads-more-error"
+    /// Ten rows a page whatever was asked, so the 26 users take three pages.
+    static let readsPageSize = 10
+}
+
+extension AnnouncementDemoStore {
+    /// The same 26 users for every announcement, decoded from the backend's keys: 6, 12, 18 and 24 no longer qualify; 1, 3, 6, 8,
+    /// 10, 21 and 23 have read it. The bar's summary is `readSummary(id:now:)`, so the two need not agree.
+    func readRoster(id: Int) -> [AnnouncementReadStatusRow] { Self.roster }
+
+    /// `GET :id/read-status`: read state, eligibility, search (email or username) and sort as sent, like the backend (ties by id,
+    /// unread last for read_at). `attempt` counts this page number's reads on one 已读情况 page.
+    func readStatus(id: Int, page: Int, query: AnnouncementReadStatusQuery, attempt: Int) throws -> Page<AnnouncementReadStatusRow> {
+        _ = try existing(id)
+        let sent = Dictionary(try query.queryItems(page: page).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
+        if attempt == 1, page == 1, arguments.contains(DemoData.AnnouncementFixture.readsError) { throw Self.failure }
+        if attempt == 1, page == 2, arguments.contains(DemoData.AnnouncementFixture.readsMoreError) { throw Self.failure }
+        let matched = Self.ordered(readRoster(id: id).filter { Self.matches($0, sent) }, by: sent["sort_by"] ?? "email",
+                                   descending: sent["sort_order"] == "desc")
+        let size = DemoData.AnnouncementFixture.readsPageSize
+        return Page(items: Array(matched.dropFirst((page - 1) * size).prefix(size)), total: matched.count, page: page, pageSize: size,
+                    pages: max(1, (matched.count + size - 1) / size))
+    }
+
+    private static func matches(_ row: AnnouncementReadStatusRow, _ sent: [String: String]) -> Bool {
+        if let state = sent["read_state"], (state == "read") != (row.readAt != nil) { return false }
+        if sent["eligible"] == "true", !row.eligible { return false }
+        guard let term = sent["search"] else { return true }
+        return row.email.localizedCaseInsensitiveContains(term) || row.username.localizedCaseInsensitiveContains(term)
+    }
+    private static func ordered(_ rows: [AnnouncementReadStatusRow], by key: String, descending: Bool) -> [AnnouncementReadStatusRow] {
+        rows.sorted { first, second in
+            guard let before = precedes(first, second, by: key, descending: descending) else { return first.userID < second.userID }
+            return before
+        }
+    }
+    /// nil when the two tie on the key.
+    private static func precedes(_ first: AnnouncementReadStatusRow, _ second: AnnouncementReadStatusRow, by key: String, descending: Bool) -> Bool? {
+        func compare<Value: Comparable>(_ lhs: Value, _ rhs: Value) -> Bool? { lhs == rhs ? nil : (lhs < rhs) != descending }
+        switch key {
+        case "username": return compare(first.username, second.username)
+        case "balance": return compare(first.balance ?? 0, second.balance ?? 0)
+        case "read_at":
+            switch (first.readAt, second.readAt) {
+            case (nil, nil): return nil
+            case (nil, _): return false
+            case (_, nil): return true
+            case (let lhs?, let rhs?): return compare(lhs, rhs)
+            }
+        default: return compare(first.email, second.email)
+        }
+    }
+
+    private static let roster: [AnnouncementReadStatusRow] = {
+        let users: [(email: String, username: String, balance: String, readAt: String?)] = [
+            ("alice@example.com", "alice", "12.4", "2026-10-16T00:12:00Z"), ("bob@example.com", "bob", "3.2", nil),
+            ("carol@example.com", "carol", "58", "2026-10-16T01:05:00Z"), ("dave@example.com", "dave", "0", nil),
+            ("erin@example.com", "", "7.75", nil), ("frank@example.com", "frank", "1.1", "2026-10-15T23:40:00Z"),
+            ("grace@example.com", "grace", "22", nil), ("heidi@example.com", "heidi", "5", "2026-10-16T02:30:00Z"),
+            ("ivan@example.com", "ivan", "140", nil), ("judy@example.com", "judy", "9.99", "2026-10-16T03:15:00Z"),
+            ("mallory@example.com", "mallory", "0.5", nil), ("niaj@example.com", "niaj", "33.3", nil),
+            ("olivia@example.com", "olivia", "18", nil), ("peggy@example.com", "peggy", "2", nil),
+            ("nova-studio@example.com", "Nova 工作室", "2480", nil), ("rupert@example.com", "rupert", "64", nil),
+            ("sybil@example.com", "sybil", "11", nil), ("trent@example.com", "trent", "4.4", nil),
+            ("uma@example.com", "uma", "27", nil), ("victor@example.com", "victor", "0", nil),
+            ("wendy@example.com", "wendy", "15", "2026-10-16T04:00:00Z"), ("xavier@example.com", "xavier", "8.8", nil),
+            ("yvonne@example.com", "yvonne", "36", "2026-10-16T05:20:00Z"), ("zoe@example.com", "zoe", "1", nil),
+            ("quentin@example.com", "quentin", "99", nil), ("long.address.for.truncation@enterprise.example.com", "长邮箱用户", "6", nil)
+        ]
+        let ineligible: Set<Int> = [6, 12, 18, 24]
+        let objects = users.enumerated().map { index, user in
+            let id = index + 1
+            let read = user.readAt.map { ",\"read_at\":\"\($0)\"" } ?? ""
+            return "{\"user_id\":\(id),\"email\":\"\(user.email)\",\"username\":\"\(user.username)\",\"balance\":\(user.balance),"
+                + "\"eligible\":\(!ineligible.contains(id))\(read)}"
+        }
+        return (try? JSONDecoder().decode([AnnouncementReadStatusRow].self, from: Data(("[" + objects.joined(separator: ",") + "]").utf8))) ?? []
+    }()
+}
+
+extension AnnouncementReadsSource {
+    @MainActor static func fixture(_ store: AnnouncementDemoStore) -> AnnouncementReadsSource {
+        let reads = AnnouncementReadsFixtureReads()
+        return AnnouncementReadsSource(announcement: { try await store.announcement(id: $0, includeReadStats: false) },
+                                       page: { id, page, query in
+                                           try await store.readStatus(id: id, page: page, query: query, attempt: reads.next(page))
+                                       },
+                                       summary: { try await store.readSummary(id: $0, now: Date()) })
+    }
+}
+
+/// Counts one 已读情况 page's roster reads per page number, for the failure switches.
+@MainActor private final class AnnouncementReadsFixtureReads {
+    private var counts: [Int: Int] = [:]
+    func next(_ page: Int) -> Int {
+        let count = (counts[page] ?? 0) + 1
+        counts[page] = count
+        return count
+    }
+}
