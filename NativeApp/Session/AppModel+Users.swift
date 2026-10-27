@@ -125,4 +125,11 @@ extension AppModel {
     // MARK: - 限额
 
     // MARK: - 替换分组
+
+    // MARK: - 充值与调整记录（30 §4，S3-04）
+    /// The full list reads 20 a page; the detail's latest five (S3-05) pass `pageSize: 5`.
+    func balanceHistory(userID: Int, page: Int, pageSize: Int = PageSize.standard) async throws -> BalanceHistoryPage {
+        if isUITesting { return try DemoData.balanceHistory(userID: userID, page: page, pageSize: pageSize) }
+        return try await requireClient().balanceHistory(userID: userID, page: page, pageSize: pageSize)
+    }
 }

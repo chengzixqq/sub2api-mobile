@@ -10,7 +10,7 @@ struct UserRouteDestination: View {
         // .user：S3-05
         case .user(let id): UserDestination(id: id)
         // .userLedger：S3-04
-        case .userLedger: ComingSoonView(title: route.placeholderTitle)
+        case .userLedger(let userID): UserLedgerView(userID: userID)
         // .userNew：S3-10
         case .userNew: ComingSoonView(title: route.placeholderTitle)
         // .userEdit：S3-11
