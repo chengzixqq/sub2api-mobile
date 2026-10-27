@@ -1,12 +1,8 @@
 import Foundation
 
-/// Overview helpers that are not number formats: the performance window caption and trend bucket dates. Every number and
-/// amount goes through DisplayFormat (00 §6.2, R10).
+/// Overview helpers that are not number formats: trend bucket dates and axis labels. Every number and amount goes through
+/// DisplayFormat (00 §6.2, R10).
 public enum DashboardPresentation {
-    public static func performanceWindow(_ stats: DashboardStats) -> String {
-        stats.rpmAvailable == nil ? "RPM 窗口由站点决定 · TPM 近5分钟均值" : "RPM 近60秒 · TPM 近5分钟均值"
-    }
-
     /// Backend buckets have no offset: interpret them in the server zone (the reply's `query.timezone`, else the one
     /// sent with the request), never in the phone's (00 §6.4).
     public static func trendDate(_ raw: String, timeZone: TimeZone) -> Date? {

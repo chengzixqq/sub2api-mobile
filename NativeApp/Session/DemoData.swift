@@ -101,8 +101,7 @@ enum DemoData {
         trend: [
             TrendPoint(date: "2026-10-14 22:00", requests: 90, totalTokens: 32_000, cost: Decimal(string: "0.80")!, actualCost: Decimal(string: "0.31")!),
             TrendPoint(date: "2026-10-15 00:00", requests: 128, totalTokens: 54_000, cost: Decimal(string: "1.25")!, actualCost: Decimal(string: "0.52")!),
-            TrendPoint(date: "2026-10-15 02:00", requests: 64, totalTokens: 27_000, cost: Decimal(string: "0.63")!, actualCost: Decimal(string: "0.27")!)],
-        monitoring: OpsSnapshot(errorRate: 0.01, qps: 0.2, activeRequests: 2))
+            TrendPoint(date: "2026-10-15 02:00", requests: 64, totalTokens: 27_000, cost: Decimal(string: "0.63")!, actualCost: Decimal(string: "0.27")!)])
     static let longHourlyTrend: [TrendPoint] = (0..<36).map { hour in
         let date = String(format: "2026-10-%02d %02d:00", 14 + hour / 24, hour % 24)
         let actual = Decimal(string: "0.10000001")! + Decimal(hour) / 1_000

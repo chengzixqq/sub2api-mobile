@@ -2,7 +2,7 @@ import Foundation
 
 /// `ops/dashboard/throughput-trend` (40 §1.4). Rates divide by the seconds each bucket covers inside the requested window, so
 /// the partial first and last buckets keep their real level.
-public struct PerformanceTrend: Decodable, Sendable, Equatable {
+public struct PerformanceTrend: Sendable, Equatable {
     public typealias Bucket = OpsBucket
     /// Last month plus a daylight-saving hour (S4D1-10); the server itself has no limit.
     public static let maximumSpan: TimeInterval = 31 * 86_400 + 3_600
@@ -67,15 +67,6 @@ public struct PerformanceTrend: Decodable, Sendable, Equatable {
     init(reply: Reply, windowStart: Date, windowEnd: Date) {
         self.init(bucket: .resolve(reply.bucket, window: windowEnd.timeIntervalSince(windowStart)), windowStart: windowStart,
                   windowEnd: windowEnd, points: reply.points)
-    }
-    /// Only for the old `dashboardPerformanceTrend(start:end:)` in APIClient.swift; S1-09b deletes it together with this
-    /// initializer and `Decodable` (S1D1-18). Without the request the window runs from the first bucket to the end of the last.
-    public init(from decoder: any Decoder) throws {
-        let reply = try Reply(from: decoder)
-        let first = reply.points.map(\.date).min() ?? Date(timeIntervalSince1970: 0)
-        let last = reply.points.map(\.date).max() ?? first
-        let bucket = Bucket.resolve(reply.bucket, window: last.timeIntervalSince(first))
-        self.init(bucket: bucket, windowStart: first, windowEnd: last.addingTimeInterval(bucket.seconds), points: reply.points)
     }
 
     public var newestFirst: [Point] { Array(points.reversed()) }

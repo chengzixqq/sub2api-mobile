@@ -184,8 +184,7 @@ public struct Page<T: Decodable & Sendable>: Decodable, Sendable {
 public struct DashboardSummary: Sendable {
     public let stats: DashboardStats
     public let trend: [TrendPoint]
-    public let monitoring: OpsSnapshot?
-    public init(stats: DashboardStats, trend: [TrendPoint], monitoring: OpsSnapshot? = nil) { self.stats = stats; self.trend = trend; self.monitoring = monitoring }
+    public init(stats: DashboardStats, trend: [TrendPoint]) { self.stats = stats; self.trend = trend }
 }
 public struct DashboardStats: Codable, Sendable {
     public let todayRequests: Int
@@ -260,13 +259,6 @@ public struct TrendPoint: Identifiable, Codable, Sendable {
         totalTokens = try c.decode(Int.self, forKey: .totalTokens); cost = try c.decimal(.cost)
         actualCost = try c.optionalDecimal(.actualCost)
     }
-}
-public struct OpsSnapshot: Codable, Sendable {
-    public let errorRate: Double?
-    public let qps: Double?
-    public let activeRequests: Int?
-    public init(errorRate: Double? = nil, qps: Double? = nil, activeRequests: Int? = nil) { self.errorRate = errorRate; self.qps = qps; self.activeRequests = activeRequests }
-    enum CodingKeys: String, CodingKey { case errorRate = "error_rate", qps, activeRequests = "active_requests" }
 }
 public struct AccountTodayStats: Codable, Sendable {
     public let requests: Int
