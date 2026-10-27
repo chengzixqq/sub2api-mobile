@@ -362,3 +362,7 @@
 | 重新发布已过期的公告 | 已归档公告的 ends_at 已过时，重新发布后状态是“展示中”，但后端 IsActiveAt 判定用户看不到，回执“符合条件的用户能看到”不准。首版照规格（确认框里能看到已过的结束时间）；等用户决定是否在确认框末尾加“结束时间已过，发布后用户也看不到；请先编辑有效期”，或改写回执 |
 | 公告详情去掉 include_read_stats | 详情的已读行只用 read-summary，include_read_stats 在详情上不显示，却让后端多算一次统计，统计失败还会让整个详情请求失败。现在照规格在有能力时带上；建议以后去掉，只靠 read-summary |
 | 后端删除不存在的公告返回 200 | announcement_repo.go 的 Delete 删 0 行也不报错，规格说的 404 ANNOUNCEMENT_NOT_FOUND 实际不会出现。App 已把 200、404、读回 404 都当已删除，后端以后改成 404 时 App 不用改 |
+| 公告 H07 核对窗口 | 没有 announcements.idempotent_create 时新建结果不明，按标题搜最近 5 条，取确认后 5 分钟内（容许 60 秒时钟误差）、标题去空白后精确相等的最新一条；规格“最近几分钟”没有数值，待产品确认（S6-18） |
+| 公告编辑 PUT 结果不明的读回 | 编辑保存结果不明时 GET :id 读回、逐键比对发出的值；不一致或读失败显示“结果未确认，请刷新核对后再操作”与“再次核对”，不重发；60 §17.4 未写，待确认（S6-18） |
+| ANNOUNCEMENT_* 收进 ReasonCatalog | ANNOUNCEMENT_TITLE_INVALID / CONTENT_REQUIRED / INVALID_TARGET / TIME_RANGE_INVALID 目前只在 AnnouncementEditFailure 映射规格文案，其他入口仍落 400 兜底；以后由目录修改者收进 ReasonCatalog（S6-18） |
+| 公告手机编辑不支持 eq 与余额 ≤ 0 | 手机比较符只有 > ≥ < ≤，Web 建的“余额 = X”或金额 ≤ 0 的单条件在手机只读、编辑不发 targeting；要支持需在表单加 eq（S6-18） |
