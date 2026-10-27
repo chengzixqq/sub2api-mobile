@@ -74,3 +74,14 @@ private func seven(_ phase: HomeBlockPhase) -> [HomeBlockPhase] { Array(repeatin
     #expect(HomeTickerLayout.rows([Int](), columns: 3) == [])
     #expect(HomeTickerLayout.rows([0, 1], columns: 0) == [[0], [1]])
 }
+
+@Test func tickerCellsStaySkeletonUntilTheirOwnBlockLands() {
+    // The fallback lands block by block (S1-07): the rates can be in while today's figures are still on their way.
+    #expect(HomeTickerLayout.placeholders(stats: .placeholder, rates: fresh) == [.actualCost, .requests, .profit])
+    #expect(HomeTickerLayout.placeholders(stats: fresh, rates: .placeholder) == [.errorRate, .rpm, .tpm])
+    #expect(HomeTickerLayout.placeholders(stats: .placeholder, rates: .placeholder) == Set(HomeTickerKind.allCases))
+    // A value, a failure (“—”) or a switched-off block is no longer loading.
+    for phase in [fresh, stale, .failed, .disabled] {
+        #expect(HomeTickerLayout.placeholders(stats: phase, rates: phase).isEmpty)
+    }
+}

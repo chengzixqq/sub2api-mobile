@@ -1,6 +1,7 @@
 import Foundation
 
-// S1-09: the overview's whole-page state, the subtitle's refresh status and the six cells' rows (10 §0.1, §1.3.1, §1.3.2, §1.5).
+// S1-09: the overview's whole-page state, the subtitle's refresh status and the six cells' rows and skeletons (10 §0.1, §1.3.1,
+// §1.3.2, §1.5).
 
 /// One home block as the page sees it, whatever its value type.
 public enum HomeBlockPhase: Sendable, Equatable {
@@ -62,6 +63,21 @@ public enum HomeTickerLayout {
     public static func rows<Cell>(_ cells: [Cell], columns: Int) -> [[Cell]] {
         let width = max(1, columns)
         return stride(from: 0, to: cells.count, by: width).map { Array(cells[$0..<min($0 + width, cells.count)]) }
+    }
+    /// 10 §1.5: a cell is the skeleton until its own block has a value, failed or was switched off, never “—”. On the fallback the
+    /// blocks land one by one (S1-07), so the page shows while today's figures may still be on their way.
+    public static func placeholders(stats: HomeBlockPhase, rates: HomeBlockPhase) -> Set<HomeTickerKind> {
+        Set(HomeTickerKind.allCases.filter { ($0.section == .stats ? stats : rates) == .placeholder })
+    }
+}
+
+extension HomeTickerKind {
+    /// The home block the figure comes from: 错误率, RPM and TPM are the rates block's (10 §1.3.2).
+    var section: HomeSectionKey {
+        switch self {
+        case .actualCost, .requests, .profit: .stats
+        case .errorRate, .rpm, .tpm: .rates
+        }
     }
 }
 
