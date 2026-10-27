@@ -21,6 +21,10 @@ enum FallbackPiece: Sendable {
     case alerts(counts: Result<AlertCounts, any Error>?, firing: Result<[AlertEvent], any Error>)
     case availability(Result<AccountStatusSummary, any Error>)
     case channels(Result<ChannelOverview, any Error>)
+    /// The alerts block once the legacy rule and group-name lookups ended (S1D1-16).
+    case normalizedAlerts(HomeAlerts)
+    /// The availability follow-ups ended; nothing to write.
+    case followedUp
 }
 
 typealias FallbackRead = @Sendable () async -> FallbackPiece
@@ -51,7 +55,8 @@ extension LiveOpsStore {
         return delays.min() ?? Self.pollInterval
     }
 
-    /// Writes one answer; returns the read it calls for next (yesterday's comparison once today's stats are in).
+    /// Writes one answer; returns the read it calls for next: yesterday's comparison once today's stats are in, and the alerts'
+    /// legacy lookups and availability's follow-ups, which run beside the other reads so no block waits for them (00 §4.6).
     private func land(_ piece: FallbackPiece, round: inout FallbackRound) async -> FallbackRead? {
         switch piece {
         case .stats(let result, let snapshot):
@@ -73,12 +78,17 @@ extension LiveOpsStore {
             let now = serverNow()
             write(.hourly, \.hourly, HomeFallback.outcome(result.map { HomeFallback.hourly($0, now: now) }), round: &round)
         case .alerts(let counts, let firing):
-            await landAlerts(counts: counts, firing: firing, round: &round)
+            return await landAlerts(counts: counts, firing: firing, round: &round)
+        case .normalizedAlerts(let alerts):
+            writeAlerts(alerts, round: &round)
         case .availability(let result):
             write(.availability, \.availability, HomeFallback.outcome(result), round: &round)
-            if isLanding(round) { await applyAvailabilityFollowUps() }
+            guard isLanding(round) else { break }
+            return { [weak self] in await self?.applyAvailabilityFollowUps(); return .followedUp }
         case .channels(let result):
             write(.channels, \.channels, HomeFallback.outcome(result.map(HomeFallback.homeChannels), unsupportedAsDisabled: true), round: &round)
+        case .followedUp:
+            break
         }
         return nil
     }
@@ -105,16 +115,30 @@ extension LiveOpsStore {
         write(.rates, \.rates, outcome, round: &round)
         if outcome.value != nil, isLanding(round) { ratesSource = origin }
     }
-    /// With `ops.alert_event_counts` the counts come from there, otherwise from the list of up to 500.
-    private func landAlerts(counts: Result<AlertCounts, any Error>?, firing: Result<[AlertEvent], any Error>, round: inout FallbackRound) async {
+    /// With `ops.alert_event_counts` the counts come from there, otherwise from the list of up to 500. The newest events land once
+    /// `normalizeReceivedAlerts` filled them in.
+    private func landAlerts(counts: Result<AlertCounts, any Error>?, firing: Result<[AlertEvent], any Error>,
+                            round: inout FallbackRound) async -> FallbackRead? {
         if let counts { await recordOpsResponse(counts.error) }
         await recordOpsResponse(firing.error)
         let read = firing.flatMap { events in
             (counts ?? .success(AlertCounts.counting(events))).map { HomeFallback.homeAlerts(counts: $0, firing: events) }
         }
-        guard case .success(let alerts) = read else { return write(.alerts, \.alerts, HomeFallback.outcome(read), round: &round) }
-        let top = alerts.top.isEmpty ? alerts.top : await normalizeReceivedAlerts(alerts.top)
-        write(.alerts, \.alerts, .loaded(HomeAlerts(firingCount: alerts.firingCount, bySeverity: alerts.bySeverity, top: top)), round: &round)
+        guard case .success(let alerts) = read else {
+            write(.alerts, \.alerts, HomeFallback.outcome(read), round: &round)
+            return nil
+        }
+        guard !alerts.top.isEmpty else {
+            writeAlerts(alerts, round: &round)
+            return nil
+        }
+        return { [weak self] in
+            let top = await self?.normalizeReceivedAlerts(alerts.top) ?? alerts.top
+            return .normalizedAlerts(HomeAlerts(firingCount: alerts.firingCount, bySeverity: alerts.bySeverity, top: top))
+        }
+    }
+    private func writeAlerts(_ alerts: HomeAlerts, round: inout FallbackRound) {
+        write(.alerts, \.alerts, .loaded(alerts), round: &round)
         if isLanding(round) { recordAlertCounts(AlertCounts(firing: alerts.firingCount, bySeverity: alerts.bySeverity)) }
     }
     /// A value or a switched-off block clears the block's backoff; a failure keeps the value, says 加载失败 or 加载超时 and backs off.

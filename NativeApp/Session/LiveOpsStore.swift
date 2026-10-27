@@ -43,7 +43,8 @@ final class LiveOpsStore {
     let recent = LoadState<RecentAlerts>()
     /// The monitor's channel list (S1-15); the home page's channel counts are `home.channels`.
     let channels = LoadState<ChannelOverview>()
-    /// The blocks come from S1-07's per-endpoint fallback: no `dashboard.home`, or home answered 404 or the network failed.
+    /// The blocks' wait and backoff come from S1-07's per-endpoint fallback: no `dashboard.home`, or home answered 404 or the
+    /// network failed. Any other home failure hands them back to the home request.
     private(set) var isOnFallback = false
     private(set) var isCalmVisible = false
     private var countsValue: AlertCounts?
@@ -171,10 +172,14 @@ final class LiveOpsStore {
         await homeRequest.load(isCurrent: isCurrent) {
             do { return try await source.dashboardHome(timezone: zone, include: nil, noCache: noCache) } catch { failure.error = error; throw error }
         }
-        if let error = failure.error, isCurrent(), !homeRequest.isLoading, HomeFallback.shouldFallBack(afterHomeError: error) {
-            if HomeFallback.isMissingEndpoint(error) { homeEndpointMissing = true }
-            homeRequest.reset()
-            return await startFallback(noCache: noCache)
+        if let error = failure.error, isCurrent(), !homeRequest.isLoading {
+            if HomeFallback.shouldFallBack(afterHomeError: error) {
+                if HomeFallback.isMissingEndpoint(error) { homeEndpointMissing = true }
+                homeRequest.reset()
+                return await startFallback(noCache: noCache)
+            }
+            // Any other failure home recorded (a 5xx, a 429): its own wait and backoff count again (00 §4.6); the blocks stay.
+            if homeRequest.error != nil { isOnFallback = false }
         }
         guard isCurrent(), case .loaded(let reply, let at) = homeRequest.state, at != appliedHomeAt else { return }
         appliedHomeAt = at

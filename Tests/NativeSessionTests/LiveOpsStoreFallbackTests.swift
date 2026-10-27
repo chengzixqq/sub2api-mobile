@@ -131,6 +131,22 @@ private func isFallbackRead(_ call: StubLiveOpsSource.Call) -> Bool {
     }
 }
 
+@MainActor @Test func homeErrorAfterTransportFallbackUsesHomesOwnWaitAndBackoff() async {
+    for failure in [serverFailure, APIError.server(status: 429, envelope: nil, retryAfter: 120)] {
+        let tally = Tally()
+        let source = everyEndpoint { $0.home = { _ in if tally.next() == 1 { throw offline }; throw failure } }
+        let store = fallbackHarness(source, [.dashboardHome]).store
+        await store.refreshHome(noCache: false)
+        #expect(store.isOnFallback && store.nextHomeDelay() == 60)
+        await store.refreshHome(noCache: false)
+        let statsReads = await source.count { $0 == .stats }
+        #expect(store.homeFailed && !store.isOnFallback && blocksLoaded(store.home) && statsReads == 1)
+        #expect(store.homeRefresh(for: .channels) == store.homeRequest.refresh && store.homeRequest.refresh.consecutiveFailures == 2)
+        let expected: TimeInterval = failure.statusCode == 429 ? 120 : 240
+        #expect(abs(store.nextHomeDelay() - expected) <= 1)
+    }
+}
+
 // MARK: rates 三级
 
 @MainActor @Test func ratesUseDashboardRatesAndRequestOverviewOnce() async {
@@ -199,6 +215,41 @@ private func isFallbackRead(_ call: StubLiveOpsSource.Call) -> Bool {
     #expect(store.home.stats.updatedAt == harness.context.localNow && store.home.channels.updatedAt == harness.context.localNow)
     #expect(store.home.ops.failureReason == nil && store.home.availability.failureReason == nil && store.home.rates.failureReason == nil)
     #expect(store.homeRefresh(for: .hourly).consecutiveFailures == 1 && store.homeRefresh(for: .stats).consecutiveFailures == 0)
+}
+
+/// `lookup` holds a follow-up read; the channels answer only once it started and still land before it ends (00 §4.6).
+@MainActor private func channelsLand(whileHeldBy lookup: SessionGate, channels: SessionGate, _ source: StubLiveOpsSource,
+                                     _ capabilities: [Capability]) async -> LiveOpsStore {
+    let store = fallbackHarness(source, capabilities).store
+    let round = Task { await store.refreshHome(noCache: false) }
+    await waitUntil { let held = await lookup.arrived; let asked = await channels.arrived; return held && asked }
+    await channels.open()
+    await waitUntil { store.home.channels.value != nil }
+    #expect(store.home.channels.value == HomeChannels(total: 2, healthy: 1, warning: 1))
+    await lookup.open()
+    await round.value
+    return store
+}
+
+@MainActor @Test func slowFollowUpReadsDoNotHoldBackOtherBlocks() async {
+    let structured = SessionGate(), structuredChannels = SessionGate()
+    let summarized = everyEndpoint {
+        let answer = $0.channels!
+        $0.errorAccounts = { await structured.wait(); return [structuredAccount(7)] }
+        $0.channels = { await structuredChannels.wait(); return try await answer() }
+    }
+    let first = await channelsLand(whileHeldBy: structured, channels: structuredChannels, summarized, [.accountsStatusSummary, .accountsStructuredError])
+    #expect(first.structuredErrors.map(\.id) == [7] && blocksLoaded(first.home))
+    let rules = SessionGate(), ruleChannels = SessionGate()
+    let bare = AlertEvent(id: 41, ruleID: 11, severity: "P1", status: "firing", firedAt: base.addingTimeInterval(-60))
+    let legacy = everyEndpoint {
+        let answer = $0.channels!
+        $0.alertEvents = { _, _ in [bare] }
+        $0.alertRules = { await rules.wait(); return [rule] }
+        $0.channels = { await ruleChannels.wait(); return try await answer() }
+    }
+    let second = await channelsLand(whileHeldBy: rules, channels: ruleChannels, legacy, [])
+    #expect(second.home.alerts.value?.top.map(\.rule) == [rule] && second.alertCounts?.firing == 1 && blocksLoaded(second.home))
 }
 
 @MainActor @Test func timedOutBlockSaysTimedOut() async {
