@@ -79,7 +79,7 @@ private struct AccountDetailContent: View {
         .task(id: wait) { await waitForCountdown(wait) }
         .onAppear { visible = true }
         .onDisappear { visible = false }
-        .onChange(of: model.foregroundRevision) { _, _ in Task { await detail.load() } }
+        .onChange(of: model.foregroundRevision) { _, _ in Task { await detail.refreshAll() } }
         // A read that failed while compliance was pending reads again once it is accepted (00 §1.10).
         .onChange(of: model.securityPrompts.complianceRevision) { _, _ in if detail.failure != nil { Task { await detail.load() } } }
         .accountRecoverDialog($recovering, actions: actions)
@@ -101,9 +101,26 @@ private struct AccountDetailContent: View {
         case .removed: AccountDetailRemovedPage()
         case .content(let banner):
             if let banner { snapshotBanner(banner) }
-            if let account = detail.account { top(account) }
-            // 分区：S2-09 起在此追加（各节挂 .id(AccountDetailFocus.xxx)，focus 由 scrollToFocus 滚到，X39）
+            if let account = detail.account {
+                top(account)
+                sections(account)
+            }
+            // 分区：S2-10 起在此追加（各节挂 .id(AccountDetailFocus.xxx)，focus 由 scrollToFocus 滚到，X39）
         }
+    }
+
+    /// 容量（壹）· 今日（贰）· 记录（叁）, numbered over the sections shown (S2-09).
+    @ViewBuilder private func sections(_ account: UpstreamAccount) -> some View {
+        let timeZone = session?.site.serverTimeZone.timeZone ?? .current
+        let capacity = AccountDetailPresentation.capacityRows(account: account, usageWindow: detail.usageWindow.value, timeZone: timeZone)
+        let ordinals = AccountDetailPresentation.sectionOrdinals(hasCapacity: !capacity.isEmpty)
+        if let ordinal = ordinals.capacity {
+            AccountCapacitySection(rows: capacity, ordinal: ordinal,
+                                   updatedText: AccountDetailPresentation.capacityUpdatedText(detail.updatedAt, timeZone: timeZone))
+        }
+        AccountTodaySection(load: detail.today, ordinal: ordinals.today, autoRetry: isRefreshOpen) { await detail.reloadToday() }
+        AccountRecordsSection(account: RouteObject(id: account.id, name: account.name), upstream: detail.upstreamErrors.state,
+                              ordinal: ordinals.records)
     }
 
     private func snapshotBanner(_ text: String) -> some View {
@@ -117,7 +134,7 @@ private struct AccountDetailContent: View {
 
     private func top(_ account: UpstreamAccount) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            AccountStatusCard(account: account)
+            AccountStatusCard(account: account) { AccountUpstreamErrorLineView(account: account, upstream: detail.upstreamErrors.state) }
             AccountActionButtonRow(row: AccountDetailPresentation.actionRow(account, now: serverNow), running: running) { perform($0, on: account) }
                 .disabled(running != nil || actions.isRunning(account.id))
         }

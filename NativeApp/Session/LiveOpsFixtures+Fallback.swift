@@ -69,7 +69,10 @@ extension LiveOpsFixtures {
 }
 
 extension FixtureLiveOpsSource {
-    func dashboardStats() -> DashboardStats { LiveOpsFixtures.dashboardStats(base) }
+    func dashboardStats() async throws -> DashboardStats {
+        if options.pendingStats { try await Task.sleep(for: .seconds(3_600)) }
+        return LiveOpsFixtures.dashboardStats(base)
+    }
     func dashboardCostSnapshot() -> DashboardCostSnapshot {
         let today = LiveOpsFixtures.stats(base)
         return DashboardCostSnapshot(actual: today.todayActualCost ?? 0, account: today.todayAccountCost ?? 0)

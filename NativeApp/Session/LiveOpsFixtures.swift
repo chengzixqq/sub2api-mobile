@@ -59,6 +59,8 @@ enum LiveOpsFixtures {
         static let homeUnreachableOnce = "-ui-home-unreachable-once"
         /// S1-09: home reads never answer (until cancelled), so the first load's skeleton stays.
         static let homePending = "-ui-home-pending"
+        /// S1-09: the fallback's `dashboard/stats` never answers (until cancelled), so only today's figures stay the skeleton.
+        static let statsPending = "-ui-home-stats-pending"
     }
     struct Options: Equatable, Sendable {
         var variant: HomeVariant
@@ -67,10 +69,11 @@ enum LiveOpsFixtures {
         var alertWritesFail: Bool
         var alertsWithoutSilenceKey: Bool
         var homeLegacy: Bool
-        // S1-09: these three go with any variant.
+        // S1-09: these go with any variant.
         var profitLoss = false
         var failsFirstRound = false
         var pendingHome = false
+        var pendingStats = false
         var opsDisabled: Bool { ops != .on }
         init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
@@ -88,6 +91,7 @@ enum LiveOpsFixtures {
             profitLoss = arguments.contains(Argument.profitLoss)
             failsFirstRound = arguments.contains(Argument.homeUnreachableOnce)
             pendingHome = arguments.contains(Argument.homePending)
+            pendingStats = arguments.contains(Argument.statsPending)
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.

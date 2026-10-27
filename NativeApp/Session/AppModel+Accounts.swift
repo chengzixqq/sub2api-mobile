@@ -66,7 +66,7 @@ extension AppModel {
         return count
     }
 
-    // MARK: 按 id 读取（旧编辑页；S2-09 起详情的今日）
+    // MARK: 按 id 读取（旧编辑页；详情的今日、5 小时窗口与上游错误，S2-09）
 
     /// `-ui-testing` reads the session's demo accounts; an id they lack is the server's 404.
     func account(id: Int) async throws -> UpstreamAccount {
@@ -76,15 +76,27 @@ extension AppModel {
         }
         return try await requireClient().account(id: id)
     }
-    /// `-ui-testing` takes the id from the demo batch, which fails under `-ui-accounts-today-error`.
+    /// `-ui-testing` reads the demo table, which fails under `-ui-accounts-today-error` (and once with 429 under
+    /// `-ui-account-today-throttled`).
     func accountTodayStats(id: Int) async throws -> AccountTodayStats {
-        if isUITesting {
-            guard let stats = accountDemo.todayStats(ids: [id]).stats[id] else {
-                throw APIError.server(status: 503, reason: "ACCOUNT_STATS_UNAVAILABLE")
-            }
-            return stats
-        }
+        if isUITesting { return try accountDemo.todayStats(id: id) }
         return try await requireClient().accountTodayStats(id: id)
+    }
+    /// 20 §2.2 5 小时窗口; callers ask only for AccountUsageWindow.applies accounts.
+    func accountPassiveUsage(id: Int) async throws -> AccountUsageWindow {
+        if isUITesting { return accountDemo.passiveUsage(id: id) }
+        return try await requireClient().accountPassiveUsage(id: id)
+    }
+    /// 20 §2.2 上游错误: one `upstream-errors` read of page size 1 for the count and the newest row (X08); 404 OPS_DISABLED
+    /// comes back as `.opsDisabled`, not as a failure.
+    func accountUpstreamErrors(id: Int) async throws -> AccountUpstreamErrors {
+        do {
+            if isUITesting { return AccountUpstreamErrors(page: try accountDemo.upstreamErrorPage(id: id)) }
+            let filter = AccountDetailPresentation.upstreamErrorFilter(accountID: id)
+            return AccountUpstreamErrors(page: try await requireClient().errorRecords(page: 1, filter: filter, kind: .upstream))
+        } catch let error where AccountUpstreamErrors.isOpsDisabled(error) {
+            return .opsDisabled
+        }
     }
 
     /// This session's fixture accounts.

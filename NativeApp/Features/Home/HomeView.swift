@@ -3,8 +3,8 @@ import Sub2Core
 
 /// 10 §1 the overview's regular layout: the R18 banner, the six cells and the ops notice, then the queue (S1-10) and the today and
 /// run sections (S1-09b). The title is the site menu (MainTabs' `siteTitleMenu()`), the subtitle the server's date and freshness.
-/// The session's LiveOpsStore polls while this tab shows and the App is active; coming back to the foreground or passing
-/// compliance restarts it, which reads at once (D18: no scene-phase handler here). Identifiers home.*.
+/// The session's LiveOpsStore polls while this tab shows and the App is active; coming back to the foreground restarts it, which
+/// reads at once (D18: no scene-phase handler here), and passing compliance reads again. Identifiers home.*.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
 
@@ -25,8 +25,10 @@ private struct HomeScreen: View {
     @State private var visible = false
 
     var body: some View {
-        let key = HomePollKey(visible: visible && scenePhase == .active, foreground: model.foregroundRevision,
-                              compliance: model.securityPrompts.complianceRevision)
+        // Back from the background the phase passes .background, so the task restarts once. Restarting it on foregroundRevision or
+        // complianceRevision as well would cancel the read just sent, and the new task would skip its first read while that one
+        // is still unwinding.
+        let polls = visible && scenePhase == .active
         // Each minute the subtitle's “N 分钟前” and the banner's time left are counted again.
         TimelineView(.everyMinute) { _ in
             page.navigationSubtitle(subtitle)
@@ -35,10 +37,17 @@ private struct HomeScreen: View {
         .refreshable { await store.refreshHome(noCache: true) }
         .onAppear { visible = true }
         .onDisappear { visible = false }
-        .task(id: key) {
-            guard key.visible else { return }
+        .task(id: polls) {
+            guard polls else { return }
             await store.homePolling()
         }
+        .onChange(of: model.securityPrompts.complianceRevision) { _, _ in readAfterCompliance() }
+    }
+
+    /// S0-13: a read the compliance sheet held goes on by itself once it passes; otherwise home and its extra reads are read again.
+    private func readAfterCompliance() {
+        guard visible, scenePhase == .active, !store.isHomeLoading else { return }
+        Task { await store.refreshHome(noCache: false) }
     }
 
     private var requestFailed: Bool { store.homeFailed }
@@ -83,7 +92,7 @@ private struct HomeScreen: View {
     @ViewBuilder private var figuresSection: some View {
         Section {
             HomeTicker(cells: HomePresentation.tickerCells(stats: store.home.stats.value, rates: store.home.rates.value, ratesSource: store.ratesSource),
-                       isPlaceholder: state == .skeleton)
+                       placeholders: HomeTickerLayout.placeholders(stats: store.home.stats.display.homePhase, rates: store.home.rates.display.homePhase))
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Palette.surface)
         }
@@ -130,13 +139,6 @@ private struct HomeScreen: View {
         }
         .accessibilityIdentifier("home.more")
     }
-}
-
-/// The task restarts when one of these changes; a hidden tab or a background App ends it.
-private struct HomePollKey: Hashable {
-    let visible: Bool
-    let foreground: Int
-    let compliance: Int
 }
 
 extension View {
