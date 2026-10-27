@@ -74,7 +74,11 @@ final class SecurityPromptUITests: XCTestCase {
         app.tabBars.buttons["用户"].tap()
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["user.1"].tap()
-        reveal(app.buttons["user.edit"]); app.buttons["user.edit"].tap()
+        // S3-05: 编辑用户 is in the detail's ⋯ menu, whose items are found by their words.
+        XCTAssertTrue(app.buttons["user.more"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["user.more"].tap()
+        XCTAssertTrue(app.buttons["编辑用户"].waitForExistence(timeout: 3), app.debugDescription)
+        app.buttons["编辑用户"].tap()
         XCTAssertTrue(element("user-editor.email").waitForExistence(timeout: 5), app.debugDescription)
         reveal(app.buttons["user-editor.role"]); app.buttons["user-editor.role"].tap()
         XCTAssertTrue(app.buttons["管理员"].waitForExistence(timeout: 3), app.debugDescription)

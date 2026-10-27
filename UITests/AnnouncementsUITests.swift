@@ -164,8 +164,8 @@ final class AnnouncementsUITests: XCTestCase {
         segment("展示中").tap()
         XCTAssertTrue(row(31).waitForExistence(timeout: 10), app.debugDescription)
         row(31).tap()
-        // S6-17 replaces the placeholder detail.
-        XCTAssertTrue(app.navigationBars["公告详情"].waitForExistence(timeout: 10), app.debugDescription)
+        // S6-17: the detail page.
+        XCTAssertTrue(element("announcement.detail").waitForExistence(timeout: 10) && app.navigationBars["公告"].exists, app.debugDescription)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(row(31).waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(segment("展示中").isSelected, app.debugDescription)
@@ -237,5 +237,190 @@ final class AnnouncementsUITests: XCTestCase {
             (down ? lower : upper).press(forDuration: 0.05, thenDragTo: down ? upper : lower)
         }
         XCTAssertTrue(item.exists && item.isHittable, app.debugDescription)
+    }
+
+    // MARK: - 详情（S6-17）
+
+    @MainActor func testDetailDraftPublishConfirmation() {
+        launchAnnouncements()
+        openDetail(29)
+        defer { diagnostics("announcement-detail-publish-final") }
+        XCTAssertTrue(text("草稿 · 弹窗").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(detailButton("publish").exists && detailButton("edit").exists, app.debugDescription)
+        XCTAssertFalse(detailButton("archive").exists || element("announcement.detail.reads").exists, app.debugDescription)
+        detailButton("publish").tap()
+        let alert = app.alerts["发布「余额不足提醒」？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        for part in ["余额 < $5.00 · 用户打开时弹窗提示", "有效期 立即 – 永久"] {
+            XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", part)).firstMatch.exists, "\(part)\n\(app.debugDescription)")
+        }
+        alert.buttons["发布"].tap()
+        XCTAssertTrue(waitForLabel(app.staticTexts["receipt.text"], containing: "已发布 · 符合条件的用户能看到"), app.debugDescription)
+        XCTAssertTrue(detailButton("archive").waitForExistence(timeout: 10) && detailButton("edit").exists, app.debugDescription)
+        XCTAssertFalse(detailButton("publish").exists, app.debugDescription)
+    }
+
+    @MainActor func testDetailActiveArchiveAndUndo() {
+        launchAnnouncements()
+        openDetail(30)
+        defer { diagnostics("announcement-detail-archive-final") }
+        XCTAssertTrue(detailButton("archive").exists && detailButton("edit").exists, app.debugDescription)
+        detailButton("archive").tap()
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+        XCTAssertTrue(waitForLabel(app.staticTexts["receipt.text"], containing: "已归档 · 用户不再看到"), app.debugDescription)
+        XCTAssertTrue(detailButton("republish").waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["receipt.action"].tap()
+        XCTAssertTrue(detailButton("archive").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(detailButton("republish").exists, app.debugDescription)
+    }
+
+    @MainActor func testDetailArchivedButtonsAndMenu() {
+        launchAnnouncements()
+        openDetail(27)
+        defer { diagnostics("announcement-detail-menu-final") }
+        XCTAssertTrue(detailButton("republish").exists && detailButton("edit").exists, app.debugDescription)
+        XCTAssertFalse(detailButton("archive").exists, app.debugDescription)
+        openMoreMenu()
+        for title in ["编辑公告", "重新发布", "已读情况", "删除公告…"] {
+            XCTAssertTrue(menuItem(title).waitForExistence(timeout: 5), "\(title)\n\(app.debugDescription)")
+        }
+        for line in ["国庆期间客服时间调整", "已归档 · 静默"] {
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", line)).firstMatch.exists, "\(line)\n\(app.debugDescription)")
+        }
+    }
+
+    @MainActor func testDetailEditOpensEditSheet() {
+        launchAnnouncements()
+        openDetail(31)
+        defer { diagnostics("announcement-detail-edit-final") }
+        detailButton("edit").tap()
+        // S6-18 replaces the placeholder sheet.
+        XCTAssertTrue(app.navigationBars["编辑公告"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["sheet.close"].tap()
+        XCTAssertTrue(element("announcement.detail").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor func testDetailDeleteByTypingTitle() {
+        launchAnnouncements()
+        openDetail(27)
+        defer { diagnostics("announcement-detail-delete-final") }
+        openMoreMenu()
+        menuItem("删除公告…").tap()
+        XCTAssertTrue(element("delete.sheet").waitForExistence(timeout: 10), app.debugDescription)
+        let confirm = app.buttons["delete.confirm"]
+        XCTAssertFalse(confirm.isEnabled, app.debugDescription)
+        let input = app.textFields["delete.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5), app.debugDescription)
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { input.tap() }
+        input.typeText("国庆期间客服时间调整")
+        XCTAssertTrue(confirm.isEnabled, app.debugDescription)
+        confirm.tap()
+        XCTAssertTrue(waitForLabel(app.staticTexts["receipt.text"], containing: "已删除公告「国庆期间客服时间调整」"), app.debugDescription)
+        XCTAssertTrue(element("announcements.list").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("announcement.detail").exists, app.debugDescription)
+        XCTAssertTrue(segmentButton(labeled: "已归档 2").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(row(27).exists, app.debugDescription)
+    }
+
+    @MainActor func testDetailDeleteWithFaceID() {
+        launchAnnouncements(["-ui-faceid-on"])
+        openDetail(21)
+        defer { diagnostics("announcement-detail-delete-faceid-final") }
+        openMoreMenu()
+        menuItem("删除公告…").tap()
+        XCTAssertTrue(element("delete.sheet").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.textFields["delete.input"].exists, app.debugDescription)
+        let confirm = app.buttons["delete.confirm"]
+        XCTAssertEqual(confirm.label, "用 Face ID 删除")
+        confirm.tap()
+        XCTAssertTrue(waitForLabel(app.staticTexts["receipt.text"], containing: "已删除公告「高级组与企业专线限额调整」"), app.debugDescription)
+        XCTAssertTrue(element("announcements.list").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(row(21).exists, app.debugDescription)
+    }
+
+    @MainActor func testDetailPreviewStylesAndMarkdown() {
+        launchAnnouncements()
+        openDetail(31)
+        defer { diagnostics("announcement-detail-preview-final") }
+        XCTAssertTrue(waitForLabel(element("announcement.preview.label"), containing: "用户看到的样子 · 弹窗"), app.debugDescription)
+        XCTAssertTrue(element("announcement.preview.dismiss").exists, app.debugDescription)
+        XCTAssertTrue(element("announcement.markdown.list.2.item.0").exists && element("announcement.markdown.list.2.item.1").exists, app.debugDescription)
+        XCTAssertTrue(element("announcement.markdown.list.2.item.1").label.contains("控制台暂停充值与兑换"), app.debugDescription)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        openDetail(24)
+        XCTAssertTrue(waitForLabel(element("announcement.preview.label"), containing: "用户看到的样子 · 静默"), app.debugDescription)
+        XCTAssertFalse(element("announcement.preview.dismiss").exists, app.debugDescription)
+        XCTAssertEqual(element("announcement.markdown.heading.0").label, "计费口径")
+        XCTAssertTrue(element("announcement.markdown.list.1.item.1").label.contains("缓存读取按官方折扣计费"), app.debugDescription)
+    }
+
+    @MainActor func testDetailReadsRow() {
+        launchAnnouncements()
+        openDetail(31)
+        defer { diagnostics("announcement-detail-reads-final") }
+        let reads = element("announcement.detail.reads")
+        app.scrollUntilExists(reads)
+        XCTAssertTrue(waitForLabel(reads, containing: "已读 410 / 符合条件 1,036"), reads.label)
+        XCTAssertTrue(reads.label.contains("另有 2 人读后已不符合条件"), reads.label)
+        reads.tap()
+        // S6-19 replaces the placeholder page; its title stays.
+        XCTAssertTrue(app.navigationBars["已读情况"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor func testDetailReadsRowFallbacks() {
+        for arguments in [["-ui-without-capabilities", "announcements.read_stats"], ["-ui-announcement-detail-summary-error"]] {
+            launchAnnouncements(arguments)
+            openDetail(31)
+            let reads = element("announcement.detail.reads")
+            app.scrollUntilExists(reads)
+            XCTAssertTrue(waitForLabel(reads, containing: "逐个用户看：是否符合条件、什么时候读的"), "\(arguments) \(reads.label)")
+            XCTAssertFalse(reads.label.contains("已读 410"), "\(arguments) \(reads.label)")
+            diagnostics("announcement-detail-reads-fallback")
+            app.terminate()
+        }
+        launchAnnouncements()
+        openDetail(29)
+        defer { diagnostics("announcement-detail-reads-draft-final") }
+        XCTAssertTrue(element("announcement.detail.created").exists || app.scrollUntilExists(element("announcement.detail.created")), app.debugDescription)
+        XCTAssertFalse(element("announcement.detail.reads").exists, app.debugDescription)
+    }
+
+    @MainActor func testDetailReadOnlyTokenHidesButtons() {
+        launchAnnouncements(readOnlyToken: true)
+        openDetail(31)
+        defer { diagnostics("announcement-detail-readonly-final") }
+        for action in ["publish", "archive", "republish", "edit"] { XCTAssertFalse(detailButton(action).exists, "\(action)\n\(app.debugDescription)") }
+        openMoreMenu()
+        for title in ["编辑公告", "归档", "删除公告…"] {
+            XCTAssertTrue(menuItem(title).waitForExistence(timeout: 5), "\(title)\n\(app.debugDescription)")
+            XCTAssertFalse(menuItem(title).isEnabled, "\(title)\n\(app.debugDescription)")
+        }
+        XCTAssertTrue(menuItem("已读情况").isEnabled, app.debugDescription)
+    }
+
+    @MainActor func testDetailMissingShowsGonePage() {
+        launchAnnouncements(["-ui-announcement-detail-missing"])
+        defer { diagnostics("announcement-detail-missing-final") }
+        openDetail(32, waitingFor: "announcement.detail.gone")
+        XCTAssertTrue(element("announcement.detail.gone").label.contains("已删除"), app.debugDescription)
+        XCTAssertFalse(app.buttons["announcement.detail.more"].exists || detailButton("edit").exists, app.debugDescription)
+    }
+
+    /// From the list: the first row once it is read, then the row (scrolled to: lower rows are not made yet) and its page.
+    @MainActor private func openDetail(_ id: Int, waitingFor identifier: String = "announcement.detail") {
+        XCTAssertTrue(row(31).waitForExistence(timeout: 10), app.debugDescription)
+        reveal(row(id))
+        row(id).tap()
+        XCTAssertTrue(element(identifier).waitForExistence(timeout: 10), app.debugDescription)
+    }
+    @MainActor private func detailButton(_ action: String) -> XCUIElement { app.buttons["announcement.detail.\(action)"] }
+    @MainActor private func openMoreMenu() {
+        let more = app.buttons["announcement.detail.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10), app.debugDescription)
+        more.tap()
+    }
+    /// A ··· entry by its title, not the button row's button of the same name.
+    @MainActor private func menuItem(_ title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH %@)", title, "announcement.detail.")).firstMatch
     }
 }

@@ -134,3 +134,62 @@ extension AnnouncementListSource {
         AnnouncementListSource(page: { try await store.page($0, query: $1) }, counts: { try await store.counts() })
     }
 }
+
+// MARK: - 详情（S6-17）
+
+extension DemoData.AnnouncementFixture {
+    /// 32 reads and writes as 404 ANNOUNCEMENT_NOT_FOUND; the list still shows it.
+    static let detailMissing = "-ui-announcement-detail-missing"
+    /// Every read-summary fails with 502.
+    static let detailSummaryError = "-ui-announcement-detail-summary-error"
+    /// The fixture site's user count behind every summary.
+    static let totalUsers = 1_036
+}
+
+extension AnnouncementDemoStore {
+    private static let notFound = APIError.server(status: 404, reason: AnnouncementWriteFailure.notFoundReason)
+
+    /// `GET admin/announcements/:id`.
+    func announcement(id: Int, includeReadStats: Bool) throws -> Announcement {
+        let item = try existing(id)
+        return includeReadStats ? item : Self.withoutReadStats(item)
+    }
+    /// `GET :id/read-summary` from the item's read_stats, computed now.
+    func readSummary(id: Int, now: Date) throws -> AnnouncementReadSummary {
+        if arguments.contains(DemoData.AnnouncementFixture.detailSummaryError) { throw Self.failure }
+        let stats = try existing(id).readStats
+        return AnnouncementReadSummary(announcementID: id, totalUsers: DemoData.AnnouncementFixture.totalUsers, eligibleCount: stats?.eligibleCount ?? 0,
+                                       readCount: stats?.readCount ?? 0, eligibleReadCount: stats?.eligibleReadCount ?? 0, computedAt: now)
+    }
+    /// `PUT :id`: the status for now (S6-18 adds the other keys here); returned without read_stats like the server.
+    func update(id: Int, _ request: AnnouncementUpdateRequest, now: Date) throws -> Announcement {
+        let item = try existing(id)
+        let updated = Announcement(id: item.id, title: item.title, content: item.content, status: request.status ?? item.status,
+                                   notifyMode: item.notifyMode, targeting: item.targeting, startsAt: item.startsAt, endsAt: item.endsAt,
+                                   createdBy: item.createdBy, updatedBy: item.updatedBy, createdAt: item.createdAt, updatedAt: now,
+                                   readStats: item.readStats)
+        replace(items.map { $0.id == id ? updated : $0 })
+        return Self.withoutReadStats(updated)
+    }
+    /// `DELETE :id`.
+    func delete(id: Int) -> AnnouncementDeleteResult {
+        guard items.contains(where: { $0.id == id }) else { return .alreadyGone }
+        replace(items.filter { $0.id != id })
+        return .deleted
+    }
+
+    private func existing(_ id: Int) throws -> Announcement {
+        if arguments.contains(DemoData.AnnouncementFixture.detailMissing), id == 32 { throw Self.notFound }
+        guard let item = items.first(where: { $0.id == id }) else { throw Self.notFound }
+        return item
+    }
+}
+
+extension AnnouncementDetailSource {
+    static func fixture(_ store: AnnouncementDemoStore) -> AnnouncementDetailSource {
+        AnnouncementDetailSource(load: { try await store.announcement(id: $0, includeReadStats: $1) },
+                                 summary: { id in try await store.readSummary(id: id, now: Date()) },
+                                 update: { try await store.update(id: $0, $1, now: Date()) },
+                                 delete: { await store.delete(id: $0) })
+    }
+}

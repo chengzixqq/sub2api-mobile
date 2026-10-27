@@ -24,7 +24,7 @@ extension DemoData {
     /// 30 §1: newest first, as the list sorts them; page_size 20 puts 21–26 on the second page. Alice and Bob keep their
     /// fields for the older tests; 4, 7, 11 and 12 are low by a fixed, a percentage, the global and a percentage-of-zero
     /// threshold, 6 is disabled and 8 an administrator.
-    static let allUsers = namedUsers + numberedUsers + largeCustomers
+    static let allUsers = (namedUsers + numberedUsers + largeCustomers).map(withAccessSeed)
     private static let namedUsers: [AdminUser] = [
         AdminUser(id: 1, email: "alice@example.com", username: "Alice", balance: Decimal(string: "12.50")!, role: "user", concurrency: 2,
                   notes: "常用测试用户", rpmLimit: 120, currentConcurrency: 1, createdAt: "2026-10-01T00:00:00Z",
@@ -73,12 +73,28 @@ extension DemoData {
         }
         return QuickTopupReply(recent: [3, 10, 1, 4].compactMap(item), lowBalance: [4, 7, 11, 12].compactMap(item), lowBalanceEnabled: true)
     }
-    /// S3D1-04's key table: only masks, never a plaintext; a user without a row has no keys. Later items add keys, not change these.
+    /// 阶段 3 唯一夹具表（S3D1-04），只增不改: the key table, only masks and never a plaintext; a user without a row has no keys.
+    /// Alice's 开发密钥 is S3-03's; 脚本, 备用 and 王小明's 301 are S3-05's. Later items add keys, never change these.
     static func apiKeys(userID: Int, now: Date = Date()) -> [AdminAPIKey] {
         switch userID {
         case 1: [AdminAPIKey(id: 1, userID: 1, keyMasked: "sk-…cret", name: "开发密钥", groupID: 2, status: "active", effectiveStatus: "active",
-                             lastUsedAt: now.addingTimeInterval(-180), quota: 100, quotaUsed: 2)]
+                             lastUsedAt: now.addingTimeInterval(-180), quota: 100, quotaUsed: 2),
+                 AdminAPIKey(id: 2, userID: 1, keyMasked: "sk-…pt02", name: "脚本", groupID: 2, status: "inactive", effectiveStatus: "inactive"),
+                 AdminAPIKey(id: 3, userID: 1, keyMasked: "sk-…bk03", name: "备用", status: "active", effectiveStatus: "quota_exhausted",
+                             quota: 10, quotaUsed: 10)]
+        case 3: [AdminAPIKey(id: 301, userID: 3, keyMasked: "sk-…x301", name: "脚本", groupID: 5, status: "active", effectiveStatus: "active",
+                             lastUsedAt: now.addingTimeInterval(-7_200))]
         default: []
+        }
+    }
+    /// 阶段 3 唯一夹具表（S3D1-04），只增不改: allowed_groups / restrict_public_groups / group_rates. 3, 10 and 13 are S3-05's; everyone
+    /// else has no exclusive group and is not restricted.
+    static func userAccessSeed(userID: Int) -> (allowedGroups: [Int]?, restrictPublicGroups: Bool, groupRates: [Int: Decimal]?) {
+        switch userID {
+        case 3: ([5], false, [5: Decimal(string: "1.3")!])
+        case 10: ([1, 2], true, [2: Decimal(string: "0.9")!])
+        case 13: ([5], false, nil)
+        default: (nil, false, nil)
         }
     }
     /// users-usage: ids without spend today are left out of the reply, as the server does.
@@ -102,6 +118,12 @@ extension DemoData {
     }
     /// One day apart, older with every id, so the fixture's order is the server's created_at desc.
     private static func listCreatedAt(_ id: Int) -> String { String(format: "2026-09-%02dT00:00:00Z", 32 - id) }
+    private static func withAccessSeed(_ user: AdminUser) -> AdminUser {
+        let seed = userAccessSeed(userID: user.id)
+        var seeded = user
+        seeded.allowedGroups = seed.allowedGroups; seeded.restrictPublicGroups = seed.restrictPublicGroups; seeded.groupRates = seed.groupRates
+        return seeded
+    }
 }
 
 /// 30 §4.5's `-ui-testing` launch arguments. Only page_size 20 reads count, so the detail's latest five (S3-05) never use them up.
@@ -183,5 +205,42 @@ extension DemoData {
                                   groupID: group?.id, groupName: group?.name, validityDays: validityDays, notes: notes,
                                   adjustmentID: adjustment?.id, beforeValue: amount(adjustment?.before), afterValue: amount(adjustment?.after),
                                   operatorEmail: adjustment?.operatorEmail)
+    }
+}
+
+/// 30 §2.5's `-ui-testing` launch arguments (S3-05).
+enum UserDetailFixtureArgument {
+    /// `-ui-user-detail-fail profile,today,month,keys,ledger`: the first read of each listed block in this process fails with 500;
+    /// `status`: every enable / disable answers 500 without a reason; `gone`: every user read answers 404 USER_NOT_FOUND.
+    static let fail = "-ui-user-detail-fail"
+    /// `-ui-users-self 8`: the signed-in administrator is that fixture user (S3D1-14).
+    static let selfUser = "-ui-users-self"
+
+    enum Failure: String, CaseIterable, Sendable { case profile, today, month, keys, ledger, status, gone }
+
+    static func failures(arguments: [String]) -> Set<Failure> {
+        Set(value(after: fail, in: arguments)?.split(separator: ",").compactMap { Failure(rawValue: $0.trimmingCharacters(in: .whitespaces)) } ?? [])
+    }
+    static func selfUserID(arguments: [String]) -> Int? { value(after: selfUser, in: arguments).flatMap { Int($0) } }
+    /// A missing or dash-prefixed value is none.
+    private static func value(after name: String, in arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: name), arguments.indices.contains(index + 1), !arguments[index + 1].hasPrefix("-") else { return nil }
+        return arguments[index + 1]
+    }
+}
+
+// 30 §2 (S3-05): the detail's month spend and its injected failures.
+extension DemoData {
+    /// total_actual_cost of this month; everyone else spent nothing.
+    static let monthCostFixture: [Int: Decimal] = [1: Decimal(string: "86.10")!, 3: Decimal(string: "120.40")!]
+    /// Blocks that already failed once in this process (each UI test launches a new one).
+    @MainActor static var userDetailFailed: Set<UserDetailFixtureArgument.Failure> = []
+
+    @MainActor static func failUserDetailRead(_ block: UserDetailFixtureArgument.Failure,
+                                              arguments: [String] = ProcessInfo.processInfo.arguments) throws {
+        let failures = UserDetailFixtureArgument.failures(arguments: arguments)
+        if block == .profile, failures.contains(.gone) { throw APIError.server(status: 404, reason: "USER_NOT_FOUND") }
+        guard failures.contains(block), userDetailFailed.insert(block).inserted else { return }
+        throw APIError.server(status: 500, reason: nil)
     }
 }
