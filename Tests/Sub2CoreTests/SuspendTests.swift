@@ -5,8 +5,8 @@ import FoundationNetworking
 import Testing
 @testable import Sub2Core
 
-// D18: going to the background suspends reads, read retries and streams; the generation (write identity), the refresh
-// flight and writes already sent are left alone.
+// D18: going to the background suspends reads and read retries; the generation (write identity), the refresh flight, writes
+// already sent and the account test stream (S2D1-02) are left alone.
 
 private func suspendClient(_ transport: ScriptedTransport, credential: Credential = .adminKey("fixture-key"), store: (any CredentialStore)? = nil,
                            clock: RequestClock = .immediate) -> APIClient {
@@ -84,13 +84,34 @@ private func suspendClient(_ transport: ScriptedTransport, credential: Credentia
     #expect(await transport.requests.count == 1)
 }
 
-@Test func suspendEndsAnOpenAccountTestStream() async throws {
-    let (bytes, _) = AsyncThrowingStream<Data, any Error>.makeStream()
+/// D18 stage 2 (S2D1-02): the account test is a write that spends upstream quota and recovers the account, so the background
+/// leaves its stream running; only cancelAll (and the caller) ends it.
+@Test(.timeLimit(.minutes(1))) func suspendKeepsAnOpenAccountTestStream() async throws {
+    let (bytes, feed) = AsyncThrowingStream<Data, any Error>.makeStream()
     let transport = ScriptedTransport(stream: { _ in
         HTTPStreamResponse(statusCode: 200, headers: ["content-type": "text/event-stream"], bytes: bytes)
     }) { _ in errorReply(500) }
     let client = suspendClient(transport)
-    let events = try await client.testAccount(id: 9, model: nil)
+    let events = try await client.testAccount(id: 9, model: nil, expectsTestResult: true)
     await client.suspend()
-    await #expect(throws: CancellationError.self) { for try await _ in events {} }
+    feed.yield(Data("data: {\"type\":\"error\",\"error\":\"upstream failed\"}\n\n".utf8))
+    var iterator = events.makeAsyncIterator()
+    #expect(try await iterator.next()?.type == "error")
+    await client.cancelAll()
+    do { while try await iterator.next() != nil {}; Issue.record("Expected cancelAll to end the stream") }
+    catch { #expect(error is CancellationError) }
+
+    let (resultBytes, resultFeed) = AsyncThrowingStream<Data, any Error>.makeStream()
+    let finishing = ScriptedTransport(stream: { _ in
+        HTTPStreamResponse(statusCode: 200, headers: ["content-type": "text/event-stream"], bytes: resultBytes)
+    }) { _ in errorReply(500) }
+    let resumed = suspendClient(finishing)
+    let results = try await resumed.testAccount(id: 9, model: nil, expectsTestResult: true)
+    await resumed.suspend()
+    resultFeed.yield(Data("data: {\"type\":\"test_result\",\"data\":{\"success\":true,\"total_ms\":5}}\n\n".utf8))
+    var received = [AccountTestEvent]()
+    for try await event in results { received.append(event) }
+    #expect(received.map(\.data?.success) == [true])
+    resultFeed.finish()
+    withExtendedLifetime(resumed) {}
 }

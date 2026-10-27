@@ -99,8 +99,9 @@ public actor APIClient {
         let cancel = cancellations.values.map(\.cancel); cancellations.removeAll()
         for action in cancel { action() }
     }
-    /// Going to the background (00 §4.6, D18): reads, read and keyed-write waits and the account-test stream stop. Unlike
-    /// `cancelAll` the generation (the write identity), the refresh flight and writes already sent are left alone.
+    /// Going to the background (00 §4.6, D18): reads and read and keyed-write waits stop. The account-test stream keeps running: it
+    /// is a write that spends upstream quota and recovers the account on success (S2D1-02). Unlike `cancelAll` the generation (the
+    /// write identity), the refresh flight and writes already sent are left alone.
     public func suspend() {
         epoch = UUID(); isSuspended = true
         let suspended = cancellations.filter(\.value.suspendable)
@@ -216,9 +217,13 @@ public actor APIClient {
     public func userWriteIdentity() -> UUID { generation }
 
     // MARK: - 测试连接
-    public func testAccount(id: Int, model: String?) async throws -> AsyncThrowingStream<AccountTestEvent, any Error> {
+    /// `expectsTestResult` is `session.has(.accountsTestResult)`: then only test_result ends the stream and EOF before it is
+    /// incompleteStream; an old server is read to EOF (AccountSSEParser). A blank model sends `model_id: ""`, the server's default.
+    public func testAccount(id: Int, model: String?, prompt: String? = nil, mode: String? = nil,
+                            expectsTestResult: Bool) async throws -> AsyncThrowingStream<AccountTestEvent, any Error> {
         let snapshot = generation
-        let spec = try OutgoingRequest(path: "admin/accounts/\(validID(id))/test", method: "POST", body: encode(["model_id": model ?? ""]),
+        let body = AccountTestBody(modelID: model, prompt: prompt, mode: mode)
+        let spec = try OutgoingRequest(path: "admin/accounts/\(validID(id))/test", method: "POST", body: encode(body),
                                        headers: ["Accept": "text/event-stream"])
         let response: HTTPStreamResponse
         do { response = try await openTestStream(spec, generation: snapshot) }
@@ -226,7 +231,7 @@ public actor APIClient {
         guard response.headers.first(where: { $0.key.lowercased() == "content-type" })?.value.lowercased().hasPrefix("text/event-stream") == true else {
             response.cancel(); throw APIError.malformedStream
         }
-        return events(from: response, generation: snapshot)
+        return events(from: response, expectsTestResult: expectsTestResult, generation: snapshot)
     }
 
     // MARK: - 登录与凭据
@@ -526,6 +531,8 @@ public actor APIClient {
     }
 
     // MARK: Account test stream
+    // The stream is a write (upstream quota, recovery on success): it is registered as not suspendable, so only cancelAll and
+    // the caller end it (D18 stage 2, S2D1-02).
 
     /// SSE goes through makeRequest too; a JWT expired before the handler ran is refreshed and the same bytes reopened once.
     private func openTestStream(_ spec: OutgoingRequest, generation snapshot: UUID) async throws -> HTTPStreamResponse {
@@ -546,7 +553,7 @@ public actor APIClient {
     /// written here, so it carries the body's reason (00 §3.4 rule 3); a body cut short still logs its status.
     private func rejection(_ response: HTTPStreamResponse, of request: URLRequest, generation snapshot: UUID) async throws -> HTTPResponse? {
         guard !(200..<300).contains(response.statusCode) else { return nil }
-        let id = register(suspendable: true) { response.cancel() }
+        let id = register(suspendable: false) { response.cancel() }
         defer { removeCancellation(id); response.cancel() }
         var body = Data()
         do {
@@ -565,13 +572,14 @@ public actor APIClient {
         RequestLog.record(request, response: reply, to: requestLog)
         return reply
     }
-    private func events(from response: HTTPStreamResponse, generation snapshot: UUID) -> AsyncThrowingStream<AccountTestEvent, any Error> {
+    private func events(from response: HTTPStreamResponse, expectsTestResult: Bool,
+                        generation snapshot: UUID) -> AsyncThrowingStream<AccountTestEvent, any Error> {
         let streamID = UUID()
         let pair = AsyncThrowingStream<AccountTestEvent, any Error>.makeStream()
         let task = Task { [weak self] in
             defer { response.cancel() }
             do {
-                var parser = AccountSSEParser()
+                var parser = AccountSSEParser(expectsTestResult: expectsTestResult)
                 for try await bytes in response.bytes {
                     try Task.checkCancellation()
                     guard let self else { throw CancellationError() }
@@ -588,14 +596,14 @@ public actor APIClient {
             }
             await self?.removeCancellation(streamID)
         }
-        cancellations[streamID] = Cancellation(suspendable: true) { task.cancel(); response.cancel() }
+        cancellations[streamID] = Cancellation(suspendable: false) { task.cancel(); response.cancel() }
         pair.continuation.onTermination = { _ in task.cancel(); response.cancel() }
         return pair.stream
     }
     private func openStream(_ request: URLRequest, generation snapshot: UUID) async throws -> HTTPStreamResponse {
         let transport = transport
         let task = Task { try await transport.stream(for: request) }
-        let id = register(suspendable: true) { task.cancel() }
+        let id = register(suspendable: false) { task.cancel() }
         defer { removeCancellation(id) }
         do {
             let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }

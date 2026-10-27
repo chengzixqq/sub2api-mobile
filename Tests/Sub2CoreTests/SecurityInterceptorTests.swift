@@ -195,7 +195,7 @@ func userWriteKeepsKeyAndBytesAcrossStepUpReconfirmation(keyed: Bool) async thro
         HTTPStreamResponse(statusCode: 423, bytes: AsyncThrowingStream { $0.yield(Data(body.utf8)); $0.finish() })
     }) { _ in okReply("{}") }
     let probe = InterceptorProbe(.passed)
-    let error = try #require(await thrownAPIError { _ = try await guardedClient(transport, probe).testAccount(id: 9, model: nil) })
+    let error = try #require(await thrownAPIError { _ = try await guardedClient(transport, probe).testAccount(id: 9, model: nil, expectsTestResult: false) })
     #expect(error.kind == .compliance); #expect(error.securityOutcome == .passed)
     #expect(await transport.requests.count == 1)
     #expect(await probe.calls == [.init(status: 423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED", isRead: false)])

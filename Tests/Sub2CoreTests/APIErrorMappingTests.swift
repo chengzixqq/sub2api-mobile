@@ -219,7 +219,7 @@ private func thrownError(_ operation: () async throws -> Void) async -> APIError
         return HTTPStreamResponse(statusCode: 423, headers: ["x-request-id": "req-fixture-4"], bytes: bytes)
     })
     let client = APIClient(server: mappingServer(), credential: .adminKey("fixture"), transport: transport)
-    let error = try #require(await thrownError { _ = try await client.testAccount(id: 9, model: nil) })
+    let error = try #require(await thrownError { _ = try await client.testAccount(id: 9, model: nil, expectsTestResult: false) })
     #expect(error.kind == .compliance); #expect(error.requestID == "req-fixture-4"); #expect(error.metadata["version"] == "1")
 }
 

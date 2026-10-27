@@ -12,6 +12,8 @@ final class AccountDetailUITests: XCTestCase {
         static let removed = "-ui-account-removed"
         static let slowDetail = "-ui-account-detail-slow"
         static let groupTransition = "-ui-account-group-transition"
+        static let opsDisabled = "-ui-ops-disabled"
+        static let todayThrottled = "-ui-account-today-throttled"
         static let errorSummary = "401 凭据已失效（invalid_api_key）"
     }
 
@@ -202,6 +204,103 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertTrue(banner.waitForExistence(timeout: 20), app.debugDescription)
     }
 
+    // MARK: - 容量 · 今日 · 记录（S2-09）
+
+    /// Claude-官方-01: 容量 with its counts, notes and 5-hour window, 今日's three amounts; OpenAI-主力-01: a daily quota only.
+    @MainActor func testCapacityAndTodayShowAccountFigures() {
+        openDetail(1)
+        defer { diagnostics("account-detail-sections-final") }
+        let header = element("account.capacity.header")
+        XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription)
+        waitForValue(header, containing: ["更新于 "])
+        waitForValue(element("account.capacity.concurrency"), containing: ["2/4"])
+        waitForValue(element("account.capacity.rpm"), containing: ["14/60", "自然分钟"])
+        waitForValue(element("account.capacity.sessions"), containing: ["2/3", "空闲 5 分钟释放"])
+        waitForValue(element("account.capacity.fiveHour"), containing: ["42.0%", "重置"])
+        let actual = element("account.today.actual")
+        reveal(actual)
+        waitForValue(actual, equals: "$409.38")
+        let figures = ["cost": "$162.42", "standard": "$511.73", "requests": "4,418", "tokens": "27.3M"]
+        for (id, expected) in figures { XCTAssertEqual(element("account.today.\(id)").value as? String, expected, id) }
+        XCTAssertEqual(element("account.today.footnote").label, "账号成本与标准只按真实上游调用计算；实际扣费还含合并探测的跟随请求。")
+        diagnostics("account-detail-sections")
+        goBack()
+        let row = app.buttons["account.4"]
+        reveal(row)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["OpenAI-主力-01"].waitForExistence(timeout: 10), app.debugDescription)
+        waitForValue(element("account.capacity.dailyQuota"), containing: ["$96.30 / $150.00"])
+        for id in ["rpm", "sessions", "fiveHour"] { XCTAssertFalse(element("account.capacity.\(id)").exists, id) }
+    }
+
+    /// 记录's rows open the log page filtered by this account (the old page until S4-05).
+    @MainActor func testRecordsRowsOpenLogsFilteredByAccount() {
+        openDetail(1)
+        defer { diagnostics("account-detail-records-final") }
+        let upstream = app.buttons["account.records.upstream"]
+        reveal(upstream)
+        waitForValue(upstream, equals: "近 24 小时 0 条")
+        upstream.tap()
+        assertLogsMode("上游错误")
+        XCTAssertTrue(element("logs.account-filter").label.contains("#1"), app.debugDescription)
+        goBack()
+        let usage = app.buttons["account.records.usage"]
+        reveal(usage)
+        usage.tap()
+        assertLogsMode("请求记录")
+        XCTAssertTrue(element("logs.account-filter").label.contains("#1"), app.debugDescription)
+    }
+
+    /// OpenAI-备用-A is in error: the card's newest upstream error opens that request (a placeholder until S4-05 / S4-08).
+    @MainActor func testErrorAccountLatestUpstreamErrorOpensRequestRoute() {
+        openDetail(7)
+        defer { diagnostics("account-detail-last-upstream-final") }
+        let latest = app.buttons["account.status.lastUpstreamError"]
+        XCTAssertTrue(latest.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(latest.label.hasPrefix("最近上游错误 ") && latest.label.hasSuffix(" · 401"), latest.label)
+        XCTAssertFalse(element("account.status.erroredAt").exists, app.debugDescription)
+        let upstream = app.buttons["account.records.upstream"]
+        reveal(upstream)
+        waitForValue(upstream, equals: "近 24 小时 3 条")
+        diagnostics("account-detail-last-upstream")
+        reveal(latest, towardBottom: false)
+        latest.tap()
+        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["请求详情"].exists, app.debugDescription)
+    }
+
+    /// U22: with ops monitoring off the card says when the account failed, without a link, and 记录 says so but still opens.
+    @MainActor func testOpsDisabledShowsNoticeRowAndErroredAtLine() {
+        openDetail(7, arguments: [Fixture.opsDisabled])
+        defer { diagnostics("account-detail-ops-disabled-final") }
+        let erroredAt = element("account.status.erroredAt")
+        XCTAssertTrue(erroredAt.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(erroredAt.label.hasPrefix("出错于 ") && erroredAt.label.hasSuffix(" · 401"), erroredAt.label)
+        XCTAssertFalse(app.buttons["account.status.lastUpstreamError"].exists, app.debugDescription)
+        let upstream = app.buttons["account.records.upstream"]
+        reveal(upstream)
+        waitForValue(upstream, equals: "运维监控未开启")
+        diagnostics("account-detail-ops-disabled")
+        upstream.tap()
+        assertLogsMode("上游错误")
+    }
+
+    /// The first today-stats read answers 429 (retry_after 8): the wait counts down with 重试 greyed out, then today is read
+    /// again by itself.
+    @MainActor func testTodayThrottleCountsDownThenRetriesAutomatically() {
+        openDetail(1, arguments: [Fixture.todayThrottled])
+        defer { diagnostics("account-detail-today-throttled-final") }
+        let retry = app.buttons["account.today.retry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(retry.label.hasPrefix("请求过于频繁，") && retry.label.hasSuffix("秒后自动重试"), retry.label)
+        XCTAssertFalse(retry.isEnabled, app.debugDescription)
+        let actual = element("account.today.actual")
+        XCTAssertEqual(actual.value as? String, "无数据")
+        diagnostics("account-detail-today-throttled")
+        waitForValue(actual, equals: "$409.38", timeout: 20)
+        XCTAssertTrue(retry.waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
     // MARK: - Helpers
 
     @MainActor private func launchAndLogin(arguments: [String] = []) {
@@ -264,6 +363,25 @@ final class AccountDetailUITests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
     }
     @MainActor private func goBack() { app.navigationBars.buttons.element(boundBy: 0).tap() }
+    @MainActor private func waitForValue(_ item: XCUIElement, equals expected: String, timeout: TimeInterval = 10,
+                                         file: StaticString = #filePath, line: UInt = #line) {
+        let matched = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: item)
+        XCTAssertEqual(XCTWaiter().wait(for: [matched], timeout: timeout), .completed, "\(String(describing: item.value))\n\(app.debugDescription)",
+                       file: file, line: line)
+    }
+    @MainActor private func waitForValue(_ item: XCUIElement, containing parts: [String], timeout: TimeInterval = 10,
+                                         file: StaticString = #filePath, line: UInt = #line) {
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: parts.map { NSPredicate(format: "value CONTAINS %@", $0) })
+        let matched = XCTNSPredicateExpectation(predicate: predicate, object: item)
+        XCTAssertEqual(XCTWaiter().wait(for: [matched], timeout: timeout), .completed, "\(String(describing: item.value))\n\(app.debugDescription)",
+                       file: file, line: line)
+    }
+    /// The old log page (until S4-05) shows its scope as the selected segment.
+    @MainActor private func assertLogsMode(_ title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let mode = app.segmentedControls["logs.mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        XCTAssertTrue(mode.buttons[title].isSelected, app.debugDescription, file: file, line: line)
+    }
     @MainActor private func element(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier].firstMatch }
     @MainActor private func enter(_ text: String, in identifier: String) {
         let field = element(identifier); reveal(field); field.tap(); field.typeText(text)

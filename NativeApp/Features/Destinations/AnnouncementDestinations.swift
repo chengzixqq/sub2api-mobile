@@ -24,7 +24,7 @@ struct AnnouncementSheetDestination: View {
     var body: some View {
         switch sheet {
         // .announcementEdit：S6-18
-        case .announcementEdit: ComingSoonSheet(title: sheet.placeholderTitle)
+        case .announcementEdit(let id): AnnouncementEditLoader(id: id)
         // 其他区域：SheetDestination 不会分派到这里
         default: ComingSoonSheet(title: sheet.placeholderTitle)
         }

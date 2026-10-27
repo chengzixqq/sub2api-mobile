@@ -121,7 +121,7 @@ private actor MockTransport: HTTPTransport {
     #expect(throws: APIError.malformedStream) { try oversized.append(Data(repeating: 65, count: 1_048_577)) }
     var failed = AccountSSEParser()
     let event = try failed.append(Data("data: {\"type\":\"error\",\"error\":\"upstream failed\"}\n\n".utf8))
-    #expect(event.first?.isTerminal == true); #expect(event.first?.isSuccess == false); _ = try failed.finish()
+    #expect(event.first?.isLegacyConclusion == true); #expect(event.first?.isSuccess == false); _ = try failed.finish()
 }
 
 @Test func loginWireProofTOTPAndAdministratorBoundary() async throws {
@@ -397,7 +397,7 @@ func dashboardReadsRejectLateResultsAfterStationCancellation(section: String) as
         return HTTPStreamResponse(statusCode: 200, headers: ["content-type": "text/event-stream; charset=utf-8"], bytes: bytes)
     })
     let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
-    let stream = try await client.testAccount(id: 9, model: "fixture-model")
+    let stream = try await client.testAccount(id: 9, model: "fixture-model", expectsTestResult: false)
     var count = 0
     do { for try await event in stream { #expect(event.content == "partial"); count += 1 }; Issue.record("Expected explicit EOF failure") }
     catch let error as APIError { #expect(error == .incompleteStream) }

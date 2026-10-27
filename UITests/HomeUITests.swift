@@ -307,4 +307,19 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(tickerCell("tpm"), containing: "不含缓存 Tokens"), tickerCell("tpm").label)
         XCTAssertTrue(text(containing: "TPM 不含缓存 Tokens").waitForExistence(timeout: 10), app.debugDescription)
     }
+
+    /// 10 §1.5 on the fallback, where each block lands on its own (S1-07): the rates cells fill in while today's figures are still on
+    /// their way, and those stay the skeleton, never “—” read as 无数据.
+    @MainActor func testFallbackKeepsCellsOfAPendingBlockAsSkeleton() {
+        launchAndLogin(arguments: ["-ui-without-capabilities", "dashboard.home", "-ui-home-stats-pending"])
+        defer { diagnostics("home-fallback-stats-pending-final") }
+        XCTAssertTrue(loadedCell("rpm").label.contains(Expected.rpm), tickerCell("rpm").label)
+        XCTAssertTrue(tickerCell("errorRate").label.contains(Expected.errorRate), tickerCell("errorRate").label)
+        for kind in ["actualCost", "requests", "profit"] {
+            let skeleton = tickerCell(kind)
+            XCTAssertEqual(skeleton.value as? String, "正在加载", skeleton.debugDescription)
+            XCTAssertFalse(skeleton.isEnabled, skeleton.debugDescription)
+            XCTAssertFalse(skeleton.label.contains("无数据"), skeleton.label)
+        }
+    }
 }

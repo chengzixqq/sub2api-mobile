@@ -1,8 +1,9 @@
 import SwiftUI
 import Sub2Core
 
-// The account test page before 20 §4 rewrites it, moved unchanged from AccountsView.swift (S2-04); the new detail (S2-08) opens
-// it from 测试连接 until S2-14, which deletes this file and moves accountWriteFailure, which AccountEditView still calls.
+// The account test page before 20 §4 rewrites it, moved from AccountsView.swift (S2-04) and reading the S2-13 stream and wording;
+// the new detail (S2-08) opens it from 测试连接 until S2-14, which deletes this file and moves accountWriteFailure, which
+// AccountEditView still calls.
 
 func accountWriteFailure(_ error: any Error) -> String {
     // Compliance, step-up and read-only refusals come before the handler; the global sheet already answered them.
@@ -47,21 +48,24 @@ struct AccountTestView: View {
         let generation = session?.generation ?? UUID()
         guard generation == model.sessionGeneration else { return }
         guard let client = session?.client else { return }
+        let expectsTestResult = session?.has(.accountsTestResult) == true
         running = true; lines = []; outcome = nil
         task = Task {
             defer { running = false }
             do {
                 guard generation == model.sessionGeneration else { return }
                 guard !model.isUITesting else { throw AppFailure("界面测试模式不会发起上游测试。") }
-                let stream = try await client.testAccount(id: account.id, model: modelName.isEmpty ? nil : modelName)
-                var completed = false
+                let stream = try await client.testAccount(id: account.id, model: modelName, expectsTestResult: expectsTestResult)
+                var transcript = AccountTestTranscript(startedAt: ContinuousClock.now)
                 for try await event in stream {
                     guard generation == model.sessionGeneration, !Task.isCancelled else { return }
-                    if event.type != "error", let content = event.content ?? event.message { lines.append(sanitizedTestOutput(content)); if lines.count > 500 { lines.removeFirst() } }
-                    if event.isTerminal { completed = true; outcome = event.isSuccess ? "测试成功" : "测试失败，请在 Web 后台查看详细错误。" }
+                    transcript.apply(event, at: ContinuousClock.now)
+                    lines = transcript.displayLines
                 }
                 guard generation == model.sessionGeneration, !Task.isCancelled else { return }
-                if !completed { outcome = "连接结束，但未收到测试完成事件，不能判定成功。" }
+                transcript.finish(at: ContinuousClock.now)
+                lines = transcript.displayLines
+                outcome = Self.summary(transcript, account: account)
             } catch {
                 guard generation == model.sessionGeneration else { return }
                 // A compliance or step-up refusal was answered in the global sheet; the text says whether to start again.
@@ -70,11 +74,13 @@ struct AccountTestView: View {
         }
     }
 
-    private func sanitizedTestOutput(_ value: String) -> String {
-        var result = value
-        for pattern in ["(?i)Bearer\\s+[^\\s]+", "(?i)sk-[A-Za-z0-9_-]{6,}", "https?://[^\\s]+"] {
-            result = result.replacingOccurrences(of: pattern, with: "[已隐藏]", options: .regularExpression)
-        }
-        return String(result.prefix(8_192))
+    /// 20 §4.3 wording; an old server's verdict comes from test_complete / error alone (S2-14 adds the before/after comparison).
+    private static func summary(_ transcript: AccountTestTranscript, account: UpstreamAccount) -> String {
+        let credential = AccountTestPresentation.CredentialKind(accountType: account.type)
+        let outcome = transcript.serverOutcome
+            ?? AccountTestOutcome(passed: transcript.legacyPassed ?? false, timing: transcript.localTiming, errorText: transcript.errorText)
+        return [AccountTestPresentation.headline(outcome), AccountTestPresentation.recoveryNote(outcome)?.text,
+                AccountTestPresentation.failureNote(outcome, credential: credential), AccountTestPresentation.usageText(outcome)]
+            .compactMap { $0 }.joined(separator: "\n")
     }
 }
