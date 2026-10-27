@@ -388,3 +388,156 @@ func deleteUserKeepsOtherFailures(step: ScriptStep) async throws {
     await #expect(throws: (any Error).self) { _ = try await detailClient(transport).deleteUser(id: 24) }
     #expect(await transport.requests.count == 1)
 }
+
+// MARK: - S3-09 新建 / 编辑用户的请求体与核对读取
+
+private func posixDecimal(_ text: String) -> Decimal { Decimal(string: text, locale: Locale(identifier: "en_US_POSIX"))! }
+private func bodyObject(_ data: Data) throws -> [String: Any] { try #require(JSONSerialization.jsonObject(with: data) as? [String: Any]) }
+private func bodyText(_ data: Data) -> String { String(decoding: data, as: UTF8.self) }
+private func validationMessage(_ body: () throws -> Void) -> String? {
+    do { try body(); return nil } catch { return (error as? APIError)?.errorDescription }
+}
+
+/// 30 §5.3 / §5.7: groups sorted and unique, the restriction always sent, a blank initial balance left out.
+@Test func createRequestCarriesGroupsAndOmitsMissingBalance() throws {
+    let grouped = try bodyObject(UserCreateRequest(email: "a@example.invalid", password: "abcdef", allowedGroups: [7, 5, 5], restrictPublicGroups: true).requestBody())
+    #expect(grouped["allowed_groups"] as? [Int] == [5, 7] && grouped["restrict_public_groups"] as? Bool == true && grouped["balance"] == nil)
+    let none = try bodyObject(UserCreateRequest(email: "a@example.invalid", password: "abcdef").requestBody())
+    #expect(none["allowed_groups"] == nil && none["restrict_public_groups"] as? Bool == false)
+    let funded = try UserCreateRequest(email: "a@example.invalid", password: "abcdef", balance: 20).requestBody()
+    #expect(bodyText(funded).contains(#""balance":20,"#))
+    #expect(validationMessage { _ = try UserCreateRequest(email: "a@example.invalid", password: "abcdef", allowedGroups: [0]).requestBody() } == "无效的分组编号。")
+}
+
+/// 30 §5.4 step 5 example body, key for key.
+@Test func createRequestMatchesSpecExampleBody() throws {
+    let request = UserCreateRequest(email: "qi.he@example.com", password: "Qm7v-Tr2p-Hx9k", username: "何琪", notes: "", role: .user, concurrency: 1, rpmLimit: 0,
+                                    balance: 20, allowedGroups: [5], restrictPublicGroups: false)
+    let data = try request.requestBody(), json = try bodyObject(data)
+    #expect(Set(json.keys) == ["allowed_groups", "balance", "concurrency", "email", "notes", "password", "restrict_public_groups", "role", "rpm_limit", "username"])
+    #expect(json["email"] as? String == "qi.he@example.com" && json["password"] as? String == "Qm7v-Tr2p-Hx9k" && json["username"] as? String == "何琪")
+    #expect(json["notes"] as? String == "" && json["role"] as? String == "user" && json["concurrency"] as? Int == 1 && json["rpm_limit"] as? Int == 0)
+    #expect(json["allowed_groups"] as? [Int] == [5] && json["restrict_public_groups"] as? Bool == false)
+    #expect(bodyText(data).hasPrefix(#"{"allowed_groups":[5],"balance":20,"#))
+    #expect(!String(reflecting: request).contains("Qm7v"))
+}
+
+/// 30 §10: a cleared rate is an explicit JSON null under a string key.
+@Test func updateRequestEncodesGroupRatesWithExplicitNull() throws {
+    let request = UserUpdateRequest(groupRates: [5: posixDecimal("1.3"), 7: nil, 9: 2])
+    #expect(try bodyText(request.requestBody()) == #"{"group_rates":{"5":1.3,"7":null,"9":2}}"#)
+    let wide = try bodyObject(UserUpdateRequest(groupRates: [12: posixDecimal("1.5"), 3: nil]).requestBody())
+    let rates = try #require(wide["group_rates"] as? [String: Any])
+    #expect(rates["12"] as? Double == 1.5 && rates["3"] is NSNull && rates.count == 2)
+}
+
+/// The server clears every rate on `{}` (SyncUserGroupRates), and `balance` is never editable here.
+@Test func updateRequestDropsEmptyGroupRatesAndNeverCarriesBalance() throws {
+    let notes = UserUpdateRequest(notes: "x", groupRates: [:])
+    #expect(notes.groupRates == nil)
+    #expect(try !bodyText(notes.requestBody()).contains("group_rates"))
+    #expect(validationMessage { try UserUpdateRequest(groupRates: [:]).validate() } == "请至少修改一个用户字段。")
+    #expect(try bodyText(UserUpdateRequest(allowedGroups: []).requestBody()) == #"{"allowed_groups":[]}"#)
+    let singles = [UserUpdateRequest(status: "disabled"), UserUpdateRequest(allowedGroups: [3]), UserUpdateRequest(restrictPublicGroups: false)]
+    for request in singles { #expect(validationMessage { try request.validate() } == nil) }
+    let everything = UserUpdateRequest(email: "b@example.invalid", password: "abcdef", username: "u", notes: "n", role: .vendor, concurrency: 3, rpmLimit: 10,
+                                       adjustmentNotes: "扩容", status: "active", allowedGroups: [2, 1], restrictPublicGroups: true, groupRates: [1: 1])
+    for request in singles + [notes, everything] { #expect(try bodyObject(request.requestBody())["balance"] == nil) }
+    #expect(try bodyObject(everything.requestBody())["allowed_groups"] as? [Int] == [1, 2])
+}
+
+@Test(arguments: [
+    (UserUpdateRequest(status: "banned"), "无效的用户状态。"),
+    (UserUpdateRequest(groupRates: [5: 0]), "要大于 0，最多 3 位小数"),
+    (UserUpdateRequest(groupRates: [5: -1]), "要大于 0，最多 3 位小数"),
+    (UserUpdateRequest(groupRates: [5: Decimal(string: "1.2345")!]), "要大于 0，最多 3 位小数"),
+    (UserUpdateRequest(allowedGroups: [0]), "无效的分组编号。"),
+    (UserUpdateRequest(groupRates: [0: 1]), "无效的分组编号。"),
+    (UserUpdateRequest(adjustmentNotes: "原因"), "请至少修改一个用户字段。")
+])
+func updateRequestValidatesNewFields(request: UserUpdateRequest, message: String) async throws {
+    #expect(validationMessage { try request.validate() } == message)
+    let transport = ScriptedTransport { _ in okReply("{}") }
+    let client = APIClient(server: userServer(), credential: .adminKey("fixture-key"), transport: transport)
+    let identity = await client.userWriteIdentity()
+    #expect(throws: APIError.self) { try PendingUserUpdateOperation(serverID: client.server.id, identity: identity, userID: 24, request: request) }
+    #expect(await transport.requests.isEmpty)
+}
+
+@Test func validRatesPassUpdateValidation() {
+    for text in ["1.234", "0.001", "2"] {
+        #expect(validationMessage { try UserUpdateRequest(groupRates: [5: posixDecimal(text)]).validate() } == nil)
+    }
+}
+
+/// 30 §6.4: adjustment notes go out only with a concurrency change, trimmed and non-empty.
+@Test func adjustmentNotesTravelOnlyWithConcurrency() throws {
+    #expect(try bodyObject(UserUpdateRequest(notes: "a", adjustmentNotes: "原因").requestBody())["adjustment_notes"] == nil)
+    #expect(try bodyObject(UserUpdateRequest(concurrency: 4, adjustmentNotes: "  ").requestBody())["adjustment_notes"] == nil)
+    #expect(try bodyObject(UserUpdateRequest(concurrency: 4, adjustmentNotes: " 扩容 ").requestBody())["adjustment_notes"] as? String == "扩容")
+}
+
+/// 30 §6.7, 00 §2.5.1: with admin.idempotent_writes every edit is keyed; without it only a concurrency change is.
+@Test(arguments: [true, false])
+func capableSitesAlwaysRetryUserUpdatesSafely(capable: Bool) throws {
+    let requests = [UserUpdateRequest(username: "新名称"), UserUpdateRequest(groupRates: [5: 2]), UserUpdateRequest(status: "disabled"),
+                    UserUpdateRequest(allowedGroups: [5], restrictPublicGroups: false), UserUpdateRequest(concurrency: 3)]
+    let safe = try requests.map {
+        try PendingUserUpdateOperation(serverID: UUID(), identity: UUID(), userID: 24, request: $0, serverSupportsIdempotentWrites: capable).supportsSafeRetry
+    }
+    #expect(safe == (capable ? [true, true, true, true, true] : [false, false, false, false, true]))
+}
+
+/// S3-11 compares the frozen request with a GET when the result is unknown (30 §6.5).
+@Test func pendingUpdateKeepsTheFrozenRequest() throws {
+    let request = UserUpdateRequest(password: "fixture-secret", groupRates: [5: posixDecimal("1.375")])
+    let operation = try PendingUserUpdateOperation(serverID: UUID(), identity: UUID(), userID: 24, request: request)
+    let body = try request.requestBody()
+    #expect(operation.request == request && operation.body == body)
+    let described = String(reflecting: operation)
+    #expect(!described.contains("fixture-secret") && !described.contains("1.375"))
+}
+
+/// 30 §6.2 降级预检: role=admin, one row, only `total` is read.
+@Test func adminCountSendsRoleAdminPageSizeOneAndReadsTotal() async throws {
+    let transport = ScriptedTransport { _ in
+        okReply(#"{"items":[{"id":7,"email":"admin@example.invalid","balance":0,"status":"active","role":"admin"}],"total":3,"page":1,"page_size":1,"pages":3}"#)
+    }
+    let client = detailClient(transport)
+    #expect(try await client.adminCount() == 3)
+    let sent = await transport.requests
+    #expect(sent.count == 1 && sent.first?.httpMethod == "GET" && sent.first?.url?.path == "/api/v1/admin/users")
+    let query = sentQuery(sent.first)
+    #expect(query["role"] == "admin" && query["page"] == "1" && query["page_size"] == "1" && query["include_subscriptions"] == "false")
+    #expect(query["search"] == nil)
+}
+
+@Test func adminCountWithoutTotalIsInvalidResponse() async throws {
+    let transport = ScriptedTransport { _ in okReply(#"{"items":[],"page":1,"page_size":1,"has_more":false}"#) }
+    #expect(await thrownAPIError { _ = try await detailClient(transport).adminCount() } == .invalidResponse)
+}
+
+private func listedUser(_ id: Int, _ email: String, notes: String? = nil) -> String {
+    let notesField = notes.map { ",\"notes\":\"\($0)\"" } ?? ""
+    return "{\"id\":\(id),\"email\":\"\(email)\",\"balance\":0,\"status\":\"active\"\(notesField)}"
+}
+
+/// 00 §2.5.5 / 30 §5.4 step 7: search matches usernames, notes and keys too, so only the whole address counts.
+@Test func findUserByEmailMatchesWholeAddressIgnoringCase() async throws {
+    let items = [listedUser(31, "xperson@example.invalid"), listedUser(32, "other@example.invalid", notes: "person@example.invalid"),
+                 listedUser(33, "person@example.invalid")]
+    let transport = ScriptedTransport { _ in okReply("{\"items\":[\(items.joined(separator: ","))],\"total\":3,\"page\":1,\"page_size\":20}") }
+    let found = try await detailClient(transport).findUserByEmail(" Person@Example.invalid ")
+    #expect(found?.id == 33)
+    let first = await transport.requests.first
+    let query = sentQuery(first)
+    #expect(query["search"] == "Person@Example.invalid" && query["page"] == "1" && query["page_size"] == "20")
+}
+
+@Test func findUserByEmailReturnsNilWithoutExactMatchAndRejectsBlank() async throws {
+    let transport = ScriptedTransport { _ in okReply("{\"items\":[\(listedUser(31, "xperson@example.invalid"))],\"total\":1,\"page\":1,\"page_size\":20}") }
+    #expect(try await detailClient(transport).findUserByEmail("person@example.invalid") == nil)
+    let unused = ScriptedTransport { _ in okReply("{}") }
+    #expect(await thrownAPIError { _ = try await detailClient(unused).findUserByEmail("  ") }?.kind == .validation)
+    #expect(await unused.requests.isEmpty)
+}

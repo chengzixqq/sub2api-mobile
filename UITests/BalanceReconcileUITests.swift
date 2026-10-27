@@ -191,6 +191,29 @@ final class BalanceReconcileUITests: XCTestCase {
         XCTAssertTrue(app.buttons["user.pending.check.\(Self.refund)"].exists)
     }
 
+    /// The banner is the record's only way to be checked or abandoned, so it stays over a deleted user and a failed profile.
+    @MainActor func testBannerStaysWhenTheProfileCannotBeShown() {
+        defer { diagnostics("reconcile-profile-missing-final") }
+        launchAndLogin(["-ui-pending-money", "-ui-user-detail-fail", "gone", "-ui-reconcile-notfound"])
+        openUser(waitingFor: "user.detail.not-found")
+        checkAndWaitForAlert(Self.refund, title: "服务器上没有这笔记录").buttons["放弃这笔"].tap()
+        let confirm = app.alerts["放弃这笔？"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), app.debugDescription)
+        confirm.buttons["放弃这笔"].tap()
+        XCTAssertTrue(element("user.pending.\(Self.refund)").waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("user.detail.not-found").exists, app.debugDescription)
+        app.terminate()
+
+        launchAndLogin(["-ui-pending-money", "-ui-user-detail-fail", "profile"])
+        openUser(waitingFor: "user.detail.error")
+        XCTAssertTrue(element("user.pending.\(Self.refund)").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["user.pending.check.\(Self.refund)"].isHittable, app.debugDescription)
+        diagnostics("reconcile-profile-failed")
+        app.buttons["user.detail.retry"].tap()
+        XCTAssertTrue(element("user.hero.balance").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("user.pending.\(Self.refund)").exists, app.debugDescription)
+    }
+
     // MARK: - Helpers
 
     @MainActor private func launchAndLogin(_ arguments: [String]) {
@@ -213,12 +236,16 @@ final class BalanceReconcileUITests: XCTestCase {
     }
     /// The user tab → Alice → her detail.
     @MainActor private func openAlice() {
+        openUser(waitingFor: "user.hero.balance")
+        XCTAssertTrue(app.navigationBars["Alice"].exists, app.debugDescription)
+    }
+    /// The user tab → Alice's row → the detail in the state named by `identifier`.
+    @MainActor private func openUser(waitingFor identifier: String) {
         app.tabBars.buttons["用户"].tap()
         let row = app.buttons["user.1"]
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
         row.tap()
-        XCTAssertTrue(app.navigationBars["Alice"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(element("user.hero.balance").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element(identifier).waitForExistence(timeout: 10), app.debugDescription)
     }
     @MainActor private func check(_ id: String) {
         let button = app.buttons["user.pending.check.\(id)"]
