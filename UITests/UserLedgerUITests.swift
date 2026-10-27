@@ -85,17 +85,19 @@ final class UserLedgerUITests: XCTestCase {
         expect(row(120), contains: ["并发增加（管理员）"], lacks: ["→"])
     }
 
+    /// S3-05: without records the detail says so and offers no “全部 N 条”, so the full list is not reached.
     @MainActor func testUserWithoutRecordsShowsEmpty() {
         launchAndLogin()
         defer { diagnostics("user-ledger-empty-final") }
-        openLedger(userID: 2, name: "Bob")
-        let empty = element("user.ledger.empty")
-        XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
+        app.tabBars.buttons["用户"].tap()
+        let bob = app.buttons["user.2"]
+        XCTAssertTrue(bob.waitForExistence(timeout: 10), app.debugDescription)
+        bob.tap()
+        XCTAssertTrue(app.navigationBars["Bob"].waitForExistence(timeout: 10), app.debugDescription)
+        let empty = element("user.ledger.peek.empty")
+        XCTAssertTrue(app.scrollUntilExists(empty))
         XCTAssertEqual(empty.label, "暂无记录")
-        XCTAssertTrue(app.navigationBars["充值与调整记录"].staticTexts["Bob"].waitForExistence(timeout: 5), app.debugDescription)
-        for id in ["user.ledger.count", "user.ledger.recharged", "user.ledger.more.loading"] {
-            XCTAssertFalse(element(id).exists, "\(id)\n\(app.debugDescription)")
-        }
+        XCTAssertFalse(app.buttons["user.ledger.all"].exists, app.debugDescription)
     }
 
     @MainActor func testFirstPageAndNextPageFailuresRetry() {

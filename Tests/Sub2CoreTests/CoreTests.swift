@@ -285,7 +285,7 @@ private actor MockTransport: HTTPTransport {
     #expect(initialRequests.count == 1)
     #expect(initialRequests.first?.url?.path == "/api/v1/admin/dashboard/stats")
     #expect(initialRequests.first?.timeoutInterval == 90)
-    let usage = try await client.userUsage(id: 7)
+    let usage = try await client.userMonthUsage(id: 7)
     #expect(usage.totalRequests == 5)
     let request = try #require(await transport.requests().last)
     #expect(request.url?.path == "/api/v1/admin/usage/stats")

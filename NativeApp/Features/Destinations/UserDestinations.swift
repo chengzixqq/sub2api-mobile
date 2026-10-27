@@ -8,7 +8,7 @@ struct UserRouteDestination: View {
     var body: some View {
         switch route {
         // .user：S3-05
-        case .user(let id): UserDestination(id: id)
+        case .user(let id): UserDetailView(userID: id)
         // .userLedger：S3-04
         case .userLedger(let userID): UserLedgerView(userID: userID)
         // .userNew：S3-10
@@ -31,15 +31,5 @@ struct UserSheetDestination: View {
         // 其他区域：SheetDestination 不会分派到这里
         default: ComingSoonSheet(title: sheet.placeholderTitle)
         }
-    }
-}
-
-/// `.user(id:)` until 30 §2 rewrites the detail page.
-struct UserDestination: View {
-    @Environment(AppModel.self) private var model
-    let id: Int
-
-    var body: some View {
-        LoadingDestination(loadingText: "正在读取用户…") { _ in try await model.user(id: id) } content: { UserDetailView(initial: $0) }
     }
 }

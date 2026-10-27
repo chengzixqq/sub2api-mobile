@@ -79,7 +79,7 @@ final class UserManagementUITests: XCTestCase {
         XCTAssertTrue(element("user-editor.result").label.contains("密码"), app.debugDescription)
         set("valid-password", field: "user-editor.password", towardBottom: false)
         confirmWrite(email: "alice@example.com")
-        XCTAssertTrue(app.buttons["user.edit"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["user.more"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor private func launchAndLogin() {
@@ -92,8 +92,12 @@ final class UserManagementUITests: XCTestCase {
         reveal(app.buttons["login.submit"]); app.buttons["login.submit"].tap()
         XCTAssertTrue(app.tabBars.buttons["用户"].waitForExistence(timeout: 10), app.debugDescription)
     }
+    /// S3-05: through the detail's ⋯ menu, whose items are found by their words.
     @MainActor private func openEditor() {
-        reveal(app.buttons["user.edit"]); app.buttons["user.edit"].tap()
+        XCTAssertTrue(app.buttons["user.more"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["user.more"].tap()
+        XCTAssertTrue(app.buttons["编辑用户"].waitForExistence(timeout: 3), app.debugDescription)
+        app.buttons["编辑用户"].tap()
         XCTAssertTrue(element("user-editor.email").waitForExistence(timeout: 5), app.debugDescription)
     }
     @MainActor private func chooseRole(_ title: String) {

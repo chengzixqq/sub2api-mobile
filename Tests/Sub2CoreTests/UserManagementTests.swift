@@ -231,7 +231,7 @@ func userWritesCarryIdempotencyKeyOnlyWithCapability(capable: Bool) async throws
     let balance = PendingBalanceOperation(serverID: serverID, userID: 24, amount: 1, operation: .add)
     _ = try await client.createUser(create)
     _ = try await client.updateUser(update)
-    #expect(try await client.userUsage(id: 24).totalCost == Decimal(string: "0.5"))
+    #expect(try await client.userMonthUsage(id: 24).totalCost == Decimal(string: "0.5"))
     _ = try await client.userAPIKeys(userID: 24, maskedView: false)
     _ = try await client.setUserStatus(id: 24, status: "disabled")
     _ = try await client.updateBalance(stubPersisted(balance))
@@ -270,4 +270,121 @@ func userWritesCarryIdempotencyKeyOnlyWithCapability(capable: Bool) async throws
     #expect(AdminUserRole.allCases.map(\.title) == ["用户", "供应商", "管理员"])
     #expect(SettingsPresentation.identityLine(email: "x@example.invalid", role: "vendor") == "x@example.invalid · 供应商")
     #expect(SettingsPresentation.identityLine(email: "x@example.invalid", role: "user") == "x@example.invalid · 用户")
+}
+
+// MARK: - S3-05 用户详情
+
+private func detailClient(_ transport: ScriptedTransport, clock: RequestClock = .immediate, serverClock: ServerClock = ServerClock()) -> APIClient {
+    APIClient(server: userServer(), credential: .adminKey("fixture-key"), transport: transport, requestClock: clock,
+              serverTimeZone: ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00")!, serverClock: serverClock)
+}
+private func sentQuery(_ request: URLRequest?) -> [String: String] {
+    guard let url = request?.url, let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return [:] }
+    return Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
+}
+private func usageSummary(_ tail: String) throws -> UserUsageSummary {
+    let json = "{\"total_requests\":1,\"total_tokens\":2,\"total_cost\":\"0.5\"" + tail + "}"
+    return try JSONDecoder().decode(UserUsageSummary.self, from: Data(json.utf8))
+}
+
+/// 30 §2.2 本月消费: the server's month to date in its zone, and total_actual_cost (what was charged), not total_cost.
+@Test func userMonthUsageUsesServerZoneMonthAndActualCost() async throws {
+    let transport = ScriptedTransport { _ in okReply(#"{"total_requests":3,"total_tokens":40,"total_cost":"1.5","total_actual_cost":"86.1"}"#) }
+    // 15:50Z on the phone, an hour ahead on the server: 00:50 on 1 November in Shanghai.
+    let clock = ServerClock(offset: 3_600, localNow: { ISO8601DateFormatter().date(from: "2026-10-31T15:50:00Z")! })
+    let client = detailClient(transport, serverClock: clock)
+    let usage = try await client.userMonthUsage(id: 24)
+    #expect(usage.totalActualCost == Decimal(string: "86.1") && usage.totalCost == Decimal(string: "1.5"))
+    let request = try #require(await transport.requests.first)
+    #expect(request.httpMethod == "GET" && request.url?.path == "/api/v1/admin/usage/stats" && request.timeoutInterval == 45)
+    #expect(sentQuery(request) == ["start_date": "2026-11-01", "end_date": "2026-11-01", "timezone": "Asia/Shanghai", "user_id": "24"])
+    #expect(await thrownAPIError { _ = try await client.userMonthUsage(id: 0) }?.kind == .validation)
+    #expect(await transport.requests.count == 1)
+}
+
+@Test func usageSummaryDecodesActualCostOptionally() throws {
+    #expect(try usageSummary("").totalActualCost == nil)
+    #expect(try usageSummary(#","total_actual_cost":null"#).totalActualCost == nil)
+    #expect(try usageSummary(#","total_actual_cost":"abc""#).totalActualCost == nil)
+    #expect(try usageSummary(#","total_actual_cost":[1]"#).totalActualCost == nil)
+    #expect(try usageSummary(#","total_actual_cost":1.25"#).totalActualCost == Decimal(string: "1.25"))
+    #expect(try usageSummary(#","total_actual_cost":"2.5""#).totalActualCost == Decimal(string: "2.5"))
+    #expect(try usageSummary(#","total_actual_cost":"2.5""#).totalCost == Decimal(string: "0.5"))
+    #expect(UserUsageSummary(totalRequests: 1, totalTokens: 2, totalCost: 1).totalActualCost == nil)
+    #expect(UserUsageSummary(totalRequests: 1, totalTokens: 2, totalCost: 1, totalActualCost: 3).totalActualCost == 3)
+}
+
+/// 30 §2.4 with admin.idempotent_writes: the same key and bytes after a timeout; IN_PROGRESS beyond 30 seconds is unconfirmed.
+@Test func userStatusWithKeyGoesThroughKeyedWrite() async throws {
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(okReply(managedUserJSON))])
+    let client = detailClient(transport)
+    let key = UUID()
+    let outcome = try await client.setUserStatus(id: 24, status: "disabled", idempotencyKey: key)
+    #expect(outcome.value.id == 24)
+    let sent = await transport.requests
+    #expect(sent.count == 2)
+    for request in sent {
+        #expect(request.httpMethod == "PUT" && request.url?.path == "/api/v1/admin/users/24" && request.timeoutInterval == 35)
+        #expect(String(decoding: request.httpBody ?? Data(), as: UTF8.self) == #"{"status":"disabled"}"#)
+        #expect(sentHeader(request, "Idempotency-Key") == key.uuidString.lowercased())
+        #expect(sentHeader(request, "X-Request-ID") == key.uuidString.lowercased())
+    }
+    let manual = ManualClock()
+    let busy = ScriptedTransport { _ in errorReply(409, reason: "IDEMPOTENCY_IN_PROGRESS", headers: ["Retry-After": "12"]) }
+    let waiting = detailClient(busy, clock: manual.advancingClock(SleepRecorder()))
+    do {
+        _ = try await waiting.setUserStatus(id: 24, status: "active", idempotencyKey: UUID())
+        Issue.record("IN_PROGRESS past the wait budget must not succeed")
+    } catch let failure as KeyedWriteFailure {
+        #expect(failure.disposition == .unconfirmed(.stillProcessing, retryNotBefore: nil))
+    }
+    #expect(manual.now().timeIntervalSince(manual.start) == 30)
+    let idle = ScriptedTransport { _ in okReply(managedUserJSON) }
+    let guarded = detailClient(idle)
+    #expect(await thrownAPIError { _ = try await guarded.setUserStatus(id: 24, status: "frozen", idempotencyKey: UUID()) }?.kind == .validation)
+    #expect(await thrownAPIError { _ = try await guarded.setUserStatus(id: 0, status: "active", idempotencyKey: nil) }?.kind == .validation)
+    #expect(await idle.requests.isEmpty)
+}
+
+/// Without admin.idempotent_writes the new entry sends what the old two-argument one sends, once.
+@Test func userStatusWithoutKeyIsByteForByteTheOldWrite() async throws {
+    let transport = ScriptedTransport { _ in okReply(managedUserJSON) }
+    let client = detailClient(transport)
+    let old = try await client.setUserStatus(id: 24, status: "active")
+    let new = try await client.setUserStatus(id: 24, status: "active", idempotencyKey: nil)
+    #expect(old.id == new.value.id)
+    let sent = await transport.requests
+    #expect(sent.count == 2)
+    #expect(sent.map(\.httpMethod) == ["PUT", "PUT"] && sent[0].url == sent[1].url && sent[0].httpBody == sent[1].httpBody)
+    #expect(String(decoding: sent[1].httpBody ?? Data(), as: UTF8.self) == #"{"status":"active"}"#)
+    #expect(sent.map { sentHeader($0, "Idempotency-Key") } == [nil, nil])
+    #expect(sent.map(\.timeoutInterval) == [30, 30])
+    #expect(sent.allSatisfy { sentHeader($0, "X-Request-ID") != nil })
+    let flaky = ScriptedTransport(script: [.fail(URLError(.timedOut))])
+    let once = detailClient(flaky)
+    await #expect(throws: (any Error).self) { _ = try await once.setUserStatus(id: 24, status: "disabled", idempotencyKey: nil) }
+    #expect(await flaky.requests.count == 1)
+}
+
+/// 30 §2.4 删除用户: a bare DELETE (a repeat answers 404), so 404 USER_NOT_FOUND means it is gone.
+@Test func deleteUserSendsBareDeleteAndTreatsUserNotFoundAsGone() async throws {
+    let transport = ScriptedTransport { _ in okReply(#"{"message":"User deleted successfully"}"#) }
+    #expect(try await detailClient(transport).deleteUser(id: 24))
+    let request = try #require(await transport.requests.first)
+    #expect(request.httpMethod == "DELETE" && request.url?.path == "/api/v1/admin/users/24")
+    #expect((request.httpBody ?? Data()).isEmpty && sentHeader(request, "Idempotency-Key") == nil)
+    let gone = ScriptedTransport { _ in errorReply(404, reason: "USER_NOT_FOUND") }
+    #expect(try await detailClient(gone).deleteUser(id: 24) == false)
+    #expect(await gone.requests.count == 1)
+    let unused = ScriptedTransport { _ in okReply("{}") }
+    #expect(await thrownAPIError { _ = try await detailClient(unused).deleteUser(id: 0) }?.kind == .validation)
+    #expect(await unused.requests.isEmpty)
+}
+
+@Test(arguments: [ScriptStep.reply(errorReply(500)), .reply(errorReply(403, reason: "ACCESS_TOKEN_READ_ONLY")),
+                  .reply(errorReply(401, reason: "USER_NOT_FOUND")), .fail(URLError(.timedOut))])
+func deleteUserKeepsOtherFailures(step: ScriptStep) async throws {
+    let transport = ScriptedTransport(script: [step])
+    await #expect(throws: (any Error).self) { _ = try await detailClient(transport).deleteUser(id: 24) }
+    #expect(await transport.requests.count == 1)
 }

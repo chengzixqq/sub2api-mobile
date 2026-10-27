@@ -147,15 +147,36 @@ extension APIClient {
         guard operation.supportsSafeRetry else { return try await performUnkeyedWrite(path, method: "PUT", body: operation.body, requestID: operation.key) }
         return try await performKeyedWrite(KeyedWriteRequest(path: path, method: "PUT", body: operation.body, key: operation.id), onEvent: onEvent)
     }
-    public func userUsage(id: Int) async throws -> UserUsageSummary {
-        // The legacy /admin/users/:id/usage endpoint currently returns mock zeros in this backend.
-        // Query real monthly usage aggregates instead.
+    /// 30 §2.2 本月消费: usage/stats from the 1st of the server's month to its today, in its zone; read `totalActualCost`.
+    /// (The legacy /admin/users/:id/usage endpoint returns mock zeros in this backend.)
+    public func userMonthUsage(id: Int) async throws -> UserUsageSummary {
         try await request("admin/usage/stats", query: monthRange() + [URLQueryItem(name: "user_id", value: String(validID(id)))],
                           timeout: RequestTimeout.aggregate)
     }
+    /// Sent once, without a key: the request-layer tests use it as the plain unkeyed write.
     public func setUserStatus(id: Int, status: String) async throws -> AdminUser {
+        try await request("admin/users/\(validID(id))", method: "PUT", body: statusBody(status))
+    }
+    /// 30 §2.4 启用 / 禁用: with admin.idempotent_writes the caller passes a key and the write is retried and waited for under it
+    /// (00 §2.5); without one it is the same bytes sent once.
+    public func setUserStatus(id: Int, status: String, idempotencyKey: UUID?, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
+        let path = "admin/users/\(try validID(id))", body = try statusBody(status)
+        guard let idempotencyKey else { return try await performUnkeyedWrite(path, method: "PUT", body: body, requestID: UUID().uuidString.lowercased()) }
+        return try await performKeyedWrite(KeyedWriteRequest(path: path, method: "PUT", body: body, key: idempotencyKey), onEvent: onEvent)
+    }
+    /// 30 §2.4 删除用户: no key and no retry (a repeat answers 404). `false` when the server says the user is already gone.
+    public func deleteUser(id: Int) async throws -> Bool {
+        let path = "admin/users/\(try validID(id))"
+        do {
+            let _: DeletedUserReply = try await request(path, method: "DELETE")
+            return true
+        } catch let error as APIError where error.isUserNotFound {
+            return false
+        }
+    }
+    private func statusBody(_ status: String) throws -> Data {
         guard ["active", "disabled"].contains(status) else { throw APIError(kind: .validation, message: "无效的用户状态。") }
-        return try await request("admin/users/\(validID(id))", method: "PUT", body: encode(["status": status]))
+        return try encode(["status": status])
     }
     /// Takes only a record already on disk; the body comes from the record and the key and X-Request-ID are its id (00 §9.1).
     /// One sender (R19): it is `updateBalance(_:sameAddress:onEvent:)` for this site only; S3-16 removes it.
@@ -163,3 +184,6 @@ extension APIClient {
         try await updateBalance(write, sameAddress: [], onEvent: onEvent)
     }
 }
+
+/// `{"message":"User deleted successfully"}`; only that it decoded matters.
+private struct DeletedUserReply: Decodable, Sendable { let message: String? }
