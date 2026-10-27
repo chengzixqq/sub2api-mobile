@@ -288,6 +288,9 @@
 | 账号详情 UI 测试对旧日志页与占位页的断言 | 两个用例断言旧 RequestLogsView 的 logs.mode / logs.account-filter：testRecordsRowsOpenLogsFilteredByAccount、testOpsDisabledShowsNoticeRowAndErroredAtLine；testErrorAccountLatestUpstreamErrorOpensRequestRoute 断言 route.placeholder。S4-05 / S4-08 重写日志页和请求详情时要同步改这几处 |
 | 日志页旧夹具与账号详情上游错误计数不一致 | RequestLogsView 私有的 LogFixtures 里账号 1 有 1 条错误、账号 7 没有；AccountDemoStore.upstreamErrorPage 给 #1 0 条、#7 3 条。S4-05 重写日志页夹具时按 AccountDemoStore 统一，让“近 24 小时 N 条”与点进去看到的列表一致 |
 | 首页轮询重启后第一拍被跳过（残余） | LiveOpsStore.pollHomeBlocks 第一拍遇到 isHomeLoading 为真时跳过，并按 nextHomeDelay 等 60 秒。一次被取消的在途读取也算在途：LoadState 的 onCancel 只取消内层 Task，状态要等退栈后才回到 idle；退路的 fallbackCycle 和今日 SLA 的 todayOps.isLoading 也一样。S1-09 审查修正已经去掉概览 task 的多余重启（合规确认、foregroundRevision），只剩一种情况：在途读取期间可见性极短地抖动（Tab 切走马上切回、控制中心一拉一放），首页仍可能晚一个周期刷新。要彻底修，需要让 LoadState 识别“已被取消的在途读取”（task.isCancelled），并同时覆盖退路轮次和今日 SLA。 |
+| 测试输出脱敏规则是否扩展 | 现只覆盖规格列的 Bearer、sk-…、URL（20 §4.3）；x-api-key 原值、JWT、sat_ 令牌、AKIA… 不在规则内。后端 error_message 已做 logredact，残留风险低（S2-13） |
+| Bedrock / Vertex 账号 401 的失败原因文案 | 暂按 20 §7.3 写“API Key 无效或已撤销”，措辞不准确，待用户看效果图后再定（S2-13） |
+| 老服务端测试结果比对的精度 | AccountTestOutcome.legacy 用 error_summary / error_kind 判断错误是否被改写，App 的快照里没有 error_message / error_at；清除限流按测试前限流或临时不可调度有效、测试后没有来判断（S2-13） |
 
 ### App 与设计 · 阶段 3
 
