@@ -472,7 +472,7 @@ func writeFailureLeavesLocalStateAndShowsReason(index: Int) async {
     try await source.deleteAlertSilence(id: created.id)
     try await source.deleteAlertSilence(id: created.id)
     #expect(try await source.alertEvent(id: LiveOpsFixtureIDs.alertA).silence == nil)
-    let closed = FixtureLiveOpsSource(options: .init(opsDisabled: true), base: now)
+    let closed = FixtureLiveOpsSource(options: .init(ops: .settingOff), base: now)
     var refused: APIError?
     do { try await closed.setAlertEventStatus(id: LiveOpsFixtureIDs.alertA, status: AlertEvent.manualResolved) } catch { refused = error as? APIError }
     #expect(refused?.statusCode == 404 && refused?.reason == "OPS_DISABLED")

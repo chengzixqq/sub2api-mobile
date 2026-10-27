@@ -15,11 +15,14 @@ enum DemoData {
         let arguments = ProcessInfo.processInfo.arguments
         let totp = arguments.contains("-ui-step-up-required"), stepUp = totp || arguments.contains("-ui-step-up-no-totp")
         let compliance = arguments.contains("-ui-compliance-required")
+        // S1-08: -ui-ops-disabled (setting_off) and -ui-ops-config-off (config_off), as FixtureLiveOpsSource starts.
+        let ops = OpsFixtureSwitch.from(arguments: arguments)
         return AdminMe(authMethod: authMethod, user: .init(id: 1, email: "admin@example.com", username: "管理员", role: "admin"),
                 security: .init(totpEnabled: totp, stepUpEnabled: stepUp, stepUpAvailable: totp && authMethod == .jwt, stepUpGranted: false,
                                 sessionBindingEnabled: false),
                 compliance: .init(required: compliance, version: compliance ? complianceStatus.version : nil),
-                features: .init(opsMonitoringEnabled: true, opsRealtimeMonitoringEnabled: true, channelMonitorEnabled: false,
+                features: .init(opsMonitoringEnabled: ops == .on, opsRealtimeMonitoringEnabled: ops == .on,
+                                opsMonitoringDisabledReason: ops.disabledReason, channelMonitorEnabled: false,
                                 backendModeEnabled: false, paymentEnabled: false, subscriptionEnabled: false),
                 server: .init(version: "ui-test", runMode: "standard", serverTimezone: serverTimeZone.identifier,
                               serverUTCOffset: serverTimeZone.rawUTCOffset,

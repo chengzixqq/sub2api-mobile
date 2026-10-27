@@ -36,7 +36,7 @@ private func refusedAsOpsDisabled(_ call: () async throws -> Void) async -> Bool
 }
 
 @Test func opsDisabledFixtureHasNoAlertRowsAndControlledEndpointsReturn404() async throws {
-    let (home, source) = try await blocks(.init(opsDisabled: true))
+    let (home, source) = try await blocks(.init(ops: .settingOff))
     #expect(home.ops == .disabled(reason: "OPS_DISABLED") && home.alerts == .disabled(reason: "OPS_DISABLED"))
     let rates = try #require(home.rates.value)
     #expect(rates.opsMonitoringEnabled == false && rates.errorRate == nil && rates.upstream529Count == nil && rates.rpm != nil)
@@ -72,7 +72,7 @@ private func refusedAsOpsDisabled(_ call: () async throws -> Void) async -> Bool
     let (limited, _) = try await blocks(.init(variant: .calmLimited))
     let summary = try #require(limited.availability.value)
     #expect(isCalm(limited) && HomePresentation.hasLimitedAccounts(summary) && HomePresentation.limitedItem(summary, now: base) != nil)
-    let (closed, _) = try await blocks(.init(variant: .calm, opsDisabled: true))
+    let (closed, _) = try await blocks(.init(variant: .calm, ops: .settingOff))
     #expect(isCalm(closed) && closed.alerts == .disabled(reason: "OPS_DISABLED"))
     let ranking = try await FixtureLiveOpsSource(options: .init(variant: .calmLimited), base: base).accountsRanking(limit: 4, timezone: zone)
     #expect(HomePresentation.rankingRows(ranking).count == 2)
@@ -98,13 +98,13 @@ private func refusedAsOpsDisabled(_ call: () async throws -> Void) async -> Bool
 
 @Test func optionsParseLaunchArguments() {
     typealias Options = LiveOpsFixtures.Options
-    #expect(Options(arguments: []) == Options() && Options() == Options(variant: .allOK, opsDisabled: false))
+    #expect(Options(arguments: []) == Options() && Options() == Options(variant: .allOK, ops: .on))
     #expect(Options(arguments: ["-ui-home-availability-error"]).variant == .availabilityError)
     #expect(Options(arguments: ["-ui-home-availability-error", "-ui-home-hourly-timeout"]).variant == .hourlyTimeout)
     #expect(Options(arguments: ["-ui-home-hourly-timeout", "-ui-home-calm"]).variant == .calm)
     #expect(Options(arguments: ["-ui-home-calm", "-ui-home-calm-limited"]).variant == .calmLimited)
-    #expect(Options(arguments: ["-ui-ops-disabled", "-ui-home-calm"]) == Options(variant: .calm, opsDisabled: true))
-    #expect(Options(arguments: ["-ui-ops-disabled"]) == Options(opsDisabled: true))
+    #expect(Options(arguments: ["-ui-ops-disabled", "-ui-home-calm"]) == Options(variant: .calm, ops: .settingOff))
+    #expect(Options(arguments: ["-ui-ops-disabled"]) == Options(ops: .settingOff))
 }
 
 @MainActor @Test func storeOverFixtureSourceShowsTheDemoSite() async {

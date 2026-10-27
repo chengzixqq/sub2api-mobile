@@ -21,13 +21,28 @@ enum LiveOpsFixtureIDs {
     static let premiumGroup = 1
 }
 
+/// S1-08: the ops switch a `-ui-testing` site starts with. `-ui-ops-disabled` is setting_off (the App can turn it on),
+/// `-ui-ops-config-off` config_off (409 OPS_CONFIG_DISABLED, no button) and wins when both are given. DemoData.adminMe and
+/// FixtureLiveOpsSource read the same value; stage 4 (S4-05, S4-16, S4-18) reuses these two arguments.
+enum OpsFixtureSwitch: String, Sendable, Equatable {
+    case on, settingOff = "setting_off", configOff = "config_off"
+
+    static func from(arguments: [String]) -> OpsFixtureSwitch {
+        if arguments.contains(LiveOpsFixtures.Argument.opsConfigOff) { return .configOff }
+        return arguments.contains(LiveOpsFixtures.Argument.opsDisabled) ? .settingOff : .on
+    }
+    /// `/admin/me`'s `ops_monitoring_disabled_reason`.
+    var disabledReason: String? { self == .on ? nil : rawValue }
+}
+
 /// 10 §1.7 home data for `-ui-testing`, apart from DemoData so NativeSessionSupport compiles and tests it. Times are offsets from
 /// `base`, the site clock when the session started; windows run in minutes so they outlast a UI test.
 enum LiveOpsFixtures {
     enum HomeVariant: Equatable, Sendable { case allOK, availabilityError, hourlyTimeout, calm, calmLimited }
     enum Argument {
-        /// S1-08 also turns DemoData.adminMe's ops switch off with it.
+        /// OpsFixtureSwitch: DemoData.adminMe's ops switch follows these two.
         static let opsDisabled = "-ui-ops-disabled"
+        static let opsConfigOff = "-ui-ops-config-off"
         static let availabilityError = "-ui-home-availability-error"
         static let hourlyTimeout = "-ui-home-hourly-timeout"
         static let calm = "-ui-home-calm"
@@ -41,13 +56,15 @@ enum LiveOpsFixtures {
     }
     struct Options: Equatable, Sendable {
         var variant: HomeVariant
-        var opsDisabled: Bool
+        /// The switch at the session's start; FixtureLiveOpsSource keeps the current one.
+        var ops: OpsFixtureSwitch
         var alertWritesFail: Bool
         var alertsWithoutSilenceKey: Bool
         var homeLegacy: Bool
-        init(variant: HomeVariant = .allOK, opsDisabled: Bool = false, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
+        var opsDisabled: Bool { ops != .on }
+        init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
-            self.variant = variant; self.opsDisabled = opsDisabled
+            self.variant = variant; self.ops = ops
             self.alertWritesFail = alertWritesFail; self.alertsWithoutSilenceKey = alertsWithoutSilenceKey; self.homeLegacy = homeLegacy
         }
         /// The most specific variant wins (calm-limited, calm, hourly timeout, availability error); ops off goes with any.
@@ -56,7 +73,7 @@ enum LiveOpsFixtures {
                                                                      (Argument.hourlyTimeout, .hourlyTimeout),
                                                                      (Argument.availabilityError, .availabilityError)]
             self.init(variant: order.first { arguments.contains($0.argument) }?.variant ?? .allOK,
-                      opsDisabled: arguments.contains(Argument.opsDisabled), alertWritesFail: arguments.contains(Argument.alertWriteFails),
+                      ops: OpsFixtureSwitch.from(arguments: arguments), alertWritesFail: arguments.contains(Argument.alertWriteFails),
                       alertsWithoutSilenceKey: arguments.contains(Argument.alertLegacySilence), homeLegacy: arguments.contains(Argument.homeLegacy))
         }
     }
@@ -65,6 +82,7 @@ enum LiveOpsFixtures {
     /// The name S2-22's plan uses.
     static let anthropicFiringEventID = LiveOpsFixtureIDs.anthropicFiringEventID
     static let opsDisabledError = APIError.server(status: 404, reason: "OPS_DISABLED")
+    static let opsConfigDisabledError = APIError.server(status: 409, reason: "OPS_CONFIG_DISABLED")
     static let alertWriteError = APIError.server(status: 500, reason: "INTERNAL_ERROR")
 
     // MARK: 首页
@@ -189,12 +207,14 @@ enum LiveOpsFixtures {
                     tokenConsumed: 96_400_000, upstream429Count: 12, upstream529Count: 3,
                     systemMetrics: OpsSystemMetricsSnapshot(createdAt: end, cpuUsagePercent: 38, memoryUsagePercent: 61, dbOK: true, redisOK: true))
     }
-    static func monitoringStatus(_ options: Options) -> OpsMonitoringStatus {
-        guard options.opsDisabled else {
-            return OpsMonitoringStatus(configEnabled: true, monitoringEnabled: true, realtimeMonitoringEnabled: true, effective: true)
+    static func monitoringStatus(_ ops: OpsFixtureSwitch) -> OpsMonitoringStatus {
+        switch ops {
+        case .on: OpsMonitoringStatus(configEnabled: true, monitoringEnabled: true, realtimeMonitoringEnabled: true, effective: true)
+        case .settingOff: OpsMonitoringStatus(configEnabled: true, monitoringEnabled: false, realtimeMonitoringEnabled: false, effective: false,
+                                              disabledReason: ops.disabledReason)
+        case .configOff: OpsMonitoringStatus(configEnabled: false, monitoringEnabled: true, realtimeMonitoringEnabled: true, effective: false,
+                                             disabledReason: ops.disabledReason)
         }
-        return OpsMonitoringStatus(configEnabled: true, monitoringEnabled: false, realtimeMonitoringEnabled: false, effective: false,
-                                   disabledReason: OpsDisabledReason.settingOff.rawValue)
     }
     /// `fired_at DESC, id DESC`, as the server lists events.
     static func newestFirst(_ events: [AlertEvent]) -> [AlertEvent] {
@@ -237,10 +257,12 @@ enum LiveOpsFixtures {
 
 /// `-ui-testing`'s LiveOpsSource. The alert events are its state (FixtureAlertBook), so S1-06's writes change what is read next;
 /// `homeCalls` is for fixtures that change after a pull to refresh (S1-11). Gated reads and the alert writes answer 404
-/// OPS_DISABLED under `-ui-ops-disabled`. `time_range` counts back from `base`, the session's start.
+/// OPS_DISABLED while the ops switch is off; S1-08's switch writes change it for what is read next. `time_range` counts back
+/// from `base`, the session's start.
 actor FixtureLiveOpsSource: LiveOpsSource {
-    let options: LiveOpsFixtures.Options
     let base: Date
+    /// The launch options with the current ops switch.
+    private(set) var options: LiveOpsFixtures.Options
     private(set) var book: FixtureAlertBook
     private(set) var homeCalls = 0
     var events: [AlertEvent] { book.events }
@@ -296,7 +318,17 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         return LiveOpsFixtures.alertRules()
     }
     func channelOverview(range: String, refresh: Bool) -> ChannelOverview { LiveOpsFixtures.channelOverview(base: base) }
-    func opsMonitoringStatus() -> OpsMonitoringStatus { LiveOpsFixtures.monitoringStatus(options) }
+    func opsMonitoringStatus() -> OpsMonitoringStatus { LiveOpsFixtures.monitoringStatus(options.ops) }
+    /// The server's configuration switch answers 409 and stays off.
+    func setOpsMonitoring(enabled: Bool) throws -> OpsMonitoringStatus {
+        guard options.ops != .configOff else { throw LiveOpsFixtures.opsConfigDisabledError }
+        options.ops = enabled ? .on : .settingOff
+        return LiveOpsFixtures.monitoringStatus(options.ops)
+    }
+    /// The settings PUT succeeds even while the configuration holds monitoring off, which then stays off (D09).
+    func enableOpsMonitoringLegacy() {
+        if options.ops != .configOff { options.ops = .on }
+    }
     func setAlertEventStatus(id: Int, status: String) throws {
         try requireOps()
         try book.setStatus(id: id, status: status, at: Date())
