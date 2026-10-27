@@ -12,7 +12,8 @@ private typealias ToggleOutcome = OpsDisabledPresentation.ToggleOutcome
 struct OpsSwitchState: Sendable, Equatable {
     enum Phase: Sendable, Equatable { case idle, enabling, disabling, verifying }
     /// Other instances read the switch every 30 seconds (ops_service.go:27): after turning it on the blocks are read once more after
-    /// this; after turning it off their “on” is ignored for as long.
+    /// this while they still say off, and once they say on, “off” is ignored until this has passed since the write; after turning it
+    /// off their “on” is ignored for as long.
     static let recheckDelay: TimeInterval = 30
 
     private(set) var phase: Phase = .idle
@@ -27,13 +28,15 @@ struct OpsSwitchState: Sendable, Equatable {
     /// Each switch that took effect and each recheck; the monitor, the alert detail and statistics reload on it.
     private(set) var revision = 0
     private(set) var disabledAt: Date?
+    private(set) var enabledAt: Date?
 
     func isDisabled(snapshot: Bool) -> Bool { legacyConfigOff || (latestDisabled ?? snapshot) }
 
     mutating func note(disabled: Bool, at now: Date) {
         if disabled {
+            if let enabledAt, now.timeIntervalSince(enabledAt) < Self.recheckDelay { return }
             if latestDisabled != true { reasonRead = false }
-            latestDisabled = true
+            latestDisabled = true; enabledAt = nil
             return
         }
         if let disabledAt, now.timeIntervalSince(disabledAt) < Self.recheckDelay { return }
@@ -61,7 +64,9 @@ struct OpsSwitchState: Sendable, Equatable {
         return true
     }
     mutating func enterVerifying() { phase = .verifying }
-    mutating func markDisabledByApp(at now: Date) { disabledAt = now }
+    mutating func markDisabledByApp(at now: Date) { disabledAt = now; enabledAt = nil }
+    /// The blocks said on after the App's write at `writtenAt`.
+    mutating func markEnabledByApp(at writtenAt: Date) { enabledAt = writtenAt }
     mutating func markLegacyConfigOff() { legacyConfigOff = true; latestDisabled = true }
     mutating func bumpRevision() { revision += 1 }
     mutating func finish() { phase = .idle }
@@ -90,16 +95,17 @@ extension LiveOpsStore {
         guard opsSwitch.begin(.enabling) else { return nil }
         let reply = await send(enabled: true, route: route)
         guard isCurrent() else { return dropped() }
+        let writtenAt = localNow()
         switch reply {
         case .dropped: return dropped()
         case .refused(let outcome): return await refused(outcome)
-        case .sent: return await confirmEnabled(announced: false)
+        case .sent: return await confirmEnabled(announced: false, writtenAt: writtenAt)
         case .status(let status):
             opsSwitch.record(status)
             let outcome = OpsDisabledPresentation.enableOutcome(status)
             guard outcome == .enabled else { return conclude(outcome) }
             show(outcome)
-            return await confirmEnabled(announced: true)
+            return await confirmEnabled(announced: true, writtenAt: writtenAt)
         }
     }
     /// U10: only through `monitoring-status`. The notice shows at once; for 30 seconds other instances' “on” is not believed.
@@ -156,18 +162,18 @@ extension LiveOpsStore {
         }
     }
     /// The blocks say whether it took; when they still say off, they are read once more after the other instances caught up.
-    private func confirmEnabled(announced: Bool) async -> ToggleOutcome? {
+    private func confirmEnabled(announced: Bool, writtenAt: Date) async -> ToggleOutcome? {
         await refreshAfterSwitch()
         guard isCurrent() else { return dropped() }
         opsSwitch.bumpRevision()
-        guard opsDisabled else { return announced ? finished(.enabled) : conclude(.enabled) }
+        guard opsDisabled else { return confirmedOn(announced: announced, writtenAt: writtenAt) }
         opsSwitch.enterVerifying()
         do { try await sleep(.seconds(OpsSwitchState.recheckDelay)) } catch { return announced ? finished(.enabled) : dropped() }
         guard isCurrent() else { return dropped() }
         await refreshAfterSwitch()
         guard isCurrent() else { return dropped() }
         opsSwitch.bumpRevision()
-        guard opsDisabled else { return announced ? finished(.enabled) : conclude(.enabled) }
+        guard opsDisabled else { return confirmedOn(announced: announced, writtenAt: writtenAt) }
         guard announced else {
             opsSwitch.markLegacyConfigOff()
             return conclude(.configOff)
@@ -175,6 +181,11 @@ extension LiveOpsStore {
         // The server accepted it yet the blocks still say off: the reason now shown comes from the switch as read now.
         if let status = try? await source.opsMonitoringStatus(), isCurrent() { opsSwitch.recordReason(status) }
         return finished(.enabled)
+    }
+    /// Instances that have not read the switch yet still say off; for the rest of 30 seconds from the write that is not believed.
+    private func confirmedOn(announced: Bool, writtenAt: Date) -> ToggleOutcome {
+        opsSwitch.markEnabledByApp(at: writtenAt)
+        return announced ? finished(.enabled) : conclude(.enabled)
     }
     /// 409 OPS_CONFIG_DISABLED is the configuration's word; no answer means the blocks show what the server now has.
     private func refused(_ outcome: ToggleOutcome) async -> ToggleOutcome? {

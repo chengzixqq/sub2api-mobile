@@ -327,7 +327,7 @@ final class LiveOpsStore {
 
     // MARK: - 运维监控开关（10 §7.2，S1D1-02：唯一入口，S1-08 只改函数体）
 
-    /// Off: then why, once per off period (S1-08).
+    /// Off, unless the App turned it on under 30 seconds ago; then why, once per off period (S1-08).
     func noteOpsDisabled() async {
         opsSwitch.note(disabled: true, at: localNow())
         await resolveOpsDisabledReasonIfNeeded()

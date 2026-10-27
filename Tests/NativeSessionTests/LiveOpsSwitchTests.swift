@@ -173,6 +173,26 @@ private func switchHandlers(home reply: @escaping @Sendable (Int) -> DashboardHo
     #expect(await source.count { $0 == .monitoringStatus } == 0)
 }
 
+@MainActor @Test func enableIgnoresDisabledSignalsDuringRecheckDelay() async {
+    var handlers = switchHandlers(home: { call in call == 1 ? homeReply() : closedHome })
+    handlers.setOpsMonitoring = { _ in onStatus }
+    handlers.monitoringStatus = { onStatus }
+    let source = StubLiveOpsSource(handlers)
+    let h = LiveOpsHarness(source, site: switchSite())
+    #expect(await h.store.enableOpsMonitoring() == .enabled)
+    #expect(!h.store.opsDisabled && !h.store.isTogglingOps)
+    #expect(await h.sleeper.seconds.isEmpty)
+    // Another instance that has not read the switch yet.
+    h.advance(by: 29)
+    await h.store.refreshHome(noCache: false)
+    await h.store.recordOpsResponse(APIError.server(status: 404, reason: "OPS_DISABLED"))
+    #expect(!h.store.opsDisabled)
+    #expect(await source.count { $0 == .monitoringStatus } == 0)
+    h.advance(by: 2)
+    await h.store.recordOpsResponse(APIError.server(status: 404, reason: "OPS_DISABLED"))
+    #expect(h.store.opsDisabled)
+}
+
 // MARK: 结果未知时读回（00 §2.4：不带 key 的写不自动重发）
 
 @MainActor @Test func timeoutReadsBackStatusAndNeverResends() async {
