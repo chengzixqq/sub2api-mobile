@@ -241,6 +241,10 @@
 | 告警静默与规则 region | 规则过滤条件带 region 时，App 按规格不传 region 新建的静默匹配不到事件，读回后显示“操作没有生效，可以重试”；需要后端在事件 dimensions 或 rule 摘要里带上 region，或由 App 读取规则后再发 |
 | INVALID_RULE_ID 文案 | 后端只在 rule_id ≤ 0 时返回 INVALID_RULE_ID，规则已删除时新建静默照样成功（没有外键，静默无效但无害）；App 已在 rule_id 无效时不给静默，收到时照表显示“规则已删除，无法静默”并在本会话隐藏该规则的静默；文案是否要改，需用户确认 |
 | 告警夹具 #35 与 24h 窗口 | FixtureAlertBook 已按 time_range 过滤（相对会话开始的 base）；S1-05 的 #35 在昨天 21:52 触发，服务器时间 21:52 之后不在 24h 列表里。S1-16 等 UI 用例若断言最近结束含 #35，会随运行时段失败，应改用 #37，或把 #35 改为相对 base 的时间 |
+| 旧服务端事件缺 group_name | （补充已有行说明末尾）S1-07 已在收事件处补规则与分组名（会话内各取一次） |
+| 首页退路本地分档的边界 | 站点既没有 dashboard.home 也没有 accounts.status_summary 时：账号只取第一页 1000 个，totals 偏小并标 accounts_truncated；按告警规则判定 shortage 的分组退回默认 0.5 判定，可能与服务端不同；是否分页拉全待定 |
+| 首页退路的告警 500 条上限 | 没有 ops.alert_event_counts 时 firing 超过 500 条只显示 500，没有“≥”标记；是否要加待定 |
+| 首页退路的渠道 UNSUPPORTED 显示 | 比渠道监控更早的站点，channels 段为 disabled(UNSUPPORTED)；S1-09b 决定运行区写“渠道监控未开启”还是隐藏该行 |
 
 ### App 与设计 · 阶段 2
 
