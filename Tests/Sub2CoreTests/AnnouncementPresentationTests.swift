@@ -45,6 +45,18 @@ private let readSummary = AnnouncementReadSummary(announcementID: 7, totalUsers:
     for targeting in complex { #expect(!AnnouncementPresentation.isSimpleTarget(targeting)) }
 }
 
+@Test func announcementSimpleTargetOnlyCoversWhatThePhoneFormCanSave() throws {
+    for comparison in ["gt", "gte", "lt", "lte"] {
+        #expect(AnnouncementPresentation.isSimpleTarget(.single(.balance(comparison, value: decimal("0.01")))))
+    }
+    let webOnly: [AnnouncementTargeting] = [
+        .single(.balance("eq", value: 5)), .single(.balance("lte", value: 0)), .single(.balance("lt", value: -5)),
+    ]
+    for targeting in webOnly { #expect(!AnnouncementPresentation.isSimpleTarget(targeting)) }
+    let omittedZero = Data(#"{"any_of":[{"all_of":[{"type":"balance","operator":"gt"}]}]}"#.utf8)
+    #expect(!AnnouncementPresentation.isSimpleTarget(try JSONDecoder().decode(AnnouncementTargeting.self, from: omittedZero)))
+}
+
 @Test func announcementBadgeDimAndNotifyFollowSection15_3() {
     #expect(AnnouncementPresentation.badge(.draft) == AnnouncementBadge(label: "草稿", tone: .neutral))
     #expect(AnnouncementPresentation.badge(.active) == AnnouncementBadge(label: "展示中", tone: .ok))
