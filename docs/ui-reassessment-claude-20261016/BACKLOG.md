@@ -323,3 +323,7 @@
 | 生成兑换码时订阅分组无效返回 500 无 reason | 后端 GenerateRedeemCodes 在 group_id 缺失、不存在或不是订阅类型时返回 500 且没有 reason，App 只能按结果不明保留待核对记录。App 只给可用订阅分组（isActiveSubscriptionGroup），建议后端改为 4xx 并带 reason |
 | GET /admin/redeem-codes/:id 不带 user / group | 单卡刷新、写后读回和定位都拿不到使用者与分组名，App 用 AdminRedeemCode.keepingRelations(of:) 沿用列表里的值；建议后端 GetByID 补上 WithUser / WithGroup |
 | 只读令牌的兑换码 ··· 菜单范围 | 规格 60 §8.3 写“只读令牌：只有 ··· 里的复制”，S6-03 理解为去掉写操作：保留复制、查看使用者、查看同一批这几个读操作，只去掉删除。若要严格只留复制，改 RedeemPresentation.menuItems 即可，请用户确认 |
+| 公告删除对不存在的 id 回 200 | 后端 DELETE /admin/announcements/:id 是硬删除，id 不存在也回 200（repository/announcement_repo.go:104-108），不会出现规格 60 §16.4 说的 404 ANNOUNCEMENT_NOT_FOUND；App 仍把这个 404 视为已删除，以兼容以后的改动 |
+| ReasonCatalog 缺公告 400 reason 文案 | ANNOUNCEMENT_TITLE_INVALID / ANNOUNCEMENT_CONTENT_REQUIRED / ANNOUNCEMENT_INVALID_TARGET / ANNOUNCEMENT_TIME_RANGE_INVALID 现在落到 400 兜底文案；S6-15 本地预检抛的是带 reason、文案取自 60 §17.4 的 APIError，但服务端返回同名 reason 时仍要由 S6-18 的文案表或目录补齐 |
+| 无 capability 新建公告是否带 key：00 与 60 口径不一 | 00 §5 capability 表（第 618 行）写“不带 key”，60 §0.2 写“照常带 key（老服务端忽略）”；S6-15 按 60 §0.2 与 00 §2.5.1 带 key、只发一次，规格待统一 |
+| 公告详情已读比例取整还是一位小数 | 规格 60 §16.3 示例写“40%”，按 00 §6.2 实现为一位小数“39.6%”；如果要取整，只改 AnnouncementPresentation.detailReadLine 一处和对应断言 |
