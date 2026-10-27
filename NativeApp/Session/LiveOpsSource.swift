@@ -34,6 +34,9 @@ protocol LiveOpsSource: AlertActionSource {
     func dashboardTrend(start: Date, end: Date, granularity: TrendGranularity) async throws -> DashboardTrendReply
     func allGroups(includeInactive: Bool) async throws -> [AdminGroup]
     func managedAccounts(page: Int, query: AccountListQuery) async throws -> AccountListPage
+    // S1-08 · 运维监控开关（10 §7.2）：不带 key 的写，不自动重发
+    func setOpsMonitoring(enabled: Bool) async throws -> OpsMonitoringStatus
+    func enableOpsMonitoringLegacy() async throws
 }
 
 /// The session's own client (D13): LiveOpsStore never makes an APIClient of its own.
@@ -80,4 +83,6 @@ struct ClientLiveOpsSource: LiveOpsSource {
     func managedAccounts(page: Int, query: AccountListQuery) async throws -> AccountListPage {
         try await client.managedAccounts(page: page, query: query)
     }
+    func setOpsMonitoring(enabled: Bool) async throws -> OpsMonitoringStatus { try await client.setOpsMonitoring(enabled: enabled) }
+    func enableOpsMonitoringLegacy() async throws { try await client.enableOpsMonitoringLegacy() }
 }

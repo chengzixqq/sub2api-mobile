@@ -48,8 +48,9 @@ final class LiveOpsStore {
     private(set) var isOnFallback = false
     private(set) var isCalmVisible = false
     private var countsValue: AlertCounts?
-    /// What the latest reply said about ops monitoring (10 §7.2); nil until one says. Only the three entries below set it (S1D1-02).
-    private var opsEvidence: Bool?
+    /// The ops switch: the latest signal, its reason and a write on its way (10 §7.2). Only the three entries below and
+    /// LiveOpsStore+OpsSwitch.swift write it (S1D1-02).
+    var opsSwitch = OpsSwitchState()
     @ObservationIgnored private var appliedHomeAt: Date?
     @ObservationIgnored private var structuredFetchedIDs: Set<Int>?
     @ObservationIgnored private var structuredPendingIDs: Set<Int>?
@@ -61,6 +62,8 @@ final class LiveOpsStore {
     @ObservationIgnored private(set) var rankingTask: Task<Void, Never>?
     /// C-6, S1-06: 手动解决 and 静默 for every page, writing through this store's lists; receipts go to AppModel's center.
     let alertActions: AlertActions
+    /// AppModel's center, for the ops switch's receipts (S1-08).
+    let receipts: ReceiptCenter
 
     init(generation: UUID, source: any LiveOpsSource, site: @escaping @MainActor () -> SiteSession?, isCurrent: @escaping @MainActor () -> Bool,
          errorBadge: @escaping @MainActor () -> AccountErrorBadge? = { nil }, serverNow: @escaping @Sendable () -> Date,
@@ -68,7 +71,7 @@ final class LiveOpsStore {
          sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
          receipts: ReceiptCenter = ReceiptCenter()) {
         self.generation = generation; self.source = source; self.site = site; self.isCurrent = isCurrent; self.errorBadge = errorBadge
-        self.serverNow = serverNow; self.localNow = localNow; self.sleep = sleep
+        self.serverNow = serverNow; self.localNow = localNow; self.sleep = sleep; self.receipts = receipts
         alertActions = AlertActions(source: source, receipts: receipts, timeZone: { site()?.serverTimeZone.timeZone ?? .gmt }, now: serverNow)
         alertActions.host = self
     }
@@ -82,12 +85,14 @@ final class LiveOpsStore {
     /// Firing events by level, silenced ones included: home's alerts block, `alert-events/counts`, or the counted list.
     var alertCounts: AlertCounts? { opsDisabled ? nil : countsValue }
     /// The latest reply wins; before any, `/admin/me`'s `features.ops_monitoring_enabled`.
-    var opsDisabled: Bool { opsEvidence ?? (site()?.me.features.opsMonitoringEnabled == false) }
+    var opsDisabled: Bool { opsSwitch.isDisabled(snapshot: site()?.me.features.opsMonitoringEnabled == false) }
     /// The local time of the last home reply without a failed block (S0-05).
     var lastFullSuccessAt: Date? { home.lastFullSuccessAt }
     var homeFailed: Bool { homeRequest.error != nil }
     /// The block's 429 wait and backoff; on the fallback each block keeps its own (S1-07).
     func homeRefresh(for key: HomeSectionKey) -> BlockRefresh { isOnFallback ? fallbackStatus[key]?.refresh ?? BlockRefresh() : homeRequest.refresh }
+    /// The error behind the block's failure row (S1-08): home's own, or the block's own on the fallback.
+    func homeLastError(for key: HomeSectionKey) -> APIError? { isOnFallback ? fallbackStatus[key]?.lastError : homeRequest.lastError }
 
     // MARK: - 首页（10 §1.2、§1.6）
 
@@ -322,8 +327,13 @@ final class LiveOpsStore {
 
     // MARK: - 运维监控开关（10 §7.2，S1D1-02：唯一入口，S1-08 只改函数体）
 
-    func noteOpsDisabled() async { opsEvidence = true }
-    func noteOpsAvailable() { opsEvidence = false }
+    /// Off: then why, once per off period (S1-08).
+    func noteOpsDisabled() async {
+        opsSwitch.note(disabled: true, at: localNow())
+        await resolveOpsDisabledReasonIfNeeded()
+    }
+    /// On, unless the App turned it off under 30 seconds ago (other instances still answer meanwhile).
+    func noteOpsAvailable() { opsSwitch.note(disabled: false, at: localNow()) }
     /// A gated read's result: success says on, 404 OPS_DISABLED says off, any other failure says nothing.
     func recordOpsResponse(_ error: (any Error)?) async {
         guard isCurrent() else { return }

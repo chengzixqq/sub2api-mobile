@@ -19,6 +19,8 @@ actor StubLiveOpsSource: LiveOpsSource {
         // S1-07
         case stats, costSnapshot, trend, trendRange(start: Date, end: Date, granularity: TrendGranularity), allGroups(includeInactive: Bool)
         case accounts(page: Int, pageSize: Int)
+        // S1-08
+        case setOpsMonitoring(Bool), enableOpsLegacy
     }
     struct Handlers: Sendable {
         var home: (@Sendable (_ noCache: Bool) async throws -> DashboardHome)?
@@ -43,6 +45,8 @@ actor StubLiveOpsSource: LiveOpsSource {
         var trendRange: (@Sendable (Date, Date, TrendGranularity) async throws -> DashboardTrendReply)?
         var allGroups: (@Sendable () async throws -> [AdminGroup])?
         var accounts: (@Sendable (Int, AccountListQuery) async throws -> AccountListPage)?
+        var setOpsMonitoring: (@Sendable (Bool) async throws -> OpsMonitoringStatus)?
+        var enableOpsLegacy: (@Sendable () async throws -> Void)?
     }
     private var handlers: Handlers
     private(set) var calls: [Call] = []
@@ -169,6 +173,16 @@ actor StubLiveOpsSource: LiveOpsSource {
         guard let handler = handlers.accounts else { throw StubMissing() }
         return try await handler(page, query)
     }
+    func setOpsMonitoring(enabled: Bool) async throws -> OpsMonitoringStatus {
+        calls.append(.setOpsMonitoring(enabled))
+        guard let handler = handlers.setOpsMonitoring else { throw StubMissing() }
+        return try await handler(enabled)
+    }
+    func enableOpsMonitoringLegacy() async throws {
+        calls.append(.enableOpsLegacy)
+        guard let handler = handlers.enableOpsLegacy else { throw StubMissing() }
+        try await handler()
+    }
 }
 
 /// Records the polling waits in seconds and ends the loop at the `stopAfter`-th one, as a cancelled task would. With `parks`
@@ -232,14 +246,16 @@ func liveOpsSite(_ capabilities: [Capability] = liveOpsCapabilities, opsEnabled:
     let source: StubLiveOpsSource
     let sleeper: PollSleeper
     let store: LiveOpsStore
+    /// Its receipts stay until replaced (the timer's wait ends at once).
+    let receipts: ReceiptCenter
 
     init(_ source: StubLiveOpsSource = StubLiveOpsSource(), site: SiteSession? = liveOpsSite(), serverNow: Date = Date(),
          sleeper: PollSleeper = PollSleeper()) {
-        let context = Context(site: site)
-        self.context = context; self.source = source; self.sleeper = sleeper
+        let context = Context(site: site), receipts = ReceiptCenter(sleep: { _ in throw CancellationError() })
+        self.context = context; self.source = source; self.sleeper = sleeper; self.receipts = receipts
         store = LiveOpsStore(generation: UUID(), source: source, site: { context.site }, isCurrent: { context.isCurrent },
                              errorBadge: { context.badge }, serverNow: { serverNow }, localNow: { context.localNow },
-                             sleep: { try await sleeper.sleep($0) })
+                             sleep: { try await sleeper.sleep($0) }, receipts: receipts)
     }
     var isCurrent: Bool {
         get { context.isCurrent }

@@ -53,3 +53,67 @@ import Sub2Core
     #expect(state.value == [2] && state.updatedAt == before.0 && state.refresh == before.1 && state.refresh.consecutiveFailures == 1)
     #expect(state.error != nil)
 }
+
+// MARK: - S1-08 · lastError / lastErrorAt（BlockFailureRow 的合规按钮与诊断）
+
+@MainActor @Test func failedLoadKeepsAPIErrorAndTime() async {
+    let state = LoadState<Int>()
+    let failure = APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE")
+    await state.load(isCurrent: { true }) { throw failure }
+    #expect(state.lastError?.statusCode == 503 && state.lastError?.reason == "SERVICE_UNAVAILABLE")
+    #expect(state.lastErrorAt != nil && state.error == failure.localizedDescription)
+}
+
+@MainActor @Test func successClearsLastError() async {
+    let state = LoadState<Int>()
+    await state.load(isCurrent: { true }) { throw APIError.server(status: 500, reason: nil) }
+    await state.load(isCurrent: { true }) { 1 }
+    #expect(state.lastError == nil && state.lastErrorAt == nil && state.value == 1 && state.error == nil)
+}
+
+@MainActor @Test func nonAPIErrorFailureLeavesLastErrorNil() async {
+    let state = LoadState<Int>()
+    await state.load(isCurrent: { true }) { throw URLError(.badServerResponse) }
+    #expect(state.error != nil && state.lastError == nil && state.lastErrorAt != nil)
+}
+
+@MainActor @Test func cancelledLoadDoesNotRecordError() async {
+    let state = LoadState<Int>()
+    await state.load(isCurrent: { true }) { throw CancellationError() }
+    #expect(state.lastError == nil && state.lastErrorAt == nil)
+    let gate = SessionGate()
+    let pending = Task { await state.load(isCurrent: { true }) { await gate.wait(); throw APIError.server(status: 500, reason: nil) } }
+    while await !gate.arrived { await Task.yield() }
+    state.cancel()
+    await gate.open()
+    await pending.value
+    #expect(state.lastError == nil && state.lastErrorAt == nil)
+}
+
+@MainActor @Test func supersededLoadDoesNotOverwriteLastError() async {
+    let state = LoadState<Int>()
+    let gate = SessionGate()
+    let first = Task { await state.load(isCurrent: { true }) { await gate.wait(); throw APIError.server(status: 500, reason: nil) } }
+    while await !gate.arrived { await Task.yield() }
+    await state.load(isCurrent: { true }) { 2 }
+    await gate.open()
+    await first.value
+    #expect(state.lastError == nil && state.value == 2)
+}
+
+@MainActor @Test func resetClearsLastErrorExceptDuring429Wait() async {
+    let state = LoadState<Int>()
+    await state.load(isCurrent: { true }) { throw APIError.server(status: 500, reason: nil) }
+    state.reset()
+    #expect(state.lastError == nil && state.lastErrorAt == nil && state.state == .idle)
+    let throttled = LoadState<Int>()
+    await throttled.load(isCurrent: { true }) { throw APIError.server(status: 429, envelope: nil, retryAfter: 30) }
+    throttled.reset()
+    #expect(throttled.error != nil && throttled.lastError?.statusCode == 429 && throttled.lastErrorAt != nil)
+}
+
+@MainActor @Test func complianceRefusalIsVisibleThroughLastError() async {
+    let state = LoadState<Int>()
+    await state.load(isCurrent: { true }) { throw APIError.server(status: 423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED") }
+    #expect(BlockStatusPresentation.needsCompliance(state.lastError))
+}
