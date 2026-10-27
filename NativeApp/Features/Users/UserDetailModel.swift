@@ -75,26 +75,22 @@ final class UserDetailModel {
         _ = await (profileRead, todayRead)
     }
     /// Pushing a page over this one stops the reads still out, and a first read goes back to nothing; on reappearing those
-    /// blocks are read again. Loaded and failed blocks wait for a pull, a retry or the timer.
-    func resumeIfInterrupted() async {
+    /// blocks are read again. Back from the editor the profile, the keys and the records are read whatever their state (30 §2.6);
+    /// other loaded and failed blocks wait for a pull, a retry or the timer.
+    func resumeIfInterrupted(afterEditor: Bool = false) async {
         let blocks: [(Bool, @MainActor @Sendable () async -> Void)] = [
-            (isIdle(profile.state), { [weak self] in await self?.reloadProfile() }),
+            (afterEditor || isIdle(profile.state), { [weak self] in await self?.reloadProfile() }),
             (isIdle(today.state) && !isReadOnlyToken, { [weak self] in await self?.reloadToday() }),
             (isIdle(month.state), { [weak self] in await self?.reloadMonth() }),
-            (isIdle(keys.state), { [weak self] in await self?.reloadKeys() }),
-            (isIdle(ledger.state), { [weak self] in await self?.reloadLedger() }),
+            (afterEditor || isIdle(keys.state), { [weak self] in await self?.reloadKeys() }),
+            (afterEditor || isIdle(ledger.state), { [weak self] in await self?.reloadLedger() }),
         ]
         await withTaskGroup(of: Void.self) { group in
-            for (idle, read) in blocks where idle { group.addTask { await read() } }
+            for (due, read) in blocks where due { group.addTask { await read() } }
         }
     }
-    /// Back from the editor: the profile, the keys and the records (30 §2.6).
-    func reloadAfterEdit() async {
-        async let profileRead: Void = reloadProfile()
-        async let keysRead: Void = reloadKeys()
-        async let ledgerRead: Void = reloadLedger()
-        _ = await (profileRead, keysRead, ledgerRead)
-    }
+    /// The old editor sheet closed (until S3-11 pushes `.userEdit`).
+    func reloadAfterEdit() async { await resumeIfInterrupted(afterEditor: true) }
     /// `userChanges.revision(userID:)` moved: a balance write, a compensation or a save elsewhere (C-12).
     func reloadAfterChange() async {
         async let profileRead: Void = reloadProfile()

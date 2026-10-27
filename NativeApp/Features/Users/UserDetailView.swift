@@ -16,8 +16,14 @@ struct UserDetailView: View {
     @State private var visible = false
     @State private var editorTarget: UserEditorTarget?
     @State private var deleteRequest: DeleteRequest?
+    /// This user's editor went onto the stack above; the next appearance reads the profile, the keys and the records (30 §2.6).
+    @State private var returnsFromEditor = false
 
     private var shouldPoll: Bool { visible && scenePhase == .active && detail != nil }
+    /// `.userEdit` of this user, any segment, on the stack in front: the key summary's push, and S3-11's ⋯ 编辑用户.
+    private var editorAbove: Bool {
+        router.path(for: router.selectedTab).contains { if case .userEdit(let id, _) = $0 { id == userID } else { false } }
+    }
 
     var body: some View {
         content
@@ -34,6 +40,7 @@ struct UserDetailView: View {
             .task(id: shouldPoll) { await poll() }
             .onAppear { visible = true }
             .onDisappear { visible = false }
+            .onChange(of: editorAbove) { _, above in if above { returnsFromEditor = true } }
             // A read stopped by the background is read again on return (D18).
             .onChange(of: model.foregroundRevision) { _, _ in Task { await detail?.loadAll() } }
             .onChange(of: model.userChanges?.revision(userID: userID) ?? 0) { _, _ in Task { await detail?.reloadAfterChange() } }
@@ -120,11 +127,13 @@ struct UserDetailView: View {
 
     // MARK: - When to read
 
-    /// A new session gets a new model and reads everything; coming back from a pushed page reads only what it interrupted.
+    /// A new session gets a new model and reads everything; coming back from a pushed page reads only what it interrupted, and
+    /// from the editor also the profile, the keys and the records. A read cut short by another push is read on the next return.
     private func appeared() async {
         guard let session, session.generation == model.sessionGeneration else { return }
         if let detail, detailGeneration == session.generation {
-            await detail.resumeIfInterrupted()
+            await detail.resumeIfInterrupted(afterEditor: returnsFromEditor)
+            if !Task.isCancelled { returnsFromEditor = false }
             return
         }
         let created = UserDetailModel(app: model, userID: userID)
