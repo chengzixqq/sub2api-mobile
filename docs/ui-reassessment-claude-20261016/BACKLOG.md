@@ -266,6 +266,10 @@
 | :id/models 不存在时的 404 | 后端用 response.NotFound 返回无 reason 的 JSON 404，App 照抛（kind .notFound）；S2-12 / S2-14 应按 kind 处理，不依赖 reason |
 | 错误账号的列表右滑 | 开关关着的错误账号，右滑按 20 §1.4 字面给“启用调度”。打开开关并不清除错误，账号仍不参与调度，回执“已启用调度”可能让人误以为修好了。可改为右滑给“恢复状态…”（打开 AccountRecoverDialog），只需改 AccountActionCopy.swipeAction 一处。需要用户拍板 |
 | 账号动作的等待进度 | AccountActions 不订阅 KeyedWriteEvent，带 key 的写最长等待约 35 秒 × 3，期间只靠 isRunning 表示进行中。如果 S2-08 的按钮行要显示“正在确认结果… / 已等待 N 秒”，需要 S2-05 的包装把 onEvent 透传过来，AccountActions 再加一个 confirming 状态 |
+| 批量调度“稍后核对” | 带 key 的 bulk-update 最坏要等约 3–4 分钟（65 秒 × 3 次 + 退避 + IN_PROGRESS 最多 30 秒），期间坞锁定、“完成”不可点，坞左侧显示“正在确认结果…”。是否加“稍后核对”（放弃等待、直接 runtime/batch 读回），对应 D31，待定 |
+| 批量撤销依据的操作前状态 | 撤销用列表快照里的 schedulable 判断哪些账号真正被改动；选择模式期间轻刷新暂停，快照可能已过时。规格没要求执行前再读一次 runtime，本条没加 |
+| 批量选择数量不设上限 | 规格只限每次请求 50 个；全选 2000 行会变成 40 次顺序请求，期间坞一直显示进度。是否要上限或提示，待定 |
+| S2-23 首页刷新接入点 | 批量有成功时让首页刷新（model.liveOps?.noteExternalWrite()）要加在 NativeApp/Features/Accounts/AccountBatchRunner.swift 的 run / undo 里，不是 items.json 写的 AccountBatchDock.swift，请集成者告知 S2-23 |
 
 ### App 与设计 · 阶段 3
 
