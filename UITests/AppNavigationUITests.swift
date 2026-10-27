@@ -86,13 +86,14 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    @MainActor func testSearchDirectoryOpensRedeemPlaceholder() {
+    @MainActor func testSearchDirectoryOpensRedeemList() {
         launchDirectorySite()
         defer { diagnostics("search-directory-redeem-final") }
         app.openSearchItem("search.item.redeem")
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("redeem.list").waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.navigationBars["兑换码"].exists, app.debugDescription)
-        diagnostics("route-placeholder")
+        XCTAssertFalse(element("route.placeholder").exists, app.debugDescription)
+        diagnostics("redeem-list")
     }
 
     @MainActor func testSearchDirectoryOpensInterfaceSettings() {

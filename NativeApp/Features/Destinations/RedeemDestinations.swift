@@ -7,7 +7,7 @@ struct RedeemRouteDestination: View {
     var body: some View {
         switch route {
         // .redeem：S6-04
-        case .redeem: ComingSoonView(title: route.placeholderTitle)
+        case .redeem: RedeemCodesView(route: RedeemRouteState(route))
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }
