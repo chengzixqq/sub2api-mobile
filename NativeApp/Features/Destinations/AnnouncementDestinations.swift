@@ -9,7 +9,7 @@ struct AnnouncementRouteDestination: View {
         // .announcements：S6-16
         case .announcements(let segment): AnnouncementsView(status: AnnouncementSegments.status(route: segment))
         // .announcementDetail：S6-17
-        case .announcementDetail: ComingSoonView(title: route.placeholderTitle)
+        case .announcementDetail(let id): AnnouncementDetailView(id: id)
         // .announcementReads：S6-19
         case .announcementReads: ComingSoonView(title: route.placeholderTitle)
         // 其他区域：RouteDestination 不会分派到这里
