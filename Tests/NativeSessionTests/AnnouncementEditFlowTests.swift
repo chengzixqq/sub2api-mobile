@@ -48,6 +48,14 @@ private actor EditStub {
     private(set) var count = 0
     func hit() { count += 1 }
 }
+@MainActor private final class DeviceClock {
+    var now: Date
+    init(_ now: Date) { self.now = now }
+}
+private actor PauseLog {
+    private(set) var seen: [Duration] = []
+    func add(_ pause: Duration) { seen.append(pause) }
+}
 @MainActor private final class PhaseProbe {
     var flow: AnnouncementEditFlow?
     private(set) var seen: [AnnouncementEditFlow.Phase] = []
@@ -76,11 +84,14 @@ private func draft(_ change: (inout AnnouncementDraft) -> Void = { _ in }) -> An
     let current: Flag
 }
 
-@MainActor private func makeBench(_ stub: EditStub, original: Announcement? = nil, keyed: Bool = true) -> Bench {
+@MainActor private func makeBench(_ stub: EditStub, original: Announcement? = nil, keyed: Bool = true,
+                                  deviceNow: @escaping @MainActor () -> Date = { start },
+                                  pause: @escaping @Sendable (Duration) async throws -> Void = { _ in }) -> Bench {
     let receipts = ReceiptCenter(sleep: { _ in try await Task.sleep(for: .seconds(3_600)) })
     let changed = Counter(), current = Flag()
     let flow = AnnouncementEditFlow(original: original, source: stub.source, keyedCreate: keyed, receipts: receipts,
-                                    isCurrent: { current.value }, onChanged: { changed.hit() }, now: { start })
+                                    isCurrent: { current.value }, onChanged: { changed.hit() }, now: { start },
+                                    deviceNow: deviceNow, pause: pause)
     return Bench(flow: flow, receipts: receipts, changed: changed, current: current)
 }
 
@@ -128,6 +139,37 @@ private func draft(_ change: (inout AnnouncementDraft) -> Void = { _ in }) -> An
     probe.flow = watched.flow
     await watched.flow.saveTrailing(draft())
     #expect(probe.seen == [.saving(.waitingForServer(elapsedSeconds: 3))])
+}
+
+/// STORE_UNAVAILABLE's cooldown comes from the device clock (RequestClock), so it is counted on that clock, not on the
+/// server-corrected `now`, and never for longer than the cooldown: a skewed or reset device clock neither skips nor stretches it.
+@MainActor @Test func storeUnavailableCooldownCountsOnTheDeviceClock() async throws {
+    // Device clock (seconds from `start`, the server's now) when the reply came and at 用同一编号重试; the wait expected.
+    let cases: [(failedAt: TimeInterval, retryAt: TimeInterval, wait: Int64?)] = [
+        (300, 300, 10),
+        (-60, -60, 10),
+        (0, -3_600, 10),
+        (0, 11, nil)
+    ]
+    for item in cases {
+        let device = DeviceClock(start.addingTimeInterval(item.failedAt)), pauses = PauseLog()
+        let notBefore = device.now.addingTimeInterval(IdempotencyPolicy.storeUnavailableCooldown)
+        let unavailable = KeyedWriteFailure(disposition: .unconfirmed(.storeUnavailable, retryNotBefore: notBefore), key: "k",
+                                            actionID: nil, lastError: nil)
+        let stub = EditStub(create: { call, _ in
+            if call == 1 { throw unavailable }
+            return WriteOutcome(value: saved(40))
+        })
+        let bench = makeBench(stub, deviceNow: { device.now }, pause: { await pauses.add($0) })
+        await bench.flow.saveTrailing(draft())
+        #expect(bench.flow.phase == .createUnconfirmed(retryNotBefore: notBefore))
+        device.now = start.addingTimeInterval(item.retryAt)
+        await bench.flow.retrySameKey()
+        let waits = await pauses.seen.map(\.components.seconds)
+        #expect(waits == (item.wait.map { [$0] } ?? []), "device \(item.failedAt) → \(item.retryAt)")
+        let keys = await stub.creates.map(\.key)
+        #expect(keys.count == 2 && keys[0] == keys[1] && bench.flow.exit == .saved)
+    }
 }
 
 @MainActor @Test func unkeyedCreateNeverResendsAndChecksTitle() async throws {

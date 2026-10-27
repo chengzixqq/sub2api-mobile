@@ -29,7 +29,7 @@ final class AnnouncementEditFlow {
         case editing
         case saving(KeyedWriteEvent?)
         case failed(String)
-        /// Keyed create: the same key may be sent again (not before the date).
+        /// Keyed create: the same key may be sent again (not before the date, on the device clock).
         case createUnconfirmed(retryNotBefore: Date?)
         case checking
         case maybeCreated(AnnouncementRecentMatch)
@@ -49,14 +49,20 @@ final class AnnouncementEditFlow {
     @ObservationIgnored private let receipts: ReceiptCenter
     @ObservationIgnored private let isCurrent: @MainActor () -> Bool
     @ObservationIgnored private let onChanged: @MainActor () -> Void
+    /// The server-corrected clock: when the administrator confirmed, matched against `created_at` (H07).
     @ObservationIgnored private let now: @MainActor () -> Date
+    /// The device clock RequestClock stamps STORE_UNAVAILABLE's cooldown with.
+    @ObservationIgnored private let deviceNow: @MainActor () -> Date
+    @ObservationIgnored private let pause: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var attempt: AnnouncementCreateAttempt?
     @ObservationIgnored private var pending: (update: AnnouncementUpdateRequest?, receipt: Receipt)?
 
     init(original: Announcement?, source: AnnouncementEditSource, keyedCreate: Bool, receipts: ReceiptCenter,
-         isCurrent: @escaping @MainActor () -> Bool, onChanged: @escaping @MainActor () -> Void, now: @escaping @MainActor () -> Date = { Date() }) {
+         isCurrent: @escaping @MainActor () -> Bool, onChanged: @escaping @MainActor () -> Void, now: @escaping @MainActor () -> Date = { Date() },
+         deviceNow: @escaping @MainActor () -> Date = { Date() },
+         pause: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.original = original; self.source = source; self.keyedCreate = keyedCreate; self.receipts = receipts
-        self.isCurrent = isCurrent; self.onChanged = onChanged; self.now = now
+        self.isCurrent = isCurrent; self.onChanged = onChanged; self.now = now; self.deviceNow = deviceNow; self.pause = pause
         role = AnnouncementEditRole(original: original)
     }
 
@@ -155,12 +161,12 @@ final class AnnouncementEditFlow {
 
     // MARK: - Unknown results
 
-    /// Keyed create: the same key and bytes again, after Retry-After when one was given.
+    /// Keyed create: the same key and bytes again, after what is left of the cooldown when one was given.
     func retrySameKey() async {
         guard case .createUnconfirmed(let notBefore) = phase, exit == nil, isCurrent() else { return }
-        if let notBefore, notBefore > now() {
+        if let wait = cooldownLeft(until: notBefore) {
             phase = .saving(nil)
-            try? await Task.sleep(for: .seconds(notBefore.timeIntervalSince(now())))
+            try? await pause(.seconds(wait))
             guard isCurrent() else { return }
         }
         await sendCreate()
@@ -219,6 +225,13 @@ final class AnnouncementEditFlow {
 
     // MARK: - Helpers
 
+    /// Counted on the device clock that set it, and never longer than the cooldown, so a skewed or reset clock neither skips
+    /// the wait nor holds the sheet.
+    private func cooldownLeft(until notBefore: Date?) -> TimeInterval? {
+        guard let notBefore else { return nil }
+        let left = min(notBefore.timeIntervalSince(deviceNow()), IdempotencyPolicy.storeUnavailableCooldown)
+        return left > 0 ? left : nil
+    }
     private func finish() {
         onChanged()
         if let receipt = pending?.receipt { receipts.show(receipt) }
