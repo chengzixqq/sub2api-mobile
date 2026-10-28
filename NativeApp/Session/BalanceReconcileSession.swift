@@ -137,7 +137,8 @@ struct BalanceRetry {
 
 /// 30 §3.6: back in the foreground each balance record of this address is checked once, read-only. Only an exact match
 /// (action_id / request_id) settles it with a receipt; candidates, nothing found and the 40-second grace keep it for the
-/// administrator. Redeem batches are never checked on their own (60 §11.6); S6-08 adds compensations to the switch.
+/// administrator. Redeem batches are never checked on their own (60 §11.6); compensations have their own pass
+/// (CompensationForegroundPass, S6-08).
 @MainActor
 struct ForegroundReconcilePass {
     struct Effects: Sendable {
