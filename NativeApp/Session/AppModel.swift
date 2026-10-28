@@ -119,6 +119,8 @@ final class AppModel {
 
     // MARK: - 阶段 4 · App 级状态
     // 阶段 4 的条目在这里追加
+    /// 40 §0.1: the analytics choices per site; kept across sign-outs and site switches, removed with the site (X03).
+    let analyticsMemory: AnalyticsMemory
 
     // MARK: - 阶段 5 · App 级状态
     // 阶段 5 的条目在这里追加
@@ -154,6 +156,7 @@ final class AppModel {
         // 阶段 3 的条目在这里追加
         // MARK: - 阶段 4 · App 级状态
         // 阶段 4 的条目在这里追加
+        analyticsMemory = AnalyticsMemory(defaults: defaults)
         // MARK: - 阶段 5 · App 级状态
         // 阶段 5 的条目在这里追加
         // MARK: - 阶段 6 · App 级状态
