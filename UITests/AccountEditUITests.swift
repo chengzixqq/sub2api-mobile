@@ -229,7 +229,8 @@ final class AccountEditUITests: XCTestCase {
 
     // MARK: - Unknown results and old servers
 
-    /// The first PATCH is lost: the read-back shows nothing changed, and 重试 sends it again.
+    /// The first PATCH is lost: the read-back shows nothing changed, and 重试 sends it again. Until then the fields wait, so
+    /// nothing typed after the failure is closed away with the retried save.
     @MainActor func testUnknownResultNotAppliedOffersRetry() {
         openSheet(4, section: "basic", arguments: [Fixture.timeout])
         defer { diagnostics("account-edit-timeout-final") }
@@ -238,6 +239,9 @@ final class AccountEditUITests: XCTestCase {
         let message = element("account.edit.message")
         XCTAssertTrue(message.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(message.label, "没有保存成功")
+        XCTAssertFalse(element("account.edit.name").isEnabled, app.debugDescription)
+        XCTAssertFalse(element("account.edit.notes").isEnabled, app.debugDescription)
+        XCTAssertTrue(app.buttons["account.edit.retry"].isEnabled && app.buttons["account.edit.cancel"].isEnabled, app.debugDescription)
         diagnostics("account-edit-timeout")
         app.buttons["account.edit.retry"].tap()
         waitForReceipt("已保存：名称")

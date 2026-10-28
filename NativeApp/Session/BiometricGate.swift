@@ -57,12 +57,10 @@ enum GatedAction: Sendable, Equatable {
     /// Always verified, whatever the switch says (30 §7).
     case revealKey
 
-    /// D26: add and subtract move the balance by the amount; set moves it from the current balance to the amount.
+    /// D26 (defined once, in BalanceChangeDraft): add and subtract move the balance by the amount; set moves it from the current
+    /// balance to the amount.
     static func balanceAdjustment(_ operation: BalanceOperation, amount: Decimal, currentBalance: Decimal?) -> GatedAction {
-        switch operation {
-        case .add, .subtract: .balanceAdjustment(amount)
-        case .set: .balanceAdjustment(currentBalance.map { abs($0 - amount) })
-        }
+        .balanceAdjustment(BalanceChangeDraft.judgedAmount(operation: operation, amount: amount, currentBalance: currentBalance))
     }
     /// What the next set in the same sheet is measured from. A replayed or recovered result is the first run's and may be
     /// stale, so the balance counts as unknown.

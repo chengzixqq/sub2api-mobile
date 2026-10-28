@@ -38,21 +38,17 @@ struct AccountSectionSheet: View {
     private var form: AccountEditForm { AccountEditForm(section: request.section, base: base.account) }
     private var changed: [AccountEditField] { form.changedFields(draft) }
     private var isBusy: Bool { flow.isSaving }
-    /// 没有保存成功 and 结果未确认 go on through their own buttons.
-    private var canSave: Bool {
-        guard !isBusy, form.change(draft, now: model.serverNow()) != nil else { return false }
-        return flow.phase != .notApplied && flow.phase != .unconfirmed
-    }
+    /// 没有保存成功 and 结果未确认 go on through their own buttons, with the fields locked until they settle.
+    private var canSave: Bool { !flow.locksForm && form.change(draft, now: model.serverNow()) != nil }
 
     var body: some View {
         NavigationStack(path: $path) {
             Form {
-                fields
+                fields.disabled(flow.locksForm)
                 if flow.phase != .idle, !isBusy {
                     Section { AccountPatchStatusRow(flow: flow) }
                 }
             }
-            .disabled(isBusy)
             .navigationTitle(request.section.sheetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
