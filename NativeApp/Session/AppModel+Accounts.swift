@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Sub2Core
 
 // 20 章: the account tab's reads (D11). Later stage 2 items add their account wrappers and `-ui-testing` branches here.
@@ -180,5 +181,47 @@ extension AppModel: AccountPatchSource {
             return try accountDemoWrite(generation) { $0.mixedChannelCheck(platform: platform, groupIDs: groupIDs, accountID: accountID, arguments: arguments) }
         }
         return try await accountWriteClient(generation).checkMixedChannel(platform: platform, groupIDs: groupIDs, accountID: accountID)
+    }
+}
+
+// MARK: - S2-11 代理、恢复原代理、删除、在 Web 中编辑
+
+extension AppModel: AccountDetailWriteSource {
+    /// R19, S2D1-14: the App's one `proxies/all` read (active proxies, newest first); `-ui-testing` reads the session's demo proxies.
+    func allProxies(withCount: Bool = true) async throws -> [AdminProxy] {
+        if isUITesting { return try accountDemo.activeProxies() }
+        return try await requireClient().allProxies(withCount: withCount)
+    }
+    func revertAccountProxyFallback(id: Int, generation: UUID) async throws {
+        if isUITesting { return try accountDemoWrite(generation) { try $0.revertProxyFallback(id: id) } }
+        try await accountWriteClient(generation).revertAccountProxyFallback(id: id)
+    }
+    func deleteAccount(id: Int, generation: UUID) async throws -> DeleteResult {
+        if isUITesting { return try accountDemoWrite(generation) { $0.delete(id: id) } }
+        return try await accountWriteClient(generation).deleteAccount(id: id)
+    }
+}
+
+extension AppModel {
+    /// C19 for this site: the edit dialog with `web.accounts_edit_deep_link`, else the account list.
+    func accountWebLink(id: Int, name: String?) -> AccountWebLink? {
+        guard let root = activeProfile?.baseURL else { return nil }
+        return AccountWebLink.make(siteRoot: root, accountID: id, name: name, supportsDeepLink: sessionContext?.has(.webAccountsEditDeepLink) == true)
+    }
+    /// S2D1-23: the App's one “在 Web 中编辑” (S2-12, S2-16, S2-17 and S2-21 call it too). The system browser keeps the Web
+    /// login; the list's fallback puts the name on the clipboard first (this device only). `-ui-testing` stays in the App and
+    /// only shows the receipt.
+    func openAccountInWeb(id: Int, name: String?, using openURL: OpenURLAction) {
+        guard let link = accountWebLink(id: id, name: name) else { return }
+        if let copied = link.copiedName { SensitivePasteboard.copy(copied) }
+        let opened = Receipt(text: link.receipt, systemImage: "safari", tone: .neutral)
+        guard !isUITesting else { receipts.show(opened); return }
+        let receipts = receipts
+        openURL(link.url) { accepted in
+            receipts.show(accepted ? opened : Receipt(text: AccountWebLink.openFailedReceipt, systemImage: "exclamationmark.triangle", tone: .caution))
+        }
+    }
+    func openAccountInWeb(_ account: UpstreamAccount, using openURL: OpenURLAction) {
+        openAccountInWeb(id: account.id, name: account.name, using: openURL)
     }
 }

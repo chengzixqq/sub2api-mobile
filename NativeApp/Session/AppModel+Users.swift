@@ -187,15 +187,39 @@ extension AppModel {
         let generation = sessionGeneration, actionID = UUID()
         await onEvent(.actionID(actionID))
         guard generation == sessionGeneration else { throw CancellationError() }
+        try await BalanceFixtureArgument.interrupt(record, actionID: actionID, onEvent: onEvent)
         var users = demoUsersBySession[generation] ?? DemoData.allUsers
         guard let index = users.firstIndex(where: { $0.id == record.userID }) else { throw APIError.server(status: 404, reason: "USER_NOT_FOUND") }
-        users[index].balance = switch record.operation {
+        let balance = switch record.operation {
         case .add: users[index].balance + record.amount
         case .subtract: users[index].balance - record.amount
         case .set: record.amount
         }
+        // A refund beyond the balance: the server's wrapped error comes back as a 500 without a reason.
+        guard balance >= 0 else { throw APIError.server(status: 500, reason: nil) }
+        users[index].balance = balance
         demoUsersBySession[generation] = users
         return WriteOutcome(value: users[index], actionID: actionID, requestID: record.key)
+    }
+    /// S3-08: the keypad's first send (BalanceSubmission) through the only sender above.
+    func balanceSubmissionEffects() -> BalanceSubmission.Effects {
+        let generation = sessionGeneration
+        return BalanceSubmission.Effects(
+            authorize: { [weak self] in await self?.biometricGate.authorize($0) ?? false },
+            persist: { [weak self] record in
+                guard let self else { throw CancellationError() }
+                return try persisted(record)
+            },
+            remember: { [weak self] in try self?.remember($0) },
+            send: { [weak self] write, onEvent in
+                guard let self else { throw CancellationError() }
+                return try await updateBalance(write, onEvent: onEvent)
+            },
+            resolve: { [weak self] in try self?.resolve($0) },
+            holdRetry: { [weak self] in self?.holdRetry($0, until: $1) },
+            isCurrent: { [weak self] in self?.sessionGeneration == generation },
+            now: { Date() },
+            report: { [weak self] in self?.report($0) })
     }
     // MARK: - 核对
 

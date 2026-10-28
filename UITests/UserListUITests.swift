@@ -38,10 +38,10 @@ final class UserListUITests: XCTestCase {
         XCTAssertTrue(wang.frame.minX < studio.frame.minX && studio.frame.minX < alice.frame.minX, app.debugDescription)
         XCTAssertEqual(wang.label, "给王小明充值，余额 $12.40")
         wang.tap()
-        XCTAssertTrue(app.textFields["balance.amount"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.navigationBars["调整余额"].exists, app.debugDescription)
-        app.buttons["关闭"].firstMatch.tap()
-        XCTAssertTrue(app.textFields["balance.amount"].waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("balance.mode").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("balance.user").label.contains("王小明 · 余额 $12.40"), element("balance.user").label)
+        app.buttons["sheet.close"].tap()
+        XCTAssertTrue(element("balance.mode").waitForNonExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(element("users.quick").exists, app.debugDescription)
     }
 
@@ -57,7 +57,7 @@ final class UserListUITests: XCTestCase {
         alice.waitUntilSettled()
         alice.tap()
         XCTAssertTrue(app.navigationBars["Alice"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertFalse(app.textFields["balance.amount"].exists)
+        XCTAssertFalse(element("balance.mode").exists)
     }
 
     @MainActor func testSearchHidesStripMatchesNotesAndClears() {

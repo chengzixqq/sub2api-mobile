@@ -85,6 +85,8 @@ final class AppModel {
     private(set) var groupDirectory: GroupDirectory?
     /// 20 §1.6: the badge's 60-second foreground fetch (AppModel+Accounts.swift), one loop per session.
     @ObservationIgnored var accountBadgeTask: Task<Void, Never>?
+    /// X03: bumped after a detail write the account list must read again for (S2-11); rebuilt with the session.
+    private(set) var accountListSignal = AccountListSignal()
 
     // MARK: - 阶段 3 · 会话级状态
     // 阶段 3 的条目在这里追加
@@ -300,6 +302,7 @@ final class AppModel {
         groupDirectory = makeGroupDirectory(client: next)
         accountBadgeTask?.cancel()
         accountBadgeTask = Task { [weak self] in await self?.runAccountBadgeRefresh(generation: generation) }
+        accountListSignal = AccountListSignal()
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
         userChanges = UserChangeSignal()
@@ -340,6 +343,7 @@ final class AppModel {
         groupDirectory = nil
         accountBadgeTask?.cancel()
         accountBadgeTask = nil
+        accountListSignal = AccountListSignal()
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
         userChanges = nil
