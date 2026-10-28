@@ -26,6 +26,9 @@ extension DemoData {
         /// A list read with a search answers after three seconds, so the field can change while it runs.
         static let slowSearch = "-ui-redeem-slow-search"
         static let slowSearchDelay: Duration = .seconds(3)
+        /// The session's first page-1 read answers 429 with a two-second wait; GET :id then takes a second, like a network read.
+        static let throttled = "-ui-redeem-throttled"
+        static let throttledCodeDelay: Duration = .seconds(1)
         static let sameBatch = UUID(uuidString: "0E000000-0000-4000-8000-000000002046")!
     }
 
@@ -111,6 +114,7 @@ final class RedeemDemoStore {
     private var laterPageReads = 0
     private static var latest: (generation: UUID, store: RedeemDemoStore)?
     private static let failure = APIError.server(status: 502, reason: nil)
+    private static let throttled = APIError.server(status: 429, envelope: nil, retryAfter: 2)
     static let notFound = APIError.server(status: 404, reason: "REDEEM_CODE_NOT_FOUND")
 
     init(base: Date, arguments: [String] = ProcessInfo.processInfo.arguments) {
@@ -130,6 +134,7 @@ final class RedeemDemoStore {
         _ = try query.queryItems(page: page)
         if page == 1 { firstPageReads += 1 } else { laterPageReads += 1 }
         if arguments.contains(DemoData.RedeemFixture.listError), page == 1, firstPageReads == 1 { throw Self.failure }
+        if arguments.contains(DemoData.RedeemFixture.throttled), page == 1, firstPageReads == 1 { throw Self.throttled }
         if arguments.contains(DemoData.RedeemFixture.moreError), page > 1, laterPageReads == 1 { throw Self.failure }
         let matched = matching(query, includingStatus: true)
         let size = PageSize.clamped(query.pageSize)
@@ -170,10 +175,14 @@ final class RedeemDemoStore {
 extension RedeemCodesSource {
     static func fixture(_ store: RedeemDemoStore, arguments: [String] = ProcessInfo.processInfo.arguments) -> RedeemCodesSource {
         let searchDelay = arguments.contains(DemoData.RedeemFixture.slowSearch) ? DemoData.RedeemFixture.slowSearchDelay : nil
+        let codeDelay = arguments.contains(DemoData.RedeemFixture.throttled) ? DemoData.RedeemFixture.throttledCodeDelay : nil
         return RedeemCodesSource(list: { page, query in
             if let searchDelay, !query.search.isEmpty { try await Task.sleep(for: searchDelay) }
             return try await store.page(page, query: query)
-        }, stats: { try await store.stats(query: $0) }, code: { try await store.code(id: $0) })
+        }, stats: { try await store.stats(query: $0) }, code: { id in
+            if let codeDelay { try await Task.sleep(for: codeDelay) }
+            return try await store.code(id: id)
+        })
     }
 }
 

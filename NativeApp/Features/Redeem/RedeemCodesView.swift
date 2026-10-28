@@ -62,7 +62,8 @@ struct RedeemCodesView: View {
         guard let list, let notBefore = list.refresh.notBefore else { return }
         let wait = notBefore.timeIntervalSinceNow
         if wait > 0 { do { try await Task.sleep(for: .seconds(wait)) } catch { return } }
-        await list.markNeedsReload()
+        // Not part of this task: page 1 clearing the wait restarts it, which must not stop the counts or the located code.
+        Task { await list.markNeedsReload() }
     }
 }
 
