@@ -119,13 +119,21 @@ extension View {
 
 /// 20 §3.4 代理: a tap saves at once through AccountPatchFlow (“已保存：代理 → X” with 撤销) and closes the sheet; the current
 /// choice just closes it. While saving, or until 没有保存成功 / 结果未确认 settle, the list holds and the sheet cannot be swiped away.
+/// 重新载入 after a conflict keeps it open on the server's copy, as the section sheets do.
 struct AccountProxySheet: View {
     let request: AccountProxyEditorRequest
     let onSaved: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var base: AccountEditBase
     @State private var picked: AccountProxyChoice?
 
-    private var account: UpstreamAccount { request.base.account }
+    init(request: AccountProxyEditorRequest, onSaved: @escaping () -> Void) {
+        self.request = request
+        self.onSaved = onSaved
+        _base = State(initialValue: request.base)
+    }
+
+    private var account: UpstreamAccount { base.account }
     private var flow: AccountPatchFlow { request.flow }
 
     var body: some View {
@@ -151,6 +159,9 @@ struct AccountProxySheet: View {
             onSaved()
             dismiss()
         }
+        .onChange(of: flow.reloadRevision) { _, _ in
+            if let fresh = flow.reloadedBase { base = fresh }
+        }
     }
 
     private func pick(_ choice: AccountProxyChoice) {
@@ -159,7 +170,7 @@ struct AccountProxySheet: View {
         picked = choice
         let change = AccountEditChange(fieldNames: [AccountProxyCopy.fieldName(choice.displayName)],
                                        request: AccountPatchRequest(proxyID: choice.patchValue), undo: AccountPatchRequest(proxyID: account.proxyID ?? 0))
-        let base = request.base
+        let base = base
         Task { await flow.save(change, base: base) }
     }
 }

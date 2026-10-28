@@ -58,6 +58,10 @@ extension DemoData {
         static let proxiesError = "-ui-account-proxies-error"
         /// OpenAI-备用-A is a Bedrock account, so its credential error offers “在 Web 中更换凭据” (S2-11).
         static let bedrockError = "-ui-account-bedrock-error"
+        /// Before each account's first PATCH another administrator moves it onto us-west-3, so a proxy pick meets 412 and
+        /// “账号已被其他人修改” (S2-11).
+        static let proxyConflict = "-ui-account-proxy-conflict"
+        static let otherAdminProxyID = 5
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -306,7 +310,7 @@ final class AccountDemoStore {
 
     /// `config_version` by id (“cv-N”, from 1); PATCH and PUT move it on.
     private var versions: [Int: Int] = [:]
-    /// Accounts whose `patchConflict` edit already happened, and whether `patchTimeout` has lost its PATCH (S2-10).
+    /// Accounts whose `patchConflict` / `proxyConflict` edit already happened, and whether `patchTimeout` has lost its PATCH (S2-10).
     private var conflictServed: Set<Int> = []
     private var timeoutServed = false
 
@@ -348,6 +352,12 @@ final class AccountDemoStore {
         var account = try existing(id)
         if arguments.contains(DemoData.AccountFixture.patchConflict), conflictServed.insert(id).inserted {
             account.notes = DemoData.AccountFixture.otherAdminNotes
+            replace(account)
+            bump(id)
+        }
+        if arguments.contains(DemoData.AccountFixture.proxyConflict), conflictServed.insert(id).inserted {
+            account.proxyID = DemoData.AccountFixture.otherAdminProxyID
+            account.proxy = proxyObject(id: DemoData.AccountFixture.otherAdminProxyID)
             replace(account)
             bump(id)
         }

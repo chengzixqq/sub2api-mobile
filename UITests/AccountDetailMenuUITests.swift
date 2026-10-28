@@ -14,6 +14,7 @@ final class AccountDetailMenuUITests: XCTestCase {
         static let notInFallback = "-ui-account-revert-not-in-fallback"
         static let originUnavailable = "-ui-account-revert-origin-unavailable"
         static let bedrock = "-ui-account-bedrock-error"
+        static let proxyConflict = "-ui-account-proxy-conflict"
         static let without = "-ui-without-capabilities"
         static let deepLink = "web.accounts_edit_deep_link"
     }
@@ -278,6 +279,31 @@ final class AccountDetailMenuUITests: XCTestCase {
         XCTAssertTrue(web.isEnabled, app.debugDescription)
         web.tap()
         waitForReceipt("已在浏览器打开「Kimi-01」的编辑页")
+    }
+
+    /// 412 with a third value: 重新载入 keeps the picker open on the server's copy (us-west-3, another administrator's move), so
+    /// its tick, the next save's version and that save's 撤销 all follow it rather than the copy the picker opened on.
+    @MainActor func testProxyConflictReloadMovesPickerToServerCopy() {
+        openDetail(4, arguments: [Fixture.proxyConflict])
+        defer { diagnostics("account-menu-proxy-conflict-final") }
+        openPicker()
+        let original = element("account.proxy.option.2")
+        XCTAssertTrue(original.isSelected, app.debugDescription)
+        element("account.proxy.option.1").tap()
+        let alert = app.alerts["账号已被其他人修改"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        alert.buttons["重新载入"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(waitUntil(element("account.proxy.option.5"), "isSelected == true"), app.debugDescription)
+        XCTAssertFalse(original.isSelected, app.debugDescription)
+        original.tap()
+        waitForReceipt("已保存：代理 → sg-01")
+        XCTAssertEqual(app.buttons["receipt.action"].label, "撤销")
+        XCTAssertTrue(element("account.proxy.picker").waitForNonExistence(timeout: 5), app.debugDescription)
+        app.buttons["receipt.action"].tap()
+        let row = element("account.proxy.row")
+        reveal(row)
+        waitForLabel(row, contains: "us-west-3")
     }
 
     // MARK: - Helpers
