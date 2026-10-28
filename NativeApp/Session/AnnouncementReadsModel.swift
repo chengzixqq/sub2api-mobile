@@ -108,14 +108,16 @@ final class AnnouncementReadsModel {
         await loadFirstPage()
         await header
     }
-    /// The field's text; page 1 is read once it has stayed the same for the debounce.
+    /// The field's text; page 1 is read once it has stayed the same for the debounce. Typing on cancels only the wait, never a
+    /// read a search already sent (a newer search drops its reply by the ticket instead).
     func searchChanged(_ text: String) {
         searchText = text
         searchTask?.cancel()
         let delay = debounce
         searchTask = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
-            await self?.applySearch()
+            guard let self else { return }
+            Task { await self.applySearch() }
         }
     }
     func applySearch() async {
