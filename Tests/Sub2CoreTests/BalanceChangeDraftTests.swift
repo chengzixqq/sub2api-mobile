@@ -89,6 +89,25 @@ private func operation(of draft: BalanceChangeDraft) throws -> PendingBalanceOpe
     #expect(BalanceChangeDraft.keypadText(1020) == "1020.00")
 }
 
+/// The ledger keeps 8 decimals: “全部余额” refunds the whole balance, not its two-decimal keypad text.
+@Test func allBalanceMovesTheWholeBalanceNotItsRoundedText() throws {
+    let crumb = draft("0.0042", .debit).choosingAllBalance()
+    #expect(crumb.isAllBalance && crumb.amountText == "0.00")
+    #expect(crumb.canSubmit)
+    #expect(crumb.amountDisplay == "\u{2212}$0.0042")
+    #expect(crumb.previewText == "退款后余额 $0.00")
+    #expect(crumb.submitTitle == "退款 $0.0042")
+    #expect(crumb.biometricAmount == money("0.0042"))
+    #expect(String(decoding: try operation(of: crumb).requestBody(), as: UTF8.self) == #"{"balance":"0","notes":"","operation":"set"}"#)
+    let halfCent = draft("12.405", .debit).choosingAllBalance()
+    #expect(halfCent.amountDisplay == "\u{2212}$12.405")
+    #expect(halfCent.submitTitle == "退款 $12.405")
+    #expect(draft("1020", .debit).choosingAllBalance().amountDisplay == "\u{2212}$1020.00")
+    // Leaving “全部余额” goes back to the typed text and its rules.
+    let edited = crumb.editingAmount("0.0")
+    #expect(!edited.isAllBalance && !edited.canSubmit && edited.amountDisplay == "\u{2212}$0.0")
+}
+
 @Test func pendingOperationFreezesTheBodyAtConfirmation() throws {
     let topUp = try operation(of: draft(typed: "50").editingNotes("  补偿 10/16 故障 \n"))
     #expect(topUp.id == recordID && topUp.serverID == siteID && topUp.userID == 3 && topUp.actorUserID == 1)

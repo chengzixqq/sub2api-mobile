@@ -20,6 +20,8 @@ struct AccountEditSectionBox<Content: View>: View {
     let key: String
     let edit: AccountSectionEdit?
     var footnote: String?
+    /// Beside the title, before “编辑” (模型's “只调度这 N 个”, S2-12).
+    var meta: String?
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -42,6 +44,9 @@ struct AccountEditSectionBox<Content: View>: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("account.section.\(key)")
             Spacer(minLength: 8)
+            if let meta {
+                Text(meta).font(.footnote).monospacedDigit().foregroundStyle(Palette.ink3).accessibilityIdentifier("account.section.\(key).meta")
+            }
             if let edit { editControl(edit) }
         }
     }

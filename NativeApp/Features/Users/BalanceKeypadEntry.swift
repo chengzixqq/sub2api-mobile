@@ -6,8 +6,9 @@ extension BalanceKeypadMode {
     init(_ direction: BalanceDirection) { self = direction == .credit ? .topup : .refund }
 }
 
-/// R03's first confirmation (30 §3.4): a record of the same direction awaiting its check asks before the keypad opens; the
-/// other direction never does. S3-05's detail and S3-11's identity strip open the keypad through `open`.
+/// R03's first confirmation (30 §3.4): a record of the same direction awaiting its check asks before the keypad opens, and
+/// before the keypad's segment turns to that direction; the other direction never does. S3-05's detail and S3-11's identity
+/// strip open the keypad through `open`.
 struct BalanceKeypadEntry: Identifiable {
     let id = UUID()
     let userID: Int
@@ -36,16 +37,19 @@ struct BalanceKeypadEntry: Identifiable {
 }
 
 extension View {
-    /// The first confirmation: “先核对” runs `reconcile` (S3-07's check), “仍要充值 / 仍要退款” opens the keypad, “取消”.
+    /// The first confirmation: “先核对” runs `reconcile` (S3-07's check), “仍要充值 / 仍要退款” opens the keypad, or runs
+    /// `proceed` instead (the keypad's own segment), “取消”.
     func balanceKeypadEntry(_ entry: Binding<BalanceKeypadEntry?>,
-                            reconcile: @escaping @MainActor @Sendable (PendingBalanceOperation) -> Void) -> some View {
-        modifier(BalanceKeypadEntryAlert(entry: entry, reconcile: reconcile))
+                            reconcile: @escaping @MainActor @Sendable (PendingBalanceOperation) -> Void,
+                            proceed: (@MainActor @Sendable (BalanceKeypadEntry) -> Void)? = nil) -> some View {
+        modifier(BalanceKeypadEntryAlert(entry: entry, reconcile: reconcile, proceed: proceed))
     }
 }
 
 private struct BalanceKeypadEntryAlert: ViewModifier {
     @Binding var entry: BalanceKeypadEntry?
     let reconcile: @MainActor @Sendable (PendingBalanceOperation) -> Void
+    let proceed: (@MainActor @Sendable (BalanceKeypadEntry) -> Void)?
     @Environment(AppRouter.self) private var router
     /// An alert or sheet opened from this alert's button waits for it to leave.
     private static let followUpDelay: Duration = .milliseconds(450)
@@ -56,6 +60,7 @@ private struct BalanceKeypadEntryAlert: ViewModifier {
                       presenting: shown) { question in
             Button(BalanceChangeCopy.reconcileFirst) { afterAlert { reconcile(question.pending) } }
             Button(BalanceChangeCopy.proceedAnyway(question.mode.direction)) {
+                if let proceed { proceed(question); return }
                 let router = router
                 afterAlert { router.present(.balanceKeypad(userID: question.userID, mode: question.mode)) }
             }

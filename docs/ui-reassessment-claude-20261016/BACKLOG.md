@@ -302,6 +302,9 @@
 | 停用代理副行写法 | 规格写到期词（“MM/DD 到期 / 永不过期”），设计稿写“已停用”。用户看效果图后如果要“已停用”，只改 AccountProxyPresentation 的 row |
 | 其余详情写操作的列表完整刷新 | S2-06 的状态动作、S2-10 的保存、凭据写入还没有 bump AccountListSignal（本条只接了删除、恢复原代理、换代理），由 S2-23 收口时统一接上 |
 | .proxyDetail 占位断言 | S6-12 换上正式代理详情页后，要改 AccountDetailMenuUITests 里 testProxyRowOpensProxyDetail 与 testRevertOriginUnavailableOffersOriginDetail 对 route.placeholder 的断言 |
+| 账号模型分区空映射的文案 | Antigravity / Grok / Gemini Google One / OpenAI OAuth / DeepSeek 在映射为空时，后端实际按平台默认列表调度（service/account.go resolveModelMapping / IsModelSupported）；App 照规格写“支持所有模型”“未限制”。是否改成“按平台默认模型”待用户看图决定（S2-12） |
+| 多协议账号切换账号类型 / API 协议时联动接入端点 | 规格只写改 account_mode / api_protocol；App 照 Web EditAccountModal，在端点为官方预设或缺省时一并改写 base_url / api_base_urls / protocol_rules；自定义端点时两行只读并加脚注“这个账号用的是自定义接入端点，账号类型和 API 协议请在 Web 中修改。”（新文案，待用户看效果图；S2-12） |
+| MetaCatalog 补解码 multi_protocol.routing | S2-12 用“任一模式有 protocol_rules”判断按模型分流（与当前目录一致：opencode_go、command_code）；将来出现没有规则的 by_model 平台会误判，影响未设置 api_protocol 时显示“Chat Completions”还是“自适应”，建议由 S2-02 的目录解码补上 routing |
 
 ### App 与设计 · 阶段 3
 
@@ -339,6 +342,7 @@
 | 用户列表刷新后残留已删除的边界行 | S3-02 审查修正后，已加载到第 2 页及以后时，刷新第 1 页会保留“新第 1 页仍含有的最后一行”之后的旧行。如果同一轮里既有顶部新增、又有边界附近的行在别处被删除，被删的行会留在列表里，直到换搜索词或换会话；这和 30 §1.6“第 2 页以后不自动刷新”带来的后续页陈旧属于同一类问题。以后若要精确处理，需要按 offset 重读已加载的各页，或改用游标分页。 |
 | 退款“仍要退款”提醒措辞 | S3-08 按 30 §3.4 字面把“充值”换成“退款”，第二次确认首行是“上一笔 $12.50 退款还没核对。如果它其实已入账，这一笔会再入账一次。”，读起来像“再扣一次”的意思没写出来；用户确认后只需改 BalanceChangeCopy.pendingWarning 一处 |
 | 余额页“稍后核对”的 UI 测试（更新原行） | “稍后核对”部分已由 S3-08 的 BalanceKeypadUITests.testLaterKeepsTheRecordAndShowsTheBanner 补上（-ui-balance-slow）；重试遇到 423 的部分见 S3-07 |
+| 键盘内 KEY_CONFLICT 之后再提交只确认一次 | S3-08 scope 写 KEY_CONFLICT 后“按同方向待核对走两次确认”。现在原记录留作待核对、sheet 不关，再提交只出现带提醒行的确认框（第二次确认）。这和 30 §3.4“键盘打开期间才出现的待核对”同类，本次没改；后端冻结了请求体，按理不会出现 KEY_CONFLICT。是否要在 sheet 内补第一次确认，待定 |
 
 ### App 与设计 · 阶段 4
 
@@ -404,3 +408,6 @@
 | 资金写待核对的界面与回前台自动核对（补注） | 补偿的回前台自动核对已由 S6-08 完成（与余额同一单飞，同地址、跳过发送中、只认 issued）；补偿的待核对页与 sheet 归 S6-09 |
 | 补偿重试遇无 reason 的 400 | S6-08 对已发出过的补偿重试时，无 reason 的 400 保留待核对（方案原写“与首次相同，结案”），因为这次的 400 说明不了前一次是否已执行；若要改回结案，S6-09 实测后再定 |
 | 公告列表与公告已读的 429 等待后重读也会取消自己 | AnnouncementsView.retryAfterWait（await list.invalidate()）和 AnnouncementReadsView.retryAfterWait（await reads.reload()）都在 .task(id: refresh.notBefore) 里 await 重读。第 1 页成功后 recordingSuccess() 清空 notBefore，task 被 SwiftUI 取消并重启，同一次重读里仍在途的 async let（公告计数 counted、已读页标题与汇总 header）随之被取消，计数或标题可能要等下次刷新才出现。修法同 S6-04 审查修正 2517eb3：等待结束后用独立 Task 发起重读。不属于 S6-04 范围，由公告条目的线处理。 |
+| 代理质量检测的客户端超时 | 00 §2.3 超时表里没有质量检测这一类；后端最坏约 80 秒，App 暂定 ProxyRequestTimeout.qualityCheck = 95 秒、不自动重试。之后要决定是否把这一行补进 00 §2.3 |
+| 巡检间隙“已到期 · 等待处理”的说明句与横幅 | active 但已过期、尚未被巡检置为 expired 的代理，按规格记为 soon，会进“即将到期”筛选和横幅，说明句读作“已到期 · 等待处理。到期后不回退…”，语气别扭。要改文案只需改 ProxyPresentation 一处，等用户看效果图后再定 |
+| proxies.fallback_accounts 缺失时的口径冲突 | 00 章 capability 表写“全量账号本地过滤，逐个 POST revert-proxy-fallback”，60 §0.2 / §13.4 写“不提供批量恢复页，说明句改写”。S6-10 按 60 章实现（expiryNote 带 supportsFallbackAccounts 参数），以后需在规格里统一 |

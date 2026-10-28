@@ -36,11 +36,13 @@ final class AccountDetailMenuUITests: XCTestCase {
         XCTAssertTrue(hk02.label.contains("6 天后到期") && hk02.label.contains("个账号在用"), hk02.label)
         XCTAssertTrue(element("account.proxy.option.2").isSelected, app.debugDescription)
         hk02.tap()
-        waitForReceipt("已保存：代理 → hk-02")
-        XCTAssertEqual(app.buttons["receipt.action"].label, "撤销")
-        XCTAssertTrue(element("account.proxy.picker").waitForNonExistence(timeout: 5), app.debugDescription)
+        // The receipt stays 4.2 seconds (R17): one wait for the closed picker's row, then 撤销 while the receipt is still up.
         waitForLabel(element("account.proxy.row"), contains: "hk-02")
-        app.buttons["receipt.action"].tap()
+        XCTAssertEqual(app.staticTexts["receipt.text"].label, "已保存：代理 → hk-02")
+        let undo = app.buttons["receipt.action"]
+        XCTAssertEqual(undo.label, "撤销")
+        undo.tap()
+        XCTAssertFalse(element("account.proxy.picker").exists, app.debugDescription)
         waitForLabel(element("account.proxy.row"), contains: "sg-01")
     }
 
