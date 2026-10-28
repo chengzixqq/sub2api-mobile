@@ -62,6 +62,8 @@ extension DemoData {
         /// “账号已被其他人修改” (S2-11).
         static let proxyConflict = "-ui-account-proxy-conflict"
         static let otherAdminProxyID = 5
+        /// `GET :id/models` answers 502 (S2-12; S2-14 reuses it).
+        static let modelsError = "-ui-account-models-error"
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -110,23 +112,32 @@ extension DemoData {
             demoAccount(3, "Claude-官方-03", "anthropic", "oauth", groups: [1], concurrency: (0, 4), priority: 1, proxy: proxies[1], fields: [
                 "rate_limit_reset_at": window(277), "current_rpm": 1, "scheduling_rpm": 1, "base_rpm": 60, "active_sessions": 0, "max_sessions": 3,
                 "session_idle_timeout_minutes": 5,
-                "expires_at": Int(base.timeIntervalSince1970) + 36 * 86_400, "extra": claudeLimits]),
+                "expires_at": Int(base.timeIntervalSince1970) + 36 * 86_400, "extra": claudeLimits,
+                "credentials": ["model_mapping": ["claude-opus-4-1": "claude-opus-4", "claude-opus-4": "claude-opus-4",
+                                                  "claude-sonnet-4-5": "claude-sonnet-4-5", "claude-3-5-sonnet-*": "claude-sonnet-4-5"]]]),
             demoAccount(7, "OpenAI-备用-A", "openai", "apikey", status: "error", schedulable: false, groups: [2, 4], concurrency: (0, 4), priority: 2,
                         proxy: proxies[2], fields: ["error_message": "401 凭据已失效（invalid_api_key）", "error_summary": "401 凭据已失效（invalid_api_key）",
-                                           "error_kind": "auth", "error_status_code": 401, "error_at": ServerTime.utcTimestamp(base.addingTimeInterval(-60))]),
-            demoAccount(11, "GLM-直连-01", "zhipu", "apikey", groups: [7], concurrency: (0, 6), priority: 3, fields: ["overload_until": window(72)]),
+                                           "error_kind": "auth", "error_status_code": 401, "error_at": ServerTime.utcTimestamp(base.addingTimeInterval(-60)),
+                                           "credentials": ["model_mapping": ["gpt-5": "gpt-5"]], "extra": ["openai_passthrough": true]]),
+            demoAccount(11, "GLM-直连-01", "zhipu", "apikey", groups: [7], concurrency: (0, 6), priority: 3, fields: ["overload_until": window(72),
+                "credentials": ["account_mode": "coding", "api_protocol": "anthropic", "base_url": "https://open.bigmodel.cn/api/anthropic"]]),
             demoAccount(12, "MiniMax-01", "minimax", "apikey", groups: [9], concurrency: (0, 4), priority: 3, fields: [
-                "temp_unschedulable_until": window(1_380), "temp_unschedulable_reason": temporaryReason(base: base, until: window(1_380))]),
+                "temp_unschedulable_until": window(1_380), "temp_unschedulable_reason": temporaryReason(base: base, until: window(1_380)),
+                "credentials": ["base_url": "https://minimax-relay.example.invalid/v1"]]),
             demoAccount(5, "Gemini-测试-B", "gemini", "apikey", schedulable: false, groups: [6], concurrency: (0, 2), priority: 5, proxy: proxies[3]),
             demoAccount(1, "Claude-官方-01", "anthropic", "oauth", groups: [1, 5], concurrency: (2, 4), priority: 1, proxy: proxies[1], fields: [
-                "current_rpm": 14, "scheduling_rpm": 14, "base_rpm": 60, "active_sessions": 2, "max_sessions": 3, "session_idle_timeout_minutes": 5]),
+                "current_rpm": 14, "scheduling_rpm": 14, "base_rpm": 60, "active_sessions": 2, "max_sessions": 3, "session_idle_timeout_minutes": 5,
+                "credentials": ["intercept_warmup_requests": true],
+                "extra": ["window_cost_limit": 50, "max_sessions": 3, "base_rpm": 60, "enable_tls_fingerprint": true]]),
             demoAccount(2, "Claude-官方-02", "anthropic", "oauth", groups: [1, 5], concurrency: (3, 4), priority: 1, proxy: proxies[1], fields: [
                 "current_rpm": 12, "scheduling_rpm": 12, "base_rpm": 60, "active_sessions": 3, "max_sessions": 3, "session_idle_timeout_minutes": 5]),
             demoAccount(4, "OpenAI-主力-01", "openai", "apikey", groups: [2], concurrency: (2, 8), priority: 1, proxy: proxies[2], fields: [
-                "quota_daily_used": 96.3, "quota_daily_limit": 150]),
+                "quota_daily_used": 96.3, "quota_daily_limit": 150,
+                "credentials": ["model_mapping": ["gpt-5": "gpt-5", "gpt-5-mini": "gpt-5-mini", "gpt-4o": "gpt-4o"]]]),
             demoAccount(8, "DeepSeek-01", "deepseek", "apikey", groups: [3], concurrency: (0, 8), priority: 2, proxy: proxies[4]),
             demoAccount(9, "Kimi-01", "kimi", "apikey", groups: [8], concurrency: (1, 4), priority: 2, proxy: proxies[1], fields: [
-                "proxy_fallback_origin_id": 4, "proxy_fallback_origin_name": "hk-01"]),
+                "proxy_fallback_origin_id": 4, "proxy_fallback_origin_name": "hk-01",
+                "credentials": ["api_protocol": "anthropic", "base_url": "https://api.moonshot.cn/anthropic"]]),
             demoAccount(10, "Grok-旧-01", "grok", "apikey", status: "inactive", groups: [], concurrency: (0, 2), priority: 9)
         ]
         // try! only here: a wire key that no longer decodes stops the first UI test instead of showing a wrong list.
@@ -534,15 +545,30 @@ extension AccountDemoStore {
         }
         if let value = request.expiresAt { updated.expiresAt = value > 0 ? value : nil }
         if let value = request.autoPauseOnExpired { updated.autoPauseOnExpired = value }
-        return request.extraPatch.isEmpty ? updated : withExtra(request.extraPatch, on: updated)
+        // S2-12: the probe switch is stored in extra; credentials_patch merges like extra_patch (secrets are never read back).
+        var extraPatch = request.extraPatch
+        if let probe = request.upstreamBillingProbeEnabled { extraPatch["upstream_billing_probe_enabled"] = .set(.bool(probe)) }
+        if !request.credentialsPatch.isEmpty {
+            let fields = merging(updated.credentials?.objectValue ?? [:], request.credentialsPatch.filter { !AccountCredentialKeys.isSensitive($0.key) })
+            updated.credentials = .object(fields)
+        }
+        return extraPatch.isEmpty ? updated : withExtra(extraPatch, on: updated)
     }
-    private static func withExtra(_ patch: [String: JSONPatchValue], on account: UpstreamAccount) -> UpstreamAccount {
-        var updated = account
-        var fields = account.extra?.raw.objectValue ?? [:]
+    private static func merging(_ fields: [String: JSONValue], _ patch: [String: JSONPatchValue]) -> [String: JSONValue] {
+        var fields = fields
         for (key, change) in patch {
             if case .set(let value) = change, !change.isDeletion { fields[key] = value } else { fields[key] = nil }
         }
+        return fields
+    }
+    private static func withExtra(_ patch: [String: JSONPatchValue], on account: UpstreamAccount) -> UpstreamAccount {
+        var updated = account
+        let fields = merging(account.extra?.raw.objectValue ?? [:], patch)
         updated.extra = try? AccountExtra(raw: .object(fields))
+        // The DTO's top-level copies of the 高级 limits (S2-12), which 容量 reads.
+        if patch["base_rpm"] != nil { updated.baseRPM = fields["base_rpm"]?.intValue.flatMap { $0 > 0 ? $0 : nil } }
+        if patch["max_sessions"] != nil { updated.maxSessions = fields["max_sessions"]?.intValue.flatMap { $0 > 0 ? $0 : nil } }
+        if patch["window_cost_limit"] != nil { updated.windowCostLimit = fields["window_cost_limit"]?.decimalValue.flatMap { $0 > 0 ? $0 : nil } }
         for quota in AccountQuota.allCases where patch[quota.extraKey] != nil {
             let limit = fields[quota.extraKey]?.decimalValue
             switch quota {
@@ -641,5 +667,33 @@ extension AccountDemoStore {
             bedrock.type = "bedrock"
             return bedrock
         }
+    }
+}
+
+// MARK: - S2-12 模型
+
+extension DemoData {
+    /// `GET :id/models` by platform (design AE_MODELS): Anthropic with display names as claude.DefaultModels sends them, the
+    /// others ids only, which the list shows as they are.
+    static let accountModelOptions: [String: [AccountModelOption]] = [
+        "anthropic": [.init(id: "claude-opus-4-1", displayName: "Claude Opus 4.1"), .init(id: "claude-opus-4", displayName: "Claude Opus 4"),
+                      .init(id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5"), .init(id: "claude-sonnet-4", displayName: "Claude Sonnet 4"),
+                      .init(id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5")],
+        "openai": ["gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4o", "o4-mini"].map { AccountModelOption(id: $0) },
+        "gemini": ["gemini-2.5-pro", "gemini-2.5-flash"].map { AccountModelOption(id: $0) },
+        "zhipu": ["glm-4.6", "glm-4.5", "glm-4.5-air"].map { AccountModelOption(id: $0) },
+        "minimax": ["MiniMax-M2"].map { AccountModelOption(id: $0) },
+        "deepseek": ["deepseek-chat", "deepseek-reasoner"].map { AccountModelOption(id: $0) },
+        "kimi": ["kimi-k2-0905-preview", "kimi-k2-turbo-preview"].map { AccountModelOption(id: $0) },
+        "grok": ["grok-4", "grok-3-mini"].map { AccountModelOption(id: $0) }
+    ]
+}
+
+extension AccountDemoStore {
+    /// `GET :id/models`: the account's platform list; 404 for an id the site does not have, 502 under `modelsError`.
+    func models(id: Int) throws -> [AccountModelOption] {
+        if arguments.contains(DemoData.AccountFixture.modelsError) { throw Self.failure }
+        guard let account = account(id: id) else { throw APIError.server(status: 404, reason: AccountWriteReason.notFound) }
+        return DemoData.accountModelOptions[account.platform] ?? []
     }
 }

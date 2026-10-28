@@ -225,3 +225,14 @@ extension AppModel {
         openAccountInWeb(id: account.id, name: account.name, using: openURL)
     }
 }
+
+// MARK: - S2-12 模型与高级
+
+extension AppModel {
+    /// 20 §3.2 添加模型, R19 / S2D1-14's one wrapper (S2-14 reuses it): `GET :id/models`; `-ui-testing` reads the session's demo
+    /// store (502 with `-ui-account-models-error`).
+    func accountModels(id: Int) async throws -> [AccountModelOption] {
+        if isUITesting { return try accountDemo.models(id: id) }
+        return try await requireClient().accountModels(id: id)
+    }
+}
