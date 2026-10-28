@@ -356,6 +356,7 @@
 | 错误分布占比的分母 | 后端 error-distribution 的 total 是 LIMIT 20 之后各行之和。状态码超过 20 种时，占比是“前 20 种之内的占比”，不是“占全部错误”。现照规格用响应 total |
 | Token 速度多行合并的权重是近似值 | 后端 avg_tokens_per_sec 只对 duration_ms > 0 且 output_tokens > 0 的行求平均，App 只能按 request_count 加权（40 §5.2）。要精确需后端在 items 里加 requests_with_tps（只增字段）。另外 avg_duration_ms 无数据时是 0 而不是 null |
 | 错误趋势 60 秒与 3600 秒桶的底注句式 | 40 §2.3 只给了 300 秒桶的文案。建议 S4-18 用同一句式：60 秒“后端每分钟一桶，这里按 5 分钟合计。”，3600 秒“后端每小时一桶，这里按天合计。”，后半句不变 |
+| 首页退路每小时图的账号成本 | S4-02 之后 TrendPoint 已解码 account_cost，但 HomeFallback.hourly(_:now:) 构造 HomeHourlyPoint 时仍没带上 accountCost，注释还写着“trend point 里还没有 account_cost（S4-02）”。本条按 S4D1-12 只改了 dashboardTrend 的函数体，没动这里。由首页相关条目或 S4-20 收口时接上并更新注释。 |
 
 ### App 与设计 · 阶段 5
 
