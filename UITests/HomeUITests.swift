@@ -460,4 +460,241 @@ final class HomeUITests: XCTestCase {
         assertValue(element("home.run.channels"), TodayExpected.channels)
         assertValue(todayFigure("accountCost"), "$512.08")
     }
+
+    // MARK: S1-10 待处理
+
+    /// LiveOpsFixtures' 待处理 (来源 LiveOpsFixtureIDs; the UI tests cannot import the App, so change both together): alerts #41
+    /// (P1) and #40 (P2, silenced), error #7, overloaded #11, limited #3 and #12, short group #4 “企业专线”.
+    private enum AttentionExpected {
+        static let rows = ["alert-41", "alert-40", "account-7", "account-11", "limited", "groups"]
+        static let attentionExtra = "-ui-home-attention-extra"
+        static let alertsOverflow = "-ui-home-alerts-overflow"
+        static let testRecovers = "-ui-home-test-recovers"
+        /// #10's error_message under `-ui-home-attention-extra`; R12: never shown.
+        static let sentinel = "SENTINEL-ERROR-MESSAGE"
+        /// DemoData.pendingLedger: Alice's refund and the redeem batch of the connected site, and the compensation of a site at
+        /// another address, which the overview does not list (X34).
+        static let refund = "pending-0a000000-0000-4000-8000-000000000001"
+        static let batch = "pending-0a000000-0000-4000-8000-000000000002"
+        static let otherAddressGrant = "pending-0a000000-0000-4000-8000-000000000003"
+    }
+
+    @MainActor private func attentionRow(_ id: String) -> XCUIElement { element("home.attention." + id) }
+    /// 待处理's title once home's first read filled it: “N 项” is its value.
+    @MainActor @discardableResult
+    private func loadedAttention(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let header = element("home.attention")
+        let loaded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value ENDSWITH %@", " 项"), object: header)
+        XCTAssertEqual(XCTWaiter().wait(for: [loaded], timeout: 10), .completed, app.debugDescription, file: file, line: line)
+        return header
+    }
+    @MainActor private func shownRow(_ id: String, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let row = attentionRow(id)
+        reveal(row, file: file, line: line)
+        return row
+    }
+    @MainActor private func waitForValue(_ item: XCUIElement, _ value: String, file: StaticString = #filePath, line: UInt = #line) {
+        let matched = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: item)
+        XCTAssertEqual(XCTWaiter().wait(for: [matched], timeout: 10), .completed, "\(String(describing: item.value))", file: file, line: line)
+    }
+    /// A row opened its page on 概览's own stack: the row went away with the overview and no sheet came up.
+    @MainActor private func assertPushedAway(from row: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(row.waitForNonExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        XCTAssertFalse(element("sheet.close").exists, app.debugDescription, file: file, line: line)
+        XCTAssertTrue(app.tabBars.buttons["概览"].isSelected, file: file, line: line)
+    }
+    @MainActor private func goBack(to row: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+    }
+    @MainActor private func assertSelected(tab title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: app.tabBars.buttons[title])
+        XCTAssertEqual(XCTWaiter().wait(for: [selected], timeout: 10), .completed, app.debugDescription, file: file, line: line)
+    }
+
+    /// 10 §1.3.3: 壹 with “N 项”, the rows in the queue's order (alerts by level, error, overloaded, limited, short groups); one
+    /// short group opens that group.
+    @MainActor func testAttentionSectionOrdersRowsAndCountsMeta() {
+        launchAndLogin()
+        defer { diagnostics("home-attention-order-final") }
+        let header = loadedAttention()
+        XCTAssertEqual(header.label, "待处理")
+        XCTAssertEqual(header.value as? String, "\(AttentionExpected.rows.count) 项")
+        diagnostics("home-attention")
+        var previous: XCUIElement?
+        for id in AttentionExpected.rows {
+            let row = shownRow(id)
+            if let previous, previous.exists {
+                XCTAssertLessThanOrEqual(previous.frame.maxY, row.frame.minY + 1, "\(previous.identifier) \(previous.frame) · \(id) \(row.frame)")
+            }
+            previous = row
+        }
+        let overloaded = attentionRow("account-11"), limited = attentionRow("limited")
+        if overloaded.exists { XCTAssertFalse(overloaded.label.contains("已停止调度"), overloaded.label) }
+        XCTAssertFalse(limited.label.contains("已停止调度"), limited.label)
+        let groups = attentionRow("groups")
+        XCTAssertTrue(groups.label.contains("可用不足 1 个分组") && groups.label.contains("企业专线 0/1"), groups.label)
+        groups.tap()
+        assertPushedAway(from: groups)
+    }
+
+    /// 10 §1.3.3, §6.7: an alert row is AlertRow with the level as its badge and opens the alert (S0-14's placeholder; S1-12
+    /// changes only this assertion).
+    @MainActor func testHomeAlertRowOpensAlertRoute() {
+        launchAndLogin()
+        defer { diagnostics("home-attention-alert-final") }
+        loadedAttention()
+        let first = shownRow("alert-41"), second = shownRow("alert-40")
+        for part in ["标准组错误率", "P1", "阈值", "触发"] { XCTAssertTrue(first.label.contains(part), first.label) }
+        XCTAssertFalse(first.label.contains("已静默"), first.label)
+        XCTAssertTrue(second.label.contains("P2") && second.label.contains("已静默"), second.label)
+        first.tap()
+        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["告警详情"].exists, app.debugDescription)
+        XCTAssertTrue(app.tabBars.buttons["概览"].isSelected)
+    }
+
+    /// U06: the server lists five of seven firing events, so the alerts end with “另有 2 条告警中”, which opens 监控 · 告警.
+    @MainActor func testMoreAlertsRowSelectsMonitorAlertsSegment() {
+        launchAndLogin(arguments: [AttentionExpected.alertsOverflow])
+        defer { diagnostics("home-attention-more-alerts-final") }
+        loadedAttention()
+        let more = shownRow("alerts-more")
+        XCTAssertTrue(more.label.contains("另有 2 条告警中"), more.label)
+        more.tap()
+        assertSelected(tab: "监控")
+        let segment = app.segmentedControls["monitor.segment"]
+        XCTAssertTrue(segment.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(segment.buttons["告警"].isSelected, app.debugDescription)
+    }
+
+    /// 10 §1.3.3, R12: an error row reads its reason (“上游返回异常” without structured fields) and “平台 · N 分钟前” beside 「测试」,
+    /// never error_message; an overloaded row counts down each second, its detail led by 已停止调度 (§1.6).
+    @MainActor func testErrorAndOverloadRowsShowReasonsStoppedMarkAndCountdown() {
+        launchAndLogin(arguments: [AttentionExpected.attentionExtra])
+        defer { diagnostics("home-attention-accounts-final") }
+        loadedAttention()
+        let structured = shownRow("account-7")
+        for part in ["OpenAI-备用-A", "错误", "401 凭据已失效（invalid_api_key）", "OpenAI · "] {
+            XCTAssertTrue(structured.label.contains(part), structured.label)
+        }
+        XCTAssertTrue(structured.label.contains("分钟前") || structured.label.contains("刚刚"), structured.label)
+        let test = element("home.attention.test.7")
+        XCTAssertTrue(test.exists && test.isEnabled, app.debugDescription)
+        XCTAssertGreaterThanOrEqual(test.frame.height, 44, "\(test.frame)")
+        let legacy = shownRow("account-10")
+        XCTAssertTrue(legacy.label.contains("Grok-旧-01") && legacy.label.contains("上游返回异常"), legacy.label)
+        XCTAssertTrue(element("home.attention.test.10").exists, app.debugDescription)
+        for row in [structured, legacy] { XCTAssertFalse(row.label.contains(AttentionExpected.sentinel), row.label) }
+        XCTAssertFalse(text(containing: AttentionExpected.sentinel).exists, app.debugDescription)
+        let overloaded = shownRow("account-11")
+        XCTAssertNotNil(overloaded.label.range(of: #"过载中 \d+:\d\d"#, options: .regularExpression), overloaded.label)
+        XCTAssertTrue(overloaded.label.contains("已停止调度 · 上游 529 · 智谱 GLM"), overloaded.label)
+        diagnostics("home-attention-accounts")
+        let ticked = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", overloaded.label), object: overloaded)
+        XCTAssertEqual(XCTWaiter().wait(for: [ticked], timeout: 5), .completed, overloaded.label)
+    }
+
+    /// 10 §1.4, X18: 「测试」 only presents the test sheet (a placeholder until S2-14) and opens no page; once the sheet closes home
+    /// is read past the server cache, where the fixture's account has recovered.
+    @MainActor func testErrorRowTestOpensSheetAndClosingRefreshesHome() {
+        launchAndLogin(arguments: [AttentionExpected.testRecovers])
+        defer { diagnostics("home-attention-test-final") }
+        let header = loadedAttention()
+        XCTAssertEqual(header.value as? String, "\(AttentionExpected.rows.count) 项")
+        let row = shownRow("account-7")
+        element("home.attention.test.7").tap()
+        let close = element("sheet.close")
+        XCTAssertTrue(close.waitForExistence(timeout: 10), app.debugDescription)
+        diagnostics("home-attention-test-sheet")
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row.waitForNonExistence(timeout: 15), app.debugDescription)
+        // Still the overview, not the account's page.
+        reveal(header, towardBottom: false)
+        waitForValue(header, "\(AttentionExpected.rows.count - 1) 项")
+    }
+
+    /// 00 §2.6.3, C-1: testing a connection writes, so a read-only token greys 「测试」 and the row's last line says why.
+    @MainActor func testErrorRowTestIsGatedForReadOnlyToken() {
+        launchAndLoginWithAccessToken(arguments: ["-ui-readonly-token"])
+        defer { diagnostics("home-attention-test-readonly-final") }
+        loadedAttention()
+        let row = shownRow("account-7")
+        let test = element("home.attention.test.7")
+        XCTAssertTrue(test.exists, app.debugDescription)
+        XCTAssertFalse(test.isEnabled, test.debugDescription)
+        XCTAssertTrue(row.label.contains("只读令牌"), row.label)
+    }
+
+    /// 10 §1.1: the body of an error or overloaded row opens the account (not its 「测试」); the page's content is S2-08's.
+    @MainActor func testErrorAndOverloadRowsOpenAccountDetail() {
+        launchAndLogin()
+        defer { diagnostics("home-attention-account-open-final") }
+        loadedAttention()
+        let errored = shownRow("account-7")
+        errored.tap()
+        assertPushedAway(from: errored)
+        goBack(to: errored)
+        let overloaded = shownRow("account-11")
+        overloaded.tap()
+        assertPushedAway(from: overloaded)
+    }
+
+    /// 10 §1.3.3: 受限 N 个账号 with the earliest countdown, the names on one line and the stopped ones on a third; it switches to
+    /// the 账号 tab (the filter itself is S2-04's).
+    @MainActor func testLimitedRowShowsEarliestNamesStoppedLineAndSelectsAccountsTab() {
+        launchAndLogin(arguments: [AttentionExpected.attentionExtra])
+        defer { diagnostics("home-attention-limited-final") }
+        loadedAttention()
+        let limited = shownRow("limited")
+        for part in ["受限 2 个账号", "最早 ", "Claude-官方-03、MiniMax-01", "已停止调度 · MiniMax-01"] {
+            XCTAssertTrue(limited.label.contains(part), limited.label)
+        }
+        limited.tap()
+        assertSelected(tab: "账号")
+    }
+
+    /// R02, X34: the connected site's money records after every account and group row, read only, each opening its own page;
+    /// the compensation of a site at another address is not listed (an earlier login at this address is S1-18's).
+    @MainActor func testPendingMoneyRowsFollowR02AndOpenTheirPages() {
+        launchAndLogin(arguments: ["-ui-pending-money"])
+        defer { diagnostics("home-attention-pending-final") }
+        let header = loadedAttention()
+        XCTAssertEqual(header.value as? String, "\(AttentionExpected.rows.count + 2) 项")
+        let groups = shownRow("groups")
+        let refund = shownRow(AttentionExpected.refund)
+        if groups.exists { XCTAssertLessThanOrEqual(groups.frame.maxY, refund.frame.minY + 1, "\(groups.frame) \(refund.frame)") }
+        for part in ["退款结果待核对", "$12.50", "Alice · ", "未确认是否入账"] { XCTAssertTrue(refund.label.contains(part), refund.label) }
+        let batch = shownRow(AttentionExpected.batch)
+        for part in ["兑换码生成结果待核对", "20 个 · ", "未确认是否生成"] { XCTAssertTrue(batch.label.contains(part), batch.label) }
+        if refund.exists { XCTAssertLessThanOrEqual(refund.frame.maxY, batch.frame.minY + 1, "\(refund.frame) \(batch.frame)") }
+        XCTAssertFalse(attentionRow(AttentionExpected.otherAddressGrant).exists, app.debugDescription)
+        for row in [refund, batch] where row.exists { XCTAssertFalse(row.label.contains("旧登录"), row.label) }
+        diagnostics("home-attention-pending")
+        batch.tap()
+        assertPushedAway(from: batch)
+        goBack(to: batch)
+        let shownRefund = shownRow(AttentionExpected.refund)
+        shownRefund.tap()
+        assertPushedAway(from: shownRefund)
+    }
+
+    /// 10 §1.5: availability failed before any value, so its slot is one neutral “账号状态读取失败 · 重试” under the alerts;
+    /// 重试 reads home again and the row stays while the fixture keeps failing.
+    @MainActor func testAvailabilityErrorShowsNeutralRetryRow() {
+        launchAndLogin(arguments: ["-ui-home-availability-error"])
+        defer { diagnostics("home-attention-availability-error-final") }
+        let header = loadedAttention()
+        XCTAssertEqual(header.value as? String, "3 项")
+        let failure = shownRow("retry-availability")
+        XCTAssertTrue(text(containing: "账号状态读取失败").exists, app.debugDescription)
+        XCTAssertFalse(attentionRow("account-7").exists || attentionRow("limited").exists, app.debugDescription)
+        let retry = element("home.attention.retry-availability.retry")
+        XCTAssertTrue(retry.exists, app.debugDescription)
+        retry.tap()
+        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
+        reveal(header, towardBottom: false)
+        waitForValue(header, "3 项")
+    }
 }

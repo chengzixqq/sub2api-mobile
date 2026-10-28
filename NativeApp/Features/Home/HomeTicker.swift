@@ -2,7 +2,8 @@ import SwiftUI
 import Sub2Core
 
 /// 10 §1.3.2 the six cells in their fixed order, 3 × 2 (two columns at accessibility text sizes, S1-09). Each cell is its own button
-/// pushing an AppRoute: several NavigationLinks in one List row would all fire. Identifiers `home.ticker` and `home.ticker.<kind>`.
+/// opening its HomeDestinationAction: several NavigationLinks in one List row would all fire. Identifiers `home.ticker` and
+/// `home.ticker.<kind>`.
 struct HomeTicker: View {
     let cells: [HomeTickerCell]
     /// Cells whose block is still on its first load: the skeleton, without a number and disabled (10 §1.5).
@@ -33,7 +34,7 @@ struct HomeTicker: View {
 
     private func cell(_ cell: HomeTickerCell) -> some View {
         let isPlaceholder = placeholders.contains(cell.kind)
-        return Button { router.push(cell.route) } label: {
+        return Button { router.open(HomeDestinationAction(cell.destination)) {} } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(cell.label).font(.caption).foregroundStyle(Palette.ink2).lineLimit(2).minimumScaleFactor(0.8)
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
@@ -56,15 +57,5 @@ struct HomeTicker: View {
         .accessibilityLabel(isPlaceholder ? cell.label : cell.accessibilityLabel)
         .accessibilityValue(isPlaceholder ? "正在加载" : "")
         .accessibilityIdentifier("home.ticker." + cell.kind.rawValue)
-    }
-}
-
-fileprivate extension HomeTickerCell {
-    /// 10 §1.1; S1-10 replaces this with HomeDestinationAction.
-    var route: AppRoute {
-        switch destination {
-        case .performanceTrend(let metric): .analytics(focus: .perf, metric: PerfMetric(rawValue: metric.rawValue) ?? .rpm)
-        default: .analytics()
-        }
     }
 }
