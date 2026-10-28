@@ -96,7 +96,8 @@ private struct RedeemListContent: View {
         .searchable(text: $list.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: RedeemListText.searchPrompt)
         .task(id: list.searchText) {
             do { try await Task.sleep(for: RedeemListPolicy.searchDebounce) } catch { return }
-            await list.applySearch()
+            // Not part of this task: typing on must not stop the read a search started (a newer search drops its reply instead).
+            Task { await list.applySearch() }
         }
         .refreshable { await list.pullToRefresh() }
         .accessibilityIdentifier("redeem.list")
@@ -191,6 +192,11 @@ private struct RedeemListContent: View {
             Section {
                 Button(RedeemListText.loadMoreFailed) { Task { await list.retryMore() } }
                     .frame(maxWidth: .infinity, minHeight: 44).accessibilityIdentifier("redeem.more.retry")
+            }
+        case .idle where list.offersLoadMore:
+            Section {
+                Button(RedeemListText.loadMore) { Task { await list.loadMore() } }
+                    .frame(maxWidth: .infinity, minHeight: 44).accessibilityIdentifier("redeem.more.load")
             }
         case .idle:
             EmptyView()

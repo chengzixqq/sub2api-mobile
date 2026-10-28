@@ -111,6 +111,11 @@ public enum RedeemListPolicy {
         query.excludesAdminAdjustments && page.hasMore && automaticReads < maxAutomaticReads
             && RedeemListPage.admittedCount(of: page, query: query) < query.pageSize
     }
+    /// The end of the list offers “加载更多” where reaching the last card cannot read on (60 §8.2): an old server's pages may add
+    /// few cards or none once its admin rows are dropped, and a list left without cards has no last card.
+    public static func offersLoadMore(_ page: RedeemListPage, query: RedeemCodeListQuery) -> Bool {
+        page.hasMore && (query.excludesAdminAdjustments || page.codes.isEmpty)
+    }
 }
 
 /// One day group of the list (60 §8.3 组头): its codes in list order and how many are loaded.
@@ -141,6 +146,7 @@ public enum RedeemListText {
     public static let loading = "正在读取兑换码…"
     public static let generateTitle = "生成兑换码"
     public static let clearSearch = "清除搜索"
+    public static let loadMore = "加载更多"
     public static let loadMoreFailed = "加载失败 · 重试"
     public static let copiedReceipt = "已复制兑换码"
     public static let locatedGone = "这个兑换码已被删除"
@@ -154,10 +160,10 @@ public enum RedeemListText {
 /// 60 §8.5: what a loaded list without rows says.
 public enum RedeemListEmpty: Equatable, Sendable {
     case noCodes, noSearchMatch(String), noTypeMatch
-    /// nil while not loaded (`codes` nil) or with rows. A site known to have no code says so whatever the chip, but a search
-    /// keeps its own wording.
-    public static func resolve(codes: [AdminRedeemCode]?, filter: RedeemListFilter, siteTotal: Int?) -> RedeemListEmpty? {
-        guard let codes, codes.isEmpty else { return nil }
+    /// nil while not loaded, with rows, or while later pages may still hold some. A site known to have no code says so whatever
+    /// the chip, but a search keeps its own wording.
+    public static func resolve(page: RedeemListPage?, filter: RedeemListFilter, siteTotal: Int?) -> RedeemListEmpty? {
+        guard let page, page.codes.isEmpty, !page.hasMore else { return nil }
         let search = filter.trimmedSearch
         if !search.isEmpty, filter.batch == nil { return .noSearchMatch(search) }
         return filter.isUnfiltered || siteTotal == 0 ? .noCodes : .noTypeMatch

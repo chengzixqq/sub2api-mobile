@@ -443,4 +443,21 @@ final class HomeUITests: XCTestCase {
         for (kind, _) in TodayExpected.rates { assertValue(element("home.run." + kind), TodayExpected.missing) }
         diagnostics("home-ops-disabled-run")
     }
+
+    /// 10 §1.5, §0.5: only the rates block timed out before any value, so 错误率 / 上游 429 / 529 read “—” over one “加载超时 · 重试”
+    /// line in 运行 (the six cells' 错误率 / RPM / TPM come from the same block); 健康分, 渠道 and today's figures stay.
+    @MainActor func testHomeRatesTimeoutShowsTimedOutRowInRunSection() {
+        launchAndLogin(arguments: ["-ui-home-rates-timeout"])
+        defer { diagnostics("home-rates-timeout-final") }
+        _ = loadedCell("actualCost")
+        XCTAssertTrue(waitForLabel(tickerCell("errorRate"), containing: TodayExpected.missing), tickerCell("errorRate").label)
+        reveal(element("home.run.rates.failed"))
+        XCTAssertTrue(text(containing: "加载超时").exists, app.debugDescription)
+        XCTAssertTrue(element("home.run.rates.retry").exists, app.debugDescription)
+        for (kind, _) in TodayExpected.rates { assertValue(element("home.run." + kind), TodayExpected.missing) }
+        diagnostics("home-rates-timeout")
+        assertValue(element("home.run.health"), TodayExpected.health)
+        assertValue(element("home.run.channels"), TodayExpected.channels)
+        assertValue(todayFigure("accountCost"), "$512.08")
+    }
 }

@@ -61,6 +61,8 @@ enum LiveOpsFixtures {
         static let homePending = "-ui-home-pending"
         /// S1-09: the fallback's `dashboard/stats` never answers (until cancelled), so only today's figures stay the skeleton.
         static let statsPending = "-ui-home-stats-pending"
+        /// S1-09b: only the rates block times out (SECTION_TIMEOUT), so 运行 shows 加载超时 for 错误率 / 上游 429 / 529.
+        static let ratesTimeout = "-ui-home-rates-timeout"
     }
     struct Options: Equatable, Sendable {
         var variant: HomeVariant
@@ -74,6 +76,7 @@ enum LiveOpsFixtures {
         var failsFirstRound = false
         var pendingHome = false
         var pendingStats = false
+        var ratesTimeout = false
         var opsDisabled: Bool { ops != .on }
         init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
@@ -92,6 +95,7 @@ enum LiveOpsFixtures {
             failsFirstRound = arguments.contains(Argument.homeUnreachableOnce)
             pendingHome = arguments.contains(Argument.homePending)
             pendingStats = arguments.contains(Argument.statsPending)
+            ratesTimeout = arguments.contains(Argument.ratesTimeout)
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -111,7 +115,8 @@ enum LiveOpsFixtures {
                           tokenConsumed: 1_200_000)
         return DashboardHome(
             generatedAt: base, stats: .ok(stats(base, profitLoss: options.profitLoss)),
-            rates: .ok(rates(base: base, opsDisabled: options.opsDisabled)),
+            rates: options.ratesTimeout ? HomeSection(status: .timeout, reason: "SECTION_TIMEOUT")
+                : .ok(rates(base: base, opsDisabled: options.opsDisabled)),
             hourly: options.variant == .hourlyTimeout ? HomeSection(status: .timeout, reason: "SECTION_TIMEOUT") : .ok(hourly(base)),
             ops: options.opsDisabled ? opsOff() : .ok(ops), alerts: options.opsDisabled ? opsOff() : .ok(alerts),
             availability: options.variant == .availabilityError ? HomeSection(status: .error, reason: "INTERNAL_ERROR")

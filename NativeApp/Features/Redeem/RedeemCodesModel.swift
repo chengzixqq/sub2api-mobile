@@ -86,7 +86,12 @@ final class RedeemCodesModel {
     var pinned: AdminRedeemCode? { RedeemListLayout.pinned(located, in: codes) }
     /// The batch chip's “N 个”: the server's total for the batch query.
     var batchTotal: Int? { filter.batch == nil ? nil : state.value?.serverTotal }
-    var empty: RedeemListEmpty? { RedeemListEmpty.resolve(codes: state.value?.codes, filter: filter, siteTotal: siteTotal) }
+    var empty: RedeemListEmpty? { RedeemListEmpty.resolve(page: state.value, filter: filter, siteTotal: siteTotal) }
+    /// “加载更多” at the end, where reaching the last card cannot read on.
+    var offersLoadMore: Bool {
+        guard nextPage == .idle, !state.isLoading, let page = state.value else { return false }
+        return RedeemListPolicy.offersLoadMore(page, query: filter.listQuery(supportsStats: supportsStats))
+    }
     func throttleMessage() -> String? { refresh.throttleMessage(at: now()) }
 
     // MARK: - Visibility and signals
@@ -105,8 +110,8 @@ final class RedeemCodesModel {
     func appeared() async {
         isVisible = true
         Self.current = self
-        if needsReload || RedeemListPolicy.isStale(lastLoadedAt: state.updatedAt, now: now()) { await reloadFirstPageAndStats() }
-        await locatePending()
+        guard needsReload || RedeemListPolicy.isStale(lastLoadedAt: state.updatedAt, now: now()) else { return await locatePending() }
+        await reloadFirstPageAndStats()
     }
     func disappeared() { isVisible = false }
     /// Back from the background: after 60 seconds, a failure or a read the background stopped.
@@ -116,18 +121,17 @@ final class RedeemCodesModel {
         guard needsReload || failed || RedeemListPolicy.isStale(lastLoadedAt: state.updatedAt, now: now()) else { return }
         await reloadFirstPageAndStats()
     }
-    func pullToRefresh() async {
-        await reloadFirstPageAndStats()
-        await locatePending()
-    }
+    func pullToRefresh() async { await reloadFirstPageAndStats() }
 
     // MARK: - Entry points for S6-05…S6-09
 
-    /// Page 1, the chips' counts and the subtitle's total.
+    /// Page 1, the chips' counts and the subtitle's total; then the route's code if it is not open yet (its first page failed or
+    /// waited out a 429).
     func reloadFirstPageAndStats() async {
         async let counted: Void = readStats(includingTotal: true)
         await loadFirstPage()
         await counted
+        await locatePending()
     }
     /// After a write: GET :id keeps the list's user and group; a code gone (404) leaves the list.
     func refreshCard(id: Int) async {
@@ -202,7 +206,12 @@ final class RedeemCodesModel {
         if openID != nil { revealRequest = RevealRequest(id: id) }
     }
     func loadMoreIfNeeded(after id: Int) async {
-        guard nextPage == .idle, codes.last?.id == id else { return }
+        guard codes.last?.id == id else { return }
+        await loadMore()
+    }
+    /// The last card reached the screen, or “加载更多”.
+    func loadMore() async {
+        guard nextPage == .idle else { return }
         automaticReads = 0
         await readNextPage()
     }

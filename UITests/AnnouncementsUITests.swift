@@ -363,7 +363,7 @@ final class AnnouncementsUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(reads, containing: "已读 410 / 符合条件 1,036"), reads.label)
         XCTAssertTrue(reads.label.contains("另有 2 人读后已不符合条件"), reads.label)
         reads.tap()
-        // S6-19 replaces the placeholder page; its title stays.
+        // The 已读情况 page (S6-19).
         XCTAssertTrue(app.navigationBars["已读情况"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
@@ -571,5 +571,154 @@ final class AnnouncementsUITests: XCTestCase {
         let body = app.textViews["announcement.edit.content"]
         body.tap()
         body.typeText(content)
+    }
+
+    // MARK: - 已读情况（S6-19）
+
+    /// The fixture roster (26 users, ten a page) is the same for every announcement; the bar's summary is 31's read_stats.
+    @MainActor func testReadsPageShowsSummaryRowsAndOpensUser() {
+        openReadsPage()
+        defer { diagnostics("announcement-reads-final") }
+        let summary = element("announcementReads.summary")
+        XCTAssertTrue(waitForLabel(summary, containing: "已读 412 · 符合条件 1,036 · 共 1,036 位用户 · 统计于"), summary.label)
+        XCTAssertTrue(text("10 月 18 日凌晨维护通知").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.segmentedControls["announcementReads.state"].exists, app.debugDescription)
+        let alice = readRow(1)
+        XCTAssertTrue(alice.waitForExistence(timeout: 10), app.debugDescription)
+        for part in ["alice@example.com", "$12.40", "alice", "符合条件", "10/16 08:12"] {
+            XCTAssertTrue(alice.label.contains(part), "\(alice.label) ∌ \(part)")
+        }
+        XCTAssertTrue(readRow(2).label.contains("未读"), readRow(2).label)
+        XCTAssertFalse(element("announcementReads.found").exists, app.debugDescription)
+        reveal(readRow(6))
+        XCTAssertTrue(readRow(6).label.contains("不符合"), readRow(6).label)
+        XCTAssertTrue(readRow(5).label.hasPrefix("erin@example.com"), readRow(5).label)
+        reveal(alice, down: false)
+        alice.tap()
+        XCTAssertTrue(element("announcementReads.list").waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars.buttons.element(boundBy: 0).exists, app.debugDescription)
+    }
+
+    @MainActor func testReadsSegmentAndEligibleOnlyFilter() {
+        openReadsPage()
+        defer { diagnostics("announcement-reads-filter-final") }
+        XCTAssertTrue(readRow(1).waitForExistence(timeout: 10), app.debugDescription)
+        app.segmentedControls["announcementReads.state"].buttons["已读"].tap()
+        let found = element("announcementReads.found")
+        XCTAssertTrue(found.waitForExistence(timeout: 10) && waitForLabel(found, containing: "找到 7 位"), app.debugDescription)
+        XCTAssertTrue(readRow(6).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(readRow(2).exists, app.debugDescription)
+        let eligibleOnly = app.switches["announcementReads.eligibleOnly"]
+        XCTAssertTrue(eligibleOnly.exists, app.debugDescription)
+        eligibleOnly.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)).withOffset(CGVector(dx: -36, dy: 0)).tap()
+        XCTAssertTrue(waitForLabel(found, containing: "找到 6 位"), found.label)
+        XCTAssertTrue(readRow(6).waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(readRow(1).exists, app.debugDescription)
+    }
+
+    @MainActor func testReadsSortMenu() {
+        openReadsPage()
+        defer { diagnostics("announcement-reads-sort-final") }
+        XCTAssertTrue(readRow(1).waitForExistence(timeout: 10), app.debugDescription)
+        openReadsSortMenu()
+        for title in ["按邮箱", "按用户名", "按余额", "按阅读时间"] {
+            XCTAssertTrue(readsSortItem(title).waitForExistence(timeout: 5), "\(title)\n\(app.debugDescription)")
+        }
+        XCTAssertTrue(readsSortItem("按余额").label.contains("从高到低"), readsSortItem("按余额").label)
+        readsSortItem("按余额").tap()
+        XCTAssertTrue(waitForLabel(app.buttons["announcementReads.sort"], containing: "按余额"), app.debugDescription)
+        let nova = readRow(15)
+        XCTAssertTrue(nova.waitForExistence(timeout: 10) && readRow(9).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(nova.label.contains("Nova 工作室"), nova.label)
+        XCTAssertLessThan(nova.frame.minY, readRow(9).frame.minY, app.debugDescription)
+        // A sort is not a filter.
+        XCTAssertFalse(element("announcementReads.found").exists, app.debugDescription)
+    }
+
+    @MainActor func testReadsSearchAndEmpty() {
+        openReadsPage()
+        defer { diagnostics("announcement-reads-search-final") }
+        XCTAssertTrue(readRow(1).waitForExistence(timeout: 10), app.debugDescription)
+        let field = app.searchFields["搜索邮箱或用户名"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), app.debugDescription)
+        field.tap()
+        field.typeText("bob")
+        let found = element("announcementReads.found")
+        XCTAssertTrue(found.waitForExistence(timeout: 10) && waitForLabel(found, containing: "找到 1 位"), app.debugDescription)
+        XCTAssertTrue(readRow(2).exists && readRow(1).waitForNonExistence(timeout: 5), app.debugDescription)
+        field.typeText("zzz")
+        let empty = element("announcementReads.empty")
+        XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(empty.label.contains("没有匹配的用户"), empty.label)
+        XCTAssertTrue(waitForLabel(found, containing: "找到 0 位"), found.label)
+    }
+
+    @MainActor func testReadsPaginatesOnScroll() {
+        openReadsPage()
+        defer { diagnostics("announcement-reads-pages-final") }
+        XCTAssertTrue(readRow(1).waitForExistence(timeout: 10), app.debugDescription)
+        // Ten a page by email: page 2 starts with 26, page 3 ends with 24. The fixture answers at once, so the footer's
+        // spinner is gone before a swipe can stop on it; only its absence after the last page is checked.
+        XCTAssertTrue(app.scrollUntilExists(readRow(26), maxSwipes: 12))
+        XCTAssertTrue(app.scrollUntilExists(readRow(24), maxSwipes: 20))
+        XCTAssertTrue(element("announcementReads.more").waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testReadsWithoutReadStatsCapability() {
+        openReadsPage(["-ui-without-capabilities", "announcements.read_stats"])
+        defer { diagnostics("announcement-reads-legacy-final") }
+        XCTAssertTrue(readRow(1).waitForExistence(timeout: 10), app.debugDescription)
+        let summary = element("announcementReads.summary")
+        XCTAssertTrue(waitForLabel(summary, containing: "第 1 页 · 共 26 位用户"), summary.label)
+        XCTAssertFalse(app.segmentedControls["announcementReads.state"].exists, app.debugDescription)
+        XCTAssertFalse(app.switches["announcementReads.eligibleOnly"].exists, app.debugDescription)
+        openReadsSortMenu()
+        XCTAssertTrue(readsSortItem("按余额").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(readsSortItem("按阅读时间").exists, app.debugDescription)
+    }
+
+    @MainActor func testReadsFailureAndRetry() {
+        openReadsPage(["-ui-announcement-reads-error", "-ui-announcement-detail-summary-error"])
+        defer { diagnostics("announcement-reads-failure-final") }
+        let failure = element("announcementReads.failure")
+        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["重试"].tap()
+        XCTAssertTrue(readRow(1).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(failure.exists, app.debugDescription)
+        // A summary that failed falls back to the page's total.
+        let summary = element("announcementReads.summary")
+        XCTAssertTrue(waitForLabel(summary, containing: "第 1 页 · 共 26 位用户"), summary.label)
+    }
+
+    @MainActor func testReadsLoadMoreFailureRetry() {
+        openReadsPage(["-ui-announcement-reads-more-error"])
+        defer { diagnostics("announcement-reads-more-final") }
+        XCTAssertTrue(readRow(1).waitForExistence(timeout: 10), app.debugDescription)
+        let retry = app.buttons["announcementReads.more.retry"]
+        XCTAssertTrue(app.scrollUntilExists(retry, maxSwipes: 10))
+        XCTAssertEqual(retry.label, "加载失败 · 重试")
+        retry.tap()
+        XCTAssertTrue(app.scrollUntilExists(readRow(24), maxSwipes: 20))
+        XCTAssertFalse(retry.exists, app.debugDescription)
+    }
+
+    /// Announcement 31's detail, then its 已读情况 row.
+    @MainActor private func openReadsPage(_ arguments: [String] = []) {
+        launchAnnouncements(arguments)
+        openDetail(31)
+        let reads = element("announcement.detail.reads")
+        app.scrollUntilExists(reads)
+        reads.tap()
+        XCTAssertTrue(element("announcementReads.list").waitForExistence(timeout: 10), app.debugDescription)
+    }
+    @MainActor private func readRow(_ userID: Int) -> XCUIElement { app.buttons["announcementReads.row.\(userID)"] }
+    @MainActor private func openReadsSortMenu() {
+        let sort = app.buttons["announcementReads.sort"]
+        XCTAssertTrue(sort.waitForExistence(timeout: 10), app.debugDescription)
+        sort.tap()
+    }
+    /// A sort entry by its title; its second line is the direction.
+    @MainActor private func readsSortItem(_ title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == '' AND (label == %@ OR label BEGINSWITH %@)", title, title + ",")).firstMatch
     }
 }

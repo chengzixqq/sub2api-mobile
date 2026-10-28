@@ -254,6 +254,8 @@
 | AppModel 里随旧概览失去用途的夹具分支 | -ui-dashboard-slow-trend、-ui-missing-account-cost、-ui-cost-snapshot-error 在 S1-09 后已没有 UI 用例引用（-ui-trend-long-series、-ui-dashboard-detail-errors、-ui-performance-error 仍被 LegacyTrendUITests 或过渡页使用）；S1-09b 删旧包装时一并删除，S1-18 收口时 grep 核对 |
 | 账号角标的 dashboard/stats 退路 | AppModel.dashboard() 只剩 AppModel+Accounts.accountErrorCount() 一个调用方（没有 accounts.status_summary 的站点取账号角标数），S1-09b 因此没有删除它。以后可以把这条退路移进账号段自己的包装，再删 AppModel 概览段的 dashboard() 和 DemoData.dashboard.stats |
 | 运行区渠道“更新失败”的写法 | 首页渠道行有旧值但刷新失败时，S1-09b 保留摘要，并在行内用灰字写“更新失败”（不可点，重试靠下次轮询或下拉刷新）。规格没写，等看模拟器截图再定是否改成区块头附件 |
+| 夹具 #35 与 24h“最近结束”的时段依赖 | S1-06 让 FixtureAlertBook 按 time_range 过滤（fired_at ∈ [base − 24h, base)，base 为会话开始时的服务器时间）。S1D1-11 冻结的 #35 在“昨天 21:52”（Asia/Shanghai）触发，所以服务器时间 21:52 以后开始的会话，24h 列表里没有 #35（它是唯一的 manual_resolved）。S1-16 的 MonitorUITests（最近结束两区与 meta）以及 base 取当前时间的单测（如 defaultFixtureHasEndedEvents）如果依赖 #35，会在每天 21:52–24:00 固定失败。请 S1-16 或编排者三选一：改 #35 为相对 base 的时间（要改 S1D1-11）；给 UI 测试加固定夹具时钟的启动参数；或让断言不依赖 #35。 |
+| 首页轮询重启后第一拍被跳过（残余） | LiveOpsStore.pollHomeBlocks 第一拍遇到 isHomeLoading 为真时跳过，并按 nextHomeDelay 等 60 秒。一次被取消的在途读取也算在途：LoadState 的 onCancel 只取消内层 Task，状态要等退栈后才回到 idle；退路的 fallbackCycle 和今日 SLA 的 todayOps.isLoading 也一样。S1-09 审查修正已经去掉概览 task 的多余重启（合规确认、foregroundRevision），只剩一种情况：在途读取期间可见性极短地抖动（Tab 切走马上切回、控制中心一拉一放），首页仍可能晚一个周期刷新。要彻底修，需要让 LoadState 识别“已被取消的在途读取”（task.isCancelled），并同时覆盖退路轮次和今日 SLA。 |
 
 ### App 与设计 · 阶段 2
 
@@ -289,7 +291,6 @@
 | 运维关闭后上游错误计数的恢复 | 账号详情遇到 404 OPS_DISABLED 后，60 秒轻刷新不再请求上游错误。在 Web 开启运维监控后，要下拉刷新、回前台或重新进入详情才会显示计数。如果要自动恢复，可以改成每 N 分钟再试一次 |
 | 账号详情 UI 测试对旧日志页与占位页的断言 | 两个用例断言旧 RequestLogsView 的 logs.mode / logs.account-filter：testRecordsRowsOpenLogsFilteredByAccount、testOpsDisabledShowsNoticeRowAndErroredAtLine；testErrorAccountLatestUpstreamErrorOpensRequestRoute 断言 route.placeholder。S4-05 / S4-08 重写日志页和请求详情时要同步改这几处 |
 | 日志页旧夹具与账号详情上游错误计数不一致 | RequestLogsView 私有的 LogFixtures 里账号 1 有 1 条错误、账号 7 没有；AccountDemoStore.upstreamErrorPage 给 #1 0 条、#7 3 条。S4-05 重写日志页夹具时按 AccountDemoStore 统一，让“近 24 小时 N 条”与点进去看到的列表一致 |
-| 首页轮询重启后第一拍被跳过（残余） | LiveOpsStore.pollHomeBlocks 第一拍遇到 isHomeLoading 为真时跳过，并按 nextHomeDelay 等 60 秒。一次被取消的在途读取也算在途：LoadState 的 onCancel 只取消内层 Task，状态要等退栈后才回到 idle；退路的 fallbackCycle 和今日 SLA 的 todayOps.isLoading 也一样。S1-09 审查修正已经去掉概览 task 的多余重启（合规确认、foregroundRevision），只剩一种情况：在途读取期间可见性极短地抖动（Tab 切走马上切回、控制中心一拉一放），首页仍可能晚一个周期刷新。要彻底修，需要让 LoadState 识别“已被取消的在途读取”（task.isCancelled），并同时覆盖退路轮次和今日 SLA。 |
 | 测试输出脱敏规则是否扩展 | 现只覆盖规格列的 Bearer、sk-…、URL（20 §4.3）；x-api-key 原值、JWT、sat_ 令牌、AKIA… 不在规则内。后端 error_message 已做 logredact，残留风险低（S2-13） |
 | Bedrock / Vertex 账号 401 的失败原因文案 | 暂按 20 §7.3 写“API Key 无效或已撤销”，措辞不准确，待用户看效果图后再定（S2-13） |
 | 老服务端测试结果比对的精度 | AccountTestOutcome.legacy 用 error_summary / error_kind 判断错误是否被改写，App 的快照里没有 error_message / error_at；清除限流按测试前限流或临时不可调度有效、测试后没有来判断（S2-13） |
@@ -329,6 +330,7 @@
 | 自定义属性的 validation 本地校验与 ATTRIBUTE_* 文案 | 后端属性定义带 min/max_length、pattern、number 范围、select 选项等校验，App 只校验必填；不合规时服务端返回 400 ATTRIBUTE_VALIDATION_FAILED、404 ATTRIBUTE_DEFINITION_NOT_FOUND，ReasonCatalog 里没有这两个 reason，目前按状态码兜底。规格未要求，是否补本地校验与文案待定（S3-09） |
 | 新建用户结果不明时的读回口径 | 30 §5.4 第 7 步只按邮箱找（S3-09 已提供 findUserByEmail）；00 §2.5.5 另要求初始余额 > 0 时再按 action_id 查 user-adjustments。后端用户与初始余额账本在同一事务里写，找到用户即说明已入账，建议只按邮箱，由 S3-10 决定并在进度表注明 |
 | findUserByEmail 只看第 1 页 20 条 | 后端 search 同时匹配用户名、备注与 Key，若同一检索词命中 20 个以上比新用户更新的用户，会误判“没有创建成功”；用户再次提交会得到 409 EMAIL_EXISTS，不会重复创建，暂接受（S3-09） |
+| 用户列表刷新后残留已删除的边界行 | S3-02 审查修正后，已加载到第 2 页及以后时，刷新第 1 页会保留“新第 1 页仍含有的最后一行”之后的旧行。如果同一轮里既有顶部新增、又有边界附近的行在别处被删除，被删的行会留在列表里，直到换搜索词或换会话；这和 30 §1.6“第 2 页以后不自动刷新”带来的后续页陈旧属于同一类问题。以后若要精确处理，需要按 offset 重读已加载的各页，或改用游标分页。 |
 
 ### App 与设计 · 阶段 4
 
@@ -347,7 +349,6 @@
 | 错误分布占比的分母 | 后端 error-distribution 的 total 是 LIMIT 20 之后各行之和。状态码超过 20 种时，占比是“前 20 种之内的占比”，不是“占全部错误”。现照规格用响应 total |
 | Token 速度多行合并的权重是近似值 | 后端 avg_tokens_per_sec 只对 duration_ms > 0 且 output_tokens > 0 的行求平均，App 只能按 request_count 加权（40 §5.2）。要精确需后端在 items 里加 requests_with_tps（只增字段）。另外 avg_duration_ms 无数据时是 0 而不是 null |
 | 错误趋势 60 秒与 3600 秒桶的底注句式 | 40 §2.3 只给了 300 秒桶的文案。建议 S4-18 用同一句式：60 秒“后端每分钟一桶，这里按 5 分钟合计。”，3600 秒“后端每小时一桶，这里按天合计。”，后半句不变 |
-| 夹具 #35 与 24h“最近结束”的时段依赖 | S1-06 让 FixtureAlertBook 按 time_range 过滤（fired_at ∈ [base − 24h, base)，base 为会话开始时的服务器时间）。S1D1-11 冻结的 #35 在“昨天 21:52”（Asia/Shanghai）触发，所以服务器时间 21:52 以后开始的会话，24h 列表里没有 #35（它是唯一的 manual_resolved）。S1-16 的 MonitorUITests（最近结束两区与 meta）以及 base 取当前时间的单测（如 defaultFixtureHasEndedEvents）如果依赖 #35，会在每天 21:52–24:00 固定失败。请 S1-16 或编排者三选一：改 #35 为相对 base 的时间（要改 S1D1-11）；给 UI 测试加固定夹具时钟的启动参数；或让断言不依赖 #35。 |
 
 ### App 与设计 · 阶段 5
 
@@ -362,7 +363,6 @@
 | 让其他设备下线可能连本机一起下线 | 已由 S6-01 处理：登录设备页“让其他所有设备下线”后重载列表，本机是部署前签发、没有 sid 的旧会话时，重载收到 401 TOKEN_REVOKED 回到登录页；SessionsUITests.testRevokingAllWithLegacySessionSignsThisDeviceOut 覆盖。集成者可把原行改为已处理 |
 | 撤销登录设备时本机被下线的提示文案 | 60 §5.4 只写“按本机退出处理”，没给文案。S6-01 改为调 forgetActiveSession，登录页显示“本机已下线，请重新登录。”（新定）；本机行不给滑动（U50），这条路径实际很少出现。待用户确认文案，或改回 logout |
 | 00 §1.8 与 60 §5 的登录设备文案不一致 | 00 §1.8 写“设备名为空时显示 client_type”“其他设备会立即退出登录”，与 60 §5 的 UA 规则和确认框文案冲突，“立即”也与 00 §1.7.3 的 fail-open 矛盾。S6-01 按 60 §5 实现；建议规格维护时把 00 §1.8 改为引用 60 §5 |
-| 用户列表刷新后残留已删除的边界行 | S3-02 审查修正后，已加载到第 2 页及以后时，刷新第 1 页会保留“新第 1 页仍含有的最后一行”之后的旧行。如果同一轮里既有顶部新增、又有边界附近的行在别处被删除，被删的行会留在列表里，直到换搜索词或换会话；这和 30 §1.6“第 2 页以后不自动刷新”带来的后续页陈旧属于同一类问题。以后若要精确处理，需要按 offset 重读已加载的各页，或改用游标分页。 |
 | 推送本机开关在设备停用时显示为关 | 60 §7.3 规定开关按“id 存在且 enabled”显示，所以设备被停用（unregistered / secret_undecryptable）时开关是关的，但状态行写“关掉再打开即可恢复”。S6-22 按字面实现（PushLocalState.isToggleOn 只有 .on），S6-24 实现页面时若觉得别扭，可改为停用时开关保持开、文案改为“重新打开即可恢复”。 |
 | 推送订阅整体 PUT 会丢掉 App 不认识的事件 | PushSubscription 解码时丢弃未知事件，整体 PUT 时，服务端以后新增的可订阅事件会被一并去掉。现在后端只有 4 个可订阅事件、未知事件 PUT 也会被拒，暂可接受；后端扩充事件时要同步扩 PushEvent。 |
 | 吊销本机令牌失败后的推送设备 | 吊销本机令牌时会先删除本站点推送设备，再发 DELETE。若 DELETE 失败，会话继续，但本机已登记的推送设备已被清空。S6-23 的重新登记要覆盖“会话进行中、登记记录被清空”这种情况，不能只在下次登录时补登。 |
@@ -386,3 +386,4 @@
 | 筛选胶囊样式重复 | S6-04 的 RedeemChipLabel（RedeemCodesView.swift，私有）与账号页的 AccountChipLabel（AccountsView.swift，私有）几乎一样，S6-26 可以抽成共用的胶囊标签组件 |
 | 兑换码列表入口的 UI 测试 | 概览待处理行（S1-10）与补偿回执“查看兑换码”（S6-09）合入后，把 RedeemCodesUITests 里靠 -ui-redeem-open / -ui-redeem-reconcile 进入的两条用例改为从真实入口进入，再决定是否删掉这两个夹具参数 |
 | 查看同一批时的搜索 | 规格没有写；S6-04 的做法是进入同一批时清空搜索，在同一批里输入搜索词会退出同一批、回到原筛选再加搜索词。需要的话可以改为同一批内搜索（后端 batch_id 与 search 可以同时传） |
+| 公告已读情况：不符合条件行的视觉 | 规格 60 §18.3 写“不符合条件变淡”，S6-19 按 S2-04 只把邮箱改 ink2，不降整行不透明度，以保证对比度；需要设计确认是否接受 |
