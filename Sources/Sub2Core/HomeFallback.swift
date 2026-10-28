@@ -229,26 +229,9 @@ public enum HomeFallback {
 
 extension APIClient {
     /// 10 §1.2 昨日同时: an explicit range in UTC `Z` (`start_time` / `end_time`), bucketed in the server zone; the zone of the reply's
-    /// `query.timezone` reads the buckets. A range that is empty or backwards is refused here, without a request.
+    /// `query.timezone` reads the buckets (usageAnalysisTrend, S4D1-12). A range that is empty or backwards is refused here, without a request.
     public func dashboardTrend(start: Date, end: Date, granularity: TrendGranularity) async throws -> DashboardTrendReply {
         guard start < end else { throw APIError(kind: .validation, message: "统计时间范围无效。") }
-        let snapshot = currentGeneration(), zone = serverTimeZone()
-        let query = ServerTime.timeRangeItems(start: start, end: end)
-            + [URLQueryItem(name: "granularity", value: granularity.rawValue), URLQueryItem(name: "timezone", value: zone.identifier)]
-        let reply: RangeTrendReply = try await request("admin/dashboard/trend", query: query, timeout: RequestTimeout.aggregate)
-        try check(snapshot)
-        return DashboardTrendReply(points: reply.trend, timeZone: ServerTime.bucketTimeZone(reported: reply.query?.timezone, requested: zone))
-    }
-}
-
-/// A missing `trend` is no buckets; a malformed `query` block is ignored.
-private struct RangeTrendReply: Decodable, Sendable {
-    let trend: [TrendPoint]
-    let query: QueryMetadata?
-    enum CodingKeys: String, CodingKey { case trend, query }
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        trend = try c.decodeIfPresent([TrendPoint].self, forKey: .trend) ?? []
-        query = try? c.decodeIfPresent(QueryMetadata.self, forKey: .query)
+        return try await usageAnalysisTrend(AnalyticsQuery(start: start, end: end, granularity: granularity, timeZone: serverTimeZone()))
     }
 }

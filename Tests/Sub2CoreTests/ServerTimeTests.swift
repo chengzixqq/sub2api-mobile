@@ -289,7 +289,7 @@ private struct TimeFields: Decodable {
     let client = timeClient(transport, zone: shanghai)
     let end = utc("2026-10-18T01:41:00Z")
     _ = try? await client.dashboardPerformanceTrend(OpsQuery(start: end.addingTimeInterval(-3_600), end: end), supportsModelFilter: false)
-    _ = try? await client.usageAnalysis(AnalyticsQuery(start: end.addingTimeInterval(-86_400), end: end, timeZone: "Asia/Shanghai"))
+    _ = try? await client.usageAnalysis(AnalyticsQuery(start: end.addingTimeInterval(-86_400), end: end, granularity: .day, timeZone: shanghai))
     _ = try? await client.requestRecords(page: 1, filter: RequestLogFilter(time: .range(end.addingTimeInterval(-86_400), end)), maskedView: false)
     let requests = await transport.requests
     #expect(requests.count == 3)

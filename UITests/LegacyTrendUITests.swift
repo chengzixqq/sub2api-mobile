@@ -20,8 +20,8 @@ final class LegacyTrendUITests: XCTestCase {
         let metric = app.segmentedControls["dashboard.trend.metric"]
         reveal(metric, towardBottom: false)
         XCTAssertTrue(metric.buttons["性能指标"].isSelected, app.debugDescription)
-        metric.buttons["实际消费"].tap()
-        XCTAssertTrue(metric.buttons["实际消费"].isSelected, app.debugDescription)
+        metric.buttons["实际扣费"].tap()
+        XCTAssertTrue(metric.buttons["实际扣费"].isSelected, app.debugDescription)
         let chart = app.descendants(matching: .any)["dashboard.trend.chart"].firstMatch
         XCTAssertTrue(chart.waitForExistence(timeout: 10), app.debugDescription)
 
@@ -67,7 +67,7 @@ final class LegacyTrendUITests: XCTestCase {
         reveal(chart)
         chart.tap()
         XCTAssertTrue(app.descendants(matching: .any)["dashboard.trend.selection"].firstMatch.waitForExistence(timeout: 5), app.debugDescription)
-        assertDashboardValue("dashboard.trend.selection", contains: ["实际消费", "$"])
+        assertDashboardValue("dashboard.trend.selection", contains: ["实际扣费", "$"])
         dashboardDiagnostics(named: "dashboard-trend-chart-tap-selection")
 
         selectNewestTrendHour(contains: ["$0.14"], diagnosticName: "dashboard-trend-amount-details-two-digits")

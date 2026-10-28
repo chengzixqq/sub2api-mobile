@@ -6,7 +6,7 @@ public enum DashboardTrendMetric: String, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
     public var label: String {
         switch self {
-        case .actualCost: "实际消费"
+        case .actualCost: "实际扣费"
         case .requests: "请求数"
         case .tokens: "Tokens"
         case .performance: "性能指标"

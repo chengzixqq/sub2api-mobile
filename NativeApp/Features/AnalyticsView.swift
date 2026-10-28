@@ -15,7 +15,9 @@ struct AnalyticsView: View {
 
     init(accountID: Int? = nil, groupID: Int? = nil) {
         let now = Date()
-        _query = State(initialValue: AnalyticsQuery(start: Calendar.current.startOfDay(for: now), end: now, accountID: accountID, groupID: groupID))
+        // The environment is not readable here: the zone and granularity are placeholders that siteQuery(_:in:) replaces.
+        _query = State(initialValue: AnalyticsQuery(start: Calendar.current.startOfDay(for: now), end: now, granularity: .hour, timeZone: .device,
+                                                    accountID: accountID, groupID: groupID))
     }
 
     var body: some View {
@@ -26,7 +28,7 @@ struct AnalyticsView: View {
                 if let id = query.accountID { Text("账号 #\(id)") }
                 if let id = query.groupID { Text("分组 #\(id)") }
                 if let id = query.userID { Text("用户 #\(id)") }
-                if !query.model.isEmpty { Text("模型：\(query.model)") }
+                if let model = query.model, !model.isEmpty { Text("模型：\(model)") }
                 HStack {
                     ForEach(["今日", "近7天", "本月"], id: \.self) { title in
                         Button(title) { applyPreset(title) }.buttonStyle(.bordered).accessibilityIdentifier("analytics.preset.\(title)")
@@ -46,7 +48,7 @@ struct AnalyticsView: View {
                     LabeledValue(label: "缓存 Tokens", value: DisplayFormat.compact(value.cacheTokens))
                     LabeledValue(label: "实际扣费", value: DisplayFormat.money(value.actualCost)).foregroundStyle(.green)
                     LabeledValue(label: "上游成本", value: DisplayFormat.money(value.accountCost)).foregroundStyle(.orange)
-                    LabeledValue(label: "扣费与成本差额", value: DisplayFormat.money(value.difference))
+                    LabeledValue(label: "扣费与成本差额", value: DisplayFormat.money(value.profit))
                         .accessibilityIdentifier("analytics.difference")
                     LabeledValue(label: "平均响应", value: DisplayFormat.duration(value.averageDurationMs, style: .list))
                     Text("差额仅为实际扣费减上游成本，未包含服务器等其他费用。")
@@ -84,7 +86,7 @@ struct AnalyticsView: View {
                             }
                         }
                         .frame(height: 190).accessibilityIdentifier("analytics.chart")
-                        NavigationLink("\(query.hourly ? "逐小时" : "逐日")明细") {
+                        NavigationLink("\(Self.legacyGranularity(query) == .hour ? "逐小时" : "逐日")明细") {
                             List(points.reversed()) { point in
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(point.date).font(.headline)
@@ -118,7 +120,7 @@ struct AnalyticsView: View {
     }
 
     private func applyPreset(_ preset: String) {
-        let now = Date(); let calendar = Calendar.current
+        let now = Date(); let calendar = session?.site.serverTimeZone.calendar ?? .current
         query.end = now
         query.start = preset == "本月" ? (calendar.dateInterval(of: .month, for: now)?.start ?? now) :
             calendar.date(byAdding: .day, value: preset == "近7天" ? -6 : 0, to: calendar.startOfDay(for: now))!
@@ -134,8 +136,9 @@ struct AnalyticsView: View {
     private func load<T: Sendable>(_ state: LoadState<T>, fixture: @escaping @MainActor @Sendable () throws -> T,
                                    operation: @escaping @MainActor @Sendable (APIClient, AnalyticsQuery) async throws -> T) async {
         guard !state.isLoading, let session else { return }
-        let selected = query
-        await state.load(isCurrent: { session.generation == model.sessionGeneration && query == selected }) {
+        // Compared before the swap: the stored query keeps its placeholder zone.
+        let base = query, selected = siteQuery(base, in: session)
+        await state.load(isCurrent: { session.generation == model.sessionGeneration && query == base }) {
             if model.isUITesting { return try fixture() }
             return try await operation(session.client, selected)
         }
@@ -144,13 +147,23 @@ struct AnalyticsView: View {
         await load(summary, fixture: { try JSONDecoder().decode(AnalyticsSummary.self, from: Data(#"{"total_requests":125,"total_tokens":1250000,"total_input_tokens":1000000,"total_output_tokens":250000,"total_cache_tokens":600000,"total_actual_cost":"12.34","total_account_cost":"5.67","average_duration_ms":1200}"#.utf8)) }) { try await $0.usageAnalysis($1) }
     }
     private func loadTrend() async {
-        await load(trend, fixture: { [TrendPoint(date: "2026-10-16 09:00", requests: 100, totalTokens: 1000000, cost: 25, actualCost: Decimal(string: "10.10"))] }) { try await $0.usageAnalysisTrend($1) }
+        await load(trend, fixture: { [TrendPoint(date: "2026-10-16 09:00", requests: 100, totalTokens: 1000000, cost: 25, actualCost: Decimal(string: "10.10"))] }) { try await $0.usageAnalysisTrend($1).points }
     }
     private func loadModels() async {
-        await load(models, fixture: { try JSONDecoder().decode([AnalyticsBreakdown].self, from: Data(#"[{"model":"gpt-5","requests":125,"total_tokens":1250000,"actual_cost":"12.34","account_cost":"5.67"}]"#.utf8)) }) { try await $0.usageAnalysisModels($1) }
+        await load(models, fixture: { try JSONDecoder().decode([AnalyticsBreakdown].self, from: Data(#"[{"model":"gpt-5","requests":125,"total_tokens":1250000,"actual_cost":"12.34","account_cost":"5.67"}]"#.utf8)) }) { try await $0.usageAnalysisModels($1, source: .requested) }
     }
     private func loadGroups() async {
         await load(groups, fixture: { try JSONDecoder().decode([AnalyticsBreakdown].self, from: Data(#"[{"group_id":1,"group_name":"默认分组","requests":125,"total_tokens":1250000,"actual_cost":"12.34","account_cost":"5.67"}]"#.utf8)) }) { try await $0.usageAnalysisGroups($1) }
+    }
+    /// The site's zone, and the old page's granularity (up to 3 days hourly); S4-13 replaces both with AnalyticsRange.
+    private func siteQuery(_ selection: AnalyticsQuery, in session: SessionContext) -> AnalyticsQuery {
+        var query = selection
+        query.timeZone = session.site.serverTimeZone
+        query.granularity = Self.legacyGranularity(selection)
+        return query
+    }
+    private static func legacyGranularity(_ query: AnalyticsQuery) -> AnalyticsGranularity {
+        query.end.timeIntervalSince(query.start) <= 3 * 86_400 ? .hour : .day
     }
     @ViewBuilder private func loadStatus<T>(_ state: LoadState<T>, retry: @escaping () -> Void) -> some View {
         if state.isLoading { ProgressView("正在独立加载…") }
@@ -166,7 +179,7 @@ struct AnalyticsView: View {
                         Text(item.name).font(.headline)
                         Text("\(DisplayFormat.grouped(item.requests)) 请求 · \(DisplayFormat.compact(item.tokens)) Tokens").font(.subheadline)
                         Text("扣费 \(DisplayFormat.money(item.actualCost))").foregroundStyle(.green)
-                        Text("成本 \(DisplayFormat.money(item.accountCost)) · 差额 \(DisplayFormat.money(item.difference))")
+                        Text("成本 \(DisplayFormat.money(item.accountCost)) · 差额 \(DisplayFormat.money(item.profit))")
                             .foregroundStyle(.secondary)
                     }.font(.footnote).padding(.vertical, 3).textSelection(.enabled)
                 }
@@ -182,11 +195,13 @@ private struct AnalyticsFilterView: View {
     @State private var account: String
     @State private var group: String
     @State private var user: String
+    @State private var modelText: String
     @State private var error: String?
     let apply: (AnalyticsQuery) -> Void
     init(initial: AnalyticsQuery, apply: @escaping (AnalyticsQuery) -> Void) {
         _draft = State(initialValue: initial); _account = State(initialValue: initial.accountID.map(String.init) ?? "")
         _group = State(initialValue: initial.groupID.map(String.init) ?? ""); _user = State(initialValue: initial.userID.map(String.init) ?? "")
+        _modelText = State(initialValue: initial.model ?? "")
         self.apply = apply
     }
     var body: some View {
@@ -195,13 +210,13 @@ private struct AnalyticsFilterView: View {
                 Section("时间范围") {
                     DatePicker("开始", selection: $draft.start)
                     DatePicker("结束（不含）", selection: $draft.end)
-                    Text("按设备时区统计，支持一年内自定义范围。").font(.caption)
+                    Text("按站点时区分桶，支持一年内自定义范围。").font(.caption)
                 }
                 Section("筛选（留空代表全部）") {
                     TextField("账号 ID", text: $account).keyboardType(.numberPad)
                     TextField("分组 ID", text: $group).keyboardType(.numberPad)
                     TextField("用户 ID", text: $user).keyboardType(.numberPad)
-                    TextField("模型名称", text: $draft.model).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("模型名称", text: $modelText).textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
                 if let error { Text(error).foregroundStyle(.red) }
             }.navigationTitle("统计筛选")
@@ -211,6 +226,8 @@ private struct AnalyticsFilterView: View {
                         Button("应用") {
                             do {
                                 draft.accountID = try id(account); draft.groupID = try id(group); draft.userID = try id(user)
+                                let trimmed = modelText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                draft.model = trimmed.isEmpty ? nil : trimmed
                                 _ = try draft.queryItems(); apply(draft); dismiss()
                             } catch { self.error = error.localizedDescription }
                         }.accessibilityIdentifier("analytics.filters.apply")
