@@ -54,3 +54,18 @@ private func cells(_ arguments: [String]) async throws -> [HomeTickerCell] {
     read.cancel()
     await #expect(throws: CancellationError.self) { try await read.value }
 }
+
+/// S1-09b review: only the rates block times out, so the run section's rates row shows 加载超时 and nothing else changes.
+@Test func ratesTimeoutVariantOnlyAffectsRates() async throws {
+    let options = LiveOpsFixtures.Options(arguments: [LiveOpsFixtures.Argument.ratesTimeout, LiveOpsFixtures.Argument.profitLoss])
+    #expect(options.ratesTimeout && options.variant == .allOK && options.profitLoss)
+    #expect(!LiveOpsFixtures.Options(arguments: []).ratesTimeout)
+    let timedOut = try await FixtureLiveOpsSource(options: .init(arguments: [LiveOpsFixtures.Argument.ratesTimeout]), base: base)
+        .dashboardHome(timezone: zone, include: nil, noCache: false)
+    let regular = try await FixtureLiveOpsSource(options: .init(), base: base).dashboardHome(timezone: zone, include: nil, noCache: false)
+    #expect(timedOut.rates.status == .timeout && timedOut.rates.reason == "SECTION_TIMEOUT" && timedOut.degradedSections() == [.rates])
+    #expect(timedOut.stats == regular.stats && timedOut.hourly == regular.hourly && timedOut.ops == regular.ops)
+    #expect(timedOut.alerts == regular.alerts && timedOut.availability == regular.availability && timedOut.channels == regular.channels)
+    let rates = HomeBlocks().merging(timedOut, receivedAt: base).rates
+    #expect(rates.display == .failed(reason: HomeBlockText.timedOut) && BlockStatusPresentation.failureTitle(for: rates) == "加载超时")
+}
