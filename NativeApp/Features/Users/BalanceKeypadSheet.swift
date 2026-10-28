@@ -49,6 +49,10 @@ struct BalanceKeypadSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var keypad: BalanceKeypadModel
+    /// R03's first question when the segment turns to a direction whose record awaits its check (30 §3.4).
+    @State private var modeQuestion: BalanceKeypadEntry?
+    /// Its “先核对”, with the dialogs over the keypad (S3-07).
+    @State private var checks = BalanceReconcileFlow()
     @FocusState private var notesFocused: Bool
 
     init(user: AdminUser, mode: BalanceKeypadMode) {
@@ -59,7 +63,8 @@ struct BalanceKeypadSheet: View {
         let draft = keypad.draft, paused = keypad.pausedMessage(model: model)
         VStack(spacing: 12) {
             VStack(spacing: 12) {
-                Picker("方式", selection: Binding(get: { keypad.mode }, set: { keypad.setMode($0) })) {
+                Picker("方式", selection: Binding(get: { modeQuestion?.mode ?? keypad.mode },
+                                                set: { modeQuestion = keypad.requestMode($0, model: model) })) {
                     Text("充值").tag(BalanceKeypadMode.topup)
                     Text("退款").tag(BalanceKeypadMode.refund)
                 }
@@ -79,7 +84,7 @@ struct BalanceKeypadSheet: View {
                 AmountKeypad(text: Binding(get: { keypad.draft.amountText }, set: { keypad.editAmount($0) }),
                              maxDigits: BalanceChangeDraft.maxDigits, maxFractionDigits: BalanceChangeDraft.maxFractionDigits, identifierPrefix: "balance")
             }
-            .disabled(keypad.isWorking)
+            .disabled(keypad.isWorking || !checks.busyIDs.isEmpty)
             submitArea(draft, paused: paused != nil)
         }
         .padding(.horizontal, 16)
@@ -99,6 +104,11 @@ struct BalanceKeypadSheet: View {
         } message: { shown in
             Text(shown.content.message)
         }
+        .balanceReconcileFlow(checks)
+        .balanceKeypadEntry($modeQuestion, reconcile: { [keypad, checks, model] op in
+            Task { await keypad.checkFirst(op, flow: checks, model: model) }
+        }, proceed: { [keypad] question in keypad.setMode(question.mode) })
+        .onChange(of: model.receipts.current?.id) { _, id in if id != nil { keypad.receiptShown() } }
         .onChange(of: keypad.isFinished) { _, finished in if finished { dismiss() } }
         .onChange(of: model.sessionGeneration) { _, _ in dismiss() }
     }

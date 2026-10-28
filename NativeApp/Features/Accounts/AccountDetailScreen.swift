@@ -2,7 +2,8 @@ import SwiftUI
 import Sub2Core
 
 /// 20 §2: the account detail. From the list it opens on the row's snapshot; with only an id it shows skeletons until `GET :id`
-/// answers. Above the sections (S2-09 容量 · 今日 · 记录, then S2-10's 基础 · 调度, edited in AccountSectionSheet, and S2-11's 代理)
+/// answers. Above the sections (S2-09 容量 · 今日 · 记录, then S2-10's 基础 · 调度, edited in AccountSectionSheet, S2-11's 代理 and
+/// S2-12's 模型 · 高级)
 /// sit the status card and the button row; the buttons go through AccountActions (20 §5). ⋯ holds 在 Web 中编辑 and 删除账号…
 /// (S2-11). Until their items land, 测试连接 opens the old test page (S2-14), 更换 API Key / 重新授权 a placeholder (S2-16 /
 /// S2-17), and ⋯'s credential slot the old token refresh (S2-16).
@@ -135,8 +136,11 @@ private struct AccountDetailContent: View {
                 sections(account)
                 editSections(account)
                 proxySection(account)
+                AccountModelsSection(account: account, now: { serverNow }, edit: sectionEdit(.models)).id(AccountDetailFocus.models)
+                AccountAdvancedSection(account: account, catalog: detail.catalog, edit: sectionEdit(.adv)) { model.openAccountInWeb(account, using: openURL) }
+                    .id(AccountDetailFocus.adv)
             }
-            // 分区：S2-12 起在 proxySection 之后追加（各节挂 .id(AccountDetailFocus.xxx)，focus 由 scrollToFocus 滚到，X39）
+            // 分区：各节挂 .id(AccountDetailFocus.xxx)，focus 由 scrollToFocus 滚到（X39）
         }
     }
 
