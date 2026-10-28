@@ -279,3 +279,18 @@ private struct TrendRow: Equatable, Sendable { let date: String; let value: Int 
     let firstDay = AnalyticsCustomDraft(range: range(.preset(.today), now: utc("2026-10-01T01:41:00Z")))
     #expect(firstDay.from == firstDay.to && firstDay.matchedShortcut == nil && firstDay.selection == custom("2026-10-01", "2026-10-01"))
 }
+
+@Test func analyticsCustomDraftKeepsThePickedShortcutWhenThisMonthIsTheLast14Days() {
+    // On the 14th 本月 and 近 14 天 both cover 10月1日–14日, but they compare with different windows.
+    let fourteenth = utc("2026-10-14T01:41:00Z")
+    let draft = AnalyticsCustomDraft(range: range(.preset(.today), now: fourteenth))
+    #expect(draft.from == day("2026-10-01") && draft.to == day("2026-10-14") && draft.matchedShortcut == .thisMonth)
+    let last14 = draft.applying(.last14)
+    #expect(last14.from == day("2026-10-01") && last14.to == day("2026-10-14"))
+    #expect(last14.matchedShortcut == .last14 && last14.selection == .preset(.last14))
+    #expect(last14.settingFrom(day("2026-10-01")).selection == .preset(.last14))
+    #expect(last14.settingFrom(day("2026-10-03")).matchedShortcut == nil)
+    #expect(last14.applying(.thisMonth).selection == .preset(.thisMonth))
+    #expect(AnalyticsCustomDraft(range: range(.preset(.last14), now: fourteenth)).matchedShortcut == .last14)
+    #expect(AnalyticsCustomDraft(range: range(.preset(.thisMonth), now: fourteenth)).matchedShortcut == .thisMonth)
+}

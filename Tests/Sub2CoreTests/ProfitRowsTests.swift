@@ -28,7 +28,7 @@ private func isCents(_ value: Decimal?) -> Bool { value.map { $0 == DisplayForma
     #expect(ProfitRows.allocate(totalCents: 0, weights: []) == [])
 }
 
-@Test func profitRowsKeepEveryColumnEqualToItsRoundedTotal() {
+@Test func profitRowsKeepEveryColumnEqualToItsTotal() {
     let actual = (0..<30).map { amount("0.1237") * Decimal($0) + amount("0.0049") }
     let cost = (0..<30).map { amount("0.0611") * Decimal($0 % 7) + amount("0.003") }
     // Raw sums 53.9565 and 5.2835; the stats totals differ a little from the trend, as a newer read would.
@@ -42,8 +42,9 @@ private func isCents(_ value: Decimal?) -> Bool { value.map { $0 == DisplayForma
     #expect(rows.rows.allSatisfy { isCents($0.actual) && isCents($0.accountCost) && isCents($0.profit) })
     let half = ProfitRows(actual: amounts(["4.115", "8.23"]), accountCost: column(["1", "2"]), totalActual: amount("12.345"),
                           totalAccountCost: amount("3.004"))
-    #expect(half.totalActual == amount("12.35") && half.totalAccountCost == amount("3"))
-    #expect(half.rows.map(\.actual) == column(["4.12", "8.23"]) && half.rows.map(\.accountCost) == column(["1", "2"]))
+    // 12.345 − 3.004 = 9.341 shows as $9.34, so the cost column takes 12.35 − 9.34 = 3.01 rather than its own rounded 3.00.
+    #expect(half.totalActual == amount("12.35") && half.totalAccountCost == amount("3.01") && half.totalProfit == amount("9.34"))
+    #expect(half.rows.map(\.actual) == column(["4.12", "8.23"]) && half.rows.map(\.accountCost) == column(["1", "2.01"]))
 }
 
 @Test func profitRowsKeepLossesAndLeaveMissingCostsBlank() {
@@ -69,4 +70,16 @@ private func isCents(_ value: Decimal?) -> Bool { value.map { $0 == DisplayForma
     #expect(silent.rows.map(\.actual) == column(["0", "0"]) && !silent.isReconciled)
     let empty = ProfitRows(actual: [0, 0], accountCost: [0, 0], totalActual: 0, totalAccountCost: 0)
     #expect(empty.isReconciled && empty.totalProfit == 0 && empty.rows.map(\.profit) == column(["0", "0"]))
+}
+
+@Test func profitRowsTotalProfitIsTheOverviewsRoundedDifference() {
+    // 128.454 − 40.236 = 88.218: the overview and the profit card show $88.22, where 128.45 − 40.24 would give $88.21.
+    let rows = ProfitRows(actual: amounts(["100.2", "28.254"]), accountCost: column(["20.118", "20.118"]),
+                          totalActual: amount("128.454"), totalAccountCost: amount("40.236"))
+    let overview = HomePresentation.profit(actual: amount("128.454"), account: amount("40.236"))
+    #expect(rows.totalProfit == amount("88.22") && DisplayFormat.money(rows.totalProfit) == DisplayFormat.money(overview))
+    #expect(rows.totalActual == amount("128.45") && rows.totalAccountCost == amount("40.23") && rows.isReconciled)
+    #expect(rows.rows.map(\.actual) == column(["100.2", "28.25"]) && rows.rows.map(\.accountCost) == column(["20.12", "20.11"]))
+    #expect(rows.rows.map(\.profit) == column(["80.08", "8.14"]))
+    #expect(rows.rows.compactMap(\.profit).reduce(0, +) == amount("88.22"))
 }

@@ -7,9 +7,11 @@ public struct ProfitRow: Equatable, Sendable {
     public let profit: Decimal?
 }
 
-/// 40 §1.4 分段取整: actual and account cost each take their `usage/stats` total, rounded to cents, and split it over the buckets by
-/// their raw values with the largest remainder method; profit is the difference. Every column then adds up to its total, so today's
-/// profit equals the overview's. A column whose total or any row is missing is rounded row by row instead (`isReconciled` false).
+/// 40 §1.4 分段取整: actual takes its `usage/stats` total rounded to cents and profit the totals' difference rounded to cents, the
+/// way the overview and the profit card show it (40 §0.2: today's profit equals the overview's); account cost takes what lies between
+/// them, which can be a cent off its own rounded total (round(A) − round(C) ≠ round(A − C) about one time in four). Each column is
+/// split over the buckets by their raw values with the largest remainder method, so every column adds up to its total and every row's
+/// profit is its actual minus its cost. A column whose total or any row is missing is rounded row by row instead (`isReconciled` false).
 public struct ProfitRows: Equatable, Sendable {
     public let rows: [ProfitRow]
     public let totalActual: Decimal?
@@ -23,7 +25,9 @@ public struct ProfitRows: Equatable, Sendable {
     public init(actual: [Decimal], accountCost: [Decimal?], totalActual: Decimal?, totalAccountCost: Decimal?) {
         let costs = actual.indices.map { accountCost.indices.contains($0) ? accountCost[$0] : nil }
         let actualTotal = totalActual.map { DisplayFormat.rounded($0, digits: 2) }
-        let costTotal = totalAccountCost.map { DisplayFormat.rounded($0, digits: 2) }
+        let profitTotal = totalActual.flatMap { actual in totalAccountCost.map { DisplayFormat.rounded(actual - $0, digits: 2) } }
+        let costTotal = actualTotal.flatMap { actual in profitTotal.map { actual - $0 } }
+            ?? totalAccountCost.map { DisplayFormat.rounded($0, digits: 2) }
         let actualColumn = Self.column(actual.map(Optional.some), total: actualTotal)
         let costColumn = Self.column(costs, total: costTotal)
         rows = zip(actualColumn.values, costColumn.values).map { actual, cost in
@@ -31,7 +35,7 @@ public struct ProfitRows: Equatable, Sendable {
         }
         self.totalActual = actualTotal
         self.totalAccountCost = costTotal
-        totalProfit = actualTotal.flatMap { value in costTotal.map { value - $0 } }
+        totalProfit = profitTotal
         isReconciled = actualColumn.isReconciled && costColumn.isReconciled
     }
 
