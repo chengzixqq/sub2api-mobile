@@ -43,6 +43,8 @@ struct AccountsView: View {
         .onChange(of: model.foregroundRevision) { _, _ in Task { await store?.foregroundResumed() } }
         // A list that failed while compliance was pending reads again once it is accepted (00 §1.10).
         .onChange(of: model.securityPrompts.complianceRevision) { _, _ in Task { await store?.reload() } }
+        // A detail deleted the account, reverted or changed its proxy (20 §3.4): the whole list again.
+        .onChange(of: model.accountListSignal.revision) { _, _ in Task { await store?.reload() } }
         .task(id: scenePhase == .active) { await tickClock() }
     }
 

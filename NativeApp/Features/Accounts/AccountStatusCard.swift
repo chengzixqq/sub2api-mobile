@@ -166,7 +166,8 @@ private struct AccountModelLimitsBlock: View {
 
 /// 20 §2.3 按钮行 (design `.actions` / `.act`): equal capsules, the primary filled with the accent. The running action shows a
 /// spinner in place of its icon but still takes taps; the caller disables the row while a write runs. Each button is greyed on
-/// its own for a read-only token (C-1), with one “只读令牌” line under the row.
+/// its own for a read-only token (C-1), with one “只读令牌” line under the row; “在 Web 中更换凭据” only opens the browser and
+/// stays (S2-11, like ⋯'s “在 Web 中编辑”).
 struct AccountActionButtonRow: View {
     let row: AccountDetailActionRow
     let running: AccountDetailAction?
@@ -177,8 +178,8 @@ struct AccountActionButtonRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 ForEach(row.actions) { action in
-                    AccountActionButton(action: action, isPrimary: action == row.primary, isRunning: running == action) { perform(action) }
-                        .readOnlyGate(showsCaption: false)
+                    let button = AccountActionButton(action: action, isPrimary: action == row.primary, isRunning: running == action) { perform(action) }
+                    if action == .webCredential { button } else { button.readOnlyGate(showsCaption: false) }
                 }
             }
             if session?.isReadOnlyToken == true {
