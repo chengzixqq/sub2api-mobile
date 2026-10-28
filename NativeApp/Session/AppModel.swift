@@ -107,6 +107,8 @@ final class AppModel {
 
     // MARK: - 阶段 6 · 会话级状态
     // 阶段 6 的条目在这里追加
+    /// 60 §12: the session's proxy catalog; the list, detail and editor read and write it (S6-11). Rebuilt with the session.
+    private(set) var proxyStore: ProxyStore?
 
     // MARK: - 阶段 1 · App 级状态
     // 阶段 1 的条目在这里追加
@@ -315,6 +317,10 @@ final class AppModel {
         // 阶段 5 的条目在这里追加
         // MARK: - 阶段 6 · 会话级状态
         // 阶段 6 的条目在这里追加
+        let proxySource: any ProxySource = if isUITesting {
+            DemoData.proxySource(for: generation, base: next.serverClock.now())
+        } else { ClientProxySource(client: next) }
+        proxyStore = ProxyStore(generation: generation, source: proxySource, isCurrent: { [weak self] in self?.sessionGeneration == generation })
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
         else { profiles.append(profile) }
         savedActiveID = profile.id
@@ -356,6 +362,7 @@ final class AppModel {
         // 阶段 5 的条目在这里追加
         // MARK: - 阶段 6 · 会话级状态
         // 阶段 6 的条目在这里追加
+        proxyStore = nil
         if case .siteLogin(let notice) = exit { openSiteLogin(profile, notice: notice) }
         persistProfiles()
         await old?.cancelAll()
