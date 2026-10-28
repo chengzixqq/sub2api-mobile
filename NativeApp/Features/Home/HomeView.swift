@@ -23,6 +23,7 @@ private struct HomeScreen: View {
     @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
+    @State private var awaitingAccountTest: Int?
 
     var body: some View {
         // Back from the background the phase passes .background, so the task restarts once. Restarting it on foregroundRevision or
@@ -42,6 +43,7 @@ private struct HomeScreen: View {
             await store.homePolling()
         }
         .onChange(of: model.securityPrompts.complianceRevision) { _, _ in readAfterCompliance() }
+        .refreshesHomeAfterAccountTest($awaitingAccountTest, store: store)
     }
 
     /// S0-13: a read the compliance sheet held goes on by itself once it passes; otherwise home and its extra reads are read again.
@@ -51,6 +53,8 @@ private struct HomeScreen: View {
     }
 
     private var requestFailed: Bool { store.homeFailed }
+    /// X34: the records of this site's address, an earlier login's among them.
+    private var pending: [any PendingMoneyWrite] { session.map { model.pendingMoneyWrites(sameAddressAs: $0.serverID) } ?? [] }
     private var state: HomeScreenState {
         HomeScreenState.resolve(isVendor: session?.site.me.workspace != nil, sections: store.home.phases, requestFailed: requestFailed)
     }
@@ -66,7 +70,7 @@ private struct HomeScreen: View {
             List {
                 bannerSection
                 figuresSection
-                // 待处理：S1-10 在这里插入 HomeAttentionList
+                HomeAttentionList(store: store, pending: pending, currentServerID: session?.serverID, awaitingAccountTest: $awaitingAccountTest)
                 HomeTodaySection(store: store)
                 HomeRunSection(store: store)
             }

@@ -320,3 +320,102 @@ private let busySummary = HomeTestData.summary(
     #expect(Set(all).count == all.count)
     #expect(HomeRateMetric.allCases.map(\.rawValue) == ["rpm", "tpm"])
 }
+
+// MARK: S1-10 records of an earlier login at the same address (X34, C-26)
+
+private let earlierLogin = UUID(uuidString: "00000000-0000-0000-0000-0000000000BB")!
+private func atSite(_ record: any PendingMoneyWrite, _ serverID: UUID) -> any PendingMoneyWrite {
+    switch record {
+    case let balance as PendingBalanceOperation:
+        PendingBalanceOperation(id: balance.id, serverID: serverID, userID: balance.userID, amount: balance.amount, operation: balance.operation,
+                                actorUserID: balance.actorUserID, createdAt: balance.createdAt ?? now, userDisplayName: balance.userDisplayName,
+                                userEmail: balance.userEmail)
+    case let batch as PendingRedeemBatch:
+        PendingRedeemBatch(id: batch.id, serverID: serverID, actorUserID: batch.actorUserID, createdAt: batch.createdAt, spec: batch.spec)
+    case let grant as PendingCompensation:
+        PendingCompensation(id: grant.id, serverID: serverID, actorUserID: grant.actorUserID, createdAt: grant.createdAt, userID: grant.userID,
+                            userDisplayName: grant.userDisplayName, userEmail: grant.userEmail, code: grant.code, type: grant.type, value: grant.value)
+    default: record
+    }
+}
+private func siteItems(_ pending: [any PendingMoneyWrite], current: UUID? = HomeTestData.serverID) -> [AttentionItem] {
+    HomePresentation.attentionItems(alerts: .idle, availability: .idle, structuredErrors: [], pending: pending, currentServerID: current,
+                                    now: now, timeZone: shanghai)
+}
+
+@Test(arguments: [0, 1, 2])
+func pendingRowsFromAnEarlierLoginOfTheSameSiteAreAnnotated(kind: Int) throws {
+    let records: [any PendingMoneyWrite] = [HomeTestData.balance(.add, amount: "50"), HomeTestData.batch(count: 20),
+                                            HomeTestData.compensation(.balance, value: "5")]
+    let here = records[kind], earlier = atSite(records[kind], earlierLogin)
+    let current = try #require(siteItems([here]).first), annotated = try #require(siteItems([earlier]).first)
+    let detail = PendingMoneyWriteLine(here.summary).detail(relativeTime: here.summary.createdAt.map {
+        DisplayFormat.relativeTime($0, now: now, timeZone: shanghai)
+    })
+    #expect(HomePresentation.previousLoginNote == "本站点的旧登录下发起")
+    #expect(HomePresentation.previousLoginNote == MoneyRecordOrigin.oldLoginNote)
+    #expect(annotated.detail == detail + " · " + HomePresentation.previousLoginNote)
+    #expect(current.detail == detail)
+    #expect(annotated.title == current.title && annotated.trailing == current.trailing && annotated.tone == .caution && current.tone == .caution)
+    #expect(annotated.id == current.id && annotated.kind == current.kind && annotated.destination == current.destination)
+}
+
+@Test func pendingRowsOfTheCurrentSiteAreNotAnnotated() throws {
+    // Two hours back is today on the server's calendar (00 §6.3): 10:00 − 2 h in Shanghai.
+    let row = try #require(siteItems([HomeTestData.balance(.add, amount: "50", createdAt: after(-7_200))]).first)
+    #expect(row.detail == "周婷 · 今天 08:00 · 未确认是否入账")
+    #expect(row.detail?.contains(HomePresentation.previousLoginNote) == false)
+}
+
+@Test func omittingCurrentServerIDKeepsTheEarlierRows() {
+    let records: [any PendingMoneyWrite] = [atSite(HomeTestData.balance(), earlierLogin), HomeTestData.batch(),
+                                            atSite(HomeTestData.compensation(), earlierLogin)]
+    let alerts = HomeAlerts(firingCount: 1, bySeverity: ["P1": 1], top: [HomeTestData.event(41)])
+    let withoutSite = HomePresentation.attentionItems(alerts: loaded(alerts), availability: loaded(busySummary), structuredErrors: [],
+                                                      pending: records, now: now, timeZone: shanghai)
+    let unannotated = HomePresentation.attentionItems(alerts: loaded(alerts), availability: loaded(busySummary), structuredErrors: [],
+                                                      pending: records, currentServerID: nil, now: now, timeZone: shanghai)
+    #expect(withoutSite == unannotated)
+    #expect(withoutSite == items(alerts: loaded(alerts), availability: loaded(busySummary), pending: records))
+    #expect(withoutSite.allSatisfy { !strings($0).contains { $0.contains(HomePresentation.previousLoginNote) } })
+}
+
+@Test func legacyBalanceFromAnEarlierLoginPutsTheNoteLast() throws {
+    let json = #"{"id":"\#(UUID().uuidString)","serverID":"\#(earlierLogin.uuidString)","userID":7,"amount":12.5,"operation":"add","notes":""}"#
+    let legacy = try JSONDecoder().decode(PendingBalanceOperation.self, from: Data(json.utf8))
+    let row = try #require(siteItems([legacy]).first)
+    #expect(row.detail == "用户 #7 · 未确认是否入账 · 本站点的旧登录下发起")
+    #expect(row.destination == .user(id: 7))
+}
+
+@Test func earlierLoginRecordsKeepKindOrderOldestFirstAndDestinations() {
+    let balanceOld = atSite(HomeTestData.balance(createdAt: after(-500)), earlierLogin)
+    let batch = HomeTestData.batch(createdAt: after(-400))
+    let balance = HomeTestData.balance(.subtract, amount: "3", createdAt: after(-300))
+    let grantOld = atSite(HomeTestData.compensation(createdAt: after(-200)), earlierLogin)
+    let grant = HomeTestData.compensation(createdAt: after(-100))
+    let rows = HomePresentation.attentionItems(alerts: .idle, availability: loaded(busySummary), structuredErrors: [],
+                                               pending: [grant, balance, grantOld, batch, balanceOld], currentServerID: HomeTestData.serverID,
+                                               now: now, timeZone: shanghai)
+    let money = rows.filter { [.pendingBalance, .pendingRedeemBatch, .pendingCompensation].contains($0.kind) }
+    #expect(money.map(\.id) == [balanceOld, balance, batch, grantOld, grant].map { "pending-" + $0.id.uuidString.lowercased() })
+    #expect(Array(rows.suffix(5)) == money)
+    #expect(money.map(\.destination) == [.user(id: 7), .user(id: 7), .redeemReconcile, .compensation(userID: 8, pendingID: grantOld.id),
+                                         .compensation(userID: 8, pendingID: grant.id)])
+    #expect(money.map { $0.detail?.hasSuffix(HomePresentation.previousLoginNote) == true } == [true, false, false, true, false])
+}
+
+@Test func setZeroFromEarlierLoginStillReadsRefundOfAllBalance() throws {
+    let row = try #require(siteItems([atSite(HomeTestData.balance(.set, amount: "0"), earlierLogin)]).first)
+    #expect(row.title == "退款结果待核对")
+    #expect(row.trailingText(now: now) == "全部余额")
+    #expect(row.detail == "周婷 · 5 分钟前 · 未确认是否入账 · 本站点的旧登录下发起")
+}
+
+/// BlockFailureRow adds its own “ · 重试”, so the overview passes the words alone.
+@Test func failureRowWordsAreTheTitlesWithoutRetry() {
+    #expect(HomePresentation.alertsFailedText == "告警读取失败")
+    #expect(HomePresentation.availabilityFailedText == "账号状态读取失败")
+    #expect(HomePresentation.alertsFailedTitle == HomePresentation.alertsFailedText + " · " + BlockStatusPresentation.retryTitle)
+    #expect(HomePresentation.availabilityFailedTitle == HomePresentation.availabilityFailedText + " · " + BlockStatusPresentation.retryTitle)
+}

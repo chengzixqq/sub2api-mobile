@@ -278,6 +278,16 @@ final class RedeemCodesUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(chip("all"), equalTo: "全部 1"), app.debugDescription)
     }
 
+    /// `.redeem(open:)` whose first page waited out a 429: the read after the wait still opens the code, though GET :id is
+    /// still running when the page clears the wait (00 §2.7.2, 60 §8.1).
+    @MainActor func testLocateCodeAfterThrottledFirstPageWaitsOut() {
+        launchRedeem(["-ui-redeem-throttled", "-ui-redeem-many", "-ui-redeem-open", "1001"])
+        defer { diagnostics("redeem-locate-throttled-final") }
+        XCTAssertTrue(card(2046).waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(element("redeem.card.1001.body").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(text("定位的兑换码").exists, app.debugDescription)
+    }
+
     // MARK: - Helpers
 
     /// Signs in to “兑换码站点” (an access token with `readOnlyToken`, made read-only by `-ui-readonly-token`) and opens 兑换码

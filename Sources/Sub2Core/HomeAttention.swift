@@ -74,21 +74,27 @@ public struct AttentionItem: Identifiable, Sendable, Equatable {
 }
 
 extension HomePresentation {
-    public static let alertsFailedTitle = "告警读取失败 · 重试"
-    public static let availabilityFailedTitle = "账号状态读取失败 · 重试"
+    /// The words alone, for BlockFailureRow, which adds its own “ · 重试” (S1-10).
+    public static let alertsFailedText = "告警读取失败"
+    public static let availabilityFailedText = "账号状态读取失败"
+    public static let alertsFailedTitle = alertsFailedText + " · " + BlockStatusPresentation.retryTitle
+    public static let availabilityFailedTitle = availabilityFailedText + " · " + BlockStatusPresentation.retryTitle
+    /// X34: a money row whose record an earlier login of this site's address sent ends with this (S1-18 reads the same).
+    public static var previousLoginNote: String { MoneyRecordOrigin.oldLoginNote }
     /// U06: the server lists at most five; a fallback that lists more shows the five most severe and counts the rest.
     static let maxAlertRows = 5
 
     /// 10 §1.3.3 with R02's compensation slot: alerts → error → overloaded → limited → group shortage → balance → redeem batch →
     /// compensation. A failed block puts a neutral retry row at the head of its slot and keeps the rows of its earlier value
     /// (10 §0.5, §1.5). Account rows follow the server's `state` and take their words from AccountDisplayState (20 §0.2).
-    /// `pending` is the caller's same-site records; `now` is ServerClock time and `timeZone` the server's.
+    /// `pending` is the caller's records of this site's address (X34); one of another site id there, an earlier login, ends with
+    /// `previousLoginNote` when `currentServerID` is given. `now` is ServerClock time and `timeZone` the server's.
     public static func attentionItems(alerts: BlockState<HomeAlerts>, availability: BlockState<AccountStatusSummary>, structuredErrors: [UpstreamAccount],
-                                      pending: [any PendingMoneyWrite], now: Date, timeZone: TimeZone,
+                                      pending: [any PendingMoneyWrite], currentServerID: UUID? = nil, now: Date, timeZone: TimeZone,
                                       platformName: (String) -> String = GroupPlatform.title) -> [AttentionItem] {
         alertItems(alerts, now: now, timeZone: timeZone)
             + accountItems(availability, structuredErrors: structuredErrors, now: now, timeZone: timeZone, platformName: platformName)
-            + pendingItems(pending, now: now, timeZone: timeZone)
+            + pendingItems(pending, currentServerID: currentServerID, now: now, timeZone: timeZone)
     }
 
     /// The 受限 row (rate limited and temporarily unschedulable as one), also the calm layout's “自动恢复中” (10 §2.4). With
@@ -241,14 +247,18 @@ extension HomePresentation {
 
     /// Balance → redeem batch → compensation, oldest first within a kind (a legacy balance record without createdAt first, as
     /// in PendingMoneyLedger). Only these three record types exist; a new one needs its case in `pendingRoute`.
-    private static func pendingItems(_ records: [any PendingMoneyWrite], now: Date, timeZone: TimeZone) -> [AttentionItem] {
+    private static func pendingItems(_ records: [any PendingMoneyWrite], currentServerID: UUID?, now: Date, timeZone: TimeZone) -> [AttentionItem] {
         let routed = records.compactMap { record in pendingRoute(record).map { (record: record, route: $0) } }
         let ordered = routed.sorted { a, b in
             let (rankA, rankB) = (pendingOrder.firstIndex(of: a.route.kind) ?? 0, pendingOrder.firstIndex(of: b.route.kind) ?? 0)
             if rankA != rankB { return rankA < rankB }
             return (a.record.summary.createdAt ?? .distantPast) < (b.record.summary.createdAt ?? .distantPast)
         }
-        return ordered.map { pendingItem($0.record, kind: $0.route.kind, destination: $0.route.destination, now: now, timeZone: timeZone) }
+        return ordered.map { routed in
+            let earlier = currentServerID.map { routed.record.serverID != $0 } ?? false
+            return pendingItem(routed.record, kind: routed.route.kind, destination: routed.route.destination, fromEarlierLogin: earlier, now: now,
+                               timeZone: timeZone)
+        }
     }
 
     private static func pendingRoute(_ record: any PendingMoneyWrite) -> (kind: AttentionKind, destination: HomeDestination)? {
@@ -261,8 +271,8 @@ extension HomePresentation {
     }
 
     /// Title and detail are PendingMoneyWriteLine's (00 §2.5.5); the amount is echoed unrounded, as the administrator typed it.
-    private static func pendingItem(_ record: any PendingMoneyWrite, kind: AttentionKind, destination: HomeDestination, now: Date,
-                                    timeZone: TimeZone) -> AttentionItem {
+    private static func pendingItem(_ record: any PendingMoneyWrite, kind: AttentionKind, destination: HomeDestination, fromEarlierLogin: Bool,
+                                    now: Date, timeZone: TimeZone) -> AttentionItem {
         let line = record.line
         let time = record.summary.createdAt.map { DisplayFormat.relativeTime($0, now: now, timeZone: timeZone) }
         let amount: AttentionText? = switch line.amount {
@@ -271,7 +281,8 @@ extension HomePresentation {
         case nil: nil
         }
         return AttentionItem(id: "pending-" + record.key, kind: kind, tone: .caution, systemImage: "doc.text.magnifyingglass", title: line.title,
-                             detail: line.detail(relativeTime: time), trailing: amount, destination: destination)
+                             detail: line.detail(relativeTime: time) + (fromEarlierLogin ? " · " + previousLoginNote : ""), trailing: amount,
+                             destination: destination)
     }
 
     private static func hasFailed<Value: Sendable>(_ state: BlockState<Value>) -> Bool {

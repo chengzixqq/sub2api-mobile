@@ -63,6 +63,12 @@ enum LiveOpsFixtures {
         static let statsPending = "-ui-home-stats-pending"
         /// S1-09b: only the rates block times out (SECTION_TIMEOUT), so 运行 shows 加载超时 for 错误率 / 上游 429 / 529.
         static let ratesTimeout = "-ui-home-rates-timeout"
+        /// S1-10: #11 and #12 stopped and error account #10 without structured fields (LiveOpsFixtures+Attention.swift).
+        static let attentionExtra = "-ui-home-attention-extra"
+        /// S1-10: seven events firing, so home lists five and 待处理 ends with “另有 2 条告警中”.
+        static let alertsOverflow = "-ui-home-alerts-overflow"
+        /// S1-10: the first home read past the cache (the 「测试」 sheet closed) no longer lists error account #7.
+        static let testRecovers = "-ui-home-test-recovers"
     }
     struct Options: Equatable, Sendable {
         var variant: HomeVariant
@@ -77,6 +83,11 @@ enum LiveOpsFixtures {
         var pendingHome = false
         var pendingStats = false
         var ratesTimeout = false
+        // S1-10: these go with any variant; `errorAccountRecovered` is set by FixtureLiveOpsSource, never by an argument.
+        var attentionExtra = false
+        var alertsOverflow = false
+        var testRecovers = false
+        var errorAccountRecovered = false
         var opsDisabled: Bool { ops != .on }
         init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
@@ -96,6 +107,9 @@ enum LiveOpsFixtures {
             pendingHome = arguments.contains(Argument.homePending)
             pendingStats = arguments.contains(Argument.statsPending)
             ratesTimeout = arguments.contains(Argument.ratesTimeout)
+            attentionExtra = arguments.contains(Argument.attentionExtra)
+            alertsOverflow = arguments.contains(Argument.alertsOverflow)
+            testRecovers = arguments.contains(Argument.testRecovers)
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -120,7 +134,7 @@ enum LiveOpsFixtures {
             hourly: options.variant == .hourlyTimeout ? HomeSection(status: .timeout, reason: "SECTION_TIMEOUT") : .ok(hourly(base)),
             ops: options.opsDisabled ? opsOff() : .ok(ops), alerts: options.opsDisabled ? opsOff() : .ok(alerts),
             availability: options.variant == .availabilityError ? HomeSection(status: .error, reason: "INTERNAL_ERROR")
-                : .ok(availability(options.variant, base: base)),
+                : .ok(attentionAvailability(availability(options.variant, base: base), options)),
             channels: .ok(HomeChannels(total: 10, healthy: 7, warning: 1, critical: 1, unknown: 1, coverageState: "complete",
                                        collectorState: "healthy")))
     }
@@ -294,7 +308,8 @@ actor FixtureLiveOpsSource: LiveOpsSource {
 
     init(options: LiveOpsFixtures.Options, base: Date = Date()) {
         self.options = options; self.base = base
-        book = FixtureAlertBook(events: LiveOpsFixtures.alertEvents(options.variant, base: base), legacy: options.alertsWithoutSilenceKey,
+        let overflow = options.alertsOverflow ? LiveOpsFixtures.overflowAlerts(base: base) : []
+        book = FixtureAlertBook(events: LiveOpsFixtures.alertEvents(options.variant, base: base) + overflow, legacy: options.alertsWithoutSilenceKey,
                                 writesFail: options.alertWritesFail)
     }
 
@@ -303,6 +318,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         if options.pendingHome { try await Task.sleep(for: .seconds(3_600)) }
         if options.failsFirstRound, homeCalls == 1 { throw Self.unreachableError }
         if options.homeLegacy { throw APIError.server(status: 404, envelope: nil) }
+        if options.testRecovers, noCache { options.errorAccountRecovered = true }
         return LiveOpsFixtures.home(options, base: base, events: book.events)
     }
     func dashboardRates(window: LiveRatesWindow) -> LiveRates { LiveOpsFixtures.rates(base: base, opsDisabled: options.opsDisabled) }
@@ -317,7 +333,8 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         return LiveOpsFixtures.opsOverview(start: base.addingTimeInterval(-300), end: base)
     }
     func errorAccounts() -> [UpstreamAccount] {
-        [.calm, .calmLimited].contains(options.variant) ? [] : LiveOpsFixtures.structuredErrors(base: base)
+        guard ![.calm, .calmLimited].contains(options.variant) else { return [] }
+        return LiveOpsFixtures.structuredErrors(base: base) + (options.attentionExtra ? [LiveOpsFixtures.errorWithoutStructuredFields] : [])
     }
     func accountsRanking(limit: Int, timezone: ServerTimeZone) -> [AccountsRankingItem] {
         Array(LiveOpsFixtures.ranking(options.variant).prefix(max(0, limit)))
