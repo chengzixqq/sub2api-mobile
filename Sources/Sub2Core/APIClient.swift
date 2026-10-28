@@ -181,24 +181,6 @@ public actor APIClient {
         }
         return DashboardCostSnapshot(actual: actual, account: account, totalActual: reply.stats?.totalActualCost, totalAccount: reply.stats?.totalAccountCost)
     }
-    public func dashboardMonitoring() async throws -> OpsSnapshot {
-        let snapshot = generation
-        let reply: OpsReply = try await request("admin/ops/dashboard/overview", query: [URLQueryItem(name: "time_range", value: "5m")], timeout: RequestTimeout.aggregate)
-        try check(snapshot)
-        return OpsSnapshot(errorRate: reply.errorRate, qps: reply.qps?.current, activeRequests: nil)
-    }
-    public func dashboardPerformanceTrend(start: Date? = nil, end: Date = Date()) async throws -> PerformanceTrend {
-        let start = start ?? end.addingTimeInterval(-3_600)
-        guard start < end, end.timeIntervalSince(start) <= 30 * 86_400 else {
-            throw APIError(kind: .validation, message: "请选择 30 天以内的性能趋势范围。")
-        }
-        let snapshot = generation
-        let result: PerformanceTrend = try await request("admin/ops/dashboard/throughput-trend", query: ServerTime.timeRangeItems(start: start, end: end) + [
-            URLQueryItem(name: "mode", value: "auto")
-        ], timeout: RequestTimeout.aggregate)
-        try check(snapshot)
-        return result
-    }
 
     // MARK: - 账号
     public func accounts(page: Int, search: String, status: String?, platform: String?, includeSchedulerScore: Bool = false) async throws -> Page<UpstreamAccount> {
@@ -687,12 +669,6 @@ private struct TrendReply: Decodable, Sendable {
     }
 }
 private struct DashboardStatsSnapshotReply: Decodable, Sendable { let stats: DashboardStats? }
-private struct OpsReply: Decodable, Sendable {
-    let errorRate: Double?
-    let qps: Rate?
-    struct Rate: Decodable, Sendable { let current: Double? }
-    enum CodingKeys: String, CodingKey { case errorRate = "error_rate", qps }
-}
 private struct RefreshReply: Decodable, Sendable {
     let accessToken: String; let refreshToken: String; let expiresIn: Int?
     enum CodingKeys: String, CodingKey { case accessToken = "access_token", refreshToken = "refresh_token", expiresIn = "expires_in" }

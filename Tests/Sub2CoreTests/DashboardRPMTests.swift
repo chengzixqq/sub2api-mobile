@@ -19,16 +19,14 @@ private let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(stats.rpmAvailable == available)
     #expect(stats.availableRPM == (available ? 0 : nil))
     #expect(DisplayFormat.rpm(stats.availableRPM) == (available ? "0" : "—"))
-    #expect(DashboardPresentation.performanceWindow(stats).contains("RPM 近60秒"))
-    #expect(DashboardPresentation.performanceWindow(stats).contains("TPM 近5分钟"))
 }
 
-@Test func legacyDashboardDoesNotClaimARollingWindow() throws {
+/// The stats fallback (S1-07, rates ③) still shows an old server's RPM.
+@Test func legacyDashboardWithoutFlagStillShowsItsRPM() throws {
     let wire = #"{"today_requests":10,"today_tokens":20,"today_cost":1,"total_users":2,"total_accounts":3,"error_accounts":0,"rpm":1234,"tpm":100}"#
     let stats = try JSONDecoder().decode(DashboardStats.self, from: Data(wire.utf8))
     #expect(stats.rpmAvailable == nil)
     #expect(DisplayFormat.rpm(stats.availableRPM) == "1,234")
-    #expect(!DashboardPresentation.performanceWindow(stats).contains("近60秒"))
 }
 
 @Test func accountRollingRPMIsNeverUsedAsTheSchedulingCounter() throws {

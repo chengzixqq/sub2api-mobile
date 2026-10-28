@@ -2,9 +2,9 @@ import SwiftUI
 import Sub2Core
 
 /// 20 §2: the account detail. From the list it opens on the row's snapshot; with only an id it shows skeletons until `GET :id`
-/// answers. Above the sections later items add (S2-09 容量 · 今日 · 记录, S2-10 起 the edit sections) sit the status card and
-/// the button row; the buttons go through AccountActions (20 §5). Until their items land, 测试连接 opens the old test page
-/// (S2-14), the credential fixes a placeholder (S2-11 / S2-16 / S2-17), and ⋯ keeps the old edit page (S2-10) and refresh (S2-16).
+/// answers. Above the sections (S2-09 容量 · 今日 · 记录, then S2-10's 基础 · 调度, edited in AccountSectionSheet) sit the status
+/// card and the button row; the buttons go through AccountActions (20 §5). Until their items land, 测试连接 opens the old test
+/// page (S2-14), the credential fixes a placeholder (S2-11 / S2-16 / S2-17), and ⋯ keeps the old token refresh (S2-16).
 struct AccountDetailScreen: View {
     @Environment(AppModel.self) private var model
     private let id: Int
@@ -19,7 +19,7 @@ struct AccountDetailScreen: View {
 }
 
 private enum AccountDetailSheet: Hashable, Identifiable {
-    case legacyTest, legacyEdit, placeholder(AccountDetailAction)
+    case legacyTest, placeholder(AccountDetailAction)
     var id: Self { self }
 }
 
@@ -69,7 +69,7 @@ private struct AccountDetailContent: View {
         .navigationSubtitle(subtitle(page))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if case .content = page, let account = detail.account {
+            if case .content = page, let account = detail.account, account.isTokenAccount {
                 ToolbarItem(placement: .topBarTrailing) { moreMenu(account) }
             }
         }
@@ -84,6 +84,7 @@ private struct AccountDetailContent: View {
         .onChange(of: model.securityPrompts.complianceRevision) { _, _ in if detail.failure != nil { Task { await detail.load() } } }
         .accountRecoverDialog($recovering, actions: actions)
         .sheet(item: $sheet, onDismiss: sheetClosed) { sheetContent($0) }
+        .sheet(item: Binding(get: { detail.editor }, set: { detail.editor = $0 })) { AccountSectionSheet(request: $0) }
         .confirmationDialog("刷新令牌？", isPresented: $confirmingRefresh, titleVisibility: .visible) {
             Button("刷新令牌") { Task { await refreshToken() } }
             Button("取消", role: .cancel) {}
@@ -104,8 +105,9 @@ private struct AccountDetailContent: View {
             if let account = detail.account {
                 top(account)
                 sections(account)
+                editSections(account)
             }
-            // 分区：S2-10 起在此追加（各节挂 .id(AccountDetailFocus.xxx)，focus 由 scrollToFocus 滚到，X39）
+            // 分区：S2-11 起在 editSections 之后追加（各节挂 .id(AccountDetailFocus.xxx)，focus 由 scrollToFocus 滚到，X39）
         }
     }
 
@@ -121,6 +123,24 @@ private struct AccountDetailContent: View {
         AccountTodaySection(load: detail.today, ordinal: ordinals.today, autoRetry: isRefreshOpen) { await detail.reloadToday() }
         AccountRecordsSection(account: RouteObject(id: account.id, name: account.name), upstream: detail.upstreamErrors.state,
                               ordinal: ordinals.records)
+    }
+
+    /// 基础 · 调度 (S2-10), each with “编辑”; the route's focus scrolls to them.
+    @ViewBuilder private func editSections(_ account: UpstreamAccount) -> some View {
+        let platform = AccountNaming.platformName(account.platform, catalog: detail.catalog) + " · "
+            + AccountNaming.typeName(platform: account.platform, type: account.type)
+        AccountBasicSection(account: account, platformText: platform, edit: sectionEdit(.basic)).id(AccountDetailFocus.basic)
+        AccountScheduleSection(account: account, groupName: { groupName($0, in: account) }, edit: sectionEdit(.sched)).id(AccountDetailFocus.sched)
+    }
+    /// Greyed while the page has only the list's copy or a write runs; “先刷新账号” once reading it failed.
+    private func sectionEdit(_ section: AccountEditSection) -> AccountSectionEdit {
+        let needsRefresh = detail.editNeedsRefresh || (!detail.canEdit && detail.failure != nil)
+        return AccountSectionEdit(isEnabled: detail.canEdit && running == nil, needsRefresh: needsRefresh, isPreparing: detail.isPreparingEdit) {
+            Task { await detail.beginEdit(section) }
+        }
+    }
+    private func groupName(_ id: Int, in account: UpstreamAccount) -> String {
+        account.groups.first { $0.id == id }?.name ?? model.groupDirectory?.name(for: id) ?? "#\(id)"
     }
 
     private func snapshotBanner(_ text: String) -> some View {
@@ -154,8 +174,8 @@ private struct AccountDetailContent: View {
             run(action) { await actions.enableAccount(account, etag: etag) }
         case .recover: recovering = account
         case .replaceKey, .reauthorize, .webCredential: sheet = .placeholder(action)
-        // S2D1-20: the old edit page holds the expiry until S2-10's 调度 section.
-        case .editExpiry: sheet = .legacyEdit
+        // S2D1-20: 修改过期时间… opens the 调度 sheet.
+        case .editExpiry: Task { await detail.beginEdit(.sched) }
         }
     }
     private func run(_ action: AccountDetailAction, _ write: @escaping @MainActor () async -> AccountActionOutcome) {
@@ -171,9 +191,6 @@ private struct AccountDetailContent: View {
 
     private func moreMenu(_ account: UpstreamAccount) -> some View {
         Menu {
-            Button("编辑账号", systemImage: "pencil") { sheet = .legacyEdit }
-                .readOnlyGate(showsCaption: false)
-                .accessibilityIdentifier("account.detail.more.edit")
             if account.isTokenAccount {
                 Button("刷新令牌", systemImage: "arrow.clockwise") { confirmingRefresh = true }
                     .readOnlyGate(showsCaption: false)
@@ -190,7 +207,6 @@ private struct AccountDetailContent: View {
         if let account = detail.account {
             switch sheet {
             case .legacyTest: AccountTestView(account: account)
-            case .legacyEdit: AccountEditView(initial: account) { detail.applyWrite($0) }
             case .placeholder(let action): ComingSoonSheet(title: action.title)
             }
         }
@@ -221,8 +237,8 @@ private struct AccountDetailContent: View {
 
     /// Foreground, visible, nothing over the page and no write running.
     private var isRefreshOpen: Bool {
-        guard visible, scenePhase == .active, !model.isSuspended, sheet == nil, recovering == nil, !confirmingRefresh, running == nil,
-              !detail.isRemoved else { return false }
+        guard visible, scenePhase == .active, !model.isSuspended, sheet == nil, detail.editor == nil, recovering == nil, !confirmingRefresh,
+              running == nil, !detail.isRemoved else { return false }
         return !actions.isRunning(detail.accountID)
     }
     private var countdownTarget: Date? { detail.account.flatMap { AccountDisplayState($0, now: serverNow).countdownTarget } }
@@ -232,11 +248,14 @@ private struct AccountDetailContent: View {
         do { try await Task.sleep(for: .seconds(seconds)) } catch { return }
         await detail.countdownElapsed(target: target)
     }
-    /// X39: the route's section, once, when the account first shows (the sections carry the ids from S2-10 on).
+    /// X39: the route's section, once, when the account first shows; after a turn, so the sections are laid out.
     private func scrollToFocus(_ page: AccountDetailPageState, proxy: ScrollViewProxy) {
         guard case .content = page, !scrolledToFocus, let focus else { return }
         scrolledToFocus = true
-        proxy.scrollTo(focus, anchor: .top)
+        Task {
+            await Task.yield()
+            withAnimation { proxy.scrollTo(focus, anchor: .top) }
+        }
     }
 
     private func title(_ page: AccountDetailPageState) -> String {

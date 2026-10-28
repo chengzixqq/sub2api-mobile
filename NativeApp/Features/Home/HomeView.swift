@@ -67,7 +67,8 @@ private struct HomeScreen: View {
                 bannerSection
                 figuresSection
                 // 待处理：S1-10 在这里插入 HomeAttentionList
-                // 今日区、运行区：S1-09b 在这里插入 HomeTodaySection / HomeRunSection
+                HomeTodaySection(store: store)
+                HomeRunSection(store: store)
             }
             .homeListChrome()
             .accessibilityIdentifier("home.regular")

@@ -386,29 +386,10 @@ final class AppModel {
     }
 
     // MARK: - 概览
+    /// Only the account badge's count on a site without `accounts.status_summary` reads it now (AppModel+Accounts.swift, 20 §0.1).
     func dashboard() async throws -> DashboardSummary {
-        if isUITesting {
-            if ProcessInfo.processInfo.arguments.contains("-ui-missing-account-cost") {
-                let original = try JSONEncoder().encode(DemoData.dashboard.stats)
-                var fields = try JSONSerialization.jsonObject(with: original) as! [String: Any]
-                fields.removeValue(forKey: "today_account_cost")
-                fields.removeValue(forKey: "total_account_cost")
-                let stats = try JSONDecoder().decode(DashboardStats.self, from: JSONSerialization.data(withJSONObject: fields))
-                return DashboardSummary(stats: stats, trend: [])
-            }
-            return DemoData.dashboard
-        }
+        if isUITesting { return DemoData.dashboard }
         return try await requireClient().dashboard()
-    }
-    func dashboardCostSnapshot() async throws -> DashboardCostSnapshot {
-        if isUITesting {
-            if ProcessInfo.processInfo.arguments.contains("-ui-cost-snapshot-error") {
-                throw APIError(kind: .transport, message: "费用快照超时，请重试。")
-            }
-            return DashboardCostSnapshot(actual: Decimal(string: "12.34")!, account: Decimal(string: "4.56")!,
-                                         totalActual: Decimal(string: "1234.56")!, totalAccount: Decimal(string: "456.78")!)
-        }
-        return try await requireClient().dashboardCostSnapshot()
     }
     func dashboardTrend() async throws -> DashboardTrendReply {
         if isUITesting {
@@ -422,15 +403,6 @@ final class AppModel {
             return DashboardTrendReply(points: points, timeZone: DemoData.serverTimeZone.timeZone)
         }
         return try await requireClient().dashboardTrend()
-    }
-    func dashboardMonitoring() async throws -> OpsSnapshot {
-        if isUITesting {
-            if ProcessInfo.processInfo.arguments.contains("-ui-dashboard-detail-errors") {
-                throw APIError(kind: .transport, message: "监控请求超时，请重试。")
-            }
-            return DemoData.dashboard.monitoring!
-        }
-        return try await requireClient().dashboardMonitoring()
     }
     func dashboardPerformanceTrend(hours: Int, groupID: Int? = nil, model: String? = nil,
                                    modelSource: ModelSource? = nil) async throws -> PerformanceTrend {

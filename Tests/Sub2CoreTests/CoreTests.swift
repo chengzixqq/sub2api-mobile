@@ -280,7 +280,7 @@ private actor MockTransport: HTTPTransport {
     }
     let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport)
     let dashboard = try await client.dashboard()
-    #expect(dashboard.stats.todayRequests == 12); #expect(dashboard.trend.isEmpty); #expect(dashboard.monitoring == nil)
+    #expect(dashboard.stats.todayRequests == 12); #expect(dashboard.trend.isEmpty)
     let initialRequests = await transport.requests()
     #expect(initialRequests.count == 1)
     #expect(initialRequests.first?.url?.path == "/api/v1/admin/dashboard/stats")
@@ -305,8 +305,8 @@ private actor MockTransport: HTTPTransport {
     let client = APIClient(server: server(), credential: .adminKey("fixture"), transport: transport, serverTimeZone: site, serverClock: clock)
     let trend = try await client.dashboardTrend()
     #expect(trend.points.count == 1); #expect(trend.points.first?.requests == 12)
-    let monitoring = try await client.dashboardMonitoring()
-    #expect(monitoring.errorRate == 0.125); #expect(monitoring.qps == 2.5); #expect(monitoring.activeRequests == nil)
+    let overview = try await client.opsOverview(timeRange: "5m")
+    #expect(overview.errorRate == 0.125); #expect(overview.qps?.current == 2.5)
     let requests = await transport.requests()
     #expect(requests.count == 2)
     let trendRequest = try #require(requests.first)
@@ -327,7 +327,14 @@ private actor MockTransport: HTTPTransport {
     #expect(opsRequest.timeoutInterval == 45)
     #expect(opsRequest.url?.path == "/api/v1/admin/ops/dashboard/overview")
     let opsURL = try #require(opsRequest.url)
-    #expect(URLComponents(url: opsURL, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "time_range" }?.value == "5m")
+    // X08: the five minutes go out as start_time / end_time in UTC, never as time_range.
+    let opsQuery = try #require(URLComponents(url: opsURL, resolvingAgainstBaseURL: false)?.queryItems)
+    #expect(opsQuery.first { $0.name == "time_range" } == nil)
+    let opsStart = try #require(opsQuery.first { $0.name == "start_time" }?.value)
+    let opsEnd = try #require(opsQuery.first { $0.name == "end_time" }?.value)
+    #expect(opsStart.hasSuffix("Z") && opsEnd.hasSuffix("Z"))
+    let opsStartDate = try #require(ServerTime.parseTimestamp(opsStart)), opsEndDate = try #require(ServerTime.parseTimestamp(opsEnd))
+    #expect(opsEndDate.timeIntervalSince(opsStartDate) == 300)
 }
 
 @Test func dashboardDetailsSurfaceTheirOwnErrorsWithoutDiscardingStats() async throws {
@@ -344,7 +351,7 @@ private actor MockTransport: HTTPTransport {
     let dashboard = try await client.dashboard()
     do { _ = try await client.dashboardTrend(); Issue.record("Expected trend failure") }
     catch let error as APIError { #expect(error.statusCode == 503) }
-    do { _ = try await client.dashboardMonitoring(); Issue.record("Expected monitoring failure") }
+    do { _ = try await client.opsOverview(timeRange: "5m"); Issue.record("Expected ops overview failure") }
     catch let error as APIError { #expect(error.kind == .permission) }
     #expect(dashboard.stats.todayRequests == 12)
     #expect(try await client.dashboard().stats.todayRequests == 12)
@@ -366,7 +373,7 @@ private actor MockTransport: HTTPTransport {
     #expect(requests.filter { $0.url?.path.hasSuffix("/stats") == true }.count == 2)
 }
 
-@Test(arguments: ["stats", "trend", "monitoring"])
+@Test(arguments: ["stats", "trend", "opsOverview"])
 func dashboardReadsRejectLateResultsAfterStationCancellation(section: String) async throws {
     let started = Gate(); let release = Gate()
     let transport = MockTransport { request in
@@ -379,7 +386,7 @@ func dashboardReadsRejectLateResultsAfterStationCancellation(section: String) as
     let pending = Task {
         switch section {
         case "trend": _ = try await client.dashboardTrend()
-        case "monitoring": _ = try await client.dashboardMonitoring()
+        case "opsOverview": _ = try await client.opsOverview(timeRange: "5m")
         default: _ = try await client.dashboard()
         }
     }
