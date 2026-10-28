@@ -408,3 +408,6 @@
 | 资金写待核对的界面与回前台自动核对（补注） | 补偿的回前台自动核对已由 S6-08 完成（与余额同一单飞，同地址、跳过发送中、只认 issued）；补偿的待核对页与 sheet 归 S6-09 |
 | 补偿重试遇无 reason 的 400 | S6-08 对已发出过的补偿重试时，无 reason 的 400 保留待核对（方案原写“与首次相同，结案”），因为这次的 400 说明不了前一次是否已执行；若要改回结案，S6-09 实测后再定 |
 | 公告列表与公告已读的 429 等待后重读也会取消自己 | AnnouncementsView.retryAfterWait（await list.invalidate()）和 AnnouncementReadsView.retryAfterWait（await reads.reload()）都在 .task(id: refresh.notBefore) 里 await 重读。第 1 页成功后 recordingSuccess() 清空 notBefore，task 被 SwiftUI 取消并重启，同一次重读里仍在途的 async let（公告计数 counted、已读页标题与汇总 header）随之被取消，计数或标题可能要等下次刷新才出现。修法同 S6-04 审查修正 2517eb3：等待结束后用独立 Task 发起重读。不属于 S6-04 范围，由公告条目的线处理。 |
+| 代理质量检测的客户端超时 | 00 §2.3 超时表里没有质量检测这一类；后端最坏约 80 秒，App 暂定 ProxyRequestTimeout.qualityCheck = 95 秒、不自动重试。之后要决定是否把这一行补进 00 §2.3 |
+| 巡检间隙“已到期 · 等待处理”的说明句与横幅 | active 但已过期、尚未被巡检置为 expired 的代理，按规格记为 soon，会进“即将到期”筛选和横幅，说明句读作“已到期 · 等待处理。到期后不回退…”，语气别扭。要改文案只需改 ProxyPresentation 一处，等用户看效果图后再定 |
+| proxies.fallback_accounts 缺失时的口径冲突 | 00 章 capability 表写“全量账号本地过滤，逐个 POST revert-proxy-fallback”，60 §0.2 / §13.4 写“不提供批量恢复页，说明句改写”。S6-10 按 60 章实现（expiryNote 带 supportsFallbackAccounts 参数），以后需在规格里统一 |
