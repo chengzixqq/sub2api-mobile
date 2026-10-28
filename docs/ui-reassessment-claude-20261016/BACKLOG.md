@@ -296,6 +296,11 @@
 | 老服务端测试结果比对的精度 | AccountTestOutcome.legacy 用 error_summary / error_kind 判断错误是否被改写，App 的快照里没有 error_message / error_at；清除限流按测试前限流或临时不可调度有效、测试后没有来判断（S2-13） |
 | 保存遇到 GROUP_NOT_FOUND 时刷新分组目录 | S2-10 的分区 sheet 遇到 404 GROUP_NOT_FOUND 只显示目录文案“对象不存在或已删除”，不进已删除页，但没有自动调用 GroupDirectory.refresh()，分组页要等下次刷新才去掉已删除的分组；需要的话让 AccountPatchFlow 在 failed 里带上 reason，sheet 据此刷新 |
 | 密钥账号详情暂时没有 ⋯ 菜单 | S2-10 删掉过渡的“编辑账号”后，⋯ 只剩令牌账号的“刷新令牌”，密钥账号暂不显示 ⋯；S2-11（在 Web 中编辑、删除账号…）和 S2-16（更换 API Key…）加项时恢复，并按 20 §3.4 的顺序排 |
+| 账号删除“先 pop 再回执”的顺序 | 现在是回执在确认框关闭前出现、确认框关闭后再 pop（和公告删除一致）。如果要严格按规格先 pop 再回执，需要让 S3-00 的 DeleteConfirmationSheet 在 perform 结束后把关闭交给调用方，各章删除一起改 |
+| 账号删除确认框的后果行 | 后端删除账号会级联删除 spark 影子账号和定时测试计划；设计稿没有后果行，目前不写。等 DTO 给出影子数量后再考虑加“影子账号一并删除” |
+| 停用代理副行写法 | 规格写到期词（“MM/DD 到期 / 永不过期”），设计稿写“已停用”。用户看效果图后如果要“已停用”，只改 AccountProxyPresentation 的 row |
+| 其余详情写操作的列表完整刷新 | S2-06 的状态动作、S2-10 的保存、凭据写入还没有 bump AccountListSignal（本条只接了删除、恢复原代理、换代理），由 S2-23 收口时统一接上 |
+| .proxyDetail 占位断言 | S6-12 换上正式代理详情页后，要改 AccountDetailMenuUITests 里 testProxyRowOpensProxyDetail 与 testRevertOriginUnavailableOffersOriginDetail 对 route.placeholder 的断言 |
 
 ### App 与设计 · 阶段 3
 
