@@ -338,3 +338,29 @@ extension DemoData {
         return try JSONDecoder().decode(UserAdjustment.self, from: JSONSerialization.data(withJSONObject: fields))
     }
 }
+
+/// S3-08's `-ui-testing` launch arguments for a keypad send, after the action id; without one the write runs (S3-07's fixture).
+enum BalanceFixtureArgument {
+    /// The server keeps answering IN_PROGRESS: the sheet counts the seconds until “稍后核对” (or a minute) stops waiting.
+    static let slow = "-ui-balance-slow"
+    /// The reply is lost: the result is unknown and the record stays to be checked.
+    static let uncertain = "-ui-balance-uncertain"
+    /// 400 INVALID_BALANCE: refused before it ran.
+    static let rejected = "-ui-balance-rejected"
+    private static let slowLimit = 60
+
+    static func interrupt(_ record: PendingBalanceOperation, actionID: UUID, onEvent: KeyedWriteEventHandler,
+                          arguments: [String] = ProcessInfo.processInfo.arguments) async throws {
+        func unconfirmed(_ cause: KeyedWriteFailure.UnconfirmedCause) -> KeyedWriteFailure {
+            KeyedWriteFailure(disposition: .unconfirmed(cause, retryNotBefore: nil), key: record.key, actionID: actionID, lastError: nil)
+        }
+        if arguments.contains(rejected) { throw APIError.server(status: 400, reason: "INVALID_BALANCE") }
+        if arguments.contains(uncertain) { throw unconfirmed(.transport) }
+        guard arguments.contains(slow) else { return }
+        for second in 1...slowLimit {
+            try await Task.sleep(for: .seconds(1))
+            await onEvent(.waitingForServer(elapsedSeconds: second))
+        }
+        throw unconfirmed(.stillProcessing)
+    }
+}
