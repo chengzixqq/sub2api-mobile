@@ -39,13 +39,15 @@ public struct BalanceChangeDraft: Sendable, Equatable {
     /// Only for a refund of a positive balance (30 §3.3).
     public var canChooseAllBalance: Bool { direction == .debit && currentBalance > 0 }
     public var amount: Decimal? { KeypadInput.value(of: amountText) }
+    /// How far the balance goes down or up: “全部余额” is the whole balance (8 decimals), not its two-decimal keypad text.
+    public var changeAmount: Decimal? { isAllBalance ? currentBalance : amount }
     public var isAmountEmpty: Bool { amountText.isEmpty }
     /// A refund beyond the balance would be refused by the server as a 500 without a reason, so it is never sent.
     public var exceedsBalance: Bool {
         guard direction == .debit, !isAllBalance, let amount else { return false }
         return amount > currentBalance
     }
-    public var canSubmit: Bool { (amount ?? 0) > 0 && !exceedsBalance }
+    public var canSubmit: Bool { (changeAmount ?? 0) > 0 && !exceedsBalance }
     public var operation: BalanceOperation {
         if isAllBalance { return .set }
         return direction == .credit ? .add : .subtract
@@ -61,19 +63,21 @@ public struct BalanceChangeDraft: Sendable, Equatable {
         requestAmount.flatMap { Self.judgedAmount(operation: operation, amount: $0, currentBalance: currentBalance) }
     }
 
-    /// “$50”, “−$50” for a refund; “$0” in grey while empty.
+    /// “$50”, “−$50” for a refund; “$0” in grey while empty; “全部余额” shows every digit of the balance.
     public var amountDisplay: String {
         guard !amountText.isEmpty else { return "$0" }
-        return (direction == .debit ? DisplayFormat.minus : "") + "$" + amountText
+        let digits = isAllBalance ? DisplayFormat.number(currentBalance, minFraction: Self.maxFractionDigits, maxFraction: nil, grouping: false)
+            : amountText
+        return (direction == .debit ? DisplayFormat.minus : "") + "$" + digits
     }
     public var previewText: String {
         if exceedsBalance { return "超过当前余额" }
-        guard (amount ?? 0) > 0, let after = resultingBalance else { return "输入金额" }
+        guard (changeAmount ?? 0) > 0, let after = resultingBalance else { return "输入金额" }
         return BalanceChangeCopy.verb(direction) + "后余额 " + DisplayFormat.money(after)
     }
     public var submitTitle: String {
         let verb = BalanceChangeCopy.verb(direction)
-        guard let amount, amount > 0 else { return verb }
+        guard let amount = changeAmount, amount > 0 else { return verb }
         return verb + " " + DisplayFormat.moneyExact(amount)
     }
 

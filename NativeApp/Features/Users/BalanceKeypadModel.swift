@@ -24,6 +24,8 @@ final class BalanceKeypadModel {
     private(set) var notice: String?
     /// The sheet closes.
     private(set) var isFinished = false
+    /// “先核对” from the segment's question checked here: receipts show only under the sheet, so the next one closes it.
+    private(set) var hasCheckedHere = false
     @ObservationIgnored private var sending: Task<Void, Never>?
 
     init(user: AdminUser, mode: BalanceKeypadMode) {
@@ -35,6 +37,25 @@ final class BalanceKeypadModel {
     var isUserDisabled: Bool { user.status == "disabled" }
 
     func setMode(_ mode: BalanceKeypadMode) { update(draft.switching(to: mode.direction)) }
+    /// The segment: switches, or returns R03's first question when a record of that direction awaits its check (shown by
+    /// `.balanceKeypadEntry`), as entering the keypad would.
+    func requestMode(_ mode: BalanceKeypadMode, model: AppModel) -> BalanceKeypadEntry? {
+        guard mode != self.mode, !isWorking else { return nil }
+        if case .sameDirection(let pending) = BalanceKeypadEntry.check(userID: user.id, mode: mode, model: model) {
+            return BalanceKeypadEntry(userID: user.id, mode: mode, pending: pending)
+        }
+        setMode(mode)
+        return nil
+    }
+    /// That question's “先核对”: S3-07's check, its dialogs over the keypad.
+    func checkFirst(_ op: PendingBalanceOperation, flow: BalanceReconcileFlow, model: AppModel) async {
+        hasCheckedHere = true
+        await flow.reconcile(op, model: model, balance: user.balance)
+    }
+    /// A receipt appeared: after a check from here the keypad leaves so it can be read; a write in flight keeps it.
+    func receiptShown() {
+        if hasCheckedHere, !isWorking { isFinished = true }
+    }
     func editAmount(_ text: String) { update(draft.editingAmount(text)) }
     func editNotes(_ text: String) { draft = draft.editingNotes(text) }
     func chooseAllBalance() { update(draft.choosingAllBalance()) }

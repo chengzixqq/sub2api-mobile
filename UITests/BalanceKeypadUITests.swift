@@ -214,6 +214,47 @@ final class BalanceKeypadUITests: XCTestCase {
         XCTAssertTrue(pendingCheck.waitForNonExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(element("balance.mode").exists, app.debugDescription)
     }
+
+    /// R03 asks twice whichever way 充值 is reached: turning the segment to it while a top-up awaits its check asks the first
+    /// question too.
+    @MainActor func testSwitchingToAHeldDirectionAsksFirst() {
+        launchAndLogin([BalanceArgument.uncertain, "-ui-reconcile-executed"])
+        defer { diagnostics("keypad-switch-held-final") }
+        openUser(1, name: "Alice")
+        topUpFromDetail("5")
+        waitForReceipt(Self.pendingReceipt)
+        XCTAssertTrue(pendingCheck.waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["user.refund"].tap()
+        let mode = element("balance.mode")
+        XCTAssertTrue(mode.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+        mode.buttons["充值"].tap()
+        let first = waitForAlert("上一笔 $5.00 充值结果未确认")
+        for title in ["先核对", "仍要充值", "取消"] { XCTAssertTrue(first.buttons[title].exists, title + "\n" + app.debugDescription) }
+        diagnostics("keypad-switch-held")
+        first.buttons["取消"].tap()
+        // 取消 keeps 退款.
+        XCTAssertTrue(waitUntil(submit, "label BEGINSWITH %@", "退款"), submit.label)
+        XCTAssertTrue(waitUntil(mode.buttons["退款"], "selected == true"), app.debugDescription)
+        mode.buttons["充值"].tap()
+        waitForAlert("上一笔 $5.00 充值结果未确认").buttons["仍要充值"].tap()
+        XCTAssertTrue(waitUntil(submit, "label BEGINSWITH %@", "充值"), submit.label)
+        press("2", "0")
+        submit.tap()
+        let second = waitForAlert("向「Alice」充值 $20.00？")
+        XCTAssertTrue(labelled(containing: "上一笔 $5.00 充值还没核对。", in: second).exists, app.debugDescription)
+        XCTAssertTrue(second.buttons["仍要充值 $20.00"].exists, app.debugDescription)
+        second.buttons["取消"].tap()
+        // 先核对 checks from the sheet; a top-up the server has made changes the balance the sheet opened with, so it closes.
+        mode.buttons["退款"].tap()
+        XCTAssertTrue(waitUntil(submit, "label BEGINSWITH %@", "退款"), submit.label)
+        mode.buttons["充值"].tap()
+        waitForAlert("上一笔 $5.00 充值结果未确认").buttons["先核对"].tap()
+        XCTAssertTrue(mode.waitForNonExistence(timeout: 10), app.debugDescription)
+        let receipt = app.staticTexts["receipt.text"]
+        XCTAssertTrue(waitUntil(receipt, "label BEGINSWITH '已核对'"), receipt.label)
+        XCTAssertTrue(pendingCheck.waitForNonExistence(timeout: 10), app.debugDescription)
+    }
 }
 
 private enum BalanceArgument {
