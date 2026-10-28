@@ -168,23 +168,25 @@ final class Sub2MobileUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["home.ticker.requests"].firstMatch.waitForExistence(timeout: 15))
     }
 
-    /// D17 on the balance sheet: only the administrator who sent a pending write may retry its number.
+    /// D17, now in the detail banner's check (S3-07; the old balance sheet went with S3-08): only the administrator who sent a
+    /// pending write may retry its number, and a record without a sender says so.
     @MainActor func testPendingBalanceRetryFollowsTheSender() {
-        for (argument, retries, note) in [(nil, true, nil), ("-ui-pending-actor-unknown", true, "balance.retry.actor-unknown"),
-                                          ("-ui-pending-other-actor", false, "balance.retry.other-actor")] as [(String?, Bool, String?)] {
-            launch(arguments: ["-ui-pending-money"] + (argument.map { [$0] } ?? []))
+        for (argument, retries, note) in [(nil, true, nil), ("-ui-pending-actor-unknown", true, "无法确认发起人"),
+                                          ("-ui-pending-other-actor", false, "只能由同一管理员重试")] as [(String?, Bool, String?)] {
+            launch(arguments: ["-ui-pending-money", "-ui-reconcile-notfound"] + (argument.map { [$0] } ?? []))
             login(name: "站点 A", url: "https://a.example.com")
             app.tabBars.buttons["用户"].tap()
             XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
             app.buttons["user.1"].tap()
-            reveal(app.buttons["user.balance"])
-            app.buttons["user.balance"].tap()
-            let retry = app.buttons["balance.retry"]
-            let other = app.descendants(matching: .any)["balance.retry.other-actor"].firstMatch
-            XCTAssertTrue(retry.waitForExistence(timeout: 5) || other.waitForExistence(timeout: 5), app.debugDescription)
-            XCTAssertEqual(retry.exists, retries, (argument ?? "same sender") + "\n" + app.debugDescription)
-            for identifier in ["balance.retry.actor-unknown", "balance.retry.other-actor"] {
-                XCTAssertEqual(app.descendants(matching: .any)[identifier].firstMatch.exists, identifier == note, identifier)
+            let check = app.buttons["user.pending.check.0A000000-0000-4000-8000-000000000001"]
+            XCTAssertTrue(check.waitForExistence(timeout: 10), app.debugDescription)
+            check.tap()
+            let alert = app.alerts["服务器上没有这笔记录"]
+            XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+            XCTAssertEqual(alert.buttons["用同一编号重试"].exists, retries, (argument ?? "same sender") + "\n" + app.debugDescription)
+            for line in ["无法确认发起人", "只能由同一管理员重试"] {
+                let shown = alert.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", line)).firstMatch.exists
+                XCTAssertEqual(shown, line == note, line + "\n" + app.debugDescription)
             }
             app.terminate()
         }

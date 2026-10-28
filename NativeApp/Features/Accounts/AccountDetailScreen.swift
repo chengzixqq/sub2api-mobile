@@ -2,9 +2,10 @@ import SwiftUI
 import Sub2Core
 
 /// 20 §2: the account detail. From the list it opens on the row's snapshot; with only an id it shows skeletons until `GET :id`
-/// answers. Above the sections (S2-09 容量 · 今日 · 记录, then S2-10's 基础 · 调度, edited in AccountSectionSheet) sit the status
-/// card and the button row; the buttons go through AccountActions (20 §5). Until their items land, 测试连接 opens the old test
-/// page (S2-14), the credential fixes a placeholder (S2-11 / S2-16 / S2-17), and ⋯ keeps the old token refresh (S2-16).
+/// answers. Above the sections (S2-09 容量 · 今日 · 记录, then S2-10's 基础 · 调度, edited in AccountSectionSheet, and S2-11's 代理)
+/// sit the status card and the button row; the buttons go through AccountActions (20 §5). ⋯ holds 在 Web 中编辑 and 删除账号…
+/// (S2-11). Until their items land, 测试连接 opens the old test page (S2-14), 更换 API Key / 重新授权 a placeholder (S2-16 /
+/// S2-17), and ⋯'s credential slot the old token refresh (S2-16).
 struct AccountDetailScreen: View {
     @Environment(AppModel.self) private var model
     private let id: Int
@@ -33,8 +34,18 @@ private struct AccountDetailContent: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @Environment(AppRouter.self) private var router
     @State private var detail: AccountDetailModel
     @State private var actions: AccountActions
+    /// 代理 (S2-11): the picker, the 恢复原代理 question and its run, the delete confirmation.
+    @State private var proxyEditor: AccountProxyEditorRequest?
+    @State private var preparingProxy = false
+    @State private var reverting: AccountProxyFallbackLine?
+    @State private var revert: AccountProxyRevert
+    @State private var deleteRequest: DeleteRequest?
+    @State private var popsAfterDelete = false
     @State private var sheet: AccountDetailSheet?
     @State private var recovering: UpstreamAccount?
     @State private var confirmingRefresh = false
@@ -50,6 +61,14 @@ private struct AccountDetailContent: View {
         // 20 §5.6 / §2.6: a write's account replaces the page's at once.
         _actions = State(initialValue: AccountActions(model: app, onChange: { [weak made] in made?.applyWrite($0) },
                                                       onMissing: { [weak made] _ in made?.noteMissing() }))
+        // 20 §3.4: the account read back after 恢复原代理 replaces the page's, and the list reads everything again.
+        _revert = State(initialValue: AccountProxyRevert(source: app, receipts: app.receipts,
+                                                         onAccount: { [weak made] in made?.applyEdit(AccountEditBase($0)) },
+                                                         onStale: { [weak made] in
+                                                             guard let made else { return }
+                                                             Task { await made.load() }
+                                                         },
+                                                         onListChanged: { [weak app] in app?.accountListSignal.bump() }))
         self.focus = focus
     }
 
@@ -69,7 +88,7 @@ private struct AccountDetailContent: View {
         .navigationSubtitle(subtitle(page))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if case .content = page, let account = detail.account, account.isTokenAccount {
+            if case .content = page, let account = detail.account {
                 ToolbarItem(placement: .topBarTrailing) { moreMenu(account) }
             }
         }
@@ -85,6 +104,15 @@ private struct AccountDetailContent: View {
         .accountRecoverDialog($recovering, actions: actions)
         .sheet(item: $sheet, onDismiss: sheetClosed) { sheetContent($0) }
         .sheet(item: Binding(get: { detail.editor }, set: { detail.editor = $0 })) { AccountSectionSheet(request: $0) }
+        .accountProxyPrompts(editor: $proxyEditor, reverting: $reverting, onSaved: { model.accountListSignal.bump() },
+                             onRevert: { _ in startRevert() })
+        .confirmDelete($deleteRequest)
+        // 20 §3.4: the deleted account's page leaves once the confirmation has closed.
+        .onChange(of: deleteRequest == nil) { _, closed in
+            guard closed, popsAfterDelete else { return }
+            popsAfterDelete = false
+            dismiss()
+        }
         .confirmationDialog("刷新令牌？", isPresented: $confirmingRefresh, titleVisibility: .visible) {
             Button("刷新令牌") { Task { await refreshToken() } }
             Button("取消", role: .cancel) {}
@@ -106,8 +134,9 @@ private struct AccountDetailContent: View {
                 top(account)
                 sections(account)
                 editSections(account)
+                proxySection(account)
             }
-            // 分区：S2-11 起在 editSections 之后追加（各节挂 .id(AccountDetailFocus.xxx)，focus 由 scrollToFocus 滚到，X39）
+            // 分区：S2-12 起在 proxySection 之后追加（各节挂 .id(AccountDetailFocus.xxx)，focus 由 scrollToFocus 滚到，X39）
         }
     }
 
@@ -138,6 +167,31 @@ private struct AccountDetailContent: View {
         return AccountSectionEdit(isEnabled: detail.canEdit && running == nil, needsRefresh: needsRefresh, isPreparing: detail.isPreparingEdit) {
             Task { await detail.beginEdit(section) }
         }
+    }
+    /// 代理 (S2-11): 编辑 and the 无代理 row open the picker on the account's current version (S2D1-06); a proxy row pushes its
+    /// detail and 恢复原代理 needs no version.
+    private func proxySection(_ account: UpstreamAccount) -> some View {
+        let needsRefresh = detail.editNeedsRefresh || (!detail.canEdit && detail.failure != nil)
+        let edit = AccountSectionEdit(isEnabled: detail.canEdit && running == nil && !revert.isRunning, needsRefresh: needsRefresh,
+                                      isPreparing: preparingProxy) { beginProxyEdit() }
+        return AccountProxySection(content: AccountProxyPresentation.section(account, now: serverNow, timeZone: serverZone), edit: edit,
+                                   isReverting: revert.runningAccountID == account.id, onOpenProxy: { router.push(.proxyDetail(id: $0)) },
+                                   onRevert: { reverting = $0 })
+            .id(AccountDetailFocus.proxy)
+    }
+    private func beginProxyEdit() {
+        guard proxyEditor == nil, !preparingProxy else { return }
+        preparingProxy = true
+        Task {
+            defer { preparingProxy = false }
+            guard let base = await detail.editVersion(), let flow = detail.makePatchFlow() else { return }
+            proxyEditor = AccountProxyEditorRequest(base: base, flow: flow)
+        }
+    }
+    private func startRevert() {
+        guard let account = detail.account else { return }
+        let router = router
+        Task { await revert.revert(account, openOrigin: { router.push(.proxyDetail(id: $0)) }) }
     }
     private func groupName(_ id: Int, in account: UpstreamAccount) -> String {
         account.groups.first { $0.id == id }?.name ?? model.groupDirectory?.name(for: id) ?? "#\(id)"
@@ -173,7 +227,8 @@ private struct AccountDetailContent: View {
             let etag = detail.etagNeedsRefresh ? nil : detail.etag
             run(action) { await actions.enableAccount(account, etag: etag) }
         case .recover: recovering = account
-        case .replaceKey, .reauthorize, .webCredential: sheet = .placeholder(action)
+        case .webCredential: model.openAccountInWeb(account, using: openURL)
+        case .replaceKey, .reauthorize: sheet = .placeholder(action)
         // S2D1-20: 修改过期时间… opens the 调度 sheet.
         case .editExpiry: Task { await detail.beginEdit(.sched) }
         }
@@ -187,20 +242,27 @@ private struct AccountDetailContent: View {
         }
     }
 
-    // MARK: - Transitional ⋯, sheets and refresh
+    // MARK: - ⋯, sheets and refresh
 
     private func moreMenu(_ account: UpstreamAccount) -> some View {
-        Menu {
+        AccountDetailMenu(onOpenWeb: { model.openAccountInWeb(account, using: openURL) }, onDelete: { confirmDelete(account) }) {
             if account.isTokenAccount {
                 Button("刷新令牌", systemImage: "arrow.clockwise") { confirmingRefresh = true }
                     .readOnlyGate(showsCaption: false)
                     .accessibilityIdentifier("account.detail.more.refresh")
             }
-        } label: {
-            Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44)
         }
-        .accessibilityLabel("更多")
-        .accessibilityIdentifier("account.detail.more")
+    }
+    /// 20 §3.4: the delete confirmation; a deleted (or already gone) account pops the page and the list reads everything again.
+    private func confirmDelete(_ account: UpstreamAccount) {
+        let flow = AccountDeleteFlow(source: model, receipts: model.receipts)
+        let signal = model.accountListSignal
+        deleteRequest = .account(account, siteName: model.activeProfile?.name ?? "") {
+            await flow.delete(account) {
+                signal.bump()
+                popsAfterDelete = true
+            }
+        }
     }
 
     @ViewBuilder private func sheetContent(_ sheet: AccountDetailSheet) -> some View {
@@ -238,7 +300,7 @@ private struct AccountDetailContent: View {
     /// Foreground, visible, nothing over the page and no write running.
     private var isRefreshOpen: Bool {
         guard visible, scenePhase == .active, !model.isSuspended, sheet == nil, detail.editor == nil, recovering == nil, !confirmingRefresh,
-              running == nil, !detail.isRemoved else { return false }
+              running == nil, !detail.isRemoved, proxyEditor == nil, reverting == nil, deleteRequest == nil, !revert.isRunning else { return false }
         return !actions.isRunning(detail.accountID)
     }
     private var countdownTarget: Date? { detail.account.flatMap { AccountDisplayState($0, now: serverNow).countdownTarget } }
@@ -267,6 +329,7 @@ private struct AccountDetailContent: View {
         return detail.account.map { AccountDetailPresentation.subtitle($0, catalog: detail.catalog) } ?? ""
     }
     private var serverNow: Date { session?.client.serverClock.now() ?? Date() }
+    private var serverZone: ServerTimeZone { session?.site.serverTimeZone ?? .device }
 }
 
 /// 20 §2.5 只带 id 进入: the status card's and button row's shapes, and the sections' places.

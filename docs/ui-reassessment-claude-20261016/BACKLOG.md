@@ -296,6 +296,11 @@
 | 老服务端测试结果比对的精度 | AccountTestOutcome.legacy 用 error_summary / error_kind 判断错误是否被改写，App 的快照里没有 error_message / error_at；清除限流按测试前限流或临时不可调度有效、测试后没有来判断（S2-13） |
 | 保存遇到 GROUP_NOT_FOUND 时刷新分组目录 | S2-10 的分区 sheet 遇到 404 GROUP_NOT_FOUND 只显示目录文案“对象不存在或已删除”，不进已删除页，但没有自动调用 GroupDirectory.refresh()，分组页要等下次刷新才去掉已删除的分组；需要的话让 AccountPatchFlow 在 failed 里带上 reason，sheet 据此刷新 |
 | 密钥账号详情暂时没有 ⋯ 菜单 | S2-10 删掉过渡的“编辑账号”后，⋯ 只剩令牌账号的“刷新令牌”，密钥账号暂不显示 ⋯；S2-11（在 Web 中编辑、删除账号…）和 S2-16（更换 API Key…）加项时恢复，并按 20 §3.4 的顺序排 |
+| 账号删除“先 pop 再回执”的顺序 | 现在是回执在确认框关闭前出现、确认框关闭后再 pop（和公告删除一致）。如果要严格按规格先 pop 再回执，需要让 S3-00 的 DeleteConfirmationSheet 在 perform 结束后把关闭交给调用方，各章删除一起改 |
+| 账号删除确认框的后果行 | 后端删除账号会级联删除 spark 影子账号和定时测试计划；设计稿没有后果行，目前不写。等 DTO 给出影子数量后再考虑加“影子账号一并删除” |
+| 停用代理副行写法 | 规格写到期词（“MM/DD 到期 / 永不过期”），设计稿写“已停用”。用户看效果图后如果要“已停用”，只改 AccountProxyPresentation 的 row |
+| 其余详情写操作的列表完整刷新 | S2-06 的状态动作、S2-10 的保存、凭据写入还没有 bump AccountListSignal（本条只接了删除、恢复原代理、换代理），由 S2-23 收口时统一接上 |
+| .proxyDetail 占位断言 | S6-12 换上正式代理详情页后，要改 AccountDetailMenuUITests 里 testProxyRowOpensProxyDetail 与 testRevertOriginUnavailableOffersOriginDetail 对 route.placeholder 的断言 |
 
 ### App 与设计 · 阶段 3
 
@@ -331,6 +336,8 @@
 | 新建用户结果不明时的读回口径 | 30 §5.4 第 7 步只按邮箱找（S3-09 已提供 findUserByEmail）；00 §2.5.5 另要求初始余额 > 0 时再按 action_id 查 user-adjustments。后端用户与初始余额账本在同一事务里写，找到用户即说明已入账，建议只按邮箱，由 S3-10 决定并在进度表注明 |
 | findUserByEmail 只看第 1 页 20 条 | 后端 search 同时匹配用户名、备注与 Key，若同一检索词命中 20 个以上比新用户更新的用户，会误判“没有创建成功”；用户再次提交会得到 409 EMAIL_EXISTS，不会重复创建，暂接受（S3-09） |
 | 用户列表刷新后残留已删除的边界行 | S3-02 审查修正后，已加载到第 2 页及以后时，刷新第 1 页会保留“新第 1 页仍含有的最后一行”之后的旧行。如果同一轮里既有顶部新增、又有边界附近的行在别处被删除，被删的行会留在列表里，直到换搜索词或换会话；这和 30 §1.6“第 2 页以后不自动刷新”带来的后续页陈旧属于同一类问题。以后若要精确处理，需要按 offset 重读已加载的各页，或改用游标分页。 |
+| 退款“仍要退款”提醒措辞 | S3-08 按 30 §3.4 字面把“充值”换成“退款”，第二次确认首行是“上一笔 $12.50 退款还没核对。如果它其实已入账，这一笔会再入账一次。”，读起来像“再扣一次”的意思没写出来；用户确认后只需改 BalanceChangeCopy.pendingWarning 一处 |
+| 余额页“稍后核对”的 UI 测试（更新原行） | “稍后核对”部分已由 S3-08 的 BalanceKeypadUITests.testLaterKeepsTheRecordAndShowsTheBanner 补上（-ui-balance-slow）；重试遇到 423 的部分见 S3-07 |
 
 ### App 与设计 · 阶段 4
 
@@ -387,3 +394,7 @@
 | 兑换码列表入口的 UI 测试 | 概览待处理行（S1-10）与补偿回执“查看兑换码”（S6-09）合入后，把 RedeemCodesUITests 里靠 -ui-redeem-open / -ui-redeem-reconcile 进入的两条用例改为从真实入口进入，再决定是否删掉这两个夹具参数 |
 | 查看同一批时的搜索 | 规格没有写；S6-04 的做法是进入同一批时清空搜索，在同一批里输入搜索词会退出同一批、回到原筛选再加搜索词。需要的话可以改为同一批内搜索（后端 batch_id 与 search 可以同时传） |
 | 公告已读情况：不符合条件行的视觉 | 规格 60 §18.3 写“不符合条件变淡”，S6-19 按 S2-04 只把邮箱改 ink2，不降整行不透明度，以保证对比度；需要设计确认是否接受 |
+| 余额发送登记 MoneyWriteInFlight | S3-07 的余额重试与 S3-08 的余额首发没有登记 MoneyWriteInFlight，回前台余额核对仍可能与发送并发（只读、不改记录，风险低）；由 S6-26 复核时统一登记 |
+| 补偿记录可存 groupName | PendingCompensation（S0-06）没有分组名，回执与待核对页靠 GroupDirectory.name(for:) 现查，查不到写“分组 #id”；以后可以在不改请求字节的前提下给落盘记录加 groupName |
+| 资金写待核对的界面与回前台自动核对（补注） | 补偿的回前台自动核对已由 S6-08 完成（与余额同一单飞，同地址、跳过发送中、只认 issued）；补偿的待核对页与 sheet 归 S6-09 |
+| 补偿重试遇无 reason 的 400 | S6-08 对已发出过的补偿重试时，无 reason 的 400 保留待核对（方案原写“与首次相同，结案”），因为这次的 400 说明不了前一次是否已执行；若要改回结案，S6-09 实测后再定 |

@@ -50,6 +50,18 @@ extension DemoData {
         static let legacyServer = "-ui-account-legacy-server"
         /// DeepSeek-01 expired an hour ago with auto_pause_on_expired, so it reads “暂停（已过期）” (S2D1-20).
         static let expired = "-ui-account-expired"
+        /// 恢复原代理 meets 400 ACCOUNT_NOT_IN_FALLBACK: another administrator has just reverted the account (S2-11).
+        static let revertNotInFallback = "-ui-account-revert-not-in-fallback"
+        /// 恢复原代理 meets 409 PROXY_FALLBACK_ORIGIN_UNAVAILABLE (S2-11).
+        static let revertOriginUnavailable = "-ui-account-revert-origin-unavailable"
+        /// `proxies/all` answers 502 (S2-11).
+        static let proxiesError = "-ui-account-proxies-error"
+        /// OpenAI-备用-A is a Bedrock account, so its credential error offers “在 Web 中更换凭据” (S2-11).
+        static let bedrockError = "-ui-account-bedrock-error"
+        /// Before each account's first PATCH another administrator moves it onto us-west-3, so a proxy pick meets 412 and
+        /// “账号已被其他人修改” (S2-11).
+        static let proxyConflict = "-ui-account-proxy-conflict"
+        static let otherAdminProxyID = 5
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -90,41 +102,39 @@ extension DemoData {
     /// site clock when the session started.
     static func demoAccounts(base: Date, longWindows: Bool) -> [UpstreamAccount] {
         let windowShift: TimeInterval = longWindows ? 3_600 : 0
+        let proxies = Dictionary(uniqueKeysWithValues: proxyRows(base: base).map { ($0["id"] as? Int ?? 0, accountProxyWire($0)) })
         func window(_ seconds: TimeInterval) -> String { ServerTime.utcTimestamp(base.addingTimeInterval(seconds + windowShift)) }
         let claudeLimits: [String: Any] = ["model_rate_limits": ["claude-opus-4": ["rate_limit_reset_at": window(720)],
                                                                  "claude-sonnet-4-5": ["rate_limit_reset_at": window(300)]]]
         let rows: [[String: Any]] = [
-            demoAccount(3, "Claude-官方-03", "anthropic", "oauth", groups: [1], concurrency: (0, 4), priority: 1, proxy: 1, fields: [
+            demoAccount(3, "Claude-官方-03", "anthropic", "oauth", groups: [1], concurrency: (0, 4), priority: 1, proxy: proxies[1], fields: [
                 "rate_limit_reset_at": window(277), "current_rpm": 1, "scheduling_rpm": 1, "base_rpm": 60, "active_sessions": 0, "max_sessions": 3,
                 "session_idle_timeout_minutes": 5,
                 "expires_at": Int(base.timeIntervalSince1970) + 36 * 86_400, "extra": claudeLimits]),
             demoAccount(7, "OpenAI-备用-A", "openai", "apikey", status: "error", schedulable: false, groups: [2, 4], concurrency: (0, 4), priority: 2,
-                        proxy: 2, fields: ["error_message": "401 凭据已失效（invalid_api_key）", "error_summary": "401 凭据已失效（invalid_api_key）",
+                        proxy: proxies[2], fields: ["error_message": "401 凭据已失效（invalid_api_key）", "error_summary": "401 凭据已失效（invalid_api_key）",
                                            "error_kind": "auth", "error_status_code": 401, "error_at": ServerTime.utcTimestamp(base.addingTimeInterval(-60))]),
             demoAccount(11, "GLM-直连-01", "zhipu", "apikey", groups: [7], concurrency: (0, 6), priority: 3, fields: ["overload_until": window(72)]),
             demoAccount(12, "MiniMax-01", "minimax", "apikey", groups: [9], concurrency: (0, 4), priority: 3, fields: [
                 "temp_unschedulable_until": window(1_380), "temp_unschedulable_reason": temporaryReason(base: base, until: window(1_380))]),
-            demoAccount(5, "Gemini-测试-B", "gemini", "apikey", schedulable: false, groups: [6], concurrency: (0, 2), priority: 5, proxy: 3),
-            demoAccount(1, "Claude-官方-01", "anthropic", "oauth", groups: [1, 5], concurrency: (2, 4), priority: 1, proxy: 1, fields: [
+            demoAccount(5, "Gemini-测试-B", "gemini", "apikey", schedulable: false, groups: [6], concurrency: (0, 2), priority: 5, proxy: proxies[3]),
+            demoAccount(1, "Claude-官方-01", "anthropic", "oauth", groups: [1, 5], concurrency: (2, 4), priority: 1, proxy: proxies[1], fields: [
                 "current_rpm": 14, "scheduling_rpm": 14, "base_rpm": 60, "active_sessions": 2, "max_sessions": 3, "session_idle_timeout_minutes": 5]),
-            demoAccount(2, "Claude-官方-02", "anthropic", "oauth", groups: [1, 5], concurrency: (3, 4), priority: 1, proxy: 1, fields: [
+            demoAccount(2, "Claude-官方-02", "anthropic", "oauth", groups: [1, 5], concurrency: (3, 4), priority: 1, proxy: proxies[1], fields: [
                 "current_rpm": 12, "scheduling_rpm": 12, "base_rpm": 60, "active_sessions": 3, "max_sessions": 3, "session_idle_timeout_minutes": 5]),
-            demoAccount(4, "OpenAI-主力-01", "openai", "apikey", groups: [2], concurrency: (2, 8), priority: 1, proxy: 2, fields: [
+            demoAccount(4, "OpenAI-主力-01", "openai", "apikey", groups: [2], concurrency: (2, 8), priority: 1, proxy: proxies[2], fields: [
                 "quota_daily_used": 96.3, "quota_daily_limit": 150]),
-            demoAccount(8, "DeepSeek-01", "deepseek", "apikey", groups: [3], concurrency: (0, 8), priority: 2, proxy: 4),
-            demoAccount(9, "Kimi-01", "kimi", "apikey", groups: [8], concurrency: (1, 4), priority: 2, proxy: 4),
+            demoAccount(8, "DeepSeek-01", "deepseek", "apikey", groups: [3], concurrency: (0, 8), priority: 2, proxy: proxies[4]),
+            demoAccount(9, "Kimi-01", "kimi", "apikey", groups: [8], concurrency: (1, 4), priority: 2, proxy: proxies[1], fields: [
+                "proxy_fallback_origin_id": 4, "proxy_fallback_origin_name": "hk-01"]),
             demoAccount(10, "Grok-旧-01", "grok", "apikey", status: "inactive", groups: [], concurrency: (0, 2), priority: 9)
         ]
         // try! only here: a wire key that no longer decodes stops the first UI test instead of showing a wrong list.
         return rows.map { try! JSONDecoder().decode(UpstreamAccount.self, from: JSONSerialization.data(withJSONObject: $0)) }
     }
 
-    /// The design's proxies the demo accounts use (id → name, status).
-    private static let demoProxies: [Int: (name: String, status: String)] = [1: ("hk-02", "active"), 2: ("sg-01", "active"),
-                                                                             3: ("jp-tokyo-1", "expired"), 4: ("hk-01", "active")]
-
     private static func demoAccount(_ id: Int, _ name: String, _ platform: String, _ type: String, status: String = "active", schedulable: Bool = true,
-                                    groups: [Int], concurrency: (Int, Int), priority: Int, proxy: Int? = nil,
+                                    groups: [Int], concurrency: (Int, Int), priority: Int, proxy: [String: Any]? = nil,
                                     fields: [String: Any] = [:]) -> [String: Any] {
         let names = Dictionary(uniqueKeysWithValues: accountGroups.map { ($0.id, $0.name) })
         var json: [String: Any] = [
@@ -132,9 +142,9 @@ extension DemoData {
             "group_ids": groups, "groups": groups.map { ["id": $0, "name": names[$0] ?? ""] as [String: Any] }, "current_concurrency": concurrency.0,
             "concurrency": concurrency.1, "concurrency_available": true, "created_at": "2026-08-01T00:00:00Z", "updated_at": "2026-10-15T00:00:00Z"
         ]
-        if let proxy, let entry = demoProxies[proxy] {
-            json["proxy_id"] = proxy
-            json["proxy"] = ["id": proxy, "name": entry.name, "status": entry.status] as [String: Any]
+        if let proxy {
+            json["proxy_id"] = proxy["id"]
+            json["proxy"] = proxy
         }
         return json.merging(fields) { _, new in new }
     }
@@ -146,6 +156,43 @@ extension DemoData {
                                     "matched_keyword": "overloaded", "rule_index": 0, "error_message": "upstream overloaded", "trigger_count": 1]
         let data = (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])) ?? Data()
         return String(decoding: data, as: UTF8.self)
+    }
+
+    /// The design's DEMO.proxies on the backend's wire keys (60 §12.2), dates as offsets from `base`: hk-02 runs out in 6 days,
+    /// jp-tokyo-1 and us-east-2 have expired, de-fra-1 is stopped. Addresses and passwords are made up.
+    static func proxyRows(base: Date) -> [[String: Any]] {
+        func day(_ days: Double) -> String { ServerTime.utcTimestamp(base.addingTimeInterval(days * 86_400)) }
+        func row(_ id: Int, _ name: String, _ scheme: String, _ host: String, _ port: Int, status: String = "active", expires: Double?,
+                 created: Double, warn: Int = 7, country: String? = nil, city: String? = nil) -> [String: Any] {
+            var json: [String: Any] = ["id": id, "name": name, "protocol": scheme, "host": host, "port": port, "status": status,
+                                       "created_at": day(created), "expires_at": expires.map(day) ?? NSNull(), "expiry_warn_days": warn,
+                                       "username": "fixture", "password": "fixture-proxy-secret", "fallback_mode": "direct"]
+            if let country { json["country_code"] = country }
+            if let city { json["city"] = city }
+            return json
+        }
+        return [
+            row(1, "hk-02", "socks5", "203.0.113.24", 1080, expires: 6, created: -94, country: "HK"),
+            row(2, "sg-01", "https", "198.51.100.7", 443, expires: 136, created: -55, country: "SG"),
+            row(3, "jp-tokyo-1", "socks5h", "198.51.100.30", 1080, status: "expired", expires: -3, created: -180, country: "JP", city: "Tokyo"),
+            row(4, "hk-01", "http", "203.0.113.9", 3128, expires: 45, created: -147, country: "HK"),
+            row(5, "us-west-3", "http", "203.0.113.140", 8080, expires: nil, created: -52, country: "US", city: "Fremont"),
+            row(6, "de-fra-1", "socks5", "198.51.100.61", 1080, status: "inactive", expires: 3, created: -40, warn: 3, country: "DE"),
+            row(7, "us-east-2", "http", "198.51.100.77", 8080, status: "expired", expires: -5, created: -120, country: "US")
+        ]
+    }
+    /// `proxies/all?with_count=true`'s rows, `account_count` from the given counts.
+    static func accountProxies(base: Date, accountCounts: [Int: Int] = [:]) -> [AdminProxy] {
+        // try! only here: a wire key that no longer decodes stops the first UI test instead of showing a wrong picker.
+        proxyRows(base: base).map { row in
+            var counted = row
+            counted["account_count"] = accountCounts[row["id"] as? Int ?? 0] ?? 0
+            return try! JSONDecoder().decode(AdminProxy.self, from: JSONSerialization.data(withJSONObject: counted))
+        }
+    }
+    /// The account DTO's `proxy` (dto.Proxy): no login, no counts.
+    static func accountProxyWire(_ row: [String: Any]) -> [String: Any] {
+        row.filter { ["id", "name", "protocol", "host", "port", "status", "expires_at", "expiry_warn_days"].contains($0.key) }
     }
 
     /// DEMO.accounts' today figures: user_cost = todayCost, cost = todayAccountCost, standard_cost = todayStd.
@@ -185,7 +232,8 @@ final class AccountDemoStore {
         let demo = arguments.contains(DemoData.AccountFixture.empty)
             ? [] : DemoData.demoAccounts(base: base, longWindows: arguments.contains(DemoData.AccountFixture.longWindows))
         let grouped = arguments.contains(DemoData.AccountFixture.groupTransition) ? Self.joiningGroupTen(demo) : demo
-        accounts = arguments.contains(DemoData.AccountFixture.expired) ? Self.expiringDeepSeek(grouped, base: base) : grouped
+        let expiring = arguments.contains(DemoData.AccountFixture.expired) ? Self.expiringDeepSeek(grouped, base: base) : grouped
+        accounts = arguments.contains(DemoData.AccountFixture.bedrockError) ? Self.bedrockBackup(expiring) : expiring
     }
     private static func joiningGroupTen(_ rows: [UpstreamAccount]) -> [UpstreamAccount] {
         rows.map { row in
@@ -262,7 +310,7 @@ final class AccountDemoStore {
 
     /// `config_version` by id (“cv-N”, from 1); PATCH and PUT move it on.
     private var versions: [Int: Int] = [:]
-    /// Accounts whose `patchConflict` edit already happened, and whether `patchTimeout` has lost its PATCH (S2-10).
+    /// Accounts whose `patchConflict` / `proxyConflict` edit already happened, and whether `patchTimeout` has lost its PATCH (S2-10).
     private var conflictServed: Set<Int> = []
     private var timeoutServed = false
 
@@ -307,6 +355,12 @@ final class AccountDemoStore {
             replace(account)
             bump(id)
         }
+        if arguments.contains(DemoData.AccountFixture.proxyConflict), conflictServed.insert(id).inserted {
+            account.proxyID = DemoData.AccountFixture.otherAdminProxyID
+            account.proxy = proxyObject(id: DemoData.AccountFixture.otherAdminProxyID)
+            replace(account)
+            bump(id)
+        }
         if arguments.contains(DemoData.AccountFixture.patchTimeout), !timeoutServed {
             timeoutServed = true
             throw APIError(kind: .transport, message: "连接超时，请检查网络后重试。")
@@ -316,7 +370,7 @@ final class AccountDemoStore {
             throw APIError.server(status: 412, envelope: ErrorEnvelope(reason: AccountWriteReason.versionConflict, metadata: metadata))
         }
         try refuseMixedChannel(request, account: account, arguments: arguments)
-        let updated = Self.applying(request, to: account)
+        let updated = withProxyObject(Self.applying(request, to: account), changed: request.proxyID != nil)
         replace(updated)
         bump(id)
         return VersionedAccount(account: updated, etag: etag(id))
@@ -326,7 +380,7 @@ final class AccountDemoStore {
         _ = try patch.fullUpdateBody(base: base)
         let account = try existing(id)
         try refuseMixedChannel(patch, account: account, arguments: arguments)
-        let updated = Self.applying(patch, to: account)
+        let updated = withProxyObject(Self.applying(patch, to: account), changed: patch.proxyID != nil)
         replace(updated)
         bump(id)
         return updated
@@ -472,6 +526,8 @@ extension AccountDemoStore {
         if let value = request.priority { updated.priority = value }
         if let value = request.rateMultiplier { updated.rateMultiplier = value }
         if let value = request.loadFactor { updated.loadFactor = value > 0 ? value : nil }
+        // 0 is 无代理; like the server, a manual change keeps the fallback mark (only revert and the expiry sweep write it).
+        if let value = request.proxyID { updated.proxyID = value > 0 ? value : nil }
         if let ids = request.groupIDs {
             updated.groupIDs = ids
             updated.groups = ids.map { id in .init(id: id, name: DemoData.accountGroups.first { $0.id == id }?.name ?? "#\(id)") }
@@ -520,6 +576,70 @@ extension AccountDemoStore {
             expired.expiresAt = Int64(base.timeIntervalSince1970) - 3_600
             expired.autoPauseOnExpired = true
             return expired
+        }
+    }
+}
+
+// MARK: - S2-11 代理、恢复原代理、删除
+
+extension AccountDemoStore {
+    /// `GET proxies/all?with_count=true`: the active proxies newest first, counted over this session's accounts.
+    func activeProxies() throws -> [AdminProxy] {
+        if arguments.contains(DemoData.AccountFixture.proxiesError) { throw Self.failure }
+        let counts = Dictionary(grouping: accounts.compactMap(\.proxyID), by: { $0 }).mapValues(\.count)
+        return DemoData.accountProxies(base: base, accountCounts: counts).filter(\.isActive)
+            .sorted { ($0.createdAt ?? .distantPast, $0.id) > ($1.createdAt ?? .distantPast, $1.id) }
+    }
+    /// The account DTO's `proxy` for an id.
+    func proxyObject(id: Int) -> AccountProxy? {
+        guard let row = DemoData.proxyRows(base: base).first(where: { $0["id"] as? Int == id }),
+              let data = try? JSONSerialization.data(withJSONObject: DemoData.accountProxyWire(row)) else { return nil }
+        return try? JSONDecoder().decode(AccountProxy.self, from: data)
+    }
+    /// `POST :id/revert-proxy-fallback`: back on the original proxy unless it is gone, stopped or expired (409); 400 when the
+    /// account is not fallen back. `revertNotInFallback` lets another administrator revert it first.
+    func revertProxyFallback(id: Int) throws {
+        let account = try existing(id)
+        if arguments.contains(DemoData.AccountFixture.revertNotInFallback), let origin = account.proxyFallbackOriginID {
+            replace(Self.reverted(account, to: origin, proxy: proxyObject(id: origin)))
+            bump(id)
+            throw APIError.server(status: 400, reason: AccountWriteReason.notInFallback)
+        }
+        guard let origin = account.proxyFallbackOriginID else { throw APIError.server(status: 400, reason: AccountWriteReason.notInFallback) }
+        let usable = DemoData.accountProxies(base: base).first { $0.id == origin }.map { $0.isActive && ($0.expiresAt.map { $0 > base } ?? true) }
+        if arguments.contains(DemoData.AccountFixture.revertOriginUnavailable) || usable != true {
+            throw APIError.server(status: 409, reason: AccountWriteReason.fallbackOriginUnavailable)
+        }
+        replace(Self.reverted(account, to: origin, proxy: proxyObject(id: origin)))
+        bump(id)
+    }
+    /// `DELETE :id`: an id already gone is the server's idempotent success.
+    func delete(id: Int) -> DeleteResult {
+        guard account(id: id) != nil else { return .alreadyGone }
+        remove(id: id)
+        return .deleted
+    }
+
+    fileprivate func withProxyObject(_ account: UpstreamAccount, changed: Bool) -> UpstreamAccount {
+        guard changed else { return account }
+        var updated = account
+        updated.proxy = account.proxyID.flatMap(proxyObject(id:))
+        return updated
+    }
+    private static func reverted(_ account: UpstreamAccount, to origin: Int, proxy: AccountProxy?) -> UpstreamAccount {
+        var updated = account
+        updated.proxyID = origin
+        updated.proxy = proxy
+        updated.proxyFallbackOriginID = nil
+        updated.proxyFallbackOriginName = nil
+        return updated
+    }
+    fileprivate static func bedrockBackup(_ rows: [UpstreamAccount]) -> [UpstreamAccount] {
+        rows.map { row in
+            guard row.id == 7 else { return row }
+            var bedrock = row
+            bedrock.type = "bedrock"
+            return bedrock
         }
     }
 }

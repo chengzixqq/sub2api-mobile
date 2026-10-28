@@ -145,13 +145,19 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertFalse(element("account.detail.card").exists, app.debugDescription)
     }
 
-    /// The sections edit the account (S2-10), so ⋯ has no 编辑账号; it keeps the old token refresh for token accounts until S2-16
-    /// and is not shown for a key account meanwhile.
+    /// The sections edit the account (S2-10), so ⋯ has no 编辑账号: 在 Web 中编辑 and 删除账号… last (S2-11), after the old token
+    /// refresh that token accounts keep until S2-16.
     @MainActor func testMoreMenuKeepsTransitionalItems() {
         openDetail(4)
         defer { diagnostics("account-detail-more-final") }
         XCTAssertTrue(app.buttons["account.section.basic.edit"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertFalse(app.buttons["account.detail.more"].exists, app.debugDescription)
+        app.buttons["account.detail.more"].tap()
+        XCTAssertTrue(menuButton("在 Web 中编辑").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(menuButton("删除账号…").exists, app.debugDescription)
+        XCTAssertFalse(menuButton("刷新令牌").exists, app.debugDescription)
+        XCTAssertFalse(menuButton("编辑账号").exists, app.debugDescription)
+        menuButton("在 Web 中编辑").tap()
+        waitForReceipt("已在浏览器打开「OpenAI-主力-01」的编辑页")
         goBack()
         let row = app.buttons["account.1"]
         reveal(row, towardBottom: false)
@@ -159,6 +165,8 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["account.detail.more"].tap()
         XCTAssertTrue(menuButton("刷新令牌").waitForExistence(timeout: 5), app.debugDescription)
+        let order = ["刷新令牌", "在 Web 中编辑", "删除账号…"].map { menuButton($0).frame.minY }
+        XCTAssertEqual(order, order.sorted(), app.debugDescription)
         XCTAssertFalse(menuButton("编辑账号").exists, app.debugDescription)
         menuButton("刷新令牌").tap()
         XCTAssertTrue(dialogButton("刷新令牌").waitForExistence(timeout: 5), app.debugDescription)

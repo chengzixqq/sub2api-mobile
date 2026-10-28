@@ -28,6 +28,8 @@ struct UserDisabledBanner: View {
 struct UserBalanceHero: View {
     let detail: UserDetailModel
     let user: AdminUser
+    /// A top-up awaits its check (30 §3.4, design `vuTopup`): ＋ 充值 loses its fill.
+    let topUpIsSecondary: Bool
     let onTopUp: () -> Void
     let onRefund: () -> Void
 
@@ -41,9 +43,7 @@ struct UserBalanceHero: View {
                 BlockFailureRow(detail.month, id: "user.hero.month") { Task { await detail.reloadMonth() } }
             }
             HStack(spacing: 10) {
-                Button(action: onTopUp) { Text(UserDetailPresentation.topUpTitle).frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                    .accessibilityIdentifier("user.balance")
+                topUp.controlSize(.large).accessibilityIdentifier("user.balance")
                 Button(action: onRefund) { Text(UserDetailPresentation.refundTitle).frame(maxWidth: .infinity) }
                     .buttonStyle(.bordered).controlSize(.large)
                     .accessibilityIdentifier("user.refund")
@@ -51,6 +51,11 @@ struct UserBalanceHero: View {
             .readOnlyGate()
         }
         .padding(.vertical, 6)
+    }
+
+    @ViewBuilder private var topUp: some View {
+        let button = Button(action: onTopUp) { Text(UserDetailPresentation.topUpTitle).frame(maxWidth: .infinity) }
+        if topUpIsSecondary { button.buttonStyle(.bordered) } else { button.buttonStyle(.borderedProminent) }
     }
 
     private var figures: some View {

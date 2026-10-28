@@ -20,6 +20,8 @@ struct UserDetailView: View {
     @State private var returnsFromEditor = false
     /// 30 §3.4: the pending banner's checks and their dialogs (S3-07).
     @State private var reconcileFlow = BalanceReconcileFlow()
+    /// R03's first confirmation before the keypad (S3-08).
+    @State private var balanceEntry: BalanceKeypadEntry?
 
     private var shouldPoll: Bool { visible && scenePhase == .active && detail != nil }
     /// `.userEdit` of this user, any segment, on the stack in front: the key summary's push, and S3-11's ⋯ 编辑用户.
@@ -31,6 +33,9 @@ struct UserDetailView: View {
         content
             .confirmDelete($deleteRequest)
             .balanceReconcileFlow(reconcileFlow)
+            .balanceKeypadEntry($balanceEntry) { [reconcileFlow, model, detail] op in
+                Task { await reconcileFlow.reconcile(op, model: model, balance: detail?.user?.balance) }
+            }
             .navigationTitle(detail?.user?.displayName ?? UserDetailPresentation.loadingTitle)
             .navigationSubtitle(detail?.user?.email ?? "")
             .navigationBarTitleDisplayMode(.inline)
@@ -64,8 +69,9 @@ struct UserDetailView: View {
                     pendingBanner(over: failure(reason, detail: detail))
                 case .value(let user, _, _, _):
                     UserDetailContent(detail: detail, user: user, timeZone: session?.site.serverTimeZone ?? .device, reconcileFlow: reconcileFlow,
+                                      topUpHeldBack: BalanceKeypadEntry.holdsBack(userID: userID, mode: .topup, model: model),
                                       onEnable: { Task { await detail.setStatus(enable: true) } },
-                                      onBalance: { router.present(.balanceKeypad(userID: userID, mode: $0)) })
+                                      onBalance: { balanceEntry = BalanceKeypadEntry.open(userID: userID, mode: $0, model: model, router: router) })
                         .refreshable { await detail.loadAll() }
                 }
             }
@@ -170,6 +176,8 @@ private struct UserDetailContent: View {
     let user: AdminUser
     let timeZone: ServerTimeZone
     let reconcileFlow: BalanceReconcileFlow
+    /// 30 §3.4: 充值 loses its fill while a top-up awaits its check.
+    let topUpHeldBack: Bool
     let onEnable: () -> Void
     let onBalance: (BalanceKeypadMode) -> Void
 
@@ -183,7 +191,7 @@ private struct UserDetailContent: View {
                 }
             }
             Section {
-                UserBalanceHero(detail: detail, user: user, onTopUp: { onBalance(.topup) }, onRefund: { onBalance(.refund) })
+                UserBalanceHero(detail: detail, user: user, topUpIsSecondary: topUpHeldBack, onTopUp: { onBalance(.topup) }, onRefund: { onBalance(.refund) })
             }
             UserKeySummarySection(detail: detail, displayName: user.displayName)
             UserLedgerPeekSection(detail: detail, timeZone: timeZone, now: detail.serverNow)

@@ -141,6 +141,48 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(await stub.pages.count == 2)
 }
 
+@MainActor @Test func typingOnKeepsTheSearchAlreadySent() async {
+    let gate = SessionGate()
+    let stub = ReadsStub(page: { _, page, query in
+        switch AnnouncementQueryProbe.search(query) {
+        case nil: return rosterPage(1...3, page: page, total: 26)
+        case "bo"?: await gate.wait(); return rosterPage(2...2, page: page)
+        default: return rosterPage(5...6, page: page)
+        }
+    })
+    let model = makeModel(stub)
+    await model.start()
+    model.searchChanged("bo")
+    #expect(await eventually { await gate.arrived })
+    // A space typed while page 1 of “bo” is on its way: the same search, nothing new goes out, and the read already sent lands.
+    model.searchChanged("bo ")
+    try? await Task.sleep(for: .milliseconds(80))
+    await gate.open()
+    #expect(await eventually { await model.rows.map(\.userID) == [2] })
+    #expect(!model.state.isLoading)
+    #expect(await stub.pages.count == 2)
+
+    // Other words while “bo” is still out: the newer search wins and the older reply is dropped when it lands.
+    let held = SessionGate()
+    let slow = ReadsStub(page: { _, page, query in
+        switch AnnouncementQueryProbe.search(query) {
+        case nil: return rosterPage(1...3, page: page, total: 26)
+        case "bo"?: await held.wait(); return rosterPage(2...2, page: page)
+        default: return rosterPage(5...6, page: page)
+        }
+    })
+    let switching = makeModel(slow)
+    await switching.start()
+    switching.searchChanged("bo")
+    #expect(await eventually { await held.arrived })
+    switching.searchChanged("al")
+    #expect(await eventually { await switching.rows.map(\.userID) == [5, 6] })
+    await held.open()
+    try? await Task.sleep(for: .milliseconds(50))
+    #expect(switching.rows.map(\.userID) == [5, 6])
+    #expect(await slow.queries.map(\.search) == ["", "bo", "al"])
+}
+
 @MainActor @Test func filterAndSortChangesReloadFirstPage() async {
     let stub = ReadsStub(page: { call, page, _ in
         call == 1 ? rosterPage(1...3, page: page, pages: 2, total: 6) : rosterPage(10...11, page: page)

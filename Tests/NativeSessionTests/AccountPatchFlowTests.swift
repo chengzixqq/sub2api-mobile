@@ -271,6 +271,30 @@ private let rename = change(AccountPatchRequest(name: "新名"))
     #expect(moved.flow.phase == .unconfirmed)
 }
 
+/// 重试 and 刷新核对 go on with the save as it was sent, so the form waits until they settle; a refusal leaves it to fix.
+@MainActor @Test func openResultLocksTheFormUntilItSettles() async {
+    let missed = Harness()
+    #expect(!missed.flow.locksForm)
+    missed.source.patchReplies = [.failure(transportError)]
+    await missed.flow.save(rename, base: base)
+    #expect(missed.flow.phase == .notApplied && missed.flow.locksForm)
+    await missed.flow.retry()
+    #expect(missed.flow.savedRevision == 1 && !missed.flow.locksForm)
+
+    let unread = Harness()
+    unread.source.patchReplies = [.failure(transportError)]
+    unread.source.readReplies = [.failure(siteDown), .success(versioned(account(name: "新名"), "\"cv-4\""))]
+    await unread.flow.save(rename, base: base)
+    #expect(unread.flow.phase == .unconfirmed && unread.flow.locksForm)
+    await unread.flow.recheck()
+    #expect(unread.flow.savedRevision == 1 && !unread.flow.locksForm)
+
+    let refused = Harness()
+    refused.source.patchReplies = [.failure(APIError.server(status: 400, reason: "INVALID_PATCH"))]
+    await refused.flow.save(rename, base: base)
+    #expect(!refused.flow.locksForm)
+}
+
 // MARK: - 409
 
 @MainActor @Test func precheckWithoutDetailsCapabilityAsksBeforeWriting() async {
