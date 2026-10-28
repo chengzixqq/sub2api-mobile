@@ -302,6 +302,9 @@
 | 停用代理副行写法 | 规格写到期词（“MM/DD 到期 / 永不过期”），设计稿写“已停用”。用户看效果图后如果要“已停用”，只改 AccountProxyPresentation 的 row |
 | 其余详情写操作的列表完整刷新 | S2-06 的状态动作、S2-10 的保存、凭据写入还没有 bump AccountListSignal（本条只接了删除、恢复原代理、换代理），由 S2-23 收口时统一接上 |
 | .proxyDetail 占位断言 | S6-12 换上正式代理详情页后，要改 AccountDetailMenuUITests 里 testProxyRowOpensProxyDetail 与 testRevertOriginUnavailableOffersOriginDetail 对 route.placeholder 的断言 |
+| 账号模型分区空映射的文案 | Antigravity / Grok / Gemini Google One / OpenAI OAuth / DeepSeek 在映射为空时，后端实际按平台默认列表调度（service/account.go resolveModelMapping / IsModelSupported）；App 照规格写“支持所有模型”“未限制”。是否改成“按平台默认模型”待用户看图决定（S2-12） |
+| 多协议账号切换账号类型 / API 协议时联动接入端点 | 规格只写改 account_mode / api_protocol；App 照 Web EditAccountModal，在端点为官方预设或缺省时一并改写 base_url / api_base_urls / protocol_rules；自定义端点时两行只读并加脚注“这个账号用的是自定义接入端点，账号类型和 API 协议请在 Web 中修改。”（新文案，待用户看效果图；S2-12） |
+| MetaCatalog 补解码 multi_protocol.routing | S2-12 用“任一模式有 protocol_rules”判断按模型分流（与当前目录一致：opencode_go、command_code）；将来出现没有规则的 by_model 平台会误判，影响未设置 api_protocol 时显示“Chat Completions”还是“自适应”，建议由 S2-02 的目录解码补上 routing |
 
 ### App 与设计 · 阶段 3
 
@@ -339,6 +342,7 @@
 | 用户列表刷新后残留已删除的边界行 | S3-02 审查修正后，已加载到第 2 页及以后时，刷新第 1 页会保留“新第 1 页仍含有的最后一行”之后的旧行。如果同一轮里既有顶部新增、又有边界附近的行在别处被删除，被删的行会留在列表里，直到换搜索词或换会话；这和 30 §1.6“第 2 页以后不自动刷新”带来的后续页陈旧属于同一类问题。以后若要精确处理，需要按 offset 重读已加载的各页，或改用游标分页。 |
 | 退款“仍要退款”提醒措辞 | S3-08 按 30 §3.4 字面把“充值”换成“退款”，第二次确认首行是“上一笔 $12.50 退款还没核对。如果它其实已入账，这一笔会再入账一次。”，读起来像“再扣一次”的意思没写出来；用户确认后只需改 BalanceChangeCopy.pendingWarning 一处 |
 | 余额页“稍后核对”的 UI 测试（更新原行） | “稍后核对”部分已由 S3-08 的 BalanceKeypadUITests.testLaterKeepsTheRecordAndShowsTheBanner 补上（-ui-balance-slow）；重试遇到 423 的部分见 S3-07 |
+| 键盘内 KEY_CONFLICT 之后再提交只确认一次 | S3-08 scope 写 KEY_CONFLICT 后“按同方向待核对走两次确认”。现在原记录留作待核对、sheet 不关，再提交只出现带提醒行的确认框（第二次确认）。这和 30 §3.4“键盘打开期间才出现的待核对”同类，本次没改；后端冻结了请求体，按理不会出现 KEY_CONFLICT。是否要在 sheet 内补第一次确认，待定 |
 
 ### App 与设计 · 阶段 4
 
