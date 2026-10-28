@@ -18,6 +18,9 @@ private func row(_ id: Int, type: String = "balance", createdAt: Date? = now, co
 private func page(_ items: [AdminRedeemCode], page: Int = 1, total: Int? = nil, hasMore: Bool = false) -> Page<AdminRedeemCode> {
     Page(items: items, total: total, page: page, pageSize: RedeemListPolicy.pageSize, pages: nil, hasMore: hasMore)
 }
+private func loaded(_ codes: [AdminRedeemCode], hasMore: Bool = false) -> RedeemListPage {
+    RedeemListPage(codes: codes, lastServerPage: 1, hasMore: hasMore, serverTotal: nil)
+}
 private func items(_ query: RedeemCodeListQuery, page: Int = 1) throws -> [String: String] {
     Dictionary(uniqueKeysWithValues: try query.queryItems(page: page).map { ($0.name, $0.value ?? "") })
 }
@@ -179,18 +182,35 @@ private func banner(_ records: [any PendingMoneyWrite], sameAddress: Set<UUID> =
 }
 
 @Test func redeemListEmptyStatesFollowTheTable() {
-    #expect(RedeemListEmpty.resolve(codes: [], filter: RedeemListFilter(), siteTotal: nil) == .noCodes)
-    #expect(RedeemListEmpty.resolve(codes: [], filter: RedeemListFilter(search: " q "), siteTotal: 12) == .noSearchMatch("q"))
-    #expect(RedeemListEmpty.resolve(codes: [], filter: RedeemListFilter(status: .expired), siteTotal: 12) == .noTypeMatch)
-    #expect(RedeemListEmpty.resolve(codes: [], filter: RedeemListFilter(type: .invitation), siteTotal: nil) == .noTypeMatch)
+    #expect(RedeemListEmpty.resolve(page: loaded([]), filter: RedeemListFilter(), siteTotal: nil) == .noCodes)
+    #expect(RedeemListEmpty.resolve(page: loaded([]), filter: RedeemListFilter(search: " q "), siteTotal: 12) == .noSearchMatch("q"))
+    #expect(RedeemListEmpty.resolve(page: loaded([]), filter: RedeemListFilter(status: .expired), siteTotal: 12) == .noTypeMatch)
+    #expect(RedeemListEmpty.resolve(page: loaded([]), filter: RedeemListFilter(type: .invitation), siteTotal: nil) == .noTypeMatch)
     // A site without codes says so whatever the chip; a search keeps its own wording.
-    #expect(RedeemListEmpty.resolve(codes: [], filter: RedeemListFilter(status: .used), siteTotal: 0) == .noCodes)
-    #expect(RedeemListEmpty.resolve(codes: [], filter: RedeemListFilter(search: "q"), siteTotal: 0) == .noSearchMatch("q"))
-    #expect(RedeemListEmpty.resolve(codes: nil, filter: RedeemListFilter(), siteTotal: 0) == nil)
-    #expect(RedeemListEmpty.resolve(codes: [row(1)], filter: RedeemListFilter(), siteTotal: 1) == nil)
+    #expect(RedeemListEmpty.resolve(page: loaded([]), filter: RedeemListFilter(status: .used), siteTotal: 0) == .noCodes)
+    #expect(RedeemListEmpty.resolve(page: loaded([]), filter: RedeemListFilter(search: "q"), siteTotal: 0) == .noSearchMatch("q"))
+    #expect(RedeemListEmpty.resolve(page: nil, filter: RedeemListFilter(), siteTotal: 0) == nil)
+    #expect(RedeemListEmpty.resolve(page: loaded([row(1)]), filter: RedeemListFilter(), siteTotal: 1) == nil)
+    // An old server's pages of admin rows left nothing to show yet: the codes may be further down.
+    #expect(RedeemListEmpty.resolve(page: loaded([], hasMore: true), filter: RedeemListFilter(), siteTotal: nil) == nil)
+    #expect(RedeemListEmpty.resolve(page: loaded([], hasMore: true), filter: RedeemListFilter(search: "q"), siteTotal: nil) == nil)
     #expect(RedeemListEmpty.noCodes.title == "还没有兑换码")
     #expect(RedeemListEmpty.noSearchMatch("a3f0").title == "没有匹配“a3f0”的兑换码")
     #expect(RedeemListEmpty.noTypeMatch.title == "没有这类兑换码")
+}
+
+@Test func redeemListOffersLoadMoreWhenScrollingCannotReadOn() {
+    let old = RedeemListFilter().listQuery(supportsStats: false)
+    let current = RedeemListFilter().listQuery(supportsStats: true)
+    // Without types a page thinned by admin rows may add no card for the bottom to reach, so 加载更多 stays.
+    #expect(RedeemListPolicy.offersLoadMore(loaded([], hasMore: true), query: old))
+    #expect(RedeemListPolicy.offersLoadMore(loaded([row(2), row(1)], hasMore: true), query: old))
+    #expect(!RedeemListPolicy.offersLoadMore(loaded([row(1)]), query: old))
+    // With types the last card reaching the screen reads on; only a list left without cards needs the button.
+    #expect(!RedeemListPolicy.offersLoadMore(loaded([row(1)], hasMore: true), query: current))
+    #expect(RedeemListPolicy.offersLoadMore(loaded([], hasMore: true), query: current))
+    #expect(!RedeemListPolicy.offersLoadMore(loaded([]), query: current))
+    #expect(RedeemListText.loadMore == "加载更多")
 }
 
 @Test func redeemListBatchChipTitle() {

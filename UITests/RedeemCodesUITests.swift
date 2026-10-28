@@ -243,6 +243,41 @@ final class RedeemCodesUITests: XCTestCase {
         XCTAssertTrue(app.buttons["redeem.empty.generate"].exists, app.debugDescription)
     }
 
+    /// `.redeem(open:)` whose first page failed: 重试 still opens the code (60 §8.1).
+    @MainActor func testLocateCodeAfterRetryingFailedFirstPage() {
+        launchRedeem(["-ui-redeem-list-error", "-ui-redeem-many", "-ui-redeem-open", "1001"])
+        defer { diagnostics("redeem-locate-retry-final") }
+        XCTAssertTrue(element("redeem.failure").waitForExistence(timeout: 10), app.debugDescription)
+        element("redeem.failure").buttons["重试"].tap()
+        XCTAssertTrue(element("redeem.card.1001.body").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(text("定位的兑换码").exists, app.debugDescription)
+    }
+
+    /// An old server whose newest four pages are admin rows: nothing to show yet is not “还没有兑换码”, and 加载更多 reads on.
+    @MainActor func testOldServerOffersLoadMoreAfterPagesOfAdminRows() {
+        launchRedeem(["-ui-without-capabilities", "redeem_codes.stats", "-ui-redeem-admin-flood"])
+        defer { diagnostics("redeem-admin-pages-final") }
+        let more = app.buttons["redeem.more.load"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(more.label, "加载更多")
+        XCTAssertFalse(text("还没有兑换码").exists, app.debugDescription)
+        more.tap()
+        XCTAssertTrue(card(2046).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(card(3200).exists || card(2005).exists, app.debugDescription)
+    }
+
+    /// Typing on and back to the applied search within the debounce keeps the read it started (three seconds here).
+    @MainActor func testSearchReadSurvivesTypingBackToTheSameText() {
+        launchRedeem(["-ui-redeem-slow-search"])
+        defer { diagnostics("redeem-search-same-final") }
+        XCTAssertTrue(card(2046).waitForExistence(timeout: 10), app.debugDescription)
+        search("studio-k")
+        XCTAssertTrue(card(2046).waitForNonExistence(timeout: 5), app.debugDescription)
+        app.searchFields["搜索兑换码或邮箱"].typeText("x" + XCUIKeyboardKey.delete.rawValue)
+        XCTAssertTrue(card(2036).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitForLabel(chip("all"), equalTo: "全部 1"), app.debugDescription)
+    }
+
     // MARK: - Helpers
 
     /// Signs in to “兑换码站点” (an access token with `readOnlyToken`, made read-only by `-ui-readonly-token`) and opens 兑换码

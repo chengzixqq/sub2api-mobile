@@ -21,6 +21,11 @@ extension DemoData {
         static let open = "-ui-redeem-open"
         /// The directory opens `.redeem(reconcile: true)`, as the overview's pending row does.
         static let reconcile = "-ui-redeem-reconcile"
+        /// 200 admin_balance rows newer than every code (ids 3001…3200): four whole pages an old server returns and the phone drops.
+        static let adminFlood = "-ui-redeem-admin-flood"
+        /// A list read with a search answers after three seconds, so the field can change while it runs.
+        static let slowSearch = "-ui-redeem-slow-search"
+        static let slowSearchDelay: Duration = .seconds(3)
         static let sameBatch = UUID(uuidString: "0E000000-0000-4000-8000-000000002046")!
     }
 
@@ -28,7 +33,8 @@ extension DemoData {
         guard !arguments.contains(RedeemFixture.empty) else { return [] }
         let clock = RedeemFixtureClock(base: base)
         let many = arguments.contains(RedeemFixture.many) ? (1001...1060).map { olderCode($0, clock: clock) } : []
-        return baseRedeemCodes(clock) + many
+        let flood = arguments.contains(RedeemFixture.adminFlood) ? (3001...3200).map { adminAdjustment($0, clock: clock) } : []
+        return flood + baseRedeemCodes(clock) + many
     }
 
     private static func baseRedeemCodes(_ clock: RedeemFixtureClock) -> [AdminRedeemCode] {
@@ -72,6 +78,10 @@ extension DemoData {
         let hex = String(format: "%08x", id * 7_919)
         return AdminRedeemCode(id: id, code: "d0c0" + String(repeating: hex, count: 3) + String(format: "%04x", id), type: "balance", value: 1,
                                status: "unused", createdAt: clock.daysAgo(30 + 1060 - id, hour: 10), notes: "历史批次", createdBy: 1)
+    }
+    private static func adminAdjustment(_ id: Int, clock: RedeemFixtureClock) -> AdminRedeemCode {
+        AdminRedeemCode(id: id, code: String(format: "admin-adjust-%019d", id), type: "admin_balance", value: 1, status: "used", usedBy: 1,
+                        usedAt: clock.today(minutesAgo: 5), createdAt: clock.today(minutesAgo: 5), notes: "管理员调整")
     }
 }
 
@@ -158,9 +168,12 @@ final class RedeemDemoStore {
 }
 
 extension RedeemCodesSource {
-    static func fixture(_ store: RedeemDemoStore) -> RedeemCodesSource {
-        RedeemCodesSource(list: { try await store.page($0, query: $1) }, stats: { try await store.stats(query: $0) },
-                          code: { try await store.code(id: $0) })
+    static func fixture(_ store: RedeemDemoStore, arguments: [String] = ProcessInfo.processInfo.arguments) -> RedeemCodesSource {
+        let searchDelay = arguments.contains(DemoData.RedeemFixture.slowSearch) ? DemoData.RedeemFixture.slowSearchDelay : nil
+        return RedeemCodesSource(list: { page, query in
+            if let searchDelay, !query.search.isEmpty { try await Task.sleep(for: searchDelay) }
+            return try await store.page(page, query: query)
+        }, stats: { try await store.stats(query: $0) }, code: { try await store.code(id: $0) })
     }
 }
 
