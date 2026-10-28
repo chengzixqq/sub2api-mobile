@@ -256,6 +256,7 @@
 | 运行区渠道“更新失败”的写法 | 首页渠道行有旧值但刷新失败时，S1-09b 保留摘要，并在行内用灰字写“更新失败”（不可点，重试靠下次轮询或下拉刷新）。规格没写，等看模拟器截图再定是否改成区块头附件 |
 | 夹具 #35 与 24h“最近结束”的时段依赖 | S1-06 让 FixtureAlertBook 按 time_range 过滤（fired_at ∈ [base − 24h, base)，base 为会话开始时的服务器时间）。S1D1-11 冻结的 #35 在“昨天 21:52”（Asia/Shanghai）触发，所以服务器时间 21:52 以后开始的会话，24h 列表里没有 #35（它是唯一的 manual_resolved）。S1-16 的 MonitorUITests（最近结束两区与 meta）以及 base 取当前时间的单测（如 defaultFixtureHasEndedEvents）如果依赖 #35，会在每天 21:52–24:00 固定失败。请 S1-16 或编排者三选一：改 #35 为相对 base 的时间（要改 S1D1-11）；给 UI 测试加固定夹具时钟的启动参数；或让断言不依赖 #35。 |
 | 首页轮询重启后第一拍被跳过（残余） | LiveOpsStore.pollHomeBlocks 第一拍遇到 isHomeLoading 为真时跳过，并按 nextHomeDelay 等 60 秒。一次被取消的在途读取也算在途：LoadState 的 onCancel 只取消内层 Task，状态要等退栈后才回到 idle；退路的 fallbackCycle 和今日 SLA 的 todayOps.isLoading 也一样。S1-09 审查修正已经去掉概览 task 的多余重启（合规确认、foregroundRevision），只剩一种情况：在途读取期间可见性极短地抖动（Tab 切走马上切回、控制中心一拉一放），首页仍可能晚一个周期刷新。要彻底修，需要让 LoadState 识别“已被取消的在途读取”（task.isCancelled），并同时覆盖退路轮次和今日 SLA。 |
+| 概览「测试」关闭即刷新与后台测试 | S1-10 在「测试」sheet 关闭（或被替换）时对首页 nocache 刷新一次；S2-14 / S2-23 如果让测试在后台继续，测试结束时要再调 model.liveOps?.noteExternalWrite()，否则拿不到自动恢复后的状态（S1D1-28 已移交 S2-23） |
 
 ### App 与设计 · 阶段 2
 
@@ -399,3 +400,4 @@
 | 补偿记录可存 groupName | PendingCompensation（S0-06）没有分组名，回执与待核对页靠 GroupDirectory.name(for:) 现查，查不到写“分组 #id”；以后可以在不改请求字节的前提下给落盘记录加 groupName |
 | 资金写待核对的界面与回前台自动核对（补注） | 补偿的回前台自动核对已由 S6-08 完成（与余额同一单飞，同地址、跳过发送中、只认 issued）；补偿的待核对页与 sheet 归 S6-09 |
 | 补偿重试遇无 reason 的 400 | S6-08 对已发出过的补偿重试时，无 reason 的 400 保留待核对（方案原写“与首次相同，结案”），因为这次的 400 说明不了前一次是否已执行；若要改回结案，S6-09 实测后再定 |
+| 公告列表与公告已读的 429 等待后重读也会取消自己 | AnnouncementsView.retryAfterWait（await list.invalidate()）和 AnnouncementReadsView.retryAfterWait（await reads.reload()）都在 .task(id: refresh.notBefore) 里 await 重读。第 1 页成功后 recordingSuccess() 清空 notBefore，task 被 SwiftUI 取消并重启，同一次重读里仍在途的 async let（公告计数 counted、已读页标题与汇总 header）随之被取消，计数或标题可能要等下次刷新才出现。修法同 S6-04 审查修正 2517eb3：等待结束后用独立 Task 发起重读。不属于 S6-04 范围，由公告条目的线处理。 |
