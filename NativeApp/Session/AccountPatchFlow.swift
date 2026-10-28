@@ -40,6 +40,9 @@ final class AccountPatchFlow {
     private(set) var reloadedBase: AccountEditBase?
     private(set) var reloadRevision = 0
     var isSaving: Bool { phase == .saving }
+    /// The form waits while a save runs and while 没有保存成功 / 结果未确认 is open: 重试 and 刷新核对 go on with the save as it
+    /// was sent and close the sheet, so nothing typed meanwhile may be left out of it.
+    var locksForm: Bool { phase == .saving || phase == .notApplied || phase == .unconfirmed }
 
     @ObservationIgnored private let source: any AccountPatchSource
     @ObservationIgnored private let receipts: ReceiptCenter
