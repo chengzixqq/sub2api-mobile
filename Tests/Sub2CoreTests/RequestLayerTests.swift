@@ -198,7 +198,8 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
 @Test func timeoutsFollowRequestCategories() async throws {
     let transport = ScriptedTransport { request in isRefresh(request) ? okReply(stubRefreshJSON) : okReply("{}") }
     let client = layerClient(transport, credential: stubTokens(expiresAt: Date().addingTimeInterval(-60)))
-    let hour = AnalyticsQuery(start: Date(timeIntervalSince1970: 1_792_022_400), end: Date(timeIntervalSince1970: 1_792_026_000))
+    let hour = AnalyticsQuery(start: Date(timeIntervalSince1970: 1_792_022_400), end: Date(timeIntervalSince1970: 1_792_026_000), granularity: .hour,
+                              timeZone: ServerTimeZone(identifier: "UTC", utcOffset: "+00:00")!)
     _ = try? await client.publicSettings()
     _ = try? await client.user(id: 7)
     _ = try? await client.users(query: UserListQuery())

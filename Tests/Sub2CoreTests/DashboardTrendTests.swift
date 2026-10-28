@@ -14,7 +14,7 @@ private func trendPoint(_ date: String = "2026-10-15 08:00", requests: Int = 12,
 @Test func trendMetricsKeepActualSpendDistinctFromStandardPrice() {
     let point = trendPoint()
     #expect(DashboardTrendMetric.allCases.first == .actualCost)
-    #expect(DashboardTrendMetric.actualCost.label == "实际消费")
+    #expect(DashboardTrendMetric.actualCost.label == "实际扣费")
     #expect(DashboardTrendMetric.actualCost.unit == "USD")
     #expect(DashboardTrendMetric.requests.label == "请求数")
     #expect(DashboardTrendMetric.actualCost.exactValue(point) == "$12.345678910123456789")

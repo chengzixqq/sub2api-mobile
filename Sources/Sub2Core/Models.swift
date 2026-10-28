@@ -242,22 +242,38 @@ public struct DashboardStats: Codable, Sendable {
         statsStale = try? c.decodeIfPresent(Bool.self, forKey: .statsStale)
     }
 }
+/// One `dashboard/trend` bucket (40 §1.3). `cost` is the standard price (before the group rate), `actualCost` what users were
+/// charged. `accountCost` is nil when the key is missing (a server without `dashboard.account_cost`), never read as 0.
 public struct TrendPoint: Identifiable, Codable, Sendable {
     public var id: String { date }
     public let date: String
     public let requests: Int
     public let totalTokens: Int
+    public let inputTokens: Int
+    public let outputTokens: Int
+    public let cacheCreationTokens: Int
+    public let cacheReadTokens: Int
     public let cost: Decimal
     public let actualCost: Decimal?
-    public init(date: String, requests: Int, totalTokens: Int, cost: Decimal, actualCost: Decimal? = nil) {
+    public let accountCost: Decimal?
+    public init(date: String, requests: Int, totalTokens: Int, cost: Decimal, actualCost: Decimal? = nil, accountCost: Decimal? = nil,
+                inputTokens: Int = 0, outputTokens: Int = 0, cacheCreationTokens: Int = 0, cacheReadTokens: Int = 0) {
         self.date = date; self.requests = requests; self.totalTokens = totalTokens; self.cost = cost; self.actualCost = actualCost
+        self.accountCost = accountCost; self.inputTokens = inputTokens; self.outputTokens = outputTokens
+        self.cacheCreationTokens = cacheCreationTokens; self.cacheReadTokens = cacheReadTokens
     }
-    enum CodingKeys: String, CodingKey { case date, requests, totalTokens = "total_tokens", cost, actualCost = "actual_cost" }
+    enum CodingKeys: String, CodingKey {
+        case date, requests, totalTokens = "total_tokens", cost, actualCost = "actual_cost", accountCost = "account_cost"
+        case inputTokens = "input_tokens", outputTokens = "output_tokens", cacheCreationTokens = "cache_creation_tokens", cacheReadTokens = "cache_read_tokens"
+    }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         date = try c.decode(String.self, forKey: .date); requests = try c.decode(Int.self, forKey: .requests)
         totalTokens = try c.decode(Int.self, forKey: .totalTokens); cost = try c.decimal(.cost)
-        actualCost = try c.optionalDecimal(.actualCost)
+        actualCost = try c.optionalDecimal(.actualCost); accountCost = try c.optionalDecimal(.accountCost)
+        inputTokens = try c.decodeIfPresent(Int.self, forKey: .inputTokens) ?? 0; outputTokens = try c.decodeIfPresent(Int.self, forKey: .outputTokens) ?? 0
+        cacheCreationTokens = try c.decodeIfPresent(Int.self, forKey: .cacheCreationTokens) ?? 0
+        cacheReadTokens = try c.decodeIfPresent(Int.self, forKey: .cacheReadTokens) ?? 0
     }
 }
 public struct AccountTodayStats: Codable, Sendable {

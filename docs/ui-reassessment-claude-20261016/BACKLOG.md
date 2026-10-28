@@ -356,6 +356,7 @@
 | 错误分布占比的分母 | 后端 error-distribution 的 total 是 LIMIT 20 之后各行之和。状态码超过 20 种时，占比是“前 20 种之内的占比”，不是“占全部错误”。现照规格用响应 total |
 | Token 速度多行合并的权重是近似值 | 后端 avg_tokens_per_sec 只对 duration_ms > 0 且 output_tokens > 0 的行求平均，App 只能按 request_count 加权（40 §5.2）。要精确需后端在 items 里加 requests_with_tps（只增字段）。另外 avg_duration_ms 无数据时是 0 而不是 null |
 | 错误趋势 60 秒与 3600 秒桶的底注句式 | 40 §2.3 只给了 300 秒桶的文案。建议 S4-18 用同一句式：60 秒“后端每分钟一桶，这里按 5 分钟合计。”，3600 秒“后端每小时一桶，这里按天合计。”，后半句不变 |
+| 首页退路每小时图的账号成本 | S4-02 之后 TrendPoint 已解码 account_cost，但 HomeFallback.hourly(_:now:) 构造 HomeHourlyPoint 时仍没带上 accountCost，注释还写着“trend point 里还没有 account_cost（S4-02）”。本条按 S4D1-12 只改了 dashboardTrend 的函数体，没动这里。由首页相关条目或 S4-20 收口时接上并更新注释。 |
 
 ### App 与设计 · 阶段 5
 
@@ -394,3 +395,7 @@
 | 兑换码列表入口的 UI 测试 | 概览待处理行（S1-10）与补偿回执“查看兑换码”（S6-09）合入后，把 RedeemCodesUITests 里靠 -ui-redeem-open / -ui-redeem-reconcile 进入的两条用例改为从真实入口进入，再决定是否删掉这两个夹具参数 |
 | 查看同一批时的搜索 | 规格没有写；S6-04 的做法是进入同一批时清空搜索，在同一批里输入搜索词会退出同一批、回到原筛选再加搜索词。需要的话可以改为同一批内搜索（后端 batch_id 与 search 可以同时传） |
 | 公告已读情况：不符合条件行的视觉 | 规格 60 §18.3 写“不符合条件变淡”，S6-19 按 S2-04 只把邮箱改 ink2，不降整行不透明度，以保证对比度；需要设计确认是否接受 |
+| 余额发送登记 MoneyWriteInFlight | S3-07 的余额重试与 S3-08 的余额首发没有登记 MoneyWriteInFlight，回前台余额核对仍可能与发送并发（只读、不改记录，风险低）；由 S6-26 复核时统一登记 |
+| 补偿记录可存 groupName | PendingCompensation（S0-06）没有分组名，回执与待核对页靠 GroupDirectory.name(for:) 现查，查不到写“分组 #id”；以后可以在不改请求字节的前提下给落盘记录加 groupName |
+| 资金写待核对的界面与回前台自动核对（补注） | 补偿的回前台自动核对已由 S6-08 完成（与余额同一单飞，同地址、跳过发送中、只认 issued）；补偿的待核对页与 sheet 归 S6-09 |
+| 补偿重试遇无 reason 的 400 | S6-08 对已发出过的补偿重试时，无 reason 的 400 保留待核对（方案原写“与首次相同，结案”），因为这次的 400 说明不了前一次是否已执行；若要改回结案，S6-09 实测后再定 |
