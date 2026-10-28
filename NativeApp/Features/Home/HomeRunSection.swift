@@ -2,8 +2,8 @@ import SwiftUI
 import Sub2Core
 
 /// 10 §1.3.5 运行（叁）: 健康分 on its gauge, 错误率 / 上游 429 / 529 and the 渠道 row; live figures, with no window in the title. The
-/// header follows the ops block; the 渠道 row opens the monitor's 渠道 segment when there is something to see there. 重试 reads home
-/// again past the server cache; the next poll retries by itself (S1D1-20). Identifiers home.run.*.
+/// header follows the ops block, the rates row its own block; the 渠道 row opens the monitor's 渠道 segment when there is something
+/// to see there. 重试 reads home again past the server cache; the next poll retries by itself (S1D1-20). Identifiers home.run.*.
 struct HomeRunSection: View {
     let store: LiveOpsStore
     @Environment(AppRouter.self) private var router
@@ -53,16 +53,26 @@ struct HomeRunSection: View {
 
     // MARK: 错误率、上游 429、529
 
-    private var ratesRow: some View {
+    /// The rates block's own status (10 §1.5), also for the six cells' 错误率 / RPM / TPM: 加载超时 or 更新失败 beside the figures it
+    /// kept, or one “加载超时 / 加载失败 · 重试” line when it has none.
+    @ViewBuilder private var ratesRow: some View {
         let rates = HomeRunPresentation.rates(store.home.rates.value)
-        let isLoading = store.home.rates.display.homePhase == .placeholder
-        return HStack(spacing: 18) {
-            HomeInlineFigure(label: "错误率", value: rates.errorRate, id: "home.run.errorRate", isLoading: isLoading)
-            HomeInlineFigure(label: "上游 429", value: rates.upstream429, id: "home.run.upstream429", isLoading: isLoading)
-            HomeInlineFigure(label: "529", spokenLabel: "上游 529", value: rates.upstream529, id: "home.run.upstream529", isLoading: isLoading)
+        let phase = store.home.rates.display.homePhase
+        HStack(spacing: 18) {
+            HomeInlineFigure(label: "错误率", value: rates.errorRate, id: "home.run.errorRate", isLoading: phase == .placeholder)
+            HomeInlineFigure(label: "上游 429", value: rates.upstream429, id: "home.run.upstream429", isLoading: phase == .placeholder)
+            HomeInlineFigure(label: "529", spokenLabel: "上游 529", value: rates.upstream529, id: "home.run.upstream529",
+                             isLoading: phase == .placeholder)
             Spacer(minLength: 0)
+            BlockStatusAccessory(state: store.home.rates, refresh: store.homeRefresh(for: .rates), id: "home.run.rates",
+                                 resendsAfterWait: false, retry: retry)
         }
         .frame(minHeight: 44)
+        if phase == .failed {
+            BlockFailureRow(state: store.home.rates, error: store.homeLastError(for: .rates), refresh: store.homeRefresh(for: .rates),
+                            id: "home.run.rates", resendsAfterWait: false, retry: retry)
+                .homeFailureContainer("home.run.rates.failed")
+        }
     }
 
     // MARK: 渠道
