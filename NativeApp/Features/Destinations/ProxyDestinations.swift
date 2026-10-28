@@ -7,7 +7,7 @@ struct ProxyRouteDestination: View {
     var body: some View {
         switch route {
         // .proxies：S6-11
-        case .proxies: ComingSoonView(title: route.placeholderTitle)
+        case .proxies(let filter): ProxiesView(filter: filter)
         // .proxyDetail：S6-12
         case .proxyDetail: ComingSoonView(title: route.placeholderTitle)
         // .proxyFallbackAccounts：S6-13
