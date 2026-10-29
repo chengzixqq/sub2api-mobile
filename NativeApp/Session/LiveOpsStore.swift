@@ -275,7 +275,9 @@ final class LiveOpsStore {
     }
     /// 10 §1.4, §7.1 step 3: a confirmed manual resolve leaves the lists and the counts at once; S1-06 reads them again after.
     func markResolved(eventID: Int, at date: Date) {
-        guard isCurrent(), let event = knownFiringEvent(eventID) else { return }
+        guard isCurrent() else { return }
+        patchAlertDetail(eventID) { $0.isFiring ? $0.resolvedLocally(at: date) : $0 }
+        guard let event = knownFiringEvent(eventID) else { return }
         dropFiring(event)
         recent.updateValue { $0.upserting(event.resolvedLocally(at: date)) }
     }
@@ -286,6 +288,7 @@ final class LiveOpsStore {
         firing.updateValue { $0.map(update) }
         home.alerts = home.alerts.updatingValue { $0.mapEvents(update) }
         recent.updateValue { $0.mapEvents(update) }
+        patchAlertDetail(eventID) { $0.withSilence(silence) }
     }
     /// S1D1-16: every event read passes here. Without `ops.alert_event_details` the server leaves out the rule and the group name;
     /// `alert-rules` and `groups/all` are read once a session (again after a pull) and fill in what they know. A failed read fills
@@ -323,6 +326,41 @@ final class LiveOpsStore {
         firing.updateValue { $0.filter { $0.id != event.id } }
         home.alerts = home.alerts.updatingValue { $0.removingFiring(event) }
         countsValue = countsValue?.removingFiring(severity: event.severity)
+    }
+    /// An event as read: a firing one replaces its copies; an ended one leaves the firing list, home's alerts and the counts for
+    /// 最近结束.
+    private func placeReceivedAlert(_ event: AlertEvent) {
+        guard event.isFiring else {
+            if let known = knownFiringEvent(event.id) { dropFiring(known) }
+            recent.updateValue { $0.upserting(event) }
+            return
+        }
+        let update: (AlertEvent) -> AlertEvent = { $0.id == event.id ? event : $0 }
+        firing.updateValue { $0.map(update) }
+        home.alerts = home.alerts.updatingValue { $0.mapEvents(update) }
+        recent.updateValue { $0.removing(eventID: event.id) }
+    }
+
+    // MARK: - 告警详情（S1-12，10 §3；读取在 LiveOpsStore+AlertDetail.swift）
+
+    /// The events alert details read, by id: what a detail shows first, kept in step with every write here.
+    private(set) var alertDetails: [Int: AlertEvent] = [:]
+    /// Local writes per event (resolve, silence, gone), so an open detail reads its event again at once.
+    private(set) var alertRevisions: [Int: Int] = [:]
+
+    /// An event a detail read, already normalized: the detail's copy and every list's. One found ended here leaves the lists, and
+    /// the next home read bypasses the server cache (10 §1.4).
+    func storeAlert(_ event: AlertEvent) {
+        guard isCurrent() else { return }
+        let ended = !event.isFiring && knownFiringEvent(event.id) != nil
+        alertDetails[event.id] = event
+        placeReceivedAlert(event)
+        if ended { noteExternalWrite() }
+    }
+    /// The detail's copy changed by a local write (when a detail read it), and the event's revision moves on either way.
+    private func patchAlertDetail(_ eventID: Int, _ transform: (AlertEvent) -> AlertEvent) {
+        if let shown = alertDetails[eventID] { alertDetails[eventID] = transform(shown) }
+        alertRevisions[eventID, default: 0] += 1
     }
 
     // MARK: - 运维监控开关（10 §7.2，S1D1-02：唯一入口，S1-08 只改函数体）
@@ -410,25 +448,20 @@ final class LiveOpsStore {
 extension LiveOpsStore: AlertActionsHost {
     var isSessionCurrent: Bool { isCurrent() }
     /// The event as read back, normalized like every other event read (S1D1-16): a firing one replaces its copies; an ended one
-    /// leaves the firing list, home's alerts and the counts for 最近结束.
+    /// leaves the firing list, home's alerts and the counts for 最近结束. An open detail's copy follows (S1-12).
     func upsertAlert(_ received: AlertEvent) async {
         let event = await normalizeReceivedAlerts([received]).first ?? received
         guard isCurrent() else { return }
-        guard event.isFiring else {
-            if let known = knownFiringEvent(event.id) { dropFiring(known) }
-            recent.updateValue { $0.upserting(event) }
-            return
-        }
-        let update: (AlertEvent) -> AlertEvent = { $0.id == event.id ? event : $0 }
-        firing.updateValue { $0.map(update) }
-        home.alerts = home.alerts.updatingValue { $0.mapEvents(update) }
-        recent.updateValue { $0.removing(eventID: event.id) }
+        if alertDetails[event.id] != nil { alertDetails[event.id] = event }
+        placeReceivedAlert(event)
     }
-    /// 404 OPS_ALERT_EVENT_NOT_FOUND: the event is gone from every list.
+    /// 404 OPS_ALERT_EVENT_NOT_FOUND: the event is gone from every list, and a detail reads it again (S1-12).
     func removeAlert(eventID: Int) {
         guard isCurrent() else { return }
         if let known = knownFiringEvent(eventID) { dropFiring(known) }
         recent.updateValue { $0.removing(eventID: eventID) }
+        alertDetails[eventID] = nil
+        alertRevisions[eventID, default: 0] += 1
     }
     /// BACKLOG D06: the firing list and the counts at once, and the next home read bypasses the cache (10 §1.4).
     func refreshAlertsAfterWrite() async {
