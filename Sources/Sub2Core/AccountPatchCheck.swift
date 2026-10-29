@@ -81,6 +81,7 @@ extension UpstreamAccount {
         case .expiresAt: return expiresAt.map { .number(Decimal($0)) }
         case .autoPauseOnExpired: return autoPauseOnExpired.map(JSONValue.bool)
         case .upstreamBillingProbeEnabled: return extra?["upstream_billing_probe_enabled"]
+        case .upstreamBillingRateSyncEnabled: return extra?["upstream_billing_rate_sync_enabled"]
         case .confirmMixedChannelRisk, .credentialsPatch, .extraPatch, .credentials, .extra: return nil
         }
     }
@@ -101,7 +102,7 @@ enum PatchComparable {
         case .proxyID, .loadFactor, .expiresAt:
             guard let number = value?.decimalValue else { return value }
             return number > 0 ? value : nil
-        case .autoPauseOnExpired, .upstreamBillingProbeEnabled: return value ?? .bool(false)
+        case .autoPauseOnExpired, .upstreamBillingProbeEnabled, .upstreamBillingRateSyncEnabled: return value ?? .bool(false)
         case .groupIDs:
             guard let ids = value?.arrayValue?.compactMap(\.intValue) else { return value }
             return .array(Set(ids).sorted().map { .number(Decimal($0)) })

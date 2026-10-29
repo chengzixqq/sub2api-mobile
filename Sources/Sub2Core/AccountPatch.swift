@@ -49,23 +49,27 @@ public struct AccountPatchRequest: Encodable, Sendable, Equatable {
     public var expiresAt: Int64?
     public var autoPauseOnExpired: Bool?
     public var upstreamBillingProbeEnabled: Bool?
+    /// The server turns it off with the probe and needs the probe on beside it.
+    public var upstreamBillingRateSyncEnabled: Bool?
     /// Only the answer to a 409 MIXED_CHANNEL_WARNING; not a change of its own.
     public var confirmMixedChannelRisk: Bool?
     public var credentialsPatch: [String: JSONPatchValue]
     public var extraPatch: [String: JSONPatchValue]
     public init(name: String? = nil, notes: String? = nil, type: String? = nil, proxyID: Int? = nil, concurrency: Int? = nil, priority: Int? = nil,
                 rateMultiplier: Decimal? = nil, loadFactor: Int? = nil, status: Status? = nil, groupIDs: [Int]? = nil, expiresAt: Int64? = nil,
-                autoPauseOnExpired: Bool? = nil, upstreamBillingProbeEnabled: Bool? = nil, confirmMixedChannelRisk: Bool? = nil,
-                credentialsPatch: [String: JSONPatchValue] = [:], extraPatch: [String: JSONPatchValue] = [:]) {
+                autoPauseOnExpired: Bool? = nil, upstreamBillingProbeEnabled: Bool? = nil, upstreamBillingRateSyncEnabled: Bool? = nil,
+                confirmMixedChannelRisk: Bool? = nil, credentialsPatch: [String: JSONPatchValue] = [:], extraPatch: [String: JSONPatchValue] = [:]) {
         self.name = name; self.notes = notes; self.type = type; self.proxyID = proxyID; self.concurrency = concurrency; self.priority = priority
         self.rateMultiplier = rateMultiplier; self.loadFactor = loadFactor; self.status = status; self.groupIDs = groupIDs; self.expiresAt = expiresAt
         self.autoPauseOnExpired = autoPauseOnExpired; self.upstreamBillingProbeEnabled = upstreamBillingProbeEnabled
+        self.upstreamBillingRateSyncEnabled = upstreamBillingRateSyncEnabled
         self.confirmMixedChannelRisk = confirmMixedChannelRisk; self.credentialsPatch = credentialsPatch; self.extraPatch = extraPatch
     }
     enum CodingKeys: String, CodingKey {
         case name, notes, type, concurrency, priority, status, credentials, extra
         case proxyID = "proxy_id", rateMultiplier = "rate_multiplier", loadFactor = "load_factor", groupIDs = "group_ids", expiresAt = "expires_at"
         case autoPauseOnExpired = "auto_pause_on_expired", upstreamBillingProbeEnabled = "upstream_billing_probe_enabled"
+        case upstreamBillingRateSyncEnabled = "upstream_billing_rate_sync_enabled"
         case confirmMixedChannelRisk = "confirm_mixed_channel_risk", credentialsPatch = "credentials_patch", extraPatch = "extra_patch"
     }
     /// Backend `managedAccountExtraKeys` (service/account_patch.go): owned by their own endpoints and jobs, so a merged `extra`
@@ -84,7 +88,8 @@ public struct AccountPatchRequest: Encodable, Sendable, Equatable {
             (.priority, priority.map(Self.number)), (.rateMultiplier, rateMultiplier.map(JSONValue.number)), (.loadFactor, loadFactor.map(Self.number)),
             (.status, status.map { .string($0.rawValue) }), (.groupIDs, groupIDs.map { .array($0.map(Self.number)) }),
             (.expiresAt, expiresAt.map { .number(Decimal(max($0, 0))) }), (.autoPauseOnExpired, autoPauseOnExpired.map(JSONValue.bool)),
-            (.upstreamBillingProbeEnabled, upstreamBillingProbeEnabled.map(JSONValue.bool))
+            (.upstreamBillingProbeEnabled, upstreamBillingProbeEnabled.map(JSONValue.bool)),
+            (.upstreamBillingRateSyncEnabled, upstreamBillingRateSyncEnabled.map(JSONValue.bool))
         ]
         return fields.compactMap { key, value in value.map { (key: key, value: $0) } }
     }

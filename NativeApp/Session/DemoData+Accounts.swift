@@ -548,6 +548,10 @@ extension AccountDemoStore {
         // S2-12: the probe switch is stored in extra; credentials_patch merges like extra_patch (secrets are never read back).
         var extraPatch = request.extraPatch
         if let probe = request.upstreamBillingProbeEnabled { extraPatch["upstream_billing_probe_enabled"] = .set(.bool(probe)) }
+        // Like the server, the probe going off takes the rate sync with it.
+        if let sync = request.upstreamBillingProbeEnabled == false ? false : request.upstreamBillingRateSyncEnabled {
+            extraPatch["upstream_billing_rate_sync_enabled"] = .set(.bool(sync))
+        }
         if !request.credentialsPatch.isEmpty {
             let fields = merging(updated.credentials?.objectValue ?? [:], request.credentialsPatch.filter { !AccountCredentialKeys.isSensitive($0.key) })
             updated.credentials = .object(fields)
