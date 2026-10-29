@@ -250,7 +250,8 @@ public enum ProxyPresentation {
     /// A missing status counts as active, as AdminProxy.isActive.
     private static func currentStatus(_ proxy: AdminProxy) -> String { proxy.status ?? "active" }
     private static func accountTotal(_ proxy: AdminProxy) -> Int { max(0, proxy.accountCount ?? 0) }
-    private static func displayName(_ proxy: AdminProxy) -> String {
+    /// The name, or “代理 #id” without one (also the detail's title and its receipts, S6-12).
+    public static func displayName(_ proxy: AdminProxy) -> String {
         let name = proxy.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? "代理 #\(proxy.id)" : name
     }

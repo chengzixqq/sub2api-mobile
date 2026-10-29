@@ -159,3 +159,117 @@ actor FixtureProxySource: ProxySource {
     }
     func remove(id: Int) { rows.removeAll { $0.id == id } }
 }
+
+// MARK: - S6-12 详情
+
+extension DemoData {
+    /// The detail's launch arguments, read on each call (FixtureProxySource's stored options are the list's).
+    struct ProxyDetailFixtureOptions: Sendable, Equatable {
+        /// Every `GET :id` answers 404 PROXY_NOT_FOUND.
+        static let notFoundArgument = "-ui-proxy-not-found"
+        static let accountsErrorArgument = "-ui-proxy-accounts-error"
+        /// 质量检测 answers with the base probe failed (78, B).
+        static let qualityErrorArgument = "-ui-proxy-quality-error"
+        /// The first delete of a proxy nothing uses answers 409 PROXY_IN_USE without metadata: an account took it meanwhile.
+        static let deleteConflictArgument = "-ui-proxy-delete-conflict"
+        /// `GET :id` takes `slowDelay`, so the card's placeholder can be seen.
+        static let slowDetailArgument = "-ui-proxy-slow-detail"
+        static let slowDelay: Duration = .seconds(2)
+        static let qualityDelay: Duration = .seconds(5)
+        var notFound, accountsError, qualityError, deleteConflict, slowDetail: Bool
+
+        init(arguments: [String] = ProcessInfo.processInfo.arguments) {
+            notFound = arguments.contains(Self.notFoundArgument)
+            accountsError = arguments.contains(Self.accountsErrorArgument)
+            qualityError = arguments.contains(Self.qualityErrorArgument)
+            deleteConflict = arguments.contains(Self.deleteConflictArgument)
+            slowDetail = arguments.contains(Self.slowDetailArgument)
+        }
+    }
+
+    /// `GET :id/accounts` per proxy, on the account fixtures' ids (DemoData+Accounts) so a row opens its account.
+    static func proxyAccountFixtures() -> [Int: [ProxyAccountRef]] {
+        func account(_ id: Int, _ name: String, _ platform: String, _ type: String) -> ProxyAccountRef {
+            ProxyAccountRef(id: id, name: name, platform: platform, type: type)
+        }
+        return [
+            1: [account(1, "Claude-官方-01", "anthropic", "oauth"), account(2, "Claude-官方-02", "anthropic", "oauth"),
+                account(3, "Claude-官方-03", "anthropic", "oauth")],
+            2: [account(4, "OpenAI-主力-01", "openai", "apikey"), account(7, "OpenAI-备用-A", "openai", "apikey")],
+            3: [account(5, "Gemini-测试-B", "gemini", "apikey")],
+            4: [account(8, "DeepSeek-01", "deepseek", "apikey")],
+            8: [account(11, "GLM-直连-01", "zhipu", "apikey")]
+        ]
+    }
+}
+
+extension FixtureProxySource: ProxyDetailSource {
+    private static let notFound = APIError.server(status: 404, reason: ProxyReason.notFound)
+    private static let inUse = APIError.server(status: 409, reason: ProxyReason.inUse)
+
+    /// `GET :id` returns the row as saved, with every probe and write of this session. S6-13 adds the accounts still moved off it.
+    func proxy(id: Int) async throws -> AdminProxy {
+        let detail = DemoData.ProxyDetailFixtureOptions()
+        if detail.slowDetail { try await Task.sleep(for: DemoData.ProxyDetailFixtureOptions.slowDelay) }
+        guard !detail.notFound, let row = storedProxy(id: id) else { throw Self.notFound }
+        return row
+    }
+    func proxyAccounts(id: Int) async throws -> [ProxyAccountRef] {
+        guard storedProxy(id: id) != nil else { throw Self.notFound }
+        if DemoData.ProxyDetailFixtureOptions().accountsError { throw Self.failure }
+        return DemoData.proxyAccountFixtures()[id] ?? []
+    }
+    /// Five seconds later, so a UI test sees “检测中…”: 92 (A) with the base probe passed, or 78 (B) with it failed; the
+    /// snapshot is saved either way.
+    func checkProxyQuality(id: Int) async throws -> ProxyQualityResult {
+        try await Task.sleep(for: DemoData.ProxyDetailFixtureOptions.qualityDelay)
+        guard let row = storedProxy(id: id) else { throw Self.notFound }
+        let failed = DemoData.ProxyDetailFixtureOptions().qualityError
+        let base = ProxyQualityItem(target: ProxyQualityResult.baseConnectivityTarget, status: failed ? "fail" : "pass", latencyMs: failed ? nil : 180)
+        let result = ProxyQualityResult(proxyID: id, score: failed ? 78 : 92, grade: failed ? "B" : "A", summary: failed ? "基础连通失败" : "全部通过",
+                                        exitIP: row.ipAddress, countryCode: row.countryCode, passedCount: failed ? 3 : 4, failedCount: failed ? 1 : 0,
+                                        checkedAt: now(), items: [base])
+        replace(row.applying(result))
+        return result
+    }
+    /// `PUT :id`: only the status for now (S6-14 adds the rest); answers the plain dto.AdminProxy, without counts or probes.
+    func updateProxy(id: Int, _ request: ProxyUpdateRequest) async throws -> AdminProxy {
+        guard let row = storedProxy(id: id) else { throw Self.notFound }
+        let reply = row.fixtureConfiguration(status: request.status?.rawValue ?? row.status)
+        replace(row.mergingConfiguration(from: reply))
+        return reply
+    }
+    /// `DELETE :id`: 409 PROXY_IN_USE while accounts use it, with `fallback_account_count` while accounts were moved off it.
+    func deleteProxy(id: Int) async throws -> DeleteResult {
+        guard let row = storedProxy(id: id) else { return .alreadyGone }
+        let accounts = row.accountCount ?? 0
+        if accounts == 0, DemoData.ProxyDetailFixtureOptions().deleteConflict {
+            replace(row.fixtureCounting(accounts: 1))
+            throw Self.inUse
+        }
+        if accounts > 0 { throw Self.inUse }
+        if let moved = row.fallbackAccountCount, moved > 0 {
+            throw APIError.server(status: 409, envelope: ErrorEnvelope(reason: ProxyReason.inUse, metadata: ["fallback_account_count": String(moved)]))
+        }
+        remove(id: id)
+        return .deleted
+    }
+}
+
+private extension AdminProxy {
+    /// The configuration alone, as a PUT answers it.
+    func fixtureConfiguration(status: String?) -> AdminProxy {
+        AdminProxy(id: id, name: name, scheme: scheme, host: host, port: port, username: username, password: password, status: status,
+                   createdAt: createdAt, updatedAt: updatedAt, expiresAt: expiresAt, fallbackMode: fallbackMode, backupProxyID: backupProxyID,
+                   expiryWarnDays: expiryWarnDays)
+    }
+    /// The same row with another account count.
+    func fixtureCounting(accounts: Int) -> AdminProxy {
+        AdminProxy(id: id, name: name, scheme: scheme, host: host, port: port, username: username, password: password, status: status,
+                   createdAt: createdAt, updatedAt: updatedAt, expiresAt: expiresAt, fallbackMode: fallbackMode, backupProxyID: backupProxyID,
+                   expiryWarnDays: expiryWarnDays, accountCount: accounts, hasAccountCountKey: true, fallbackAccountCount: fallbackAccountCount,
+                   latencyMs: latencyMs, latencyStatus: latencyStatus, latencyMessage: latencyMessage, latencyCheckedAt: latencyCheckedAt,
+                   ipAddress: ipAddress, country: country, countryCode: countryCode, region: region, city: city, qualityStatus: qualityStatus,
+                   qualityScore: qualityScore, qualityGrade: qualityGrade, qualitySummary: qualitySummary, qualityChecked: qualityChecked)
+    }
+}

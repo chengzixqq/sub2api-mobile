@@ -80,7 +80,7 @@ final class AccountDetailMenuUITests: XCTestCase {
         app.buttons["account.proxy.cancel"].tap()
     }
 
-    /// A row with a proxy pushes its detail (a placeholder until S6-12).
+    /// A row with a proxy pushes its detail (S6-12).
     @MainActor func testProxyRowOpensProxyDetail() {
         openDetail(1)
         defer { diagnostics("account-menu-proxy-detail-final") }
@@ -88,8 +88,8 @@ final class AccountDetailMenuUITests: XCTestCase {
         reveal(row)
         waitForLabel(row, contains: "hk-02")
         row.tap()
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.navigationBars["代理详情"].exists, app.debugDescription)
+        XCTAssertTrue(element("proxy.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["hk-02"].exists, app.debugDescription)
         goBack()
         XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
     }
@@ -151,7 +151,8 @@ final class AccountDetailMenuUITests: XCTestCase {
         let view = app.buttons["receipt.action"]
         XCTAssertEqual(view.label, "查看原代理")
         view.tap()
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("proxy.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["hk-01"].exists, app.debugDescription)
         goBack()
         XCTAssertTrue(element("account.proxy.fallback").waitForExistence(timeout: 10), app.debugDescription)
     }
