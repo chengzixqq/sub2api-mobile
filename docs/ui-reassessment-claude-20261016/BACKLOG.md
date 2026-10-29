@@ -414,3 +414,6 @@
 | 代理质量检测的客户端超时 | 00 §2.3 超时表里没有质量检测这一类；后端最坏约 80 秒，App 暂定 ProxyRequestTimeout.qualityCheck = 95 秒、不自动重试。之后要决定是否把这一行补进 00 §2.3 |
 | 巡检间隙“已到期 · 等待处理”的说明句与横幅 | active 但已过期、尚未被巡检置为 expired 的代理，按规格记为 soon，会进“即将到期”筛选和横幅，说明句读作“已到期 · 等待处理。到期后不回退…”，语气别扭。要改文案只需改 ProxyPresentation 一处，等用户看效果图后再定 |
 | proxies.fallback_accounts 缺失时的口径冲突 | 00 章 capability 表写“全量账号本地过滤，逐个 POST revert-proxy-fallback”，60 §0.2 / §13.4 写“不提供批量恢复页，说明句改写”。S6-10 按 60 章实现（expiryNote 带 supportsFallbackAccounts 参数），以后需在规格里统一 |
+| 代理列表的 429 等待 | ProxyStore 没有 BlockRefresh：被 429 时照常显示 FailureView 或“加载失败 · 重试”，不显示“请求过于频繁，N 秒后自动重试”，也不拦截等待期内的重读（其他列表已有这套处理）。需要时在 ProxyStore 加 refresh 状态，并让 ProxiesView 接 throttleMessage |
+| 代理地区短名 | AdminProxy.regionText 用 Locale(zh_CN) 的系统名，HK 显示“中国香港特别行政区”，与 60 §12.3 示例“中国香港”不同；UI 测试没有断言地区。要用短名的话只改 regionText 一处（S2-11） |
+| 代理夹具账号数与账号页不一致 | ProxyFixtures 里 hk-02 的账号数按规格示例写 3，AccountDemoStore 加上回退账号后是 4；目前没有跨页比较的 UI 测试。要统一时让 ProxyFixtures 的 account_count 从账号夹具派生 |
