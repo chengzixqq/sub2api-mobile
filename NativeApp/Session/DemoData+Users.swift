@@ -439,3 +439,67 @@ extension DemoData {
         return try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 }
+
+/// S3-11's `-ui-testing` launch arguments for the edit user page (30 §6.4, §6.5).
+enum UserEditFixtureArgument {
+    /// The site has one administrator: demoting any is refused before sending.
+    static let lastAdmin = "-ui-user-last-admin"
+    /// The save goes through but its reply is lost; the page reads the user back and finds it saved.
+    static let saveUncertain = "-ui-user-save-uncertain"
+    /// The reply is lost and nothing was saved; the read-back differs.
+    static let saveDrift = "-ui-user-save-drift"
+    /// rpm-status answers 501 RPM_STATUS_UNAVAILABLE.
+    static let rpmUnavailable = "-ui-user-rpm-unavailable"
+    /// rpm-status fails with 500.
+    static let rpmFailed = "-ui-user-rpm-failed"
+}
+
+// S3-11: `PUT admin/users/:id` as strict as the server (S3D1-10), so a page that sends what it did not change fails.
+extension DemoData {
+    /// 王小明 (3) used 2 of 60 this minute, 2 of them on Claude Code 组 under his own RPM; everyone else nothing, unlimited.
+    static func rpmStatus(userID: Int) -> UserRPMStatus {
+        guard userID == 3 else { return UserRPMStatus(userUsed: 0, userLimit: 0, userTracked: true) }
+        return UserRPMStatus(userUsed: 2, userLimit: 60, userTracked: true,
+                             perGroup: [UserRPMStatus.Group(groupID: 5, groupName: "Claude Code 组", used: 2, limit: 30, source: "override", tracked: true)])
+    }
+    /// Refusals first (balance, an unchanged key, a taken email, disabling an administrator, a rate ≤ 0), then the merge:
+    /// allowed_groups replaces the list, group_rates merges key by key and null removes one. Password and adjustment notes are
+    /// never kept.
+    static func updatedUser(_ user: AdminUser, body: Data, users: [AdminUser]) throws -> AdminUser {
+        let fields = (try JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+        if fields["balance"] != nil { throw APIError.server(status: 400, reason: "USER_BALANCE_NOT_EDITABLE") }
+        if sendsUnchanged(fields, of: user) { throw APIError.server(status: 400, reason: nil) }
+        if let email = fields["email"] as? String,
+           users.contains(where: { $0.id != user.id && $0.email.caseInsensitiveCompare(email) == .orderedSame }) {
+            throw APIError.server(status: 409, reason: "EMAIL_EXISTS")
+        }
+        if user.role == AdminUserRole.admin.rawValue, fields["status"] as? String == "disabled" { throw APIError.server(status: 500, reason: nil) }
+        var payload = (try JSONSerialization.jsonObject(with: JSONEncoder().encode(user)) as? [String: Any]) ?? [:]
+        for (key, value) in fields where !["password", "adjustment_notes", "group_rates"].contains(key) { payload[key] = value }
+        if let rates = fields["group_rates"] as? [String: Any] {
+            var merged = payload["group_rates"] as? [String: Any] ?? [:]
+            for (id, rate) in rates {
+                if rate is NSNull { merged.removeValue(forKey: id); continue }
+                guard let number = rate as? NSNumber, number.doubleValue > 0 else { throw APIError.server(status: 500, reason: nil) }
+                merged[id] = number
+            }
+            payload["group_rates"] = merged
+        }
+        return try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+    /// A key equal to the user's value; allowed_groups and restrict_public_groups travel together and count as one.
+    private static func sendsUnchanged(_ fields: [String: Any], of user: AdminUser) -> Bool {
+        func same<Value: Equatable>(_ key: String, _ value: Value) -> Bool { (fields[key] as? Value).map { $0 == value } ?? false }
+        let scalars = same("email", user.email) || same("username", user.username ?? "") || same("notes", user.notes ?? "")
+            || same("role", user.role ?? "") || same("status", user.status) || same("concurrency", user.concurrency ?? -1)
+            || same("rpm_limit", user.rpmLimit ?? -1)
+        let groups = fields["allowed_groups"] != nil && same("allowed_groups", (user.allowedGroups ?? []).sorted())
+            && same("restrict_public_groups", user.restrictPublicGroups ?? false)
+        let rates = (fields["group_rates"] as? [String: Any] ?? [:]).contains { id, rate in
+            let current = Int(id).flatMap { user.groupRates?[$0] }
+            guard let number = rate as? NSNumber else { return current == nil }
+            return current.map { abs(NSDecimalNumber(decimal: $0).doubleValue - number.doubleValue) < 1e-9 } ?? false
+        }
+        return scalars || groups || rates
+    }
+}

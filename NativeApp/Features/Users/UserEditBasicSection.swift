@@ -1,8 +1,9 @@
 import SwiftUI
 import Sub2Core
 
-/// 30 §5.3 基础段: 账户 (email, username, notes, the site's attributes), 登录 (password) and 余额 (initial balance). Every row
-/// carries its field as `id`, so a failed check scrolls to it; its message shows under it once “创建用户” was pressed.
+/// 30 §5.3 / §6.3 基础段: 账户 (email, username, notes, the site's attributes), then for a new user 登录 (password) and 余额
+/// (initial balance), for an existing one 登录与状态 (the folded password reset and the status switch). Every row carries its
+/// field as `id`, so a failed check scrolls to it; its message shows under it once “创建用户” / “保存” was pressed.
 struct UserEditBasicSection: View {
     @Bindable var editor: UserEditorModel
     var focus: FocusState<UserDraftField?>.Binding
@@ -38,6 +39,10 @@ struct UserEditBasicSection: View {
             .id(UserDraftField.notes)
             attributeRows
         }
+        if editor.isEditing { editLoginSection } else { createLoginSection }
+    }
+
+    @ViewBuilder private var createLoginSection: some View {
         Section(UserEditCopy.loginSection) {
             passwordRow
             passwordActions
@@ -54,6 +59,51 @@ struct UserEditBasicSection: View {
             }
             .id(UserDraftField.initialBalance)
         } header: { Text(UserEditCopy.balanceSection) } footer: { Text(UserEditCopy.balanceFootnote) }
+    }
+
+    // MARK: - 登录与状态（编辑态，30 §6.3）
+
+    /// The password stays folded and unsent until it is opened and typed; a check on it opens the fold.
+    private var editLoginSection: some View {
+        Section(UserEditCopy.loginStatusSection) {
+            Button { withAnimation(.snappy) { editor.passwordFoldOpen.toggle() } } label: {
+                HStack(spacing: 12) {
+                    Text(UserEditCopy.passwordFold + " · " + (editor.draft.password.isEmpty ? UserEditCopy.passwordUnchanged : UserEditCopy.passwordWillChange))
+                        .foregroundStyle(Palette.ink1)
+                    Spacer(minLength: 8)
+                    Image(systemName: editor.passwordFoldOpen ? "chevron.up" : "chevron.down")
+                        .font(.footnote.weight(.semibold)).foregroundStyle(Palette.ink3).accessibilityHidden(true)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("user-edit.password.fold")
+            if editor.passwordFoldOpen {
+                passwordRow
+                passwordActions
+            }
+            statusRow
+        }
+        .onChange(of: editor.focusRequest) { _, request in if request?.field == .password { editor.passwordFoldOpen = true } }
+    }
+    /// An administrator's is locked: the server refuses to disable one (U30).
+    private var statusRow: some View {
+        let locked = editor.isOriginalAdmin, active = editor.draft.status == "active"
+        return VStack(alignment: .leading, spacing: 4) {
+            Toggle(isOn: Binding(get: { editor.draft.status == "active" }, set: { editor.setStatus(active: $0) })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(UserEditCopy.statusTitle + " · " + UserPresentation.statusWord(editor.draft.status))
+                    Text(UserEditCopy.statusSubtitle(active: active, locked: locked)).font(.footnote).foregroundStyle(Palette.ink2)
+                        .accessibilityIdentifier("user-edit.status.subtitle")
+                }
+            }
+            .disabled(locked)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("user-edit.status")
+            if let error = editor.issue(for: .status) { UserEditIssueText(message: error, identifier: "user-edit.status.error") }
+        }
+        .id(UserDraftField.status)
     }
 
     // MARK: - 自定义属性
@@ -131,13 +181,15 @@ struct UserEditBasicSection: View {
 
     // MARK: - 密码
 
+    private var passwordPlaceholder: String { editor.isEditing ? UserEditCopy.newPasswordPlaceholder : UserEditCopy.passwordPlaceholder }
+
     private var passwordRow: some View {
         UserEditFieldRow(title: UserDraftField.password.title, error: editor.issue(for: .password), identifier: "user-edit.password") {
             Group {
                 if showsPassword {
-                    TextField("", text: $editor.draft.password, prompt: Text(UserEditCopy.passwordPlaceholder)).font(.body.monospaced())
+                    TextField("", text: $editor.draft.password, prompt: Text(passwordPlaceholder)).font(.body.monospaced())
                 } else {
-                    SecureField("", text: $editor.draft.password, prompt: Text(UserEditCopy.passwordPlaceholder))
+                    SecureField("", text: $editor.draft.password, prompt: Text(passwordPlaceholder))
                 }
             }
             .textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()

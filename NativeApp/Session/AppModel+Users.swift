@@ -133,23 +133,73 @@ extension AppModel {
         if let refusal = await fixtureSecurityRefusal(body: operation.body) { throw refusal }
         return try await fixtureCreateUser(operation, generation: generation)
     }
-    func updateUser(_ operation: PendingUserUpdateOperation) async throws -> WriteOutcome<AdminUser> {
+    /// S3-11: the fixture refuses as the server does, and is strict (S3D1-10): a key equal to the user's value is a 400, so a
+    /// page that sends more than it changed fails its test.
+    func updateUser(_ operation: PendingUserUpdateOperation, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
         let client = try requireClient()
-        if !isUITesting { return try await client.updateUser(operation) }
+        if !isUITesting { return try await client.updateUser(operation, onEvent: onEvent) }
         let generation = sessionGeneration
         guard operation.serverID == activeProfile?.id, operation.identity == (await client.userWriteIdentity()), generation == sessionGeneration else {
             throw APIError.stationMismatch
         }
         if let refusal = await fixtureSecurityRefusal(body: operation.body) { throw refusal }
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
         if let result = demoUserUpdates[operation.id] { return WriteOutcome(value: result, replayed: true) }
         var users = demoUsersBySession[generation] ?? DemoData.allUsers
-        guard let index = users.firstIndex(where: { $0.id == operation.userID }) else { throw APIError.invalidResponse }
-        var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(users[index])) as! [String: Any]
-        let changes = try JSONSerialization.jsonObject(with: operation.body) as! [String: Any]
-        for (key, value) in changes where key != "password" && key != "adjustment_notes" { payload[key] = value }
-        let user = try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
+        guard let index = users.firstIndex(where: { $0.id == operation.userID }) else { throw APIError.server(status: 404, reason: "USER_NOT_FOUND") }
+        let arguments = ProcessInfo.processInfo.arguments
+        let lostReply = KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: operation.key, actionID: nil, lastError: nil)
+        if arguments.contains(UserEditFixtureArgument.saveDrift) { throw lostReply }
+        let user = try DemoData.updatedUser(users[index], body: operation.body, users: users)
         users[index] = user; demoUsersBySession[generation] = users; demoUserUpdates[operation.id] = user
+        if arguments.contains(UserEditFixtureArgument.saveUncertain) { throw lostReply }
         return WriteOutcome(value: user)
+    }
+
+    // MARK: - 编辑用户（S3-11）
+    /// 30 §6.2: the user's attribute values; the fixture reads S3-10's session store (S3D1-22).
+    func userAttributes(userID: Int) async throws -> [UserAttributeValue] {
+        guard isUITesting else { return try await requireClient().userAttributes(userID: userID) }
+        return (DemoData.attributeValues(generation: sessionGeneration)[userID] ?? [:])
+            .map { UserAttributeValue(attributeID: $0.key, value: $0.value) }.sorted { $0.attributeID < $1.attributeID }
+    }
+    /// 30 §6.4 step 2: the site's administrators. The fixture counts the session's, plus the signed-in one when no fixture
+    /// user is “本人”; `-ui-user-last-admin` answers 1.
+    func adminCount() async throws -> Int {
+        guard isUITesting else { return try await requireClient().adminCount() }
+        if ProcessInfo.processInfo.arguments.contains(UserEditFixtureArgument.lastAdmin) { return 1 }
+        let admins = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).filter { $0.role == AdminUserRole.admin.rawValue }.count
+        return admins + (currentAdminUserID == nil ? 1 : 0)
+    }
+    /// 30 §6.3 RPM 状态; `-ui-user-rpm-unavailable` answers as a site without the RPM cache, `-ui-user-rpm-failed` fails with 500.
+    func userRPMStatus(id: Int) async throws -> UserRPMStatusReply {
+        guard isUITesting else { return try await requireClient().userRPMStatus(id: id) }
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains(UserEditFixtureArgument.rpmFailed) { throw APIError.server(status: 500, reason: nil) }
+        if arguments.contains(UserEditFixtureArgument.rpmUnavailable) { return .unavailable }
+        return .status(DemoData.rpmStatus(userID: id))
+    }
+    /// The edit page's save (UserUpdateSubmission); `isPageAlive` turns false when the page goes away.
+    func userEditEffects(isPageAlive: @escaping @MainActor @Sendable () -> Bool) -> UserUpdateSubmission.Effects {
+        let generation = sessionGeneration
+        return UserUpdateSubmission.Effects(
+            target: { [weak self] in
+                await self?.userCreateTarget(generation: generation).map { UserUpdateSubmission.Target(serverID: $0.serverID, identity: $0.identity) }
+            },
+            sendsIdempotencyKey: { [weak self] in self?.siteSession?.has(.adminIdempotentWrites) == true },
+            update: { [weak self] operation in
+                guard let self else { throw CancellationError() }
+                return try await updateUser(operation)
+            },
+            readUser: { [weak self] id in
+                guard let self else { throw CancellationError() }
+                return try await user(id: id)
+            },
+            writeAttributes: { [weak self] userID, values in
+                guard let self else { throw CancellationError() }
+                try await updateUserAttributes(userID: userID, values: values)
+            },
+            isCurrent: { [weak self] in self?.sessionGeneration == generation && isPageAlive() })
     }
 
     // MARK: - 余额写

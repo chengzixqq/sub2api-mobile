@@ -38,10 +38,13 @@ final class SecurityPromptUITests: XCTestCase {
         XCTAssertFalse((code.value as? String ?? "").contains("0"), "错误后应清空输入")
         code.typeText("123456")
         XCTAssertTrue(code.waitForNonExistence(timeout: 10), app.debugDescription)
-        let send = app.buttons["确认发送"]
-        XCTAssertTrue(send.waitForExistence(timeout: 10), app.debugDescription)
-        send.tap()
-        XCTAssertTrue(element("user-editor.email").waitForNonExistence(timeout: 10), app.debugDescription)
+        // S3-11: verified, the edit page asks once more, then saves and returns to the detail.
+        let confirm = app.alerts["把「Alice」设为管理员？"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(confirm.staticTexts["二次验证已通过。管理员可以管理全部账号、用户和资金。\n同时保存：角色"].exists, app.debugDescription)
+        confirm.buttons["设为管理员并保存"].tap()
+        XCTAssertTrue(element("user-edit.email").waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["Alice"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor func testStepUpWithoutTOTPShowsNoticeOnly() {
@@ -52,11 +55,10 @@ final class SecurityPromptUITests: XCTestCase {
         XCTAssertFalse(element("stepup.code").exists)
         diagnostics("step-up-no-totp-notice")
         app.buttons["stepup.ack"].tap()
-        let result = element("user-editor.result")
-        reveal(result)
-        XCTAssertTrue(result.label.contains("需要先在 Web 端开启二次验证"), app.debugDescription)
-        reveal(app.buttons["user-editor.prepare"], towardBottom: false)
-        XCTAssertTrue(app.buttons["user-editor.prepare"].isEnabled)
+        // S3-11: the edit page stays with its change, and “保存” can be pressed again.
+        XCTAssertTrue(element("stepup.ack").waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("user-edit.role").exists, app.debugDescription)
+        XCTAssertTrue(waitUntil(app.buttons["user-edit.save"], "isEnabled == true"), app.debugDescription)
     }
 
     @MainActor private func launchAndLogin(_ argument: String) {
@@ -69,7 +71,7 @@ final class SecurityPromptUITests: XCTestCase {
         reveal(app.buttons["login.submit"]); app.buttons["login.submit"].tap()
         XCTAssertTrue(app.tabBars.buttons["用户"].waitForExistence(timeout: 10), app.debugDescription)
     }
-    /// Opens the first fixture user's editor, makes it an administrator and confirms; the fixtures refuse that write.
+    /// Opens the first fixture user's edit page (S3-11), makes it an administrator and presses “保存”, which asks for step-up.
     @MainActor private func makeFirstUserAdministrator() {
         app.tabBars.buttons["用户"].tap()
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10), app.debugDescription)
@@ -79,13 +81,12 @@ final class SecurityPromptUITests: XCTestCase {
         app.buttons["user.more"].tap()
         XCTAssertTrue(app.buttons["编辑用户"].waitForExistence(timeout: 3), app.debugDescription)
         app.buttons["编辑用户"].tap()
-        XCTAssertTrue(element("user-editor.email").waitForExistence(timeout: 5), app.debugDescription)
-        reveal(app.buttons["user-editor.role"]); app.buttons["user-editor.role"].tap()
-        XCTAssertTrue(app.buttons["管理员"].waitForExistence(timeout: 3), app.debugDescription)
-        app.buttons["管理员"].tap()
-        reveal(app.buttons["user-editor.prepare"]); app.buttons["user-editor.prepare"].tap()
-        XCTAssertTrue(app.buttons["确认发送"].waitForExistence(timeout: 5), app.debugDescription)
-        app.buttons["确认发送"].tap()
+        XCTAssertTrue(element("user-edit.email").waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["user-edit.segment.access"].tap()
+        let role = app.segmentedControls["user-edit.role"]
+        XCTAssertTrue(role.waitForExistence(timeout: 5), app.debugDescription)
+        role.buttons["管理员"].tap()
+        app.buttons["user-edit.save"].tap()
     }
     @MainActor private func type(_ value: String, into identifier: String) {
         let field = element(identifier); reveal(field, towardBottom: false); field.tap(); field.typeText(value)
