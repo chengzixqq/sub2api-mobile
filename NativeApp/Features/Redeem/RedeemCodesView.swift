@@ -10,6 +10,8 @@ struct RedeemCodesView: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.sessionContext) private var session
     @State private var list: RedeemCodesModel?
+    /// S6-05: this list's 禁用 / 启用、删除 and edit sheet saves.
+    @State private var writes: RedeemCodeWrites?
 
     private var canGenerate: Bool { session.map { !$0.isReadOnlyToken } ?? false }
 
@@ -36,8 +38,8 @@ struct RedeemCodesView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let list {
-            RedeemListContent(list: list, canGenerate: canGenerate, onGenerate: generate)
+        if let list, let writes {
+            RedeemListContent(list: list, writes: writes, canGenerate: canGenerate, onGenerate: generate)
         } else {
             ProgressView(RedeemListText.loading).frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityIdentifier("redeem.loading")
         }
@@ -54,6 +56,9 @@ struct RedeemCodesView: View {
             list = RedeemCodesModel(session: session, source: model.redeemCodesSource(for: session),
                                     route: model.isUITesting ? route.applyingFixtureArguments() : route, receipts: model.receipts,
                                     isCurrent: { [weak model] in model?.sessionGeneration == generation })
+            let writes = model.redeemCodeWrites(for: session)
+            writes.host = list
+            self.writes = writes
         }
         await list?.appeared()
     }
@@ -69,11 +74,15 @@ struct RedeemCodesView: View {
 
 private struct RedeemListContent: View {
     @Bindable var list: RedeemCodesModel
+    let writes: RedeemCodeWrites
     let canGenerate: Bool
     let onGenerate: () -> Void
     @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
     @Environment(\.sessionContext) private var session
+    /// S6-05: the edit sheet opens on the card as listed (60 §9.6); the delete confirmation is the shared one (S3-00).
+    @State private var editing: AdminRedeemCode?
+    @State private var deleteRequest: DeleteRequest?
     /// After the expand animation, so the open card is measured at its full height.
     private static let revealDelay: Duration = .milliseconds(350)
 
@@ -102,6 +111,8 @@ private struct RedeemListContent: View {
         }
         .refreshable { await list.pullToRefresh() }
         .accessibilityIdentifier("redeem.list")
+        .sheet(item: $editing) { RedeemEditSheet(code: $0, writes: writes) }
+        .confirmDelete($deleteRequest)
     }
 
     // MARK: Filters
@@ -162,7 +173,8 @@ private struct RedeemListContent: View {
         RedeemCodeCard(code: code, isOpen: list.openID == code.id, now: clock, timeZone: zone,
                        groupName: code.groupID.flatMap { model.groupDirectory?.name(for: $0) }, readOnly: session?.isReadOnlyToken ?? true,
                        onToggle: { withAnimation(.snappy) { list.toggle(code.id) } }, onCopy: { copy(code) },
-                       onOpenUser: { router.push(.user(id: $0)) }, onShowBatch: { Task { await list.showBatch(of: code) } })
+                       onOpenUser: { router.push(.user(id: $0)) }, onShowBatch: { Task { await list.showBatch(of: code) } },
+                       isRunning: writes.isRunning(code.id), onAction: { perform($0, on: code) }, onDelete: { confirmDelete(code) })
             .id(code.id)
             .onAppear { Task { await list.loadMoreIfNeeded(after: code.id) } }
     }
@@ -176,6 +188,22 @@ private struct RedeemListContent: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("redeem.section.\(section.title)")
+    }
+
+    /// 60 §8.4: 禁用 / 启用 at once (with 撤销); 编辑, 编辑备注 and 续期 open the sheet.
+    private func perform(_ action: RedeemCardAction, on code: AdminRedeemCode) {
+        switch action {
+        case .disable, .enable: Task { await writes.toggleStatus(code) }
+        case .edit, .editNotes, .renew: editing = code
+        case .more: break
+        }
+    }
+    /// 60 §0.4 / §8.4: the last 4 characters in either case, or Face ID; the confirmation shows only “····d4e8”.
+    private func confirmDelete(_ code: AdminRedeemCode) {
+        let writes = self.writes
+        deleteRequest = DeleteRequest(objectNoun: RedeemEditCopy.objectNoun, displayName: RedeemPresentation.deleteSubject(code.code),
+                                      siteName: model.activeProfile?.name ?? "", consequences: [RedeemEditCopy.deleteConsequence(code)],
+                                      expectedText: code.code, match: .suffix(4)) { await writes.delete(code) }
     }
 
     /// 60 §0.4: this phone only, never Handoff; the code itself is never logged or shown in the receipt.

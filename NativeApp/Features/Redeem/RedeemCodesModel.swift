@@ -348,3 +348,20 @@ extension AppModel {
         return .fixture(RedeemDemoStore.current(for: session.generation, base: session.client.serverClock.now()))
     }
 }
+
+// MARK: - S6-05
+
+extension RedeemCodesModel: RedeemCodeWritesHost {}
+
+extension AppModel {
+    /// 禁用 / 启用、删除 and the edit sheet's save on the site, or on this session's RedeemDemoStore. Without a list
+    /// (`.redeemEdit(id:)`) a write makes the shown list read again.
+    func redeemCodeWrites(for session: SessionContext) -> RedeemCodeWrites {
+        let source: RedeemWriteSource = isUITesting
+            ? .fixture(RedeemDemoStore.current(for: session.generation, base: session.client.serverClock.now())) : .live(session.client)
+        let generation = session.generation, clock = session.client.serverClock
+        return RedeemCodeWrites(source: source, receipts: receipts, generation: generation,
+                                isCurrent: { [weak self] in self?.sessionGeneration == generation }, now: { clock.now() },
+                                onChange: { RedeemCodesModel.noteExternalChange() })
+    }
+}

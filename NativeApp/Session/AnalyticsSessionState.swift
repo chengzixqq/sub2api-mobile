@@ -76,6 +76,8 @@ final class AnalyticsSessionState {
     /// Moves when a card's state is made, so a view that found none reads again; reading a card never writes.
     private var slotsVersion = 0
     @ObservationIgnored private var slots: [AnalyticsCardKey: any AnalyticsCardSlot] = [:]
+    /// The reads out, one per card; a choice change, `reset` and `cancelAll` drop them, so the next page asking reads anew.
+    @ObservationIgnored private var reads: [AnalyticsCardKey: Read] = [:]
     @ObservationIgnored private var checkedFilter = false
     @ObservationIgnored private let memory: AnalyticsMemory
     @ObservationIgnored private let clock: @MainActor () -> Date
@@ -172,22 +174,37 @@ final class AnalyticsSessionState {
         return slots[key]?.hasCardValue ?? false
     }
     /// A page asking for a card that already has its data, or is reading it, shares it; `refresh` reads again (the 60-second
-    /// refresh, pull to refresh, 重试本项). A result that lands after the site session ended, or after a change of the choices the
-    /// card follows, is dropped.
+    /// refresh, pull to refresh, 重试本项). A read already out is waited for, and the page that started it going away (its `.task`
+    /// cancelled when it pushes a chart) does not cancel it, as GroupDirectory does. A result that lands after the site session
+    /// ended, or after a change of the choices the card follows, is dropped.
     func load<Value: Sendable>(_ key: AnalyticsCardKey, refresh: Bool = false,
                                fixture: @escaping @MainActor @Sendable (AnalyticsSessionState) throws -> Value,
                                operation: @escaping @MainActor @Sendable (APIClient, AnalyticsSessionState) async throws -> Value) async {
+        if let read = reads[key] { await read.task.value; return }
         let state = slot(key, as: Value.self)
-        guard !state.isLoading, refresh || state.value == nil else { return }
-        let started = scope, client = client, usesFixture = isUITesting
-        await state.load(isCurrent: { [weak self] in self?.isCurrent(key, since: started) ?? false }) { [weak self] in
+        guard refresh || state.value == nil else { return }
+        let started = scope, client = client, usesFixture = isUITesting, id = UUID()
+        let isCurrent: @MainActor @Sendable () -> Bool = { [weak self] in self?.isCurrent(key, since: started) ?? false }
+        let read: @MainActor @Sendable () async throws -> Value = { [weak self] in
             guard let self else { throw CancellationError() }
             if usesFixture { return try fixture(self) }
             return try await operation(client, self)
         }
+        let task = Task { [weak self] in
+            await state.load(isCurrent: isCurrent, operation: read)
+            if self?.reads[key]?.id == id { self?.reads[key] = nil }
+        }
+        reads[key] = Read(id: id, task: task)
+        await task.value
     }
-    func reset(_ key: AnalyticsCardKey) { slots[key]?.reset() }
-    func cancelAll() { slots.values.forEach { $0.cancel() } }
+    func reset(_ key: AnalyticsCardKey) {
+        reads[key] = nil
+        slots[key]?.reset()
+    }
+    func cancelAll() {
+        reads = [:]
+        slots.values.forEach { $0.cancel() }
+    }
 
     /// The subtitle's time: the oldest last success among the cards that count.
     var earliestUpdate: Date? {
@@ -214,7 +231,14 @@ final class AnalyticsSessionState {
         return made
     }
     private func invalidate(rangeChanged: Bool, filterChanged: Bool) {
-        for (key, slot) in slots where key.scope.isInvalidated(rangeChanged: rangeChanged, filterChanged: filterChanged) { slot.reset() }
+        for (key, slot) in slots where key.scope.isInvalidated(rangeChanged: rangeChanged, filterChanged: filterChanged) {
+            reads[key] = nil
+            slot.reset()
+        }
+    }
+    private struct Read {
+        let id: UUID
+        let task: Task<Void, Never>
     }
 }
 

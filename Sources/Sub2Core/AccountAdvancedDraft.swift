@@ -3,16 +3,19 @@ import Foundation
 /// The 高级 sheet's copy of an account (20 §3.3, §3.4): the rows that apply, what they read, and the PATCH with only the changed
 /// keys — a switch on writes true and off deletes its key (as the Web does); a limit writes its amount or deletes its key, never
 /// the companion settings; 自动 deletes the Responses mode; the probe goes at the top level; 账号类型 / API 协议 bring their
-/// endpoint keys (AccountProtocolEndpoints). 撤销 writes every sent key back as it was stored, or deletes it.
+/// endpoint keys (AccountProtocolEndpoints). 撤销 writes every sent key back as it was stored, or deletes it, and turns back on
+/// the rate sync that the server turned off with the probe.
 public struct AccountAdvancedDraft: Equatable, Sendable {
     public static let webRowTitle = "在 Web 中编辑"
     public static let webRowSubtitle = "自定义错误码、请求头覆写等其余设置"
     public static let endpointsLockedNote = "这个账号用的是自定义接入端点，账号类型和 API 协议请在 Web 中修改。"
     static let legacyPassthroughKey = "openai_oauth_passthrough"
+    static let rateSyncKey = "upstream_billing_rate_sync_enabled"
     private static let credentialKeys = AccountProtocolEndpoints.credentialKeys
         .union([AccountAdvancedField.interceptWarmup, .poolMode].map(\.rawValue))
     private static let extraKeys = Set([AccountAdvancedField.windowCost, .sessionLimit, .rpmLimit, .tlsFingerprint, .sessionIDMasking,
-                                        .openAIPassthrough, .openAIResponsesMode].map(\.rawValue) + [AccountAdvancedDraft.legacyPassthroughKey])
+                                        .openAIPassthrough, .openAIResponsesMode].map(\.rawValue)
+                                       + [AccountAdvancedDraft.legacyPassthroughKey, AccountAdvancedDraft.rateSyncKey])
 
     public let fields: [AccountAdvancedField]
     public let base: AccountAdvancedValues
@@ -107,7 +110,11 @@ public struct AccountAdvancedDraft: Equatable, Sendable {
         var undo = AccountPatchRequest()
         for key in forward.credentialsPatch.keys { undo.credentialsPatch[key] = Self.restore(storedCredentials[key]) }
         for key in forward.extraPatch.keys { undo.extraPatch[key] = Self.restore(storedExtra[key]) }
-        if forward.upstreamBillingProbeEnabled != nil { undo.upstreamBillingProbeEnabled = base.upstreamBillingProbe }
+        if let probe = forward.upstreamBillingProbeEnabled {
+            undo.upstreamBillingProbeEnabled = base.upstreamBillingProbe
+            // updateLoadedAccount writes the rate sync false whenever the probe goes off; it comes back only named beside the probe.
+            if !probe, storedExtra[Self.rateSyncKey]?.boolValue == true { undo.upstreamBillingRateSyncEnabled = true }
+        }
         return undo
     }
     /// What 保存 hands to AccountPatchFlow; nil while nothing can be saved (S2D1-08).

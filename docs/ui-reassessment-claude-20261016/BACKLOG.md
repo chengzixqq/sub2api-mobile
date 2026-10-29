@@ -305,6 +305,7 @@
 | 账号模型分区空映射的文案 | Antigravity / Grok / Gemini Google One / OpenAI OAuth / DeepSeek 在映射为空时，后端实际按平台默认列表调度（service/account.go resolveModelMapping / IsModelSupported）；App 照规格写“支持所有模型”“未限制”。是否改成“按平台默认模型”待用户看图决定（S2-12） |
 | 多协议账号切换账号类型 / API 协议时联动接入端点 | 规格只写改 account_mode / api_protocol；App 照 Web EditAccountModal，在端点为官方预设或缺省时一并改写 base_url / api_base_urls / protocol_rules；自定义端点时两行只读并加脚注“这个账号用的是自定义接入端点，账号类型和 API 协议请在 Web 中修改。”（新文案，待用户看效果图；S2-12） |
 | MetaCatalog 补解码 multi_protocol.routing | S2-12 用“任一模式有 protocol_rules”判断按模型分流（与当前目录一致：opencode_go、command_code）；将来出现没有规则的 by_model 平台会误判，影响未设置 api_protocol 时显示“Chat Completions”还是“自适应”，建议由 S2-02 的目录解码补上 routing |
+| 高级分区：倍率同步开启时探测行的提示 | 账号开着“按上游声明倍率同步账号计费倍率”时，关闭“自动探测上游声明倍率”会让后端连同步一起关掉（撤销可以恢复）。规格的副文案“只探测，不改账号计费倍率”没有提到这一点。是否在同步开启时给探测行加一句提示（例如“关闭后倍率同步也会关闭”），等用户定。 |
 
 ### App 与设计 · 阶段 3
 
@@ -417,3 +418,7 @@
 | 代理列表的 429 等待 | ProxyStore 没有 BlockRefresh：被 429 时照常显示 FailureView 或“加载失败 · 重试”，不显示“请求过于频繁，N 秒后自动重试”，也不拦截等待期内的重读（其他列表已有这套处理）。需要时在 ProxyStore 加 refresh 状态，并让 ProxiesView 接 throttleMessage |
 | 代理地区短名 | AdminProxy.regionText 用 Locale(zh_CN) 的系统名，HK 显示“中国香港特别行政区”，与 60 §12.3 示例“中国香港”不同；UI 测试没有断言地区。要用短名的话只改 regionText 一处（S2-11） |
 | 代理夹具账号数与账号页不一致 | ProxyFixtures 里 hk-02 的账号数按规格示例写 3，AccountDemoStore 加上回退账号后是 4；目前没有跨页比较的 UI 测试。要统一时让 ProxyFixtures 的 account_count 从账号夹具派生 |
+| 兑换码 REDEEM_CODE_STATUS_INVALID 文案 | 60 §9.4 让它和 GROUP_ID_INVALID 共用“分组无效，请重新选择”，对状态值错误不贴切（App 正常不会触发）。现在按正文实现，建议改为“状态无效，请重新选择”，待用户确认。 |
+| 兑换码禁用 / 启用的撤销回执 | 60 §8.4 没写撤销成功或失败时的回执。现在的做法：撤销成功不出回执，徽章自己会变；失败沿用禁用 / 启用的错误表（409 刷新该卡，超时读回一次）。请用户确认。 |
+| 后端 GET /admin/redeem-codes/:id 不带 user / group | 写操作后单卡刷新拿不到使用者和分组对象，App 现在用 keepingRelations 保留旧卡的 user / group。建议后端 GetByID 加上 WithUser / WithGroup。 |
+| 兑换码编辑 sheet：当前分组已停用或不是订阅分组 | 当前分组不在可选项里时，仍作为已选胶囊显示并标“（已停用）”，不改选就不发 group_id。请用户确认这个显示方式。 |

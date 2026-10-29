@@ -20,7 +20,7 @@ struct RedeemSheetDestination: View {
     var body: some View {
         switch sheet {
         // .redeemEdit：S6-05
-        case .redeemEdit: ComingSoonSheet(title: sheet.placeholderTitle)
+        case .redeemEdit(let id): RedeemEditLoader(id: id)
         // .redeemGenerate：S6-07
         case .redeemGenerate: ComingSoonSheet(title: sheet.placeholderTitle)
         // .redeemReconcile：S6-06
