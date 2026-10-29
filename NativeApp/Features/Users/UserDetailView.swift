@@ -14,7 +14,6 @@ struct UserDetailView: View {
     @State private var detail: UserDetailModel?
     @State private var detailGeneration: UUID?
     @State private var visible = false
-    @State private var editorTarget: UserEditorTarget?
     @State private var deleteRequest: DeleteRequest?
     /// This user's editor went onto the stack above; the next appearance reads the profile, the keys and the records (30 §2.6).
     @State private var returnsFromEditor = false
@@ -24,7 +23,7 @@ struct UserDetailView: View {
     @State private var balanceEntry: BalanceKeypadEntry?
 
     private var shouldPoll: Bool { visible && scenePhase == .active && detail != nil }
-    /// `.userEdit` of this user, any segment, on the stack in front: the key summary's push, and S3-11's ⋯ 编辑用户.
+    /// `.userEdit` of this user, any segment, on the stack in front: the key summary's push and ⋯ 编辑用户 (S3-11).
     private var editorAbove: Bool {
         router.path(for: router.selectedTab).contains { if case .userEdit(let id, _) = $0 { id == userID } else { false } }
     }
@@ -54,7 +53,6 @@ struct UserDetailView: View {
             .onChange(of: model.userChanges?.revision(userID: userID) ?? 0) { _, _ in Task { await detail?.reloadAfterChange() } }
             // 30 §2.4: the page pops once the confirmation has closed; the row and the receipt are already done.
             .onChange(of: deleteRequest == nil) { _, closed in if closed, detail?.didDelete == true { dismiss() } }
-            .sheet(item: $editorTarget, onDismiss: { Task { await detail?.reloadAfterEdit() } }) { UserEditorView(target: $0) }
     }
 
     @ViewBuilder private var content: some View {
@@ -103,9 +101,7 @@ struct UserDetailView: View {
     private func perform(_ item: UserDetailMenuItem, detail: UserDetailModel, user: AdminUser) {
         switch item {
         case .edit:
-            // S3-11 replaces the old editor sheet with `.userEdit(id:)`.
-            guard let session, session.generation == model.sessionGeneration else { return }
-            editorTarget = UserEditorTarget(user: user, context: session, siteName: model.activeProfile?.name ?? "")
+            router.push(.userEdit(id: userID))
         case .setStatus(let enable):
             Task { await detail.setStatus(enable: enable) }
         case .compensation:
