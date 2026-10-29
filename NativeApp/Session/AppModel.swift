@@ -96,6 +96,8 @@ final class AppModel {
     private(set) var userList: UserListModel?
     /// S3-07: the foreground check's single flight and the retry cooldowns (S3D1-05); only AppModel+BalanceReconcile changes it.
     @ObservationIgnored var pendingChecks = PendingCheckRegistry()
+    /// 30 §5.6: the attribute definitions read once per session (S3-10, S3D1-05); only AppModel+Users writes it.
+    @ObservationIgnored var userAttributeDefinitions: [UserAttributeDefinition]?
 
     // MARK: - 阶段 4 · 会话级状态
     // 阶段 4 的条目在这里追加
@@ -311,6 +313,7 @@ final class AppModel {
         userChanges = UserChangeSignal()
         userList = UserListModel(app: self, generation: generation)
         pendingChecks = PendingCheckRegistry()
+        userAttributeDefinitions = nil
         // MARK: - 阶段 4 · 会话级状态
         // 阶段 4 的条目在这里追加
         pageStates = PageStateRegistry()
@@ -352,6 +355,7 @@ final class AppModel {
         userChanges = nil
         userList = nil
         pendingChecks = PendingCheckRegistry()
+        userAttributeDefinitions = nil
         // MARK: - 阶段 4 · 会话级状态
         // 阶段 4 的条目在这里追加
         pageStates = nil

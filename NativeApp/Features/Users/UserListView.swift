@@ -11,7 +11,6 @@ struct UsersView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var searchText = ""
     @State private var visible = false
-    @State private var editorTarget: UserEditorTarget?
 
     /// U01 reserves vendor sign-in: their page says so and sends nothing (30 §1.1).
     private var isVendor: Bool { session?.site.me.user?.role == AdminUserRole.vendor.rawValue }
@@ -30,7 +29,6 @@ struct UsersView: View {
                     }
                 }
             }
-            .sheet(item: $editorTarget, onDismiss: { Task { await model.userList?.refresh() } }) { UserEditorView(target: $0) }
     }
 
     @ViewBuilder private var content: some View {
@@ -57,11 +55,8 @@ struct UsersView: View {
         }
     }
 
-    /// Until S3-10's page, + and the empty state open the old editor; closing it reads the first page again.
-    private func openCreate() {
-        guard let session, session.generation == model.sessionGeneration else { return }
-        editorTarget = UserEditorTarget(user: nil, context: session, siteName: model.activeProfile?.name ?? "")
-    }
+    /// 30 §5.1: + and the empty state push the new user page; a creation marks the list to read its first page on return.
+    private func openCreate() { router.push(.userNew) }
     /// 30 §1.1: a user awaiting reconciliation opens the detail; any other opens the top-up keypad.
     private func openQuickTopup(_ entry: QuickTopupEntry) {
         if entry.isPending { router.push(.user(id: entry.id)) }
