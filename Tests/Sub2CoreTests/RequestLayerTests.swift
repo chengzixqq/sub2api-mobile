@@ -207,7 +207,7 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     _ = try? await client.setUserStatus(id: 7, status: "active")
     _ = try? await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)))
     _ = try? await client.setAccountsSchedulable(ids: [9], enabled: true, idempotencyKey: UUID())
-    _ = try? await client.refreshAccount(id: 9)
+    _ = try? await client.refreshAccount(id: 9, idempotencyKey: UUID())
     _ = try? await client.dashboard()
     _ = try? await client.dashboardTrend()
     _ = try? await client.dashboardCostSnapshot()

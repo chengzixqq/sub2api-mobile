@@ -165,10 +165,12 @@ private func thrownError(_ operation: () async throws -> Void) async -> APIError
 @Test func emptyReplyWithNonZeroCodeFails() async throws {
     let rejected = ErrorMappingTransport { _ in mappingReply(200, #"{"code":"X","reason":"X"}"#) }
     let failing = APIClient(server: mappingServer(), credential: .adminKey("fixture"), transport: rejected)
-    let error = try #require(await thrownError { try await failing.refreshAccount(id: 9) })
+    let error = try #require(await thrownError { _ = try await failing.refreshAccount(id: 9, idempotencyKey: nil) })
     #expect(error.statusCode == 500); #expect(error.reason == "X")
-    let accepted = ErrorMappingTransport { _ in mappingReply(200, #"{"code":0}"#) }
-    try await APIClient(server: mappingServer(), credential: .adminKey("fixture"), transport: accepted).refreshAccount(id: 9)
+    let account = #"{"id":9,"name":"fixture","platform":"anthropic","type":"oauth","status":"active","schedulable":true}"#
+    let accepted = ErrorMappingTransport { _ in mappingSuccess(account) }
+    let refreshed = try await APIClient(server: mappingServer(), credential: .adminKey("fixture"), transport: accepted).refreshAccount(id: 9, idempotencyKey: nil)
+    #expect(refreshed.value.account.id == 9); #expect(refreshed.value.warning == nil)
 }
 
 @Test func loginUsesLoginContextTexts() async throws {

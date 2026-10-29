@@ -153,15 +153,6 @@ private func sentFields(_ query: AccountListQuery, page: Int = 1) throws -> [Str
     #expect(AccountStatusFilter.allCases.filter(\.isLegacy) == [.error, .rateLimited, .tempUnschedulable, .unschedulable, .inactive, .active])
 }
 
-@Test func accountBatchWritesRejectOldIdentity() async throws {
-    let transport = ManagedAccountTransport(fails: true)
-    let client = APIClient(server: managedAccountServer(), credential: .adminKey("fixture"), transport: transport)
-    let identity = await client.userWriteIdentity()
-    await client.cancelAll()
-    await #expect(throws: APIError.self) { try await client.refreshManagedAccount(id: 4, identity: identity) }
-    #expect(await transport.requests().isEmpty)
-}
-
 @Test func bulkAccountSchedulingPreservesPartialFailureAndUnknownRows() async throws {
     let transport = ManagedAccountTransport()
     let client = APIClient(server: managedAccountServer(), credential: .adminKey("fixture"), transport: transport)

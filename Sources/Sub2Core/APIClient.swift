@@ -189,9 +189,6 @@ public actor APIClient {
     }
     public func account(id: Int) async throws -> UpstreamAccount { try await request("admin/accounts/\(validID(id))") }
     public func accountTodayStats(id: Int) async throws -> AccountTodayStats { try await request("admin/accounts/\(validID(id))/today-stats") }
-    public func refreshAccount(id: Int) async throws {
-        let _: EmptyReply = try await request("admin/accounts/\(validID(id))/refresh", method: "POST", body: Data("{}".utf8), timeout: RequestTimeout.keyedBulk)
-    }
 
     // MARK: - 用户
     // The list, writes and reads of stage 3 live in UserList.swift and UserManagement.swift (S3-01).

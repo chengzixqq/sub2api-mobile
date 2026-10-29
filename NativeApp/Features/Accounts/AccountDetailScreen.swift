@@ -282,14 +282,16 @@ private struct AccountDetailContent: View {
         case .placeholder(let action): ComingSoonSheet(title: action.title)
         }
     }
-    /// The old detail's 刷新账号凭据 until S2-16 (`:id/refresh` has no Idempotency-Key there yet).
+    /// The old detail's 刷新账号凭据 until S2-16; the key is made at the tap when the site takes one (R05).
     private func refreshToken() async {
         guard let account = detail.account, let session, session.generation == model.sessionGeneration else { return }
+        let key: UUID? = session.has(.adminIdempotentWrites) ? UUID() : nil
         do {
             guard !model.isUITesting else { throw AppFailure("界面测试模式不执行服务器写操作。") }
-            try await session.client.refreshAccount(id: account.id)
+            let result = try await session.client.refreshAccount(id: account.id, idempotencyKey: key).value
             guard session.generation == model.sessionGeneration else { return }
-            model.receipts.show(Receipt(text: "已刷新令牌", systemImage: "arrow.clockwise"))
+            let text = AccountCredentialCopy.refreshReceipt(result, timeZone: session.site.serverTimeZone.timeZone)
+            model.receipts.show(Receipt(text: text, systemImage: "arrow.clockwise"))
         } catch {
             guard session.generation == model.sessionGeneration, !(error is CancellationError) else { return }
             model.receipts.show(Receipt(text: "刷新令牌没有成功：\(AccountActionCopy.reason(for: error))", systemImage: "exclamationmark.triangle",
