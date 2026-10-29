@@ -323,6 +323,12 @@
 | 多协议端点预设表（MiniMax Intl 等） | meta/catalog 每个模式的每个协议只有一个官方端点；新建表单目前只提供目录端点和自定义端点。预设表需要后端在目录里提供，或由用户决定是否在 App 内置 |
 | Gemini OAuth 档位选择 | 新建时只用默认档位（Google One → google_one_free、Code Assist → gcp_standard），App 不提供档位选择 |
 | 新建 apikey 账号默认开启上游倍率探测 | 按 Web 默认发 upstream_billing_probe_enabled: true；如果不想默认开启，只需改 createRequest 一行和一条测试 |
+| 无刷新令牌时的“刷新令牌”行 | token_status.auto_refresh == false（没有 refresh_token）时，Claude 刷新会得到不带 reason 的 500。目前照规格保留该行，失败按 500 兜底。待用户决定是否置灰并注“没有刷新令牌，只能重新授权”（S2-16） |
+| 后端补 SPARK_SHADOW_NO_REFRESH 文档 | 刷新影子账号返回 400 SPARK_SHADOW_NO_REFRESH，但 docs/API_ERROR_CODES.md 和 20 §0.5 都没有。App 已用“影子账号的凭据跟随母账号，请刷新母账号的令牌”（S2-16） |
+| 真机确认更换 API Key 输入框 | SecureField 已加 textContentType(nil)、autocorrectionDisabled、privacySensitive。模拟器测不出真机会不会弹“存储密码”或钥匙串自动填充；若会弹，改用 .oneTimeCode 抑制（S2-16） |
+| bedrock / service_account 凭据区文案 | 规格只定了这两类账号的主按钮去 Web（U17）。凭据区目前是“凭据 · 已设置 · 不可查看”加“在 Web 中更换凭据”，脚注“已保存的凭据不可查看；这类凭据请在 Web 中更换。”为自拟，请用户看效果图后确认（S2-16） |
+| Base URL 回执的按钮 | 按设计稿给“测试”。按 20 §0.4-1，可逆的内联编辑应给“撤销”；若要撤销，可用 AccountBaseURLDraft.original 发 PATCH 写回旧值（S2-16） |
+| 访问令牌剩余比例刻度 | 已定设计稿没有刻度，本条不画。以后要加时用 token_status.lifetime_seconds 作分母，只在它有值时画（S2-16） |
 
 ### App 与设计 · 阶段 3
 
