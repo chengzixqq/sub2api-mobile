@@ -318,6 +318,11 @@
 | 后端：Claude / Gemini / Antigravity 换码网络失败缺 reason | 新建账号换码时，Claude 的上游失败是不带 reason 的 500，Gemini / Antigravity 是不带 reason 的 400（oauth_exchange_error.go），App 分不出“授权码还没用掉 · 换个代理再试”，目前退回通用文案；建议后端给这三个平台补上和 OPENAI_OAUTH_TOKEN_EXCHANGE_FAILED 同类的 reason |
 | reauthorize / exchange-code / apply 的 30 秒超时 | 按 00 §2.3 保持不带 key 的写 30 秒；后端换码上限 2 分钟、保存 30 秒，上游慢时会先超时、落到“不能确认是否已替换”。建议实测后再决定是否放宽（S2D1-03） |
 | items.json files 补登记 | S2-15 实际新增了 OAuthCredentialBuilder.swift、AccountOAuthErrorCopy.swift、OAuthCredentialBuilderTests.swift、AccountOAuthErrorCopyTests.swift（方案已列出拆分），需要补进 items.json 的 files 并重跑 build.py |
+| 没有幂等能力时“用同一编号重试”实际是新的创建 | 站点没有 admin.idempotent_writes 时没有 key，核对没找到后的重试是一次新的 POST；如果第一次其实在核对之后才落库，会建出第二个账号。建议 S2-19 在没有 key 时把按钮改成“重新创建”并保留核对说明，文案待用户确认 |
+| 创建后换认证方式，旧密钥会留在服务端 | PATCH 不能删除敏感凭据键（CREDENTIAL_KEY_NOT_DELETABLE），PUT 也保留旧敏感键，所以换方式做不到字面上的“替换原来的凭据”（旧密钥对新类型不起作用，且始终脱敏）；建议后端提供换类型时整份替换凭据的方式 |
+| 多协议端点预设表（MiniMax Intl 等） | meta/catalog 每个模式的每个协议只有一个官方端点；新建表单目前只提供目录端点和自定义端点。预设表需要后端在目录里提供，或由用户决定是否在 App 内置 |
+| Gemini OAuth 档位选择 | 新建时只用默认档位（Google One → google_one_free、Code Assist → gcp_standard），App 不提供档位选择 |
+| 新建 apikey 账号默认开启上游倍率探测 | 按 Web 默认发 upstream_billing_probe_enabled: true；如果不想默认开启，只需改 createRequest 一行和一条测试 |
 
 ### App 与设计 · 阶段 3
 
