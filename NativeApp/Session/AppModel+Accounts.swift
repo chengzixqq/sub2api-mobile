@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Sub2Core
+import UIKit
 
 // 20 章: the account tab's reads (D11). Later stage 2 items add their account wrappers and `-ui-testing` branches here.
 extension AppModel {
@@ -235,4 +236,54 @@ extension AppModel {
         if isUITesting { return try accountDemo.models(id: id) }
         return try await requireClient().accountModels(id: id)
     }
+}
+
+// MARK: - S2-14 测试连接
+
+/// 20 §4: starting a test is a write and carries the session's generation (S2D1-05); `-ui-testing` replays the session's
+/// AccountDemoStore (DemoData+AccountTests.swift).
+extension AppModel: AccountTestSource {
+    var accountTestSession: AccountTestSession? {
+        guard let session = sessionContext else { return nil }
+        return AccountTestSession(generation: session.generation, supportsTestResult: session.has(.accountsTestResult),
+                                  supportsTestRuns: session.has(.accountsTestRuns), isReadOnlyToken: session.isReadOnlyToken)
+    }
+    func testAccountStream(id: Int, model: String?, generation: UUID) async throws -> AsyncThrowingStream<AccountTestEvent, any Error> {
+        if isUITesting {
+            guard generation == sessionGeneration else { throw CancellationError() }
+            return try accountDemo.testStream(id: id, model: model, now: accountFixtureNow())
+        }
+        let expectsTestResult = sessionContext?.has(.accountsTestResult) == true
+        return try await accountWriteClient(generation).testAccount(id: id, model: model, expectsTestResult: expectsTestResult)
+    }
+    func startAccountTestRun(id: Int, model: String?, generation: UUID) async throws -> AccountTestRunStart {
+        if isUITesting {
+            guard generation == sessionGeneration else { throw CancellationError() }
+            return try accountDemo.startTestRun(id: id, model: model, now: accountFixtureNow())
+        }
+        return try await accountWriteClient(generation).startTestRun(accountID: id, modelID: model)
+    }
+    func latestAccountTestRun(id: Int) async throws -> AccountTestRun? {
+        if isUITesting { return accountDemo.latestTestRun(id: id, now: accountFixtureNow()) }
+        return try await requireClient().latestTestRun(accountID: id)
+    }
+    func accountTestRun(runID: String) async throws -> AccountTestRun {
+        if isUITesting { return try accountDemo.testRun(runID: runID, now: accountFixtureNow()) }
+        return try await requireClient().testRun(runID: runID)
+    }
+
+    /// One per session (`publish`); its “启用调度” goes through AccountActions and the App's receipts.
+    func makeAccountTestCenter(generation: UUID) -> AccountTestCenter {
+        AccountTestCenter(generation: generation, source: self, receipts: receipts,
+                          makeScheduling: { [unowned self] onChange in AccountActions(model: self, onChange: onChange) },
+                          background: isUITesting ? .none : .application)
+    }
+}
+
+extension AccountTestBackgroundActivity {
+    /// 20 §4.4: the stream asks for background time, so a test keeps running for a while after the App leaves the screen.
+    static let application = AccountTestBackgroundActivity(begin: { onExpire in
+        let task = UIApplication.shared.beginBackgroundTask(withName: "account-test") { MainActor.assumeIsolated { onExpire() } }
+        return task == .invalid ? nil : task.rawValue
+    }, end: { UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: $0)) })
 }

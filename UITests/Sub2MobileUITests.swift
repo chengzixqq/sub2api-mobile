@@ -35,13 +35,16 @@ final class Sub2MobileUITests: XCTestCase {
         reveal(app.buttons["account.2"])
         reveal(app.buttons["account.1"], towardBottom: false)
         app.buttons["account.1"].tap()
-        // S2-08: the new detail; 测试连接 still opens the old test page until S2-14.
-        XCTAssertTrue(app.descendants(matching: .any)["account.detail.card"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        // S2-08: the new detail; S2-14: 测试连接 opens the test sheet, which starts at once (20 §4.4, no start button).
+        let card = app.descendants(matching: .any)["account.detail.card"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10), app.debugDescription)
         reveal(app.buttons["account.action.test"])
         app.buttons["account.action.test"].tap()
-        XCTAssertTrue(app.buttons["account.test.start"].waitForExistence(timeout: 5))
-        // Opening the screen never launches a test or performs a server write.
-        XCTAssertFalse(app.staticTexts["测试成功"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["account.test.sheet"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["account.test.output"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["account.test.start"].exists)
+        app.buttons["sheet.close"].tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 5), app.debugDescription)
     }
 
     @MainActor func testUserPaginationAndMaskedKeys() {

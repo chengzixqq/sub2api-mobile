@@ -87,6 +87,8 @@ final class AppModel {
     @ObservationIgnored var accountBadgeTask: Task<Void, Never>?
     /// X03: bumped after a detail write the account list must read again for (S2-11); rebuilt with the session.
     private(set) var accountListSignal = AccountListSignal()
+    /// 20 §4.4: the session's account tests, which go on after their sheet closes (AccountTestCenter.swift); nil without a site.
+    private(set) var accountTests: AccountTestCenter?
 
     // MARK: - 阶段 3 · 会话级状态
     // 阶段 3 的条目在这里追加
@@ -308,6 +310,8 @@ final class AppModel {
         accountBadgeTask?.cancel()
         accountBadgeTask = Task { [weak self] in await self?.runAccountBadgeRefresh(generation: generation) }
         accountListSignal = AccountListSignal()
+        accountTests?.cancelAll()
+        accountTests = makeAccountTestCenter(generation: generation)
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
         userChanges = UserChangeSignal()
@@ -353,6 +357,8 @@ final class AppModel {
         accountBadgeTask?.cancel()
         accountBadgeTask = nil
         accountListSignal = AccountListSignal()
+        accountTests?.cancelAll()
+        accountTests = nil
         // MARK: - 阶段 3 · 会话级状态
         // 阶段 3 的条目在这里追加
         userChanges = nil

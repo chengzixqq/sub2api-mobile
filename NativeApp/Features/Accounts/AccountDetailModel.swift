@@ -301,3 +301,22 @@ extension AccountDetailModel {
         apply(VersionedAccount(account: base.account, etag: base.etag))
     }
 }
+
+// MARK: - 测试连接（S2-14）
+
+extension AccountDetailModel {
+    /// 20 §4.4: a finished test's status fields show at once, then `GET :id` reads the whole account and its version; the
+    /// result's “启用调度” hands back the written account.
+    func testFinished(_ completion: AccountTestCompletion) async {
+        switch completion.change {
+        case .tested(let state):
+            if let state, let current = account, isLive {
+                invalidateReads()
+                account = AccountTestFlow.applying(state, to: current)
+                etagNeedsRefresh = true
+            }
+            await load()
+        case .written(let updated): applyWrite(updated)
+        }
+    }
+}

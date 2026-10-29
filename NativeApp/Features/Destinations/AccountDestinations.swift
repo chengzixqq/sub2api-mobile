@@ -25,7 +25,7 @@ struct AccountSheetDestination: View {
         // .accountNew：S2-19
         case .accountNew: ComingSoonSheet(title: sheet.placeholderTitle)
         // .accountTest：S2-14
-        case .accountTest: ComingSoonSheet(title: sheet.placeholderTitle)
+        case .accountTest(let id): AccountTestSheet(accountID: id)
         // 其他区域：SheetDestination 不会分派到这里
         default: ComingSoonSheet(title: sheet.placeholderTitle)
         }

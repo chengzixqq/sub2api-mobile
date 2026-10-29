@@ -5,8 +5,8 @@ import Sub2Core
 /// answers. Above the sections (S2-09 容量 · 今日 · 记录, then S2-10's 基础 · 调度, edited in AccountSectionSheet, S2-11's 代理 and
 /// S2-12's 模型 · 高级)
 /// sit the status card and the button row; the buttons go through AccountActions (20 §5). ⋯ holds 在 Web 中编辑 and 删除账号…
-/// (S2-11). Until their items land, 测试连接 opens the old test page (S2-14), 更换 API Key / 重新授权 a placeholder (S2-16 /
-/// S2-17), and ⋯'s credential slot the old token refresh (S2-16).
+/// (S2-11). 测试连接 opens the router's test sheet (S2-14); until their items land, 更换 API Key / 重新授权 open a placeholder
+/// (S2-16 / S2-17), and ⋯'s credential slot the old token refresh (S2-16).
 struct AccountDetailScreen: View {
     @Environment(AppModel.self) private var model
     private let id: Int
@@ -21,7 +21,7 @@ struct AccountDetailScreen: View {
 }
 
 private enum AccountDetailSheet: Hashable, Identifiable {
-    case legacyTest, placeholder(AccountDetailAction)
+    case placeholder(AccountDetailAction)
     var id: Self { self }
 }
 
@@ -52,7 +52,6 @@ private struct AccountDetailContent: View {
     @State private var confirmingRefresh = false
     @State private var running: AccountDetailAction?
     @State private var visible = false
-    @State private var reloadsOnDismiss = false
     @State private var scrolledToFocus = false
     private let focus: AccountDetailFocus?
 
@@ -103,7 +102,12 @@ private struct AccountDetailContent: View {
         // A read that failed while compliance was pending reads again once it is accepted (00 §1.10).
         .onChange(of: model.securityPrompts.complianceRevision) { _, _ in if detail.failure != nil { Task { await detail.load() } } }
         .accountRecoverDialog($recovering, actions: actions)
-        .sheet(item: $sheet, onDismiss: sheetClosed) { sheetContent($0) }
+        // 20 §4.4: a test that ended (here or after its sheet closed) updates the page.
+        .onChange(of: model.accountTests?.completion(for: detail.accountID)?.id) { _, _ in
+            guard let completion = model.accountTests?.completion(for: detail.accountID) else { return }
+            Task { await detail.testFinished(completion) }
+        }
+        .sheet(item: $sheet) { sheetContent($0) }
         .sheet(item: Binding(get: { detail.editor }, set: { detail.editor = $0 })) { AccountSectionSheet(request: $0) }
         .accountProxyPrompts(editor: $proxyEditor, reverting: $reverting, onSaved: { model.accountListSignal.bump() },
                              onRevert: { _ in startRevert() })
@@ -213,7 +217,9 @@ private struct AccountDetailContent: View {
     private func top(_ account: UpstreamAccount) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             AccountStatusCard(account: account) { AccountUpstreamErrorLineView(account: account, upstream: detail.upstreamErrors.state) }
-            AccountActionButtonRow(row: AccountDetailPresentation.actionRow(account, now: serverNow), running: running) { perform($0, on: account) }
+            AccountActionButtonRow(row: AccountDetailPresentation.actionRow(account, now: serverNow), running: shownRunning(account)) {
+                perform($0, on: account)
+            }
                 .disabled(running != nil || actions.isRunning(account.id))
         }
     }
@@ -222,9 +228,7 @@ private struct AccountDetailContent: View {
 
     private func perform(_ action: AccountDetailAction, on account: UpstreamAccount) {
         switch action {
-        case .test:
-            reloadsOnDismiss = true
-            sheet = .legacyTest
+        case .test: router.present(.accountTest(id: account.id))
         case .stopScheduling, .resumeScheduling:
             run(action) { await actions.setSchedulable(account, enabled: action == .resumeScheduling) }
         case .enableAccount:
@@ -236,6 +240,10 @@ private struct AccountDetailContent: View {
         // S2D1-20: 修改过期时间… opens the 调度 sheet.
         case .editExpiry: Task { await detail.beginEdit(.sched) }
         }
+    }
+    /// A test that goes on after its sheet closed spins 测试连接, which still opens the sheet to follow it.
+    private func shownRunning(_ account: UpstreamAccount) -> AccountDetailAction? {
+        running ?? (model.accountTests?.isRunning(account.id) == true ? .test : nil)
     }
     private func run(_ action: AccountDetailAction, _ write: @escaping @MainActor () async -> AccountActionOutcome) {
         guard running == nil else { return }
@@ -270,18 +278,9 @@ private struct AccountDetailContent: View {
     }
 
     @ViewBuilder private func sheetContent(_ sheet: AccountDetailSheet) -> some View {
-        if let account = detail.account {
-            switch sheet {
-            case .legacyTest: AccountTestView(account: account)
-            case .placeholder(let action): ComingSoonSheet(title: action.title)
-            }
+        switch sheet {
+        case .placeholder(let action): ComingSoonSheet(title: action.title)
         }
-    }
-    /// A test may change the account's state; the old test page reports nothing back.
-    private func sheetClosed() {
-        guard reloadsOnDismiss else { return }
-        reloadsOnDismiss = false
-        Task { await detail.load() }
     }
     /// The old detail's 刷新账号凭据 until S2-16 (`:id/refresh` has no Idempotency-Key there yet).
     private func refreshToken() async {
@@ -301,9 +300,10 @@ private struct AccountDetailContent: View {
 
     // MARK: - Refresh gates (20 §2.6)
 
-    /// Foreground, visible, nothing over the page and no write running.
+    /// Foreground, visible, nothing over the page (the router's sheets included) and no write running.
     private var isRefreshOpen: Bool {
-        guard visible, scenePhase == .active, !model.isSuspended, sheet == nil, detail.editor == nil, recovering == nil, !confirmingRefresh,
+        guard visible, scenePhase == .active, !model.isSuspended, sheet == nil, router.presentedSheet == nil, detail.editor == nil,
+              recovering == nil, !confirmingRefresh,
               running == nil, !detail.isRemoved, proxyEditor == nil, reverting == nil, deleteRequest == nil, !revert.isRunning else { return false }
         return !actions.isRunning(detail.accountID)
     }
