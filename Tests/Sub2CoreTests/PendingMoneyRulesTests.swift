@@ -303,3 +303,50 @@ private func profile(_ address: String) -> ServerProfile {
     }
     #expect(await transport.requests.count == 3)
 }
+
+// MARK: S6-07 the + of the redeem list (60 §8.4, R03, X34)
+
+private func redeemBatch(_ id: String, serverID: UUID, minutesAgo: Double, now: Date, count: Int = 20) -> PendingRedeemBatch {
+    PendingRedeemBatch(id: UUID(uuidString: id)!, serverID: serverID, actorUserID: 7, createdAt: now.addingTimeInterval(-minutesAgo * 60),
+                       spec: RedeemGenerateSpec(type: .balance, value: 10, count: count))
+}
+private func redeemGate(serverIDs: Set<UUID>, batches: [PendingRedeemBatch], unavailable: Set<PendingMoneyKind> = []) -> PendingMoneyGate {
+    .evaluate(.redeemGenerate, serverIDs: serverIDs, balances: [], redeemBatches: batches, compensations: [], unavailable: unavailable)
+}
+
+@Test func redeemGateCountsSameAddressOldSiteBatches() {
+    let current = UUID(), oldLogin = UUID(), elsewhere = UUID(), now = Date(timeIntervalSince1970: 1_800_000_000)
+    let old = redeemBatch("0B000000-0000-4000-8000-000000000002", serverID: oldLogin, minutesAgo: 10, now: now, count: 10)
+    let far = redeemBatch("0F000000-0000-4000-8000-000000000002", serverID: elsewhere, minutesAgo: 20, now: now)
+    let gate = redeemGate(serverIDs: [current, oldLogin], batches: [old, far])
+    #expect(gate == .overridable([old.id]))
+    #expect(redeemGate(serverIDs: [current], batches: [old, far]) == .clear)
+    // The older login's batch is asked about, not the other address's, though that one is older.
+    let decision = RedeemGenerateEntryDecision.decide(gate: gate, batches: [old, far], now: now, timeZone: TimeZone(identifier: "UTC")!)
+    #expect(decision == .intercept(RedeemGenerateIntercept(batchID: old.id, message: "10 个 × $10.00 · 合计 $100.00\n10 分钟前发起。先核对，避免重复生成。")))
+}
+
+@Test func redeemGateKeepsBothBatchesAfterOverride() {
+    let current = UUID(), now = Date(timeIntervalSince1970: 1_800_000_000)
+    let first = redeemBatch("0A000000-0000-4000-8000-000000000002", serverID: current, minutesAgo: 5, now: now)
+    // “仍要生成新的一批” made a second batch whose result is unknown as well: both hold the next +.
+    let second = redeemBatch("0A000000-0000-4000-8000-000000000012", serverID: current, minutesAgo: 1, now: now)
+    let gate = redeemGate(serverIDs: [current], batches: [second, first])
+    #expect(gate == .overridable([second.id, first.id]))
+    guard case .intercept(let intercept) = RedeemGenerateEntryDecision.decide(gate: gate, batches: [second, first], now: now,
+                                                                              timeZone: TimeZone(identifier: "UTC")!) else {
+        Issue.record("not intercepted"); return
+    }
+    #expect(intercept.batchID == first.id)
+}
+
+@Test func redeemGatePausedWinsOverSameAddressBatches() {
+    let current = UUID(), oldLogin = UUID(), now = Date(timeIntervalSince1970: 1_800_000_000)
+    let old = redeemBatch("0B000000-0000-4000-8000-000000000002", serverID: oldLogin, minutesAgo: 10, now: now)
+    let paused = redeemGate(serverIDs: [current, oldLogin], batches: [old], unavailable: [.redeemBatch])
+    #expect(paused == .paused(.redeemBatch))
+    #expect(RedeemGenerateEntryDecision.decide(gate: paused, batches: [old], now: now, timeZone: TimeZone(identifier: "UTC")!)
+            == .paused(message: PendingMoneyKind.redeemBatch.unreadableMessage))
+    // Another kind's unreadable file does not pause generating.
+    #expect(redeemGate(serverIDs: [current, oldLogin], batches: [old], unavailable: [.balance, .compensation]) == .overridable([old.id]))
+}

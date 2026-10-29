@@ -12,6 +12,8 @@ struct RedeemCodesView: View {
     @State private var list: RedeemCodesModel?
     /// S6-05: this list's 禁用 / 启用、删除 and edit sheet saves.
     @State private var writes: RedeemCodeWrites?
+    /// S6-07: asked before the wizard while a batch awaits its result.
+    @State private var generateQuestion: RedeemGenerateIntercept?
 
     private var canGenerate: Bool { session.map { !$0.isReadOnlyToken } ?? false }
 
@@ -35,6 +37,8 @@ struct RedeemCodesView: View {
             // again once it is accepted (00 §1.10).
             .onChange(of: model.foregroundRevision) { _, _ in Task { await list?.foregroundResumed() } }
             .onChange(of: model.securityPrompts.complianceRevision) { _, _ in Task { await list?.markNeedsReload() } }
+            .redeemGenerateEntry($generateQuestion, reconcile: { [router] in router.present(.redeemReconcile(batchID: $0)) },
+                                 generate: { [router] in router.present(.redeemGenerate) })
     }
 
     @ViewBuilder private var content: some View {
@@ -45,8 +49,11 @@ struct RedeemCodesView: View {
         }
     }
 
-    /// The + interception and the wizard are S6-07's.
-    private func generate() { router.present(.redeemGenerate) }
+    /// S6-07: the + interception (60 §8.4), then the wizard.
+    private func generate() {
+        generateQuestion = RedeemGenerateEntry.open(model: model, router: router, now: session?.client.serverClock.now() ?? Date(),
+                                                    timeZone: session?.site.serverTimeZone.timeZone ?? .current)
+    }
 
     /// A new session gets a new list (and forgets the route's code to open); then it reads unless what it shows is recent.
     private func appeared() async {

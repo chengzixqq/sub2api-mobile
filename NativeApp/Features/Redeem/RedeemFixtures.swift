@@ -341,3 +341,34 @@ extension RedeemDemoStore {
         replace(codes + made.filter { !known.contains($0.id) })
     }
 }
+
+// MARK: - S6-07 generation
+
+extension DemoData.RedeemFixture {
+    /// A new batch's answer is lost: the sheet turns into the pending page and the record stays.
+    static let generateUnknown = "-ui-redeem-generate-unknown"
+    /// The server already had the batch and replays it.
+    static let generateReplayed = "-ui-redeem-generate-replayed"
+    /// 409 REDEEM_CODE_EXPIRED: nothing generated, back to step 3.
+    static let generateRejected = "-ui-redeem-generate-rejected"
+    /// The group directory has no active subscription group.
+    static let noSubscriptionGroups = "-ui-redeem-no-subscription-groups"
+}
+
+extension DemoData {
+    /// The wizard's subscription groups: the directory's (the group fixtures stay their only source), or none.
+    static func redeemGenerateGroups(_ groups: [AdminGroup], arguments: [String] = ProcessInfo.processInfo.arguments) -> [AdminGroup] {
+        arguments.contains(RedeemFixture.noSubscriptionGroups) ? [] : groups
+    }
+    /// `POST admin/redeem-codes/generate` of a new batch: the codes join the session's list, as the server's would.
+    @MainActor static func redeemGenerateReply(for batch: PendingRedeemBatch, store: RedeemDemoStore, now: Date,
+                                               arguments: [String]) throws -> WriteOutcome<[AdminRedeemCode]> {
+        if arguments.contains(RedeemFixture.generateUnknown) {
+            throw KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: batch.key, actionID: nil, lastError: nil)
+        }
+        if arguments.contains(RedeemFixture.generateRejected) { throw APIError.server(status: 409, reason: "REDEEM_CODE_EXPIRED") }
+        let all = fixtureBatchCodes(for: batch, now: now)
+        store.insert(all)
+        return WriteOutcome(value: all, replayed: arguments.contains(RedeemFixture.generateReplayed), batchID: batch.id)
+    }
+}

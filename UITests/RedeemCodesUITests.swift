@@ -396,4 +396,15 @@ final class RedeemCodesUITests: XCTestCase {
         XCTAssertTrue(item.exists && item.isHittable, app.debugDescription)
         item.tap()
     }
+
+    /// S6-07: with nothing awaiting its result, + opens the wizard's first step.
+    @MainActor func testPlusOpensGenerateWizard() {
+        launchRedeem()
+        defer { diagnostics("redeem-generate-open-final") }
+        app.buttons["redeem.generate"].tap()
+        for type in ["balance", "concurrency", "subscription", "invitation"] {
+            XCTAssertTrue(app.buttons["redeem.generate.type.\(type)"].waitForExistence(timeout: 10), type + "\n" + app.debugDescription)
+        }
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+    }
 }
