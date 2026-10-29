@@ -194,6 +194,21 @@ extension RedeemCodesUITests {
         XCTAssertTrue(card(2046).label.contains("未使用"), card(2046).label)
     }
 
+    /// A write of the code still running: 删除兑换码… waits with the card's buttons, so a confirmed delete is never dropped.
+    @MainActor func testDeleteWaitsWhileAWriteRuns() {
+        launchRedeem(["-ui-redeem-slow-write"])
+        defer { diagnostics("redeem-delete-while-writing-final") }
+        open(2046)
+        let toggle = cardButton(2046, "toggle")
+        toggle.tap()
+        XCTAssertTrue(waitForState(toggle, "isEnabled == false"), app.debugDescription)
+        openMenu(2046)
+        let delete = menuItem("删除兑换码…")
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(delete.isEnabled, app.debugDescription)
+        XCTAssertTrue(menuItem("复制兑换码").isEnabled, app.debugDescription)
+    }
+
     // MARK: - Helpers
 
     /// A button of an open card, scrolled between the bars.

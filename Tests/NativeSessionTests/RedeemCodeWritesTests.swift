@@ -28,8 +28,14 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
     }
     func replaceLocally(_ code: AdminRedeemCode) { shown[code.id] = code; events.append("replace \(code.id) \(code.status)") }
     func removeLocally(id: Int) { shown[id] = nil; events.append("remove \(id)") }
-    func refreshCard(id: Int) async { events.append("card \(id)") }
-    func refreshStats() async { events.append("stats") }
+    func refreshCard(id: Int) async { events.append("card \(id)"); await hold() }
+    func refreshStats() async { events.append("stats"); await hold() }
+
+    /// Parks each card or counts read until `releaseReads()`, like a slow network after the write.
+    var holdsReads = false
+    private var parked: [CheckedContinuation<Void, Never>] = []
+    func releaseReads() { holdsReads = false; let waiting = parked; parked = []; waiting.forEach { $0.resume() } }
+    private func hold() async { if holdsReads { await withCheckedContinuation { parked.append($0) } } }
 }
 
 /// Answers from per-call scripts (an empty script answers like a server that ran the write); `holds` parks each update until
@@ -73,6 +79,7 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
 
 @MainActor private final class Flag { var on = true }
 @MainActor private final class Counter { var value = 0 }
+@MainActor private final class Slot<Value> { var value: Value? }
 
 @MainActor private final class Bench {
     let fake: FakeWriteSource
@@ -165,6 +172,7 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
     await bench.writes.toggleStatus(redeemCode("unused"))
     #expect(bench.host.shown[7] == nil)
     #expect(bench.receipt == "这个兑换码已被删除")
+    await waitUntil { bench.host.events.count == 3 }
     #expect(bench.host.events == ["replace 7 disabled", "remove 7", "stats"])
 }
 
@@ -213,6 +221,7 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
         #expect(bench.host.shown[7] == nil)
         #expect(bench.receipt == "已删除兑换码「····d4e8」")
         #expect(bench.receipts.current?.action == nil)
+        await waitUntil { bench.host.events.count == 2 }
         #expect(bench.host.events == ["remove 7", "stats"])
     }
 }
@@ -223,6 +232,7 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
     await bench.writes.delete(redeemCode("unused"))
     #expect(bench.host.shown[7] != nil)
     #expect(bench.receipt == "已被兑换的兑换码不能删除")
+    await waitUntil { !bench.host.events.isEmpty }
     #expect(bench.host.events == ["card 7"])
 }
 
@@ -252,6 +262,7 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
     #expect(await renewing.writes.save(draft) == .saved)
     #expect(renewing.fake.updates.first?.1 == draft.fields(now: clock))
     #expect(renewing.receipt == "已续期 · 10/30 过期，改回未使用")
+    await waitUntil { renewing.host.events.count == 2 }
     #expect(renewing.host.events == ["card 7", "stats"])
 
     var raced = RedeemEditDraft(code: redeemCode("unused"), now: clock)
@@ -273,6 +284,7 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
     removed.fake.updateReplies = [.failure(notFound)]
     #expect(await removed.writes.save(raced) == .gone)
     #expect(removed.receipt == "这个兑换码已被删除")
+    await waitUntil { removed.host.events.count == 2 }
     #expect(removed.host.events == ["remove 7", "stats"])
 
     // Nothing changed: nothing is sent.
@@ -297,6 +309,63 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
     #expect(await missed.writes.save(draft) == .unconfirmed)
     #expect(missed.fake.updates.count == 1)
     #expect(missed.receipt == nil)
+}
+
+/// 9.4: the sheet closes on the reply, then the receipt; the card and the counts are read behind it, never holding it open.
+@MainActor @Test func saveClosesBeforeTheReads() async {
+    var editing = RedeemEditDraft(code: redeemCode("unused"), now: clock)
+    editing.notes = "工单 #8812"
+    let draft = editing
+    let bench = Bench()
+    bench.host.holdsReads = true
+    let outcome = Slot<RedeemSaveOutcome>()
+    let saving = Task { outcome.value = await bench.writes.save(draft) }
+    await waitUntil { outcome.value != nil && bench.host.events == ["card 7"] }
+    #expect(outcome.value == .saved)
+    #expect(bench.receipt == "已保存备注")
+    bench.host.releaseReads()
+    await saving.value
+    await waitUntil { bench.host.events == ["card 7", "stats"] }
+    #expect(bench.host.events == ["card 7", "stats"])
+
+    // Deleted meanwhile: closed with “这个兑换码已被删除”, the counts behind it.
+    let removed = Bench()
+    removed.host.holdsReads = true
+    removed.fake.updateReplies = [.failure(notFound)]
+    let gone = Slot<RedeemSaveOutcome>()
+    let closing = Task { gone.value = await removed.writes.save(draft) }
+    await waitUntil { gone.value != nil && removed.host.events == ["remove 7", "stats"] }
+    #expect(gone.value == .gone)
+    #expect(removed.receipt == "这个兑换码已被删除")
+    removed.host.releaseReads()
+    await closing.value
+}
+
+/// 8.4: the delete confirmation closes on the reply; “已删除兑换码「····d4e8」” is not hidden under it while the counts load.
+@MainActor @Test func deleteClosesBeforeTheReads() async {
+    let bench = Bench()
+    bench.host.holdsReads = true
+    let done = Flag()
+    done.on = false
+    let deleting = Task { await bench.writes.delete(redeemCode("unused")); done.on = true }
+    await waitUntil { done.on && bench.host.events == ["remove 7", "stats"] }
+    #expect(done.on)
+    #expect(bench.receipt == "已删除兑换码「····d4e8」")
+    bench.host.releaseReads()
+    await deleting.value
+
+    // 409: the card is read again behind the closed confirmation too.
+    let refused = Bench()
+    refused.host.holdsReads = true
+    refused.fake.deleteReplies = [.failure(used)]
+    let answered = Flag()
+    answered.on = false
+    let refusing = Task { await refused.writes.delete(redeemCode("unused")); answered.on = true }
+    await waitUntil { answered.on && refused.host.events == ["card 7"] }
+    #expect(answered.on)
+    #expect(refused.receipt == "已被兑换的兑换码不能删除")
+    refused.host.releaseReads()
+    await refusing.value
 }
 
 // MARK: - Session and re-entry
@@ -343,5 +412,6 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
     #expect(await bench.writes.save(draft) == .saved)
     #expect(bench.receipt == "已保存兑换码")
     #expect(bench.host.events.isEmpty)
+    await waitUntil { bench.hostless.value == 1 }
     #expect(bench.hostless.value == 1)
 }

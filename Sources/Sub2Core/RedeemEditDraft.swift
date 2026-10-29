@@ -45,11 +45,12 @@ public struct RedeemEditDraft: Sendable, Equatable {
     private static let day: TimeInterval = 86_400
 
     public init(code: AdminRedeemCode, now: Date) {
+        let mode = RedeemEditMode(code: code)
         original = code
-        mode = RedeemEditMode(code: code)
+        self.mode = mode
         status = code.codeStatus == .disabled ? .disabled : .unused
         groupID = code.groupID
-        expiry = code.expiresAt == nil ? .never : .keep
+        expiry = Self.offersKeep(code, mode: mode) ? .keep : .never
         let future = code.expiresAt.flatMap { $0 > now ? $0 : nil }
         customExpiry = Self.minute(future ?? now.addingTimeInterval(7 * Self.day))
         notes = code.notes ?? ""
@@ -63,12 +64,12 @@ public struct RedeemEditDraft: Sendable, Equatable {
     /// After a 409 REDEEM_CODE_USED on a code the list still showed as unredeemed.
     public var wasSwitchedToNotesOnly: Bool { mode == .notesOnly && RedeemEditMode(code: original) != .notesOnly }
     public var expiryChoices: [RedeemEditExpiryChoice] {
-        (original.expiresAt == nil ? [] : [.keep]) + [.never] + RedeemEditExpiryChoice.presetDays.map { .days($0) } + [.custom]
+        (Self.offersKeep(original, mode: mode) ? [.keep] : []) + [.never] + RedeemEditExpiryChoice.presetDays.map { .days($0) } + [.custom]
     }
     public func title(for choice: RedeemEditExpiryChoice, now: Date, timeZone: TimeZone) -> String {
         switch choice {
         case .keep:
-            guard let expiresAt = original.expiresAt else { return "保持" }
+            guard let expiresAt = original.expiresAt else { return mode == .expired ? "保持（已过期）" : "保持" }
             let pastDue = mode == .expired || expiresAt <= now
             return "保持 " + RedeemPresentation.timestamp(expiresAt, now: now, timeZone: timeZone) + (pastDue ? "（已过期）" : "")
         case .never: return "永不过期"
@@ -120,6 +121,8 @@ public struct RedeemEditDraft: Sendable, Equatable {
         }
     }
     private func blocksCustom(now: Date) -> Bool { showsExpiry && expiry == .custom && !customIsValid(now: now) }
+    /// An expired code keeps even without a time: Web 的“使过期” sets only the status, and opening it must not renew it (9.4).
+    private static func offersKeep(_ code: AdminRedeemCode, mode: RedeemEditMode) -> Bool { code.expiresAt != nil || mode == .expired }
 
     // MARK: Wording
 

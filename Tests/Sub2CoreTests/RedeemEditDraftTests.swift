@@ -55,6 +55,17 @@ private func draft(_ code: AdminRedeemCode, _ edit: (inout RedeemEditDraft) -> V
     #expect(draft(code("disabled")).status == .disabled && draft(code("unused")).status == .unused)
 }
 
+/// An expired code always offers 保持 first, with or without a time to keep, so opening it never counts as a renewal (9.4).
+@Test func expiredWithoutAnExpiryStartsAtKeep() {
+    let stale = draft(code("expired", expiresAt: nil))
+    #expect(stale.expiry == .keep)
+    #expect(stale.expiryChoices == [.keep, .never, .days(1), .days(3), .days(7), .days(30), .custom])
+    #expect(!stale.isRenewing && stale.saveTitle == "保存" && stale.statusTitles == ["已过期"])
+    #expect(!stale.canSave(now: now))
+    #expect(stale.title(for: .keep, now: now, timeZone: shanghai) == "保持（已过期）")
+    #expect(stale.expiryFootnote(now: now, timeZone: shanghai) == "选一个新的过期时间即可续期；保持原时间只改备注。")
+}
+
 @Test func choiceTitlesKeepTheOriginalTimeOnThePhone() {
     #expect(draft(code("unused")).title(for: .keep, now: now, timeZone: shanghai) == "保持 10/23 09:12")
     #expect(draft(code("expired", expiresAt: instant("2026-10-10T09:12:00+08:00"))).title(for: .keep, now: now, timeZone: shanghai)
@@ -104,6 +115,12 @@ private let sevenDays = "2026-10-23T01:41:00Z"
     RedeemEditFieldsRow(name: "expired: never renews", code: code("expired"), edit: { $0.expiry = .never }, expected: #"{"expires_at":null,"status":"unused"}"#),
     RedeemEditFieldsRow(name: "expired: keep sends notes only", code: code("expired"), edit: { $0.notes = "x"; $0.status = .disabled },
               expected: #"{"notes":"x"}"#),
+    // Web 的“使过期” sets only the status: an expired code without an expiry opens at 保持 too.
+    RedeemEditFieldsRow(name: "expired without an expiry: unchanged sends nothing", code: code("expired", expiresAt: nil), edit: { _ in }, expected: "{}"),
+    RedeemEditFieldsRow(name: "expired without an expiry: notes only", code: code("expired", expiresAt: nil), edit: { $0.notes = "已泄露作废" },
+              expected: #"{"notes":"已泄露作废"}"#),
+    RedeemEditFieldsRow(name: "expired without an expiry: never renews", code: code("expired", expiresAt: nil), edit: { $0.expiry = .never },
+              expected: #"{"expires_at":null,"status":"unused"}"#),
     RedeemEditFieldsRow(name: "expired subscription: group changed", code: code("expired", type: "subscription", groupID: 4), edit: { $0.groupID = 5 },
               expected: #"{"group_id":5}"#),
     RedeemEditFieldsRow(name: "everything", code: code("unused", type: "subscription", groupID: 4),

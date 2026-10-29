@@ -18,7 +18,7 @@ struct RedeemCodeCard: View {
     let onCopy: () -> Void
     let onOpenUser: (Int) -> Void
     let onShowBatch: () -> Void
-    /// A write of this code is running: its buttons wait.
+    /// A write of this code is running: its buttons and 删除兑换码… wait.
     var isRunning = false
     var onAction: ((RedeemCardAction) -> Void)?
     var onDelete: (() -> Void)?
@@ -160,7 +160,8 @@ struct RedeemCodeCard: View {
         case .viewUser(let userID, _): Button(item.title, systemImage: "person") { onOpenUser(userID) }
         case .viewBatch: Button(item.title, systemImage: "square.stack.3d.up", action: onShowBatch)
         case .delete:
-            if let onDelete { Button(item.title, systemImage: "trash", role: .destructive, action: onDelete) }
+            // Waits with the buttons: a delete confirmed while another write of this code runs would be dropped.
+            if let onDelete { Button(item.title, systemImage: "trash", role: .destructive, action: onDelete).disabled(isRunning) }
         }
     }
 

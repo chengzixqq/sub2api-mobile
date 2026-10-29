@@ -192,6 +192,9 @@ extension DemoData.RedeemFixture {
     /// Every status, expiry or group change answers 409 REDEEM_CODE_USED, as if the code was redeemed while the list showed it
     /// unused; notes still save.
     static let editUsedRace = "-ui-redeem-edit-used-race"
+    /// Every status, expiry, group or notes change answers only after half a minute, so the card can be tried while it runs.
+    static let slowWrite = "-ui-redeem-slow-write"
+    static let slowWriteDelay: Duration = .seconds(30)
 }
 
 extension RedeemDemoStore {
@@ -242,9 +245,12 @@ extension RedeemDemoStore {
 }
 
 extension RedeemWriteSource {
-    static func fixture(_ store: RedeemDemoStore) -> RedeemWriteSource {
-        RedeemWriteSource(update: { ids, fields in try await store.update(ids: ids, fields: fields, now: Date()) },
-                          delete: { try await store.delete(id: $0) }, code: { try await store.code(id: $0) })
+    static func fixture(_ store: RedeemDemoStore, arguments: [String] = ProcessInfo.processInfo.arguments) -> RedeemWriteSource {
+        let delay = arguments.contains(DemoData.RedeemFixture.slowWrite) ? DemoData.RedeemFixture.slowWriteDelay : nil
+        return RedeemWriteSource(update: { ids, fields in
+            if let delay { try await Task.sleep(for: delay) }
+            return try await store.update(ids: ids, fields: fields, now: Date())
+        }, delete: { try await store.delete(id: $0) }, code: { try await store.code(id: $0) })
     }
 }
 

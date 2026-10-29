@@ -24,7 +24,7 @@ struct RedeemWriteSource: Sendable {
     func refreshStats() async
 }
 
-/// How a save of the edit sheet ended; the sheet closes on `saved` and `gone`.
+/// How a save of the edit sheet ended; the sheet closes on `saved` and `gone`, which never wait for the reads after the reply.
 enum RedeemSaveOutcome: Equatable, Sendable { case saved, switchedToNotesOnly, rejected(String), unconfirmed, gone, ignored }
 
 /// 禁用 / 启用 (optimistic, with 撤销), 删除 and the edit sheet's save for one list. Absolute values without a key, so nothing is
@@ -103,7 +103,7 @@ final class RedeemCodeWrites {
         case .used:
             warn(RedeemEditCopy.toggleUsed)
             await list?.refreshCard(id: id)
-        case .gone: await gone(id)
+        case .gone: gone(id)
         case .unconfirmed:
             caution(RedeemEditCopy.unconfirmed)
             await list?.refreshCard(id: id)
@@ -115,7 +115,7 @@ final class RedeemCodeWrites {
     // MARK: - 删除
 
     /// After the delete confirmation (60 §0.4): deleted or already gone (404) → the card leaves with “已删除兑换码「····d4e8」”
-    /// and the counts are read again; no undo.
+    /// and the counts are read again; no undo. The confirmation closes on the reply, the reads run behind it.
     func delete(_ code: AdminRedeemCode) async {
         guard begin(code.id) else { return }
         defer { inFlight.remove(code.id) }
@@ -123,11 +123,11 @@ final class RedeemCodeWrites {
         do { _ = try await source.delete(code.id) } catch { failure = RedeemWriteFailure.classify(error) }
         guard isCurrent() else { return }
         switch failure {
-        case nil, .gone?: await deleted(code)
+        case nil, .gone?: deleted(code)
         case .unconfirmed?: await readBackDeleted(code)
         case .used?:
             warn(RedeemEditCopy.deleteUsed)
-            await list?.refreshCard(id: code.id)
+            Task { await self.list?.refreshCard(id: code.id) }
         case .cancelled?: return
         case .reconfirm(let notice)?: caution(notice)
         case .expiresAtInvalid?, .groupInvalid?, .other?: warn(failure?.message ?? "")
@@ -139,24 +139,24 @@ final class RedeemCodeWrites {
             _ = try await source.code(code.id)
             guard isCurrent() else { return }
             caution(RedeemEditCopy.unconfirmed)
-            await list?.refreshCard(id: code.id)
+            Task { await self.list?.refreshCard(id: code.id) }
         } catch {
             guard isCurrent() else { return }
-            if RedeemWriteFailure.classify(error) == .gone { return await deleted(code) }
+            if RedeemWriteFailure.classify(error) == .gone { return deleted(code) }
             caution(RedeemEditCopy.unconfirmed)
         }
     }
-    private func deleted(_ code: AdminRedeemCode) async {
+    private func deleted(_ code: AdminRedeemCode) {
         list?.removeLocally(id: code.id)
         let text = DeleteConfirmationCopy.deletedReceipt(objectNoun: RedeemEditCopy.objectNoun, displayName: RedeemPresentation.deleteSubject(code.code))
         receipts.show(Receipt(text: text, systemImage: "trash"))
-        await refreshStats()
+        Task { await self.refreshStats() }
     }
 
     // MARK: - 保存
 
-    /// 60 §9.4: only the changed keys. Saved → its receipt, the card and the counts read again; 409 leaves the sheet open in
-    /// notes-only mode; a lost reply that reads back as sent counts as saved.
+    /// 60 §9.4: only the changed keys. Saved → the sheet closes with its receipt, and the card and the counts are read again
+    /// behind it; 409 leaves the sheet open in notes-only mode; a lost reply that reads back as sent counts as saved.
     func save(_ draft: RedeemEditDraft) async -> RedeemSaveOutcome {
         let id = draft.original.id, fields = draft.fields(now: now())
         guard !fields.isEmpty, begin(id) else { return .ignored }
@@ -167,7 +167,7 @@ final class RedeemCodeWrites {
         case .applied(let fresh):
             if let fresh { list?.replaceLocally(fresh) }
             receipts.show(Receipt(text: draft.successReceipt(for: fields, now: now(), timeZone: timeZone)))
-            await refresh(id)
+            Task { await self.refresh(id) }
             return .saved
         case .failed(let failure):
             return await saveFailed(failure, id: id)
@@ -180,7 +180,7 @@ final class RedeemCodeWrites {
             await list?.refreshCard(id: id)
             return .switchedToNotesOnly
         case .gone:
-            await gone(id)
+            gone(id)
             return .gone
         case .unconfirmed: return .unconfirmed
         case .expiresAtInvalid, .groupInvalid, .reconfirm, .other: return .rejected(failure.message)
@@ -233,10 +233,10 @@ final class RedeemCodeWrites {
         guard let list else { return onChange() }
         await list.refreshStats()
     }
-    private func gone(_ id: Int) async {
+    private func gone(_ id: Int) {
         list?.removeLocally(id: id)
         receipts.show(Receipt(text: RedeemEditCopy.gone, systemImage: "trash", tone: .neutral))
-        await refreshStats()
+        Task { await self.refreshStats() }
     }
     private func warn(_ text: String) { receipts.show(Receipt(text: text, systemImage: "exclamationmark.triangle", tone: .critical)) }
     private func caution(_ text: String) { receipts.show(Receipt(text: text, systemImage: "exclamationmark.triangle", tone: .caution)) }
