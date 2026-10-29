@@ -104,7 +104,9 @@ public struct AccountNewDraft: Sendable, Equatable, CustomStringConvertible, Cus
     public var autoPauseOnExpired = true
     /// 1–10; nil leaves the default.
     public var loadFactor: Int?
-    public init() {}
+    /// The session's `AdminMe.isLegacyServer`, fixed for the form's life.
+    public let isLegacyServer: Bool
+    public init(isLegacyServer: Bool = false) { self.isLegacyServer = isLegacyServer }
 
     /// The `type` sent: Claude's OAuth kind, apikey for every key method (对接上游 included), bedrock, service_account.
     public var accountType: String? {
@@ -220,7 +222,7 @@ extension AccountNewDraft {
     /// method gets it picked.
     public func switchingPlatform(to platform: String, methods: [AccountNewMethod], suggestedName: String) -> AccountNewDraft {
         guard platform != self.platform else { return self }
-        var next = AccountNewDraft()
+        var next = AccountNewDraft(isLegacyServer: isLegacyServer)
         next.platform = platform
         next.typedName = typedName; next.isNameAutomatic = isNameAutomatic
         next.suggestName(suggestedName)

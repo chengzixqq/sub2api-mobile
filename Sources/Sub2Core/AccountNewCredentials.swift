@@ -83,7 +83,7 @@ extension AccountNewDraft {
     }
 
     /// The form's ranges first, then the backend's own check. `upstream_billing_probe_enabled` is on for apikey accounts as in the
-    /// Web form and left out otherwise; `auto_pause_on_expired` is always sent.
+    /// Web form (on a legacy server for OpenAI's only) and left out otherwise; `auto_pause_on_expired` is always sent.
     public func createRequest(confirmMixedChannel: Bool = false) throws -> AccountCreateRequest {
         guard let platform else { throw Self.invalid("还差 平台") }
         try validateSetup()
@@ -91,14 +91,16 @@ extension AccountNewDraft {
         let request = AccountCreateRequest(name: name, notes: notes, platform: platform, type: built.type, credentials: built.credentials, extra: built.extra,
                                            proxyID: proxyID, concurrency: concurrency, priority: priority, rateMultiplier: rateMultiplier,
                                            loadFactor: loadFactor, groupIDs: groupIDs, expiresAt: expiresAt, autoPauseOnExpired: autoPauseOnExpired,
-                                           upstreamBillingProbeEnabled: built.type == "apikey" ? true : nil, confirmMixedChannelRisk: confirmMixedChannel)
+                                           upstreamBillingProbeEnabled: sendsBillingProbe(type: built.type, platform: platform) ? true : nil,
+                                           confirmMixedChannelRisk: confirmMixedChannel)
         try request.validate()
         return request
     }
 
     /// “保存并重新测试” after the account exists (20 §7.2, §7.4-2): only what differs from `saved` (the draft the server holds).
-    /// The platform cannot change; the type can. Credentials and extra go as *_patch, and a secret key is never deleted
-    /// (CREDENTIAL_KEY_NOT_DELETABLE), so after a method switch the old secret stays on the server unused. No mixed-channel flag.
+    /// The platform cannot change; the type can. Credentials and extra go as *_patch. A secret key cannot be deleted
+    /// (CREDENTIAL_KEY_NOT_DELETABLE), so one the form no longer holds is set to "", which the server reads as unset: a cleared
+    /// session token or a dropped grant's refresh token must not stay in use. No mixed-channel flag.
     public func patch(since saved: AccountNewDraft) throws -> AccountPatchRequest {
         let old = try saved.createRequest(), new = try createRequest()
         guard old.platform == new.platform else { throw Self.invalid("已创建的账号不能更换平台。") }
@@ -115,8 +117,8 @@ extension AccountNewDraft {
         if new.expiresAt != old.expiresAt { patch.expiresAt = new.expiresAt ?? 0 }
         if new.autoPauseOnExpired != old.autoPauseOnExpired { patch.autoPauseOnExpired = new.autoPauseOnExpired }
         if new.upstreamBillingProbeEnabled != old.upstreamBillingProbeEnabled { patch.upstreamBillingProbeEnabled = new.upstreamBillingProbeEnabled ?? false }
-        patch.credentialsPatch = Self.changes(from: old.credentials, to: new.credentials, keepsDeleted: AccountCredentialKeys.isSensitive)
-        patch.extraPatch = Self.changes(from: old.extra ?? [:], to: new.extra ?? [:]) { _ in false }
+        patch.credentialsPatch = Self.changes(from: old.credentials, to: new.credentials) { AccountCredentialKeys.isSensitive($0) ? .set("") : .delete }
+        patch.extraPatch = Self.changes(from: old.extra ?? [:], to: new.extra ?? [:]) { _ in .delete }
         return patch
     }
     /// A draft that cannot be built yet counts as changed: the dock says “保存并重新测试” and the 还差 list keeps it disabled.
@@ -130,6 +132,11 @@ extension AccountNewDraft {
         if !AccountNewDefaults.priorityRange.contains(priority) { throw Self.invalid("优先级为 1–99 的整数") }
         if let loadFactor, !AccountNewDefaults.loadFactorRange.contains(loadFactor) { throw Self.invalid("负载因子为 1–10 的整数，可以不填") }
         if rateMultiplier == nil { throw Self.invalid("请填写账号计费倍率（0 表示不计费）") }
+    }
+    /// f3a3d8684 (2026-07-26) opened the probe to every API Key platform; the servers just before it reject it but for OpenAI
+    /// (UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID) and older ones ignore it. Every server with `/admin/me` is newer.
+    private func sendsBillingProbe(type: String, platform: String) -> Bool {
+        type == "apikey" && (!isLegacyServer || platform == OAuthPlatform.openai.rawValue)
     }
     private func apiKeyCredentials(_ platform: String) -> [String: JSONValue] {
         let base = Self.trim(baseURL)
@@ -183,11 +190,11 @@ extension AccountNewDraft {
         if allowOverages { extra["allow_overages"] = true }
         return extra
     }
-    /// New or changed keys are set; a removed key is deleted unless `keepsDeleted` says the server must keep it.
+    /// New or changed keys are set; a removed key gets `removal`'s value.
     private static func changes(from old: [String: JSONValue], to new: [String: JSONValue],
-                                keepsDeleted: (String) -> Bool) -> [String: JSONPatchValue] {
+                                removal: (String) -> JSONPatchValue) -> [String: JSONPatchValue] {
         var patch = new.filter { old[$0.key] != $0.value }.mapValues(JSONPatchValue.set)
-        for key in old.keys where new[key] == nil && !keepsDeleted(key) { patch[key] = .delete }
+        for key in old.keys where new[key] == nil { patch[key] = removal(key) }
         return patch
     }
     private static func trim(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
