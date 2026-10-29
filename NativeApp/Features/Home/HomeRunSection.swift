@@ -132,8 +132,9 @@ struct HomeRunSection: View {
         .contentShape(Rectangle())
     }
 
-    /// “可用 3 · 性能下降 1 · 不可用 1 · 未知 1”: 性能下降 in caution ink, 不可用 in critical ink, the rest in the line's ink.
-    private static func summary(_ channels: HomeRunPresentation.Channels) -> AttributedString {
+    /// “可用 3 · 性能下降 1 · 不可用 1 · 未知 1”: 性能下降 in caution ink, 不可用 in critical ink, the rest in the line's ink. The calm
+    /// layout's 渠道 row reads the same line (S1-11).
+    static func summary(_ channels: HomeRunPresentation.Channels) -> AttributedString {
         guard case .summary(let parts, _) = channels else { return AttributedString(channels.text) }
         var line = AttributedString()
         for (index, part) in parts.enumerated() {

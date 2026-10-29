@@ -124,25 +124,14 @@ extension AppModel {
     }
 
     // MARK: - 新建与编辑
-    func createUser(_ operation: PendingUserCreateOperation) async throws -> WriteOutcome<AdminUser> {
+    /// The fixture (S3-10) runs on the session's users through UserCreateFixtureArgument.
+    func createUser(_ operation: PendingUserCreateOperation, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
         let client = try requireClient()
-        if !isUITesting { return try await client.createUser(operation) }
+        if !isUITesting { return try await client.createUser(operation, onEvent: onEvent) }
         let generation = sessionGeneration
         guard operation.identity == (await client.userWriteIdentity()), generation == sessionGeneration else { throw CancellationError() }
         if let refusal = await fixtureSecurityRefusal(body: operation.body) { throw refusal }
-        var payload = try JSONSerialization.jsonObject(with: operation.body) as! [String: Any]
-        payload.removeValue(forKey: "password")
-        var users = demoUsersBySession[generation] ?? DemoData.allUsers
-        guard !users.contains(where: { $0.email == operation.email }) else {
-            throw APIError(kind: .validation, message: "此邮箱已经存在。")
-        }
-        payload["id"] = (users.map(\.id).max() ?? 0) + 1
-        payload["balance"] = payload["balance"] ?? 0
-        payload["status"] = "active"
-        payload["created_at"] = ISO8601DateFormatter().string(from: Date())
-        let user = try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
-        users.insert(user, at: 0); demoUsersBySession[generation] = users
-        return WriteOutcome(value: user)
+        return try await fixtureCreateUser(operation, generation: generation)
     }
     func updateUser(_ operation: PendingUserUpdateOperation) async throws -> WriteOutcome<AdminUser> {
         let client = try requireClient()
@@ -241,5 +230,84 @@ extension AppModel {
             return try DemoData.balanceHistory(userID: userID, page: page, pageSize: pageSize)
         }
         return try await requireClient().balanceHistory(userID: userID, page: page, pageSize: pageSize)
+    }
+
+    // MARK: - 新建用户（S3-10）
+    /// 30 §5.6: read once per session into `userAttributeDefinitions` (S3D1-05); S3-11 reads the same cache.
+    func loadUserAttributeDefinitions() async throws -> [UserAttributeDefinition] {
+        if let cached = userAttributeDefinitions { return cached }
+        let generation = sessionGeneration
+        let definitions: [UserAttributeDefinition]
+        if isUITesting { definitions = DemoData.userAttributeDefinitions(arguments: ProcessInfo.processInfo.arguments) }
+        else { definitions = try await requireClient().userAttributeDefinitions() }
+        guard generation == sessionGeneration else { throw CancellationError() }
+        userAttributeDefinitions = definitions
+        return definitions
+    }
+    /// `-ui-user-attr-fail` refuses every write as the server refuses a bad value.
+    @discardableResult
+    func updateUserAttributes(userID: Int, values: [Int: String]) async throws -> [UserAttributeValue] {
+        guard isUITesting else { return try await requireClient().updateUserAttributes(userID: userID, values: values) }
+        if ProcessInfo.processInfo.arguments.contains(UserCreateFixtureArgument.attributeFailure) {
+            throw APIError.server(status: 400, reason: "ATTRIBUTE_VALIDATION_FAILED")
+        }
+        let generation = sessionGeneration
+        var store = DemoData.attributeValues(generation: generation)
+        store[userID, default: [:]].merge(values) { _, new in new }
+        DemoData.userAttributeValues[generation] = store
+        return store[userID, default: [:]].map { UserAttributeValue(attributeID: $0.key, value: $0.value) }.sorted { $0.attributeID < $1.attributeID }
+    }
+    /// 30 §5.4 step 7: the fixture matches the session's users as the server's search does, then the address ignoring case.
+    func findUserByEmail(_ email: String) async throws -> AdminUser? {
+        guard isUITesting else { return try await requireClient().findUserByEmail(email) }
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).first { $0.email.caseInsensitiveCompare(address) == .orderedSame }
+    }
+    /// The new user page's send (UserCreateSubmission); `isPageAlive` turns false when the page goes away.
+    func userCreateEffects(isPageAlive: @escaping @MainActor @Sendable () -> Bool) -> UserCreateSubmission.Effects {
+        let generation = sessionGeneration
+        return UserCreateSubmission.Effects(
+            authorize: { [weak self] in await self?.biometricGate.authorize($0) ?? false },
+            target: { [weak self] in await self?.userCreateTarget(generation: generation) },
+            sendsIdempotencyKey: { [weak self] in self?.siteSession?.has(.adminIdempotentWrites) == true },
+            create: { [weak self] operation in
+                guard let self else { throw CancellationError() }
+                return try await createUser(operation)
+            },
+            findByEmail: { [weak self] email in
+                guard let self else { throw CancellationError() }
+                return try await findUserByEmail(email)
+            },
+            writeAttributes: { [weak self] userID, values in
+                guard let self else { throw CancellationError() }
+                try await updateUserAttributes(userID: userID, values: values)
+            },
+            isCurrent: { [weak self] in self?.sessionGeneration == generation && isPageAlive() })
+    }
+    /// The site and the client's write identity, read together for this session (D13).
+    private func userCreateTarget(generation: UUID) async -> UserCreateSubmission.Target? {
+        guard generation == sessionGeneration, let client, let profile = activeProfile else { return nil }
+        let identity = await client.userWriteIdentity()
+        guard generation == sessionGeneration else { return nil }
+        return UserCreateSubmission.Target(serverID: profile.id, identity: identity)
+    }
+    /// A replayed number answers the first result; a used address (or `-ui-user-email-exists` once) 409 EMAIL_EXISTS.
+    private func fixtureCreateUser(_ operation: PendingUserCreateOperation, generation: UUID) async throws -> WriteOutcome<AdminUser> {
+        typealias Argument = UserCreateFixtureArgument
+        let arguments = ProcessInfo.processInfo.arguments
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        if let first = DemoData.userCreations[operation.id] { return WriteOutcome(value: first, replayed: true) }
+        if arguments.contains(Argument.slow) { try await Task.sleep(for: .seconds(3)) }
+        guard generation == sessionGeneration else { throw CancellationError() }
+        if arguments.contains(Argument.invalid) { throw APIError.server(status: 400, reason: nil) }
+        var users = demoUsersBySession[generation] ?? DemoData.allUsers
+        if DemoData.answersEmailExists(operation.email, users: users, arguments: arguments) { throw APIError.server(status: 409, reason: "EMAIL_EXISTS") }
+        let lostReply = KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: operation.key, actionID: nil, lastError: nil)
+        if arguments.contains(Argument.lost) { throw lostReply }
+        let user = try DemoData.createdUser(body: operation.body, id: (users.map(\.id).max() ?? 0) + 1)
+        users.insert(user, at: 0); demoUsersBySession[generation] = users
+        DemoData.userCreations[operation.id] = user
+        if arguments.contains(Argument.uncertain) { throw lostReply }
+        return WriteOutcome(value: user)
     }
 }

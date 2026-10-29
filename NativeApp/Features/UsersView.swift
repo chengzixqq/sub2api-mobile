@@ -1,27 +1,24 @@
 import SwiftUI
 import Sub2Core
 
-/// The old editor's target; the list's + and empty state open it until S3-10 / S3-11 replace the editor.
+/// The old editor's target: the detail's ⋯ 编辑用户 opens it until S3-11 replaces it; creating moved to UserEditView (S3-10).
 struct UserEditorTarget: Identifiable {
     let id = UUID()
-    let user: AdminUser?
+    let user: AdminUser
     let context: SessionContext
     let siteName: String
 }
 
 enum PreparedUserMutation {
-    case create(PendingUserCreateOperation)
     case update(PendingUserUpdateOperation)
     var id: UUID {
         switch self {
-        case .create(let operation): operation.id
         case .update(let operation): operation.id
         }
     }
     /// Sent with an Idempotency-Key, so the same number can be retried.
     var supportsSafeRetry: Bool {
         switch self {
-        case .create(let operation): operation.sendsIdempotencyKey
         case .update(let operation): operation.supportsSafeRetry
         }
     }
@@ -38,7 +35,6 @@ struct UserEditorView: View {
     @State private var notes: String
     @State private var concurrency: String
     @State private var rpmLimit: String
-    @State private var initialBalance = ""
     @State private var adjustmentNotes = ""
     @State private var prepared: PreparedUserMutation?
     @State private var busy = false
@@ -49,12 +45,12 @@ struct UserEditorView: View {
 
     init(target: UserEditorTarget) {
         self.target = target
-        _email = State(initialValue: target.user?.email ?? "")
-        _username = State(initialValue: target.user?.username ?? "")
-        _role = State(initialValue: target.user?.role ?? AdminUserRole.user.rawValue)
-        _notes = State(initialValue: target.user?.notes ?? "")
-        _concurrency = State(initialValue: target.user?.concurrency.map(String.init) ?? (target.user == nil ? "1" : ""))
-        _rpmLimit = State(initialValue: target.user?.rpmLimit.map(String.init) ?? (target.user == nil ? "0" : ""))
+        _email = State(initialValue: target.user.email)
+        _username = State(initialValue: target.user.username ?? "")
+        _role = State(initialValue: target.user.role ?? AdminUserRole.user.rawValue)
+        _notes = State(initialValue: target.user.notes ?? "")
+        _concurrency = State(initialValue: target.user.concurrency.map(String.init) ?? "")
+        _rpmLimit = State(initialValue: target.user.rpmLimit.map(String.init) ?? "")
     }
     private var isCurrent: Bool {
         target.context.generation == model.sessionGeneration && target.context.serverID == model.activeProfile?.id
@@ -65,14 +61,14 @@ struct UserEditorView: View {
                 Section("目标") {
                     LabeledValue(label: "站点", value: target.siteName)
                     LabeledValue(label: "地址", value: target.context.client.server.baseURL.absoluteString)
-                    if let user = target.user { LabeledValue(label: "用户", value: "\(user.email)（#\(user.id)）") }
+                    LabeledValue(label: "用户", value: "\(target.user.email)（#\(target.user.id)）")
                 }
                 Section {
                     TextField("邮箱", text: $email).textContentType(.emailAddress).keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("user-editor.email")
                     TextField("用户名", text: $username).textContentType(.username).autocorrectionDisabled()
                         .accessibilityIdentifier("user-editor.username")
-                    SecureField(target.user == nil ? "密码（至少 6 个字符）" : "新密码（留空不修改）", text: $password)
+                    SecureField("新密码（留空不修改）", text: $password)
                         .textContentType(.newPassword).privacySensitive().accessibilityIdentifier("user-editor.password")
                     Picker("角色", selection: $role) {
                         ForEach(AdminUserRole.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
@@ -87,13 +83,8 @@ struct UserEditorView: View {
                         .accessibilityIdentifier("user-editor.concurrency")
                     TextField("RPM 限额（0 表示不限制）", text: $rpmLimit).keyboardType(.numberPad)
                         .accessibilityIdentifier("user-editor.rpm")
-                    if target.user == nil {
-                        TextField("初始余额（留空使用站点默认值）", text: $initialBalance).keyboardType(.decimalPad)
-                            .accessibilityIdentifier("user-editor.initial-balance")
-                    } else {
-                        TextField("并发调整备注（可选）", text: $adjustmentNotes, axis: .vertical)
-                            .accessibilityIdentifier("user-editor.adjustment-notes")
-                    }
+                    TextField("并发调整备注（可选）", text: $adjustmentNotes, axis: .vertical)
+                        .accessibilityIdentifier("user-editor.adjustment-notes")
                 } header: { Text("限额") } footer: {
                     Text("并发和 RPM 接受非负整数。编辑只提交实际变更的字段；余额调整仍在独立余额页面处理。")
                 }.disabled(busy || prepared != nil)
@@ -119,15 +110,15 @@ struct UserEditorView: View {
                 if let message { Section("处理结果") { Text(message).textSelection(.enabled).accessibilityIdentifier("user-editor.result") } }
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle(target.user == nil ? "创建用户" : "编辑用户")
+            .navigationTitle("编辑用户")
             .toolbar { ToolbarItem(placement: .cancellationAction) {
                 Button("关闭") { if uncertain { discardAlert = true } else { dismiss() } }.disabled(busy).accessibilityIdentifier("user-editor.close")
             } }
             .interactiveDismissDisabled(busy || uncertain)
-            .confirmationDialog(target.user == nil ? "确认创建用户？" : "确认修改用户？", isPresented: $confirming, titleVisibility: .visible) {
+            .confirmationDialog("确认修改用户？", isPresented: $confirming, titleVisibility: .visible) {
                 Button("确认发送", role: .destructive) { Task { await send() } }
             } message: {
-                Text("站点：\(target.siteName)\n地址：\(target.context.client.server.baseURL.absoluteString)\n用户：\(email)\(target.user.map { "（#\($0.id)）" } ?? "")\n角色：\(AdminUserRole(rawValue: role)?.title ?? role)\n最大并发：\(concurrency.isEmpty ? "保持原值" : concurrency)\nRPM：\(rpmLimit.isEmpty ? "保持原值" : rpmLimit)")
+                Text("站点：\(target.siteName)\n地址：\(target.context.client.server.baseURL.absoluteString)\n用户：\(email)（#\(target.user.id)）\n角色：\(AdminUserRole(rawValue: role)?.title ?? role)\n最大并发：\(concurrency.isEmpty ? "保持原值" : concurrency)\nRPM：\(rpmLimit.isEmpty ? "保持原值" : rpmLimit)")
             }
             .alert("请求结果尚未确认", isPresented: $discardAlert) {
                 Button("保留原请求", role: .cancel) { }
@@ -153,33 +144,18 @@ struct UserEditorView: View {
         do {
             let identity = await target.context.client.userWriteIdentity()
             guard isCurrent, !Task.isCancelled else { return }
-            if let user = target.user {
-                let maxConcurrency = concurrency == (user.concurrency.map(String.init) ?? "") ? nil : try integer(concurrency)
-                let rpm = rpmLimit == (user.rpmLimit.map(String.init) ?? "") ? nil : try integer(rpmLimit)
-                let changedRole = role == user.role ? nil : AdminUserRole(rawValue: role)
-                let changes = UserUpdateRequest(
-                    email: email == user.email ? nil : email, password: password.isEmpty ? nil : password,
-                    username: username == (user.username ?? "") ? nil : username,
-                    notes: notes == (user.notes ?? "") ? nil : notes,
-                    role: changedRole, concurrency: maxConcurrency, rpmLimit: rpm,
-                    adjustmentNotes: maxConcurrency == nil || adjustmentNotes.isEmpty ? nil : adjustmentNotes)
-                prepared = .update(try PendingUserUpdateOperation(serverID: target.context.serverID, identity: identity, userID: user.id, request: changes,
-                                                                  serverSupportsIdempotentWrites: target.context.has(.adminIdempotentWrites)))
-            } else {
-                guard let selectedRole = AdminUserRole(rawValue: role) else { throw AppFailure("请选择有效的角色。") }
-                let rawBalance = initialBalance.trimmingCharacters(in: .whitespacesAndNewlines)
-                var balance: Decimal?
-                if !rawBalance.isEmpty {
-                    guard rawBalance.range(of: "^[0-9]+([.][0-9]+)?$", options: .regularExpression) != nil,
-                          let value = Decimal(string: rawBalance, locale: Locale(identifier: "en_US_POSIX")) else { throw APIError.invalidAmount }
-                    balance = value
-                }
-                let input = UserCreateRequest(email: email, password: password, username: username, notes: notes, role: selectedRole,
-                    concurrency: try integer(concurrency), rpmLimit: try integer(rpmLimit), balance: balance)
-                // With admin.idempotent_writes the operation number is also the Idempotency-Key (00 §2.5.1, D24).
-                prepared = .create(try PendingUserCreateOperation(serverID: target.context.serverID, identity: identity, request: input,
-                                                                  sendsIdempotencyKey: target.context.has(.adminIdempotentWrites)))
-            }
+            let user = target.user
+            let maxConcurrency = concurrency == (user.concurrency.map(String.init) ?? "") ? nil : try integer(concurrency)
+            let rpm = rpmLimit == (user.rpmLimit.map(String.init) ?? "") ? nil : try integer(rpmLimit)
+            let changedRole = role == user.role ? nil : AdminUserRole(rawValue: role)
+            let changes = UserUpdateRequest(
+                email: email == user.email ? nil : email, password: password.isEmpty ? nil : password,
+                username: username == (user.username ?? "") ? nil : username,
+                notes: notes == (user.notes ?? "") ? nil : notes,
+                role: changedRole, concurrency: maxConcurrency, rpmLimit: rpm,
+                adjustmentNotes: maxConcurrency == nil || adjustmentNotes.isEmpty ? nil : adjustmentNotes)
+            prepared = .update(try PendingUserUpdateOperation(serverID: target.context.serverID, identity: identity, userID: user.id, request: changes,
+                                                              serverSupportsIdempotentWrites: target.context.has(.adminIdempotentWrites)))
             password = ""; uncertain = false; message = nil; confirming = true
         } catch { message = error.localizedDescription }
     }
@@ -188,13 +164,8 @@ struct UserEditorView: View {
         busy = true; defer { busy = false }
         // A locked form sends again a request that may have run (00 §2.5.4).
         let retrying = uncertain
-        // 60 §3.4: an initial balance above the threshold is verified after the confirmation; a failed check sends nothing.
-        if case .create(let operation) = prepared, let balance = operation.initialBalance {
-            guard await model.biometricGate.authorize(.initialBalance(balance)), isCurrent else { return }
-        }
         do {
             switch prepared {
-            case .create(let operation): _ = try await model.createUser(operation)
             case .update(let operation): _ = try await model.updateUser(operation)
             }
             guard isCurrent else { return }

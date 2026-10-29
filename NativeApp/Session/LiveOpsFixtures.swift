@@ -69,6 +69,8 @@ enum LiveOpsFixtures {
         static let alertsOverflow = "-ui-home-alerts-overflow"
         /// S1-10: the first home read past the cache (the 「测试」 sheet closed) no longer lists error account #7.
         static let testRecovers = "-ui-home-test-recovers"
+        /// S1-11: calm until the first read past the cache after the first read (a pull or ··· 刷新) finds error account #7; it stays.
+        static let calmThenError = "-ui-home-calm-then-error"
     }
     struct Options: Equatable, Sendable {
         var variant: HomeVariant
@@ -88,6 +90,9 @@ enum LiveOpsFixtures {
         var alertsOverflow = false
         var testRecovers = false
         var errorAccountRecovered = false
+        // S1-11: `calmErrorAppeared` is set by FixtureLiveOpsSource, never by an argument.
+        var calmThenError = false
+        var calmErrorAppeared = false
         var opsDisabled: Bool { ops != .on }
         init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
@@ -97,7 +102,7 @@ enum LiveOpsFixtures {
         /// The most specific variant wins (calm-limited, calm, hourly timeout, availability error); ops off goes with any.
         init(arguments: [String]) {
             let order: [(argument: String, variant: HomeVariant)] = [(Argument.calmLimited, .calmLimited), (Argument.calm, .calm),
-                                                                     (Argument.hourlyTimeout, .hourlyTimeout),
+                                                                     (Argument.calmThenError, .calm), (Argument.hourlyTimeout, .hourlyTimeout),
                                                                      (Argument.availabilityError, .availabilityError)]
             self.init(variant: order.first { arguments.contains($0.argument) }?.variant ?? .allOK,
                       ops: OpsFixtureSwitch.from(arguments: arguments), alertWritesFail: arguments.contains(Argument.alertWriteFails),
@@ -110,6 +115,7 @@ enum LiveOpsFixtures {
             attentionExtra = arguments.contains(Argument.attentionExtra)
             alertsOverflow = arguments.contains(Argument.alertsOverflow)
             testRecovers = arguments.contains(Argument.testRecovers)
+            calmThenError = arguments.contains(Argument.calmThenError)
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -134,9 +140,8 @@ enum LiveOpsFixtures {
             hourly: options.variant == .hourlyTimeout ? HomeSection(status: .timeout, reason: "SECTION_TIMEOUT") : .ok(hourly(base)),
             ops: options.opsDisabled ? opsOff() : .ok(ops), alerts: options.opsDisabled ? opsOff() : .ok(alerts),
             availability: options.variant == .availabilityError ? HomeSection(status: .error, reason: "INTERNAL_ERROR")
-                : .ok(attentionAvailability(availability(options.variant, base: base), options)),
-            channels: .ok(HomeChannels(total: 10, healthy: 7, warning: 1, critical: 1, unknown: 1, coverageState: "complete",
-                                       collectorState: "healthy")))
+                : .ok(calmError(attentionAvailability(availability(options.variant, base: base), options), options)),
+            channels: .ok(channels(options.variant)))
     }
     /// The design's DEMO.today; `profitLoss` raises today's account cost to $1,400.00 (BACKLOG 利润亏损的固定演示状态).
     static func stats(_ base: Date, profitLoss: Bool = false) -> HomeStats {
@@ -319,6 +324,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         if options.failsFirstRound, homeCalls == 1 { throw Self.unreachableError }
         if options.homeLegacy { throw APIError.server(status: 404, envelope: nil) }
         if options.testRecovers, noCache { options.errorAccountRecovered = true }
+        if options.calmThenError, noCache, homeCalls > 1 { options.calmErrorAppeared = true }
         return LiveOpsFixtures.home(options, base: base, events: book.events)
     }
     func dashboardRates(window: LiveRatesWindow) -> LiveRates { LiveOpsFixtures.rates(base: base, opsDisabled: options.opsDisabled) }
@@ -333,7 +339,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         return LiveOpsFixtures.opsOverview(start: base.addingTimeInterval(-300), end: base)
     }
     func errorAccounts() -> [UpstreamAccount] {
-        guard ![.calm, .calmLimited].contains(options.variant) else { return [] }
+        guard ![.calm, .calmLimited].contains(options.variant) || options.calmErrorAppeared else { return [] }
         return LiveOpsFixtures.structuredErrors(base: base) + (options.attentionExtra ? [LiveOpsFixtures.errorWithoutStructuredFields] : [])
     }
     func accountsRanking(limit: Int, timezone: ServerTimeZone) -> [AccountsRankingItem] {
@@ -391,4 +397,31 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     }
 
     private func requireOps() throws { if options.opsDisabled { throw LiveOpsFixtures.opsDisabledError } }
+}
+
+// MARK: - S1-11 平静布局
+
+extension LiveOpsFixtures {
+    /// The calm variants: 8 channels, 7 healthy and 1 unknown (S1-15 derives them from its channel list later, same numbers);
+    /// the others one per DEMO.groups group, as `channelOverview`.
+    static func channels(_ variant: HomeVariant) -> HomeChannels {
+        guard [.calm, .calmLimited].contains(variant) else {
+            return HomeChannels(total: 10, healthy: 7, warning: 1, critical: 1, unknown: 1, coverageState: "complete", collectorState: "healthy")
+        }
+        return HomeChannels(total: 8, healthy: 7, unknown: 1, coverageState: "complete", collectorState: "healthy")
+    }
+    /// `-ui-home-calm-then-error` once it switched: error account #7, as in the default fixture, joins the calm accounts.
+    static func calmError(_ summary: AccountStatusSummary, _ options: Options) -> AccountStatusSummary {
+        guard options.calmErrorAppeared else { return summary }
+        let errored = account(LiveOpsFixtureIDs.errorAccount, "OpenAI-备用-A", "openai", groups: [2, 4], state: .error, status: "error",
+                              schedulable: false)
+        let totals = summary.totals
+        return AccountStatusSummary(collectedAt: summary.collectedAt,
+                                    totals: AccountStateCounts(total: totals.total, available: totals.available - 1, error: totals.error + 1,
+                                                               overloaded: totals.overloaded, rateLimited: totals.rateLimited,
+                                                               tempUnschedulable: totals.tempUnschedulable, paused: totals.paused,
+                                                               inactive: totals.inactive, stopped: totals.stopped),
+                                    platforms: summary.platforms, groups: summary.groups, accounts: summary.accounts + [errored],
+                                    accountsTruncated: summary.accountsTruncated)
+    }
 }

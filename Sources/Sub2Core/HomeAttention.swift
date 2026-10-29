@@ -101,9 +101,8 @@ extension HomePresentation {
     /// `accounts_truncated` the count comes from the totals and the names end with “等”. An account limited only per model is
     /// `available` and never here.
     public static func limitedItem(_ summary: AccountStatusSummary, now: Date) -> AttentionItem? {
-        let accounts = summary.accounts.filter { $0.state == .rateLimited || $0.state == .tempUnschedulable }
-        let totals = summary.totals.rateLimited + summary.totals.tempUnschedulable
-        let count = summary.accountsTruncated ? max(totals, accounts.count) : accounts.count
+        let accounts = limitedAccounts(summary)
+        let count = limitedCount(summary)
         guard count > 0 else { return nil }
         let rows = accounts.map { (item: $0, display: AccountDisplayState($0, now: now)) }
         let earliest = rows.compactMap { $0.display.countdownTarget ?? limitWindowEnd($0.item) }.min()
@@ -124,6 +123,16 @@ extension HomePresentation {
     /// The calm flag's “无需处理” (10 §2.4).
     public static func hasLimitedAccounts(_ summary: AccountStatusSummary) -> Bool {
         summary.totals.rateLimited + summary.totals.tempUnschedulable > 0
+    }
+
+    /// The 受限 row's count, also the calm layout's “自动恢复中 · N 个”: the listed accounts, or the totals once the list is capped.
+    static func limitedCount(_ summary: AccountStatusSummary) -> Int {
+        let listed = limitedAccounts(summary).count
+        return summary.accountsTruncated ? max(summary.totals.rateLimited + summary.totals.tempUnschedulable, listed) : listed
+    }
+
+    private static func limitedAccounts(_ summary: AccountStatusSummary) -> [AccountStatusItem] {
+        summary.accounts.filter { $0.state == .rateLimited || $0.state == .tempUnschedulable }
     }
 
     // MARK: Alert slot
