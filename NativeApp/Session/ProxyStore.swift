@@ -69,8 +69,9 @@ private struct ProxyProbeOutcome: Sendable {
 
 /// 60 §12: the session's proxy catalog (X03), read page by page through `GET admin/proxies` because `proxies/all` has only the
 /// active ones. The first load shows each page as it lands; a refresh keeps the complete catalog on screen and, when it fails,
-/// keeps it (12.5). Replies of an older load or session are dropped (D13). The detail and the editor (S6-12…S6-14) read rows
-/// here, write them back with `replace` / `remove` and share `source`.
+/// keeps it (12.5). Replies of an older load or session are dropped (D13); after a 429 nothing is read before the wait ends
+/// (00 §2.7.2). The detail and the editor (S6-12…S6-14) read rows here, write them back with `replace` / `remove` and share
+/// `source`.
 @MainActor @Observable
 final class ProxyStore {
     nonisolated static let maxConcurrentTests = 4
@@ -84,6 +85,7 @@ final class ProxyStore {
     /// The probes in flight; a row waiting its turn keeps its old value.
     private(set) var testing: Set<Int> = []
     private(set) var isTestingAll = false
+    private(set) var refresh = BlockRefresh()
 
     @ObservationIgnored private let isCurrent: @MainActor () -> Bool
     @ObservationIgnored private let now: @MainActor () -> Date
@@ -97,6 +99,7 @@ final class ProxyStore {
 
     var catalog: ProxyCatalog? { state.value }
     var proxies: [AdminProxy] { catalog?.proxies ?? [] }
+    func throttleMessage() -> String? { refresh.throttleMessage(at: now()) }
 
     /// 12.6: shown again, it reads unless a complete catalog is younger than `maxAge`; nothing while a load runs.
     func ensureFresh(maxAge: TimeInterval = ProxyStore.freshness) async {
@@ -105,9 +108,10 @@ final class ProxyStore {
         await reload()
     }
 
-    /// Every page from 1, the newest load winning. reason is the error's catalog text, never the server's message.
+    /// Every page from 1, the newest load winning; nothing during a 429 wait. reason is the error's catalog text, never the
+    /// server's message.
     func reload() async {
-        guard isCurrent() else { return }
+        guard isCurrent(), refresh.allowsRequest(at: now()) else { return }
         let ticket = UUID()
         self.ticket = ticket
         landedDuringLoad = [:]
@@ -117,10 +121,12 @@ final class ProxyStore {
             let fetched = try await fetchAll(ticket: ticket, showsPages: !keepsCatalog)
             guard let fetched else { return }
             state = .loaded(merged(fetched), at: now())
+            refresh = refresh.recordingSuccess()
         } catch {
             guard ticket == self.ticket, isCurrent() else { return }
             if error is CancellationError { return cancelLoad() }
             state = state.withFailure(error.localizedDescription)
+            refresh = refresh.recordingFailure(error, at: now())
         }
     }
 

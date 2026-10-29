@@ -17,7 +17,10 @@ extension DemoData {
         static let secondPageErrorArgument = "-ui-proxies-page2-error"
         /// Probing hk-01 (4) fails with 502.
         static let testHTTPErrorArgument = "-ui-proxies-test-http-error"
-        var isEmpty, soonOnly, listError, secondPageError, testHTTPError: Bool
+        /// The first list read answers 429 with retry_after `throttleSeconds`.
+        static let throttledArgument = "-ui-proxies-throttled"
+        static let throttleSeconds = 6
+        var isEmpty, soonOnly, listError, secondPageError, testHTTPError, throttled: Bool
 
         init(arguments: [String]) {
             isEmpty = arguments.contains(Self.emptyArgument)
@@ -25,6 +28,7 @@ extension DemoData {
             listError = arguments.contains(Self.listErrorArgument)
             secondPageError = arguments.contains(Self.secondPageErrorArgument)
             testHTTPError = arguments.contains(Self.testHTTPErrorArgument)
+            throttled = arguments.contains(Self.throttledArgument)
         }
     }
 
@@ -112,6 +116,7 @@ actor FixtureProxySource: ProxySource {
     private let options: DemoData.ProxyFixtureOptions
     private let now: @Sendable () -> Date
     private var secondPageFailed = false
+    private var throttleServed = false
 
     init(proxies: [AdminProxy], options: DemoData.ProxyFixtureOptions, now: @escaping @Sendable () -> Date = { Date() }) {
         rows = proxies; self.options = options; self.now = now
@@ -121,6 +126,10 @@ actor FixtureProxySource: ProxySource {
     func proxies(page: Int, query: ProxyListQuery) async throws -> Page<AdminProxy> {
         _ = try query.queryItems(page: page)
         if options.listError { throw Self.failure }
+        if options.throttled, !throttleServed {
+            throttleServed = true
+            throw APIError.server(status: 429, envelope: nil, retryAfter: DemoData.ProxyFixtureOptions.throttleSeconds)
+        }
         if options.secondPageError, page == 2, !secondPageFailed {
             secondPageFailed = true
             throw Self.failure

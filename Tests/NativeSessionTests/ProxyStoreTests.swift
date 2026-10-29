@@ -503,3 +503,60 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(store.proxies.map(\.id) == [3, 1] && store.catalog?.total == 2)
     #expect(store.state.failureReason != nil)
 }
+
+/// 00 §2.7.2: a 429 shows “请求过于频繁，N 秒后自动重试” and nothing goes out for the list before the wait ends.
+@MainActor @Test func rateLimitedFirstLoadWaitsBeforeTheNextRead() async {
+    let stub = StubProxySource(page: { call, page in
+        if call == 1 { throw APIError.server(status: 429, envelope: nil, retryAfter: 30) }
+        return proxyPage(sampleProxies, page: page)
+    })
+    let clock = TestClock()
+    let store = makeStore(stub, clock: clock)
+    await store.ensureFresh()
+    guard case .failed = store.state.display else { Issue.record("\(store.state.display)"); return }
+    #expect(store.throttleMessage() == "请求过于频繁，30 秒后自动重试")
+
+    // 重试, a pull, appearing again, the foreground and compliance all wait too.
+    clock.advance(29)
+    await store.reload()
+    await store.ensureFresh()
+    #expect(await stub.pages == [1])
+    #expect(store.throttleMessage() == "请求过于频繁，1 秒后自动重试")
+
+    clock.advance(1)
+    await store.ensureFresh()
+    #expect(await stub.pages == [1, 1])
+    #expect(store.catalog?.isComplete == true)
+    #expect(store.throttleMessage() == nil)
+    #expect(store.refresh == BlockRefresh())
+}
+
+@MainActor @Test func rateLimitedRefreshKeepsTheCatalogAndWaits() async {
+    let rows = (1...4).reversed().map { proxy($0) }
+    // Calls 1–2 are the first load; call 4 is page 2 of the refresh.
+    let stub = StubProxySource(page: { call, page in
+        if call == 4 { throw APIError.server(status: 429, envelope: nil, retryAfter: 12) }
+        return proxyPage(rows, page: page, size: 2)
+    })
+    let clock = TestClock()
+    let store = makeStore(stub, clock: clock)
+    await store.reload()
+    let loadedAt = clock.now
+    let complete = ProxyCatalog(proxies: rows, total: 4, isComplete: true)
+    clock.advance(120)
+    await store.ensureFresh()
+    #expect(await stub.pages == [1, 2, 1, 2])
+    #expect(store.state.display == .value(complete, at: loadedAt, isRefreshing: false, updateFailed: true))
+    #expect(store.throttleMessage() == "请求过于频繁，12 秒后自动重试")
+
+    clock.advance(11)
+    await store.reload()
+    await store.ensureFresh()
+    #expect(await stub.pages.count == 4)
+
+    clock.advance(1)
+    await store.reload()
+    #expect(await stub.pages == [1, 2, 1, 2, 1, 2])
+    #expect(store.state == .loaded(complete, at: clock.now))
+    #expect(store.throttleMessage() == nil)
+}
