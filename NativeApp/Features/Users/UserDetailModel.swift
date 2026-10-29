@@ -89,8 +89,6 @@ final class UserDetailModel {
             for (due, read) in blocks where due { group.addTask { await read() } }
         }
     }
-    /// The old editor sheet closed (until S3-11 pushes `.userEdit`).
-    func reloadAfterEdit() async { await resumeIfInterrupted(afterEditor: true) }
     /// `userChanges.revision(userID:)` moved: a balance write, a compensation or a save elsewhere (C-12).
     func reloadAfterChange() async {
         async let profileRead: Void = reloadProfile()

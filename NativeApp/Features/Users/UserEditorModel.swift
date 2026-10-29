@@ -12,8 +12,8 @@ struct UserEditNotice: Equatable {
     let details: ErrorDetails?
 }
 
-/// 30 §5 / §6 (S3-10): the state of the new and edit user page. This item fills in `.create`; S3-11 adds the edit state in
-/// UserEditorModel+Edit / +Save. The password and the frozen request live only here and are dropped when the page goes away.
+/// 30 §5 / §6: the state of the new (S3-10) and edit (S3-11, UserEditorModel+Edit / +Save) user page. The password and the
+/// frozen request live only here and are dropped when the page goes away.
 @MainActor @Observable
 final class UserEditorModel {
     enum Mode: Hashable, Sendable { case create, edit(userID: Int) }
@@ -30,10 +30,10 @@ final class UserEditorModel {
     var draft = UserAccessDraft()
     private(set) var definitions: [UserAttributeDefinition] = []
     private(set) var definitionsState = DefinitionsState.loading
-    /// Issues show from the first press of “创建用户” on (design `showErrors`).
-    private(set) var showsIssues = false
-    /// The rows the last refusal marked (30 §5.5).
-    private(set) var serverMarks: UserServerMarks?
+    /// Issues show from the first press of “创建用户” / “保存” on (design `showErrors`).
+    var showsIssues = false
+    /// The rows the last refusal marked (30 §5.5, §6.5).
+    var serverMarks: UserServerMarks?
     private(set) var phase = Phase.editing
     private(set) var notice: UserEditNotice?
     private(set) var focusRequest: FocusRequest?
@@ -42,14 +42,43 @@ final class UserEditorModel {
     @ObservationIgnored private var frozen: (operation: PendingUserCreateOperation, draft: UserAccessDraft, readsBackFirst: Bool)?
     @ObservationIgnored private var lastConfirmation: UserCreateConfirmation?
     /// 00 §2.5.3: after IDEMPOTENCY_STORE_UNAVAILABLE the kept number waits until then.
-    @ObservationIgnored private var holdUntil: Date?
-    @ObservationIgnored private var isClosed = false
+    @ObservationIgnored var holdUntil: Date?
+    @ObservationIgnored private(set) var isClosed = false
+
+    // MARK: 编辑态（S3-11）：UserEditorModel+Edit / +Save 写，S3-12 只读（S3D1-13）
+    enum EditLoad: Equatable { case loading, loaded, failed(String?), missing }
+    var editLoad = EditLoad.loading
+    /// The server's user when the page opened (30 §6.6): immediate writes move it, polling never does.
+    private(set) var baseline: UserBaseline?
+    /// The directory the draft's groups are read against (X11).
+    private(set) var catalog = UserGroupCatalog.empty
+    /// The profile as last read: the identity strip and the confirmations' name.
+    var stripUser: AdminUser?
+    var isSelf = false
+    /// What took effect since the page opened (30 §6.4 离开).
+    private(set) var applied: [String] = []
+    /// The user's keys, for “绑定 N 个 Key” and the third segment's count; S3-12 replaces it with its UserKeysModel.
+    private(set) var boundKeys: [AdminAPIKey]?
+    var saveProgress: UserSaveProgress?
+    /// S3D1-11: immediate writes out now; “保存” waits for them, they wait for “保存”.
+    private(set) var immediateWritesInFlight = 0
+    var dialog: UserEditDialog?
+    var deleteRequest: DeleteRequest?
+    var didDelete = false
+    /// The role a last-administrator check refused (U30); its message stands while the draft keeps that role.
+    var lastAdminRole: AdminUserRole?
+    var passwordFoldOpen = false
+    /// `UserChangeSignal.balanceRevision` when the page opened: a larger one adds “余额” to the leave confirmation.
+    @ObservationIgnored var entryBalanceRevision: Int?
+    @ObservationIgnored var keptUpdate: KeptUserUpdate?
+    /// The user's attribute values, until the profile has made the base.
+    @ObservationIgnored private var attributeValues: [Int: String]?
 
     init(mode: Mode, segment: UserEditSegment = .basic) {
         self.mode = mode; self.segment = segment
     }
 
-    var isFrozen: Bool { phase == .submitting }
+    var isFrozen: Bool { phase == .submitting || saveProgress != nil }
     var hasContent: Bool { draft.hasContent }
     var displayName: String { UserEditCopy.newUserName(username: draft.username, email: draft.email) }
     var initial: String? { UserEditCopy.newUserInitial(username: draft.username, email: draft.email) }
@@ -57,9 +86,10 @@ final class UserEditorModel {
 
     /// The local check in form order, then the last refusal's marks while their rows hold what was sent.
     var issues: [UserDraftIssue] {
-        let local = draft.issues(against: nil, definitions: definitions)
+        let local = draft.issues(against: baseline, definitions: definitions)
         let fields = Set(local.map(\.field))
-        return local + (serverMarks?.standing(in: draft) ?? []).filter { !fields.contains($0.field) }
+        let lastAdmin = lastAdminRole != nil && draft.role == lastAdminRole ? [UserDraftIssue(field: .role, message: UserEditCopy.lastAdminField)] : []
+        return local + ((serverMarks?.standing(in: draft) ?? []) + lastAdmin).filter { !fields.contains($0.field) }
     }
     func issue(for field: UserDraftField) -> String? {
         guard showsIssues else { return nil }
@@ -72,11 +102,14 @@ final class UserEditorModel {
 
     // MARK: - 加载
 
-    /// 30 §5.6: from the session's cache when it has them (the group directory loads on its own).
+    /// 30 §5.6: from the session's cache when it has them (the group directory loads on its own). Editing, the user's values
+    /// come with them (30 §6.2), and the rows show only once both are in.
     func loadDefinitions(model: AppModel) async {
         definitionsState = .loading
         do {
-            definitions = try await model.loadUserAttributeDefinitions()
+            let loaded = try await model.loadUserAttributeDefinitions()
+            if case .edit(let id) = mode { adoptAttributes(try await model.userAttributes(userID: id)) }
+            definitions = loaded
             definitionsState = .loaded
         } catch { definitionsState = error is CancellationError ? .loading : .failed }
     }
@@ -142,6 +175,7 @@ final class UserEditorModel {
         isClosed = true
         draft.password = ""
         frozen = nil
+        keptUpdate = nil
     }
 
     /// 30 §0.4: verified first; the confirmation's first sentence only when the site has step-up on (S3D1-01).
@@ -237,8 +271,76 @@ final class UserEditorModel {
         path.removeSubrange(index...)
         router.setPath(path + [.user(id: user.id)], for: tab)
     }
-    private func jump(to field: UserDraftField) {
+    func jump(to field: UserDraftField) {
         segment = UserEditSegment(field.section)
         focusRequest = FocusRequest(field: field)
+    }
+
+    // MARK: - 编辑态的基线与立即生效（S3-11，30 §6.6；S3D1-11、S3D1-13 的对外成员）
+
+    /// The first profile read makes the base and the draft, once.
+    func startEditing(_ user: AdminUser, catalog: UserGroupCatalog) {
+        guard baseline == nil else { return }
+        var base = UserBaseline(user: user)
+        base.attributes = attributeValues ?? [:]
+        self.catalog = catalog
+        baseline = base
+        draft = UserAccessDraft(editing: base, catalog: catalog)
+    }
+    /// A directory that arrives after the profile (or after a failed read) splits the grant into exclusive and public only now.
+    func adoptCatalog(_ next: UserGroupCatalog) {
+        guard next != catalog else { return }
+        let wasEmpty = catalog.exclusiveIDs.isEmpty && catalog.publicIDs.isEmpty
+        catalog = next
+        guard wasEmpty, let baseline else { return }
+        let fresh = UserAccessDraft(editing: baseline, catalog: next)
+        draft.exclusiveGroupIDs = fresh.exclusiveGroupIDs
+        draft.publicGroupIDs = fresh.publicGroupIDs
+    }
+    /// An immediate write took effect (S3-12, S3-14, S3-15): named in the leave confirmation; a grant change moves the base and
+    /// the draft together and keeps every other change (design `both()`).
+    func applyImmediate(_ name: String, groupsChange: UserGroupsChange? = nil) {
+        if !applied.contains(name) { applied.append(name) }
+        rebase(groupsChange)
+    }
+    /// Its undo: pass the change the write made; the reverse is applied here.
+    func undoImmediate(_ name: String, groupsChange: UserGroupsChange? = nil) {
+        applied.removeAll { $0 == name }
+        rebase(groupsChange?.reversed)
+    }
+    /// The user PUT went through and only the attributes failed (30 §6.4 step 7): what was saved stops counting as changed.
+    func settleSaved(_ request: UserUpdateRequest?) {
+        guard let request, let baseline else { return }
+        self.baseline = baseline.applying(request)
+        draft.password = ""
+        draft.adjustmentNotes = ""
+    }
+    var isApplyingImmediate: Bool { immediateWritesInFlight > 0 }
+    var canStartImmediateWrite: Bool { saveProgress == nil }
+    /// false (and nothing counted) while “保存” is out.
+    func beginImmediateWrite() -> Bool {
+        guard canStartImmediateWrite else { return false }
+        immediateWritesInFlight += 1
+        return true
+    }
+    func endImmediateWrite() { immediateWritesInFlight = max(immediateWritesInFlight - 1, 0) }
+    /// 30 §6.2: “绑定 N 个 Key” and the count on the third segment; a failure leaves them unknown.
+    func loadBoundKeys(model: AppModel) async {
+        guard case .edit(let id) = mode else { return }
+        let generation = model.sessionGeneration
+        guard let keys = try? await model.userAPIKeys(userID: id), generation == model.sessionGeneration else { return }
+        boundKeys = keys
+    }
+
+    private func rebase(_ change: UserGroupsChange?) {
+        guard let change, !change.isEmpty, let baseline else { return }
+        (self.baseline, draft) = UserEditRebase.apply(change, baseline: baseline, draft: draft, catalog: catalog)
+    }
+    private func adoptAttributes(_ values: [UserAttributeValue]) {
+        let shown = UserAttributeEdits.values(values)
+        attributeValues = shown
+        guard baseline != nil else { return }
+        baseline?.attributes = shown
+        draft.attributes = shown
     }
 }

@@ -9,7 +9,7 @@ enum UserEditSheet: Identifiable, Hashable {
     var id: Self { self }
 }
 
-/// 30 §5 (S3-10; the edit state is S3-11's): pushed full screen without the tab bar. A fixed head above the form (identity
+/// 30 §5 (S3-10; the edit state is S3-11's UserEditScreen): pushed full screen without the tab bar. A fixed head above the form (identity
 /// strip, the segments and their hint, folding while the form scrolls or a field has focus, design `useUeCompact`), the
 /// segment's form, and the bottom bar “下一步 / 上一步 · 创建用户”. Leaving with something typed asks first.
 struct UserEditView: View {
@@ -36,6 +36,10 @@ struct UserEditView: View {
     }
 
     var body: some View {
+        if editor.isEditing { UserEditScreen(editor: editor) } else { createPage }
+    }
+
+    private var createPage: some View {
         VStack(spacing: 0) {
             header
             ScrollViewReader { proxy in
@@ -183,7 +187,7 @@ struct UserEditView: View {
                 let isExclusive = catalog.exclusiveIDs.contains(id)
                 UserGroupSheet(group: group, isExclusive: isExclusive, context: .create, restrictsPublic: editor.draft.restrictPublicGroups,
                                allowed: editor.draft.allowsPublicGroup(id),
-                               onDone: { allowed in if !isExclusive { editor.setPublicGroup(id, allowed: allowed) } },
+                               onDone: { allowed, _ in if !isExclusive { editor.setPublicGroup(id, allowed: allowed) } },
                                onRemove: removal(of: id, isExclusive: isExclusive))
             }
         case .attribute(let id):
@@ -244,24 +248,29 @@ struct UserEditIdentityStripNew: View {
     }
 }
 
-/// The segments with their marks (design UeSegBar): a red “!” where the check found something, read aloud as
-/// “基础，有 1 项要修改” (S3D1-01, UserDraftSection.spokenIssues).
+/// The segments with their marks (design UeSegBar): a red “!” where the check found something, a dot where something
+/// changed (edit only), read aloud as “基础，有 1 项要修改、已改 2 项” (S3D1-01, UserDraftSection.spoken).
 struct UserEditSegmentBar: View {
     let segments: [UserEditSegment]
     @Binding var selection: UserEditSegment
     /// Issues to fix per segment; 0 or missing draws no mark.
     let issues: [UserEditSegment: Int]
+    var changed: [UserEditSegment: Int] = [:]
+    /// The third segment's “Key 与限额（N）” (S3-11).
+    var keysTitle: String?
     let isDisabled: Bool
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(segments, id: \.self) { segment in
-                let count = issues[segment] ?? 0, selected = segment == selection
+                let count = issues[segment] ?? 0, edits = changed[segment] ?? 0, selected = segment == selection
                 Button { selection = segment } label: {
                     HStack(spacing: 4) {
-                        Text(Self.title(segment)).font(.subheadline.weight(selected ? .semibold : .regular))
+                        Text(title(segment)).font(.subheadline.weight(selected ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.8)
                         if count > 0 {
                             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Palette.critical).accessibilityHidden(true)
+                        } else if edits > 0 {
+                            Circle().fill(Palette.accent).frame(width: 6, height: 6).accessibilityHidden(true)
                         }
                     }
                     .foregroundStyle(selected ? Palette.ink1 : Palette.ink2)
@@ -270,7 +279,7 @@ struct UserEditSegmentBar: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Text(Self.spoken(segment, issues: count)))
+                .accessibilityLabel(Text(spoken(segment, issues: count, changed: edits)))
                 .accessibilityAddTraits(selected ? .isSelected : [])
                 .accessibilityIdentifier("user-edit.segment.\(segment.rawValue)")
             }
@@ -281,17 +290,17 @@ struct UserEditSegmentBar: View {
         .disabled(isDisabled)
     }
 
-    private static func title(_ segment: UserEditSegment) -> String {
+    private func title(_ segment: UserEditSegment) -> String {
         switch segment {
         case .basic: UserDraftSection.basic.title
         case .access: UserDraftSection.access.title
-        case .keys: "Key 与限额"
+        case .keys: keysTitle ?? UserEditCopy.keysSegmentTitle(count: nil)
         }
     }
-    private static func spoken(_ segment: UserEditSegment, issues: Int) -> String {
+    private func spoken(_ segment: UserEditSegment, issues: Int, changed: Int) -> String {
         switch segment {
-        case .basic: UserDraftSection.basic.spokenIssues(issues)
-        case .access: UserDraftSection.access.spokenIssues(issues)
+        case .basic: UserDraftSection.basic.spoken(issues: issues, changed: changed)
+        case .access: UserDraftSection.access.spoken(issues: issues, changed: changed)
         case .keys: title(segment)
         }
     }

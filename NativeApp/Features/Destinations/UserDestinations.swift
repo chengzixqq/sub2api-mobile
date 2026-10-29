@@ -14,7 +14,7 @@ struct UserRouteDestination: View {
         // .userNew：S3-10
         case .userNew: UserEditView(mode: .create)
         // .userEdit：S3-11
-        case .userEdit: ComingSoonView(title: route.placeholderTitle)
+        case .userEdit(let id, let segment): UserEditView(mode: .edit(userID: id), segment: segment)
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }

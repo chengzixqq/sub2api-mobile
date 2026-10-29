@@ -78,10 +78,12 @@ final class UserDetailUITests: XCTestCase {
         XCTAssertTrue(app.buttons["发放兑换码（补偿）…"].exists, app.debugDescription)
         XCTAssertFalse(app.buttons["禁用用户"].exists || app.buttons["删除用户…"].exists, app.debugDescription)
         XCTAssertTrue(labelled("管理员不能禁用或删除。").exists, app.debugDescription)
+        // S3-11: the edit page is pushed over the detail.
         app.buttons["编辑用户"].tap()
-        XCTAssertTrue(element("user-editor.email").waitForExistence(timeout: 5), app.debugDescription)
-        app.buttons["user-editor.close"].tap()
-        XCTAssertTrue(element("user-editor.email").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["编辑用户"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("user-edit.email").waitForExistence(timeout: 10), app.debugDescription)
+        goBack()
+        XCTAssertTrue(app.navigationBars["陈思远"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor func testSelfMenuNote() {
@@ -204,7 +206,8 @@ final class UserDetailUITests: XCTestCase {
         XCTAssertTrue(keys.waitForExistence(timeout: 10), app.debugDescription)
         keys.tap()
         XCTAssertTrue(app.navigationBars["编辑用户"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(element("route.placeholder").exists, app.debugDescription)
+        // S3-11: the edit page opens on “Key 与限额”, whose cards are S3-12's.
+        XCTAssertTrue(element("user-edit.keys.placeholder").waitForExistence(timeout: 10), app.debugDescription)
         goBack()
         let logs = app.buttons["user.logs"]
         XCTAssertTrue(app.scrollUntilExists(logs))
