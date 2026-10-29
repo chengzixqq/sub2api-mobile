@@ -11,7 +11,7 @@ struct ProxyRouteDestination: View {
         // .proxyDetail：S6-12
         case .proxyDetail(let id): ProxyDetailView(id: id)
         // .proxyFallbackAccounts：S6-13
-        case .proxyFallbackAccounts: ComingSoonView(title: route.placeholderTitle)
+        case .proxyFallbackAccounts(let proxyID): ProxyFallbackAccountsView(proxyID: proxyID)
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }

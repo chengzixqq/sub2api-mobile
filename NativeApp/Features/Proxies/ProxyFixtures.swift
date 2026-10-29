@@ -283,3 +283,109 @@ private extension AdminProxy {
                    qualityScore: qualityScore, qualityGrade: qualityGrade, qualitySummary: qualitySummary, qualityChecked: qualityChecked)
     }
 }
+
+// MARK: - S6-13 被改走的账号
+
+extension DemoData {
+    /// The fallback page's launch arguments.
+    enum ProxyFallbackFixtureArgument {
+        /// The first account sent was restored by someone else meanwhile: skipped with ACCOUNT_NOT_IN_FALLBACK.
+        static let skipped = "-ui-proxy-fallback-skipped"
+        /// The last account sent fails with an empty code (the server's unclassified error) and stays moved off.
+        static let failed = "-ui-proxy-fallback-failed"
+        /// Every revert answers 409 PROXY_FALLBACK_ORIGIN_UNAVAILABLE.
+        static let originUnavailable = "-ui-proxy-fallback-origin-unavailable"
+        /// Every list read answers 503.
+        static let listError = "-ui-proxy-fallback-list-error"
+    }
+
+    /// This session's FixtureProxySource and moved accounts. A revert writes the remaining count onto the proxy's row, so the list
+    /// and the detail read it, and restores the account fixtures' own fallen-back account (Kimi-01) as well.
+    @MainActor static func proxyFallbackEndpoints(model: AppModel) -> ProxyFallbackEndpoints {
+        let generation = model.sessionGeneration
+        let source = proxySource(for: generation, base: model.accountFixtureNow())
+        let moved = ProxyFallbackDemoStore.current(for: generation)
+        let arguments = ProcessInfo.processInfo.arguments
+        let notFound = APIError.server(status: 404, reason: ProxyReason.notFound)
+        return ProxyFallbackEndpoints(
+            accounts: { @MainActor id in
+                if arguments.contains(ProxyFallbackFixtureArgument.listError) { throw APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE") }
+                guard await source.storedProxy(id: id) != nil else { throw notFound }
+                return moved.accounts(proxyID: id)
+            },
+            proxy: { try await source.proxy(id: $0) },
+            revert: { @MainActor id, accountIDs in
+                guard let origin = await source.storedProxy(id: id) else { throw notFound }
+                if arguments.contains(ProxyFallbackFixtureArgument.originUnavailable)
+                    || !ProxyFallbackPresentation.canRevert(origin, now: model.accountFixtureNow()) {
+                    throw APIError.server(status: 409, reason: ProxyReason.fallbackOriginUnavailable)
+                }
+                let result = moved.revert(proxyID: id, accountIDs: accountIDs, arguments: arguments)
+                await source.replace(origin.fixtureMoving(moved.accounts(proxyID: id).count))
+                for account in result.revertedIDs + result.skipped.map(\.id) { try? model.accountDemo.revertProxyFallback(id: account) }
+                return result
+            })
+    }
+}
+
+/// The accounts each fixture proxy's expiry moved off it, on the account fixtures' ids: hk-01 (4) ← Kimi-01 (now on hk-02, as
+/// DemoData+Accounts has it) and MiniMax-01 (direct); us-east-2 (7) ← GLM-直连-01 and Grok-旧-01 (both direct). One per session.
+@MainActor
+final class ProxyFallbackDemoStore {
+    private var moved: [Int: [ProxyFallbackAccount]]
+    private static var latest: (generation: UUID, store: ProxyFallbackDemoStore)?
+
+    static func current(for generation: UUID) -> ProxyFallbackDemoStore {
+        if let latest, latest.generation == generation { return latest.store }
+        let store = ProxyFallbackDemoStore()
+        latest = (generation, store)
+        return store
+    }
+
+    init() {
+        func account(_ id: Int, _ name: String, _ platform: String, on current: (Int, String)? = nil) -> ProxyFallbackAccount {
+            ProxyFallbackAccount(id: id, name: name, platform: platform, type: "apikey", currentProxyID: current?.0, currentProxyName: current?.1)
+        }
+        moved = [4: [account(9, "Kimi-01", "kimi", on: (1, "hk-02")), account(12, "MiniMax-01", "minimax")],
+                 7: [account(11, "GLM-直连-01", "zhipu"), account(10, "Grok-旧-01", "grok")]]
+    }
+
+    /// Newest id first, as the server's ORDER BY a.id DESC.
+    func accounts(proxyID: Int) -> [ProxyFallbackAccount] { (moved[proxyID] ?? []).sorted { $0.id > $1.id } }
+
+    /// As the backend, account by account: no ids → all of them by id; an id not moved off this proxy is skipped.
+    func revert(proxyID: Int, accountIDs: [Int], arguments: [String]) -> ProxyFallbackRevertResult {
+        let listed = Set((moved[proxyID] ?? []).map(\.id))
+        var seen = Set<Int>()
+        let targets = accountIDs.isEmpty ? listed.sorted() : accountIDs.filter { seen.insert($0).inserted }
+        var reverted: [Int] = [], skipped: [ProxyFallbackRevertResult.Item] = [], failed: [ProxyFallbackRevertResult.Item] = []
+        for (index, id) in targets.enumerated() {
+            if !listed.contains(id) {
+                skipped.append(.init(id: id, code: "ACCOUNT_NOT_FALLBACK_OF_PROXY"))
+            } else if index == 0, arguments.contains(DemoData.ProxyFallbackFixtureArgument.skipped) {
+                skipped.append(.init(id: id, code: AccountWriteReason.notInFallback))
+                remove(id, from: proxyID)
+            } else if index == targets.count - 1, arguments.contains(DemoData.ProxyFallbackFixtureArgument.failed) {
+                failed.append(.init(id: id, code: ""))
+            } else {
+                reverted.append(id)
+                remove(id, from: proxyID)
+            }
+        }
+        return ProxyFallbackRevertResult(revertedIDs: reverted, skipped: skipped, failed: failed)
+    }
+
+    private func remove(_ id: Int, from proxyID: Int) { moved[proxyID]?.removeAll { $0.id == id } }
+}
+
+private extension AdminProxy {
+    /// The same row with another `fallback_account_count`.
+    func fixtureMoving(_ count: Int) -> AdminProxy {
+        AdminProxy(id: id, name: name, scheme: scheme, host: host, port: port, username: username, password: password, status: status,
+                   createdAt: createdAt, updatedAt: updatedAt, expiresAt: expiresAt, fallbackMode: fallbackMode, backupProxyID: backupProxyID,
+                   expiryWarnDays: expiryWarnDays, accountCount: accountCount, hasAccountCountKey: hasAccountCountKey, fallbackAccountCount: count,
+                   latencyMs: latencyMs, latencyStatus: latencyStatus, latencyMessage: latencyMessage, latencyCheckedAt: latencyCheckedAt,
+                   ipAddress: ipAddress, country: country, countryCode: countryCode, region: region, city: city, qualityStatus: qualityStatus,
+                   qualityScore: qualityScore, qualityGrade: qualityGrade, qualitySummary: qualitySummary, qualityChecked: qualityChecked)
+    }
+}
