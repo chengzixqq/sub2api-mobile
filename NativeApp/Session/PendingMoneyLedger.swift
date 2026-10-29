@@ -91,8 +91,10 @@ struct PendingMoneyLedger: Sendable {
         let merged = balances.first { $0.id == record.id }.map(record.merging(stored:)) ?? record
         return try remembering(merged, at: \.balances, kind: .balance, in: files)
     }
+    /// A copy taken before a retry keeps the last send saved since (PendingRedeemBatch.merging).
     func remembering(_ record: PendingRedeemBatch, in files: PendingMoneyFiles) throws -> PendingMoneyLedger {
-        try remembering(record, at: \.redeemBatches, kind: .redeemBatch, in: files)
+        let merged = redeemBatches.first { $0.id == record.id }.map(record.merging(stored:)) ?? record
+        return try remembering(merged, at: \.redeemBatches, kind: .redeemBatch, in: files)
     }
     func remembering(_ record: PendingCompensation, in files: PendingMoneyFiles) throws -> PendingMoneyLedger {
         try remembering(record, at: \.compensations, kind: .compensation, in: files)
@@ -120,6 +122,11 @@ struct PendingMoneyLedger: Sendable {
     /// window stays at createdAt. A first send is returned unchanged.
     func resendStamped(_ operation: PendingBalanceOperation, at date: Date) -> PendingBalanceOperation {
         balances.contains { $0.id == operation.id } ? operation.with(lastSentAt: date) : operation
+    }
+    /// A batch already saved goes out again: an old server's fallback window reaches to this send (60 §11.4 末条), also after
+    /// the App was closed. A first send is returned unchanged.
+    func resendStamped(_ batch: PendingRedeemBatch, at date: Date) -> PendingRedeemBatch {
+        redeemBatches.contains { $0.id == batch.id } ? batch.with(lastSentAt: date) : batch
     }
 
     private func writes(where included: (any PendingMoneyWrite) -> Bool) -> [any PendingMoneyWrite] {

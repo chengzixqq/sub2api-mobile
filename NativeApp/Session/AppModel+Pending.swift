@@ -13,12 +13,13 @@ extension AppModel {
     var allPendingMoneyWrites: [any PendingMoneyWrite] { pendingMoney.writes(serverID: nil) }
 
     /// The only way to obtain a sendable money write: its record is saved first, and a failed save sends nothing (00 §0 rule 4).
-    /// A balance record already saved is going out again under its number, so its execution grace restarts now.
+    /// A balance record already saved is going out again under its number, so its execution grace restarts now; a batch's
+    /// resend widens an old server's fallback window.
     func persisted(_ operation: PendingBalanceOperation) throws -> PersistedMoneyWrite<PendingBalanceOperation> {
         try PersistedMoneyWrite(pendingMoney.resendStamped(operation, at: Date())) { try remember($0) }
     }
     func persisted(_ batch: PendingRedeemBatch) throws -> PersistedMoneyWrite<PendingRedeemBatch> {
-        try PersistedMoneyWrite(batch) { try remember($0) }
+        try PersistedMoneyWrite(pendingMoney.resendStamped(batch, at: Date())) { try remember($0) }
     }
     func persisted(_ grant: PendingCompensation) throws -> PersistedMoneyWrite<PendingCompensation> {
         try PersistedMoneyWrite(grant) { try remember($0) }

@@ -209,9 +209,4 @@ extension APIClient {
         return try await performKeyedWrite(KeyedWriteRequest(path: path, method: "POST", body: body, key: key, timeout: RequestTimeout.keyedBulk),
                                            onEvent: onEvent)
     }
-    /// The list's batch 刷新凭据 is gone (20 §8.7, U21); S2-15 replaces this with a keyed refresh.
-    public func refreshManagedAccount(id: Int, identity: UUID) async throws {
-        guard identity == userWriteIdentity() else { throw APIError.stationMismatch }
-        try await refreshAccount(id: id)
-    }
 }

@@ -72,8 +72,11 @@ final class RedeemReconcileModel {
         case .notAuthorized, .stale: break
         case .notSaved(let text): notice = Notice(text: text, tone: .critical)
         case .succeeded(let codes, let replayed): phase = .result(replayed ? .replayed : .generated, codes: codes)
-        // STORE_UNAVAILABLE's cooldown is the grey button's own line.
-        case .kept(let text, let retryNotBefore): notice = retryNotBefore == nil ? Notice(text: text, tone: .caution) : nil
+        // It may have run (60 §10.4 第 2 步): back to 结果待核对, also from 没找到. STORE_UNAVAILABLE's cooldown is the grey
+        // button's own line.
+        case .kept(let text, let retryNotBefore):
+            phase = .pending(.awaitingCheck)
+            notice = retryNotBefore == nil ? Notice(text: text, tone: .caution) : nil
         case .rejected(let text): phase = .pending(.refused(text))
         }
     }
@@ -132,8 +135,6 @@ extension AppModel {
             },
             resolve: { [weak self] in try self?.resolve($0) },
             hold: { [weak self] in self?.holdRetry($0, until: $1) },
-            noteSent: { RedeemBatchCheck.sendLog.note($0, at: $1) },
-            lastSent: { RedeemBatchCheck.sendLog.lastSent($0) },
             listChanged: { RedeemCodesModel.noteExternalChange() },
             report: { [weak self] in self?.report($0) },
             isCurrent: { [weak self] in self?.sessionGeneration == generation },

@@ -1,16 +1,6 @@
 import Foundation
 import Sub2Core
 
-/// When each pending batch last went out in this run of the App: an old server's fallback window reaches past the record's
-/// time when a retry may have run it (60 §11.4 末条). Keyed by record id, like MoneyWriteInFlight.
-@MainActor
-final class RedeemBatchSendLog {
-    private var stamps: [UUID: Date] = [:]
-    init() {}
-    func note(_ id: UUID, at date: Date) { stamps[id] = date }
-    func lastSent(_ id: UUID) -> Date? { stamps[id] }
-}
-
 /// 60 §11.4 for one pending batch: the check (only when tapped, 11.6), “用同一编号重试” and the closing by “放弃这一批” or
 /// “我已核对”. Only a batch found whole under its batch_id is settled by the read itself (AppModel.reconcile); a count that
 /// does not match and an old server's guess wait for the administrator. A retry reads the record again by id, only its
@@ -25,19 +15,17 @@ struct RedeemBatchCheck {
         let isLegacyServer: @MainActor @Sendable () -> Bool
         /// AppModel.reconcile: a read with the current identity that settles a batch found whole.
         let reconcile: @MainActor @Sendable (PendingRedeemBatch) async throws -> RedeemBatchReconcileOutcome
-        /// The record and its last send in this run.
+        /// The record and its last send, saved with it (PendingRedeemBatch.lastSentAt).
         let fallback: @MainActor @Sendable (PendingRedeemBatch, Date?) async throws -> RedeemBatchFallbackOutcome
         let reveal: @MainActor @Sendable ([AdminRedeemCode]) async throws -> [AdminRedeemCode]
         let retryContext: @MainActor @Sendable (PendingRedeemBatch) -> RedeemRetryContext
         let authorize: @MainActor @Sendable (GatedAction) async -> Bool
-        /// AppModel.persisted: saves the record and returns the only sendable form.
+        /// AppModel.persisted: saves the record (stamping lastSentAt) and returns the only sendable form.
         let persist: @MainActor @Sendable (PendingRedeemBatch) throws -> PersistedMoneyWrite<PendingRedeemBatch>
         /// AppModel.sendRedeemBatch, the only sender (`sendSameNumber`).
         let send: @MainActor @Sendable (PersistedMoneyWrite<PendingRedeemBatch>) async throws -> WriteOutcome<[AdminRedeemCode]>
         let resolve: @MainActor @Sendable (PendingRedeemBatch) throws -> Void
         let hold: @MainActor @Sendable (UUID, Date?) -> Void
-        let noteSent: @MainActor @Sendable (UUID, Date) -> Void
-        let lastSent: @MainActor @Sendable (UUID) -> Date?
         /// RedeemCodesModel.noteExternalChange (C-34).
         let listChanged: @MainActor @Sendable () -> Void
         let report: @MainActor @Sendable (any Error) -> Void
@@ -77,8 +65,6 @@ struct RedeemBatchCheck {
     }
 
     let effects: Effects
-    /// The send log of every session (keyed by record id).
-    static let sendLog = RedeemBatchSendLog()
 
     func check(_ id: UUID) async -> CheckOutcome {
         guard let record = effects.record(id) else { return .gone }
@@ -95,7 +81,7 @@ struct RedeemBatchCheck {
                 case .unverifiable: break
                 }
             }
-            let guess = try await effects.fallback(record, effects.lastSent(id))
+            let guess = try await effects.fallback(record, record.lastSentAt)
             guard effects.isCurrent() else { return .stale }
             switch guess {
             case .likelyGenerated(let codes), .countMismatch(let codes): return .probable(codes)
@@ -120,7 +106,6 @@ struct RedeemBatchCheck {
         if let refusal = refusal(latest) { return .refused(refusal) }
         let write: PersistedMoneyWrite<PendingRedeemBatch>
         do { write = try effects.persist(latest) } catch { return .notSaved(PendingMoneyKind.redeemBatch.unsavedMessage) }
-        effects.noteSent(id, effects.now())
         let result: Result<WriteOutcome<[AdminRedeemCode]>, any Error>
         do { result = .success(try await effects.send(write)) } catch { result = .failure(error) }
         return await settle(write.record, result: result)

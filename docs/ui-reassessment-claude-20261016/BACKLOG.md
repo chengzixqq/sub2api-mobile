@@ -313,6 +313,9 @@
 | ACCOUNT_TEST_BUSY 的按钮倒计时文案 | 后端对 ACCOUNT_TEST_BUSY 不写 Retry-After，按 00 §2.7.2 默认 30 秒；按钮文案“N 秒后重新测试”和置灰到点为止的做法是 S2-14 定的，规格没给，待设计确认 |
 | AccountDetailUITests.testBasicAndScheduleSectionsShowReadOnlyValues 不稳定 | 用例用字典遍历 6 个调度行，Swift 字典顺序每次进程随机，而 reveal 只向下滚，靠上的行排到后面时滚不回去，失败在第 325 行；集成 gate 0fc3f65 记为 FLAKY，S2-14 check 中两次都失败，单独重跑通过。应改为有序的数组遍历（测试文件归 S2-10，S2-14 未改） |
 | items.json 补登记 S2-14 的文件外改动 | S2-14 新建了 NativeApp/Session/DemoData+AccountTests.swift（DemoData+Accounts.swift 已有 703 行，放不下），并在 Package.swift 的 NativeSessionSupport exclude 阶段 2 段加了一行；这两个文件都不在条目 files 里，请补进 items.json 并重跑 build.py |
+| 后端：Claude / Gemini / Antigravity 换码网络失败缺 reason | 新建账号换码时，Claude 的上游失败是不带 reason 的 500，Gemini / Antigravity 是不带 reason 的 400（oauth_exchange_error.go），App 分不出“授权码还没用掉 · 换个代理再试”，目前退回通用文案；建议后端给这三个平台补上和 OPENAI_OAUTH_TOKEN_EXCHANGE_FAILED 同类的 reason |
+| reauthorize / exchange-code / apply 的 30 秒超时 | 按 00 §2.3 保持不带 key 的写 30 秒；后端换码上限 2 分钟、保存 30 秒，上游慢时会先超时、落到“不能确认是否已替换”。建议实测后再决定是否放宽（S2D1-03） |
+| items.json files 补登记 | S2-15 实际新增了 OAuthCredentialBuilder.swift、AccountOAuthErrorCopy.swift、OAuthCredentialBuilderTests.swift、AccountOAuthErrorCopyTests.swift（方案已列出拆分），需要补进 items.json 的 files 并重跑 build.py |
 
 ### App 与设计 · 阶段 3
 
