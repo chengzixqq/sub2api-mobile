@@ -164,6 +164,26 @@ func applicableFieldsFollowTheSpecTableAndTheBackend(_ entry: ApplicableCase) th
     #expect(probe.undoPatch().upstreamBillingProbeEnabled == false)
 }
 
+/// The server turns the rate sync off with the probe (admin_account.go updateLoadedAccount), so 撤销 turns it back on.
+@Test func undoingTheProbeOffRestoresTheRateSyncTheServerTurnedOff() throws {
+    let stored = #""extra":{"upstream_billing_probe_enabled":true,"upstream_billing_rate_sync_enabled":true}"#
+    var synced = try draft("openai", "apikey", stored)
+    synced.values.upstreamBillingProbe = false
+    #expect(String(decoding: try synced.patch().requestBody(), as: UTF8.self) == #"{"upstream_billing_probe_enabled":false}"#)
+    let undo = synced.undoPatch()
+    #expect(String(decoding: try undo.requestBody(), as: UTF8.self)
+            == #"{"upstream_billing_probe_enabled":true,"upstream_billing_rate_sync_enabled":true}"#)
+    let probeOnly = try account("openai", "apikey", #""extra":{"upstream_billing_probe_enabled":true,"upstream_billing_rate_sync_enabled":false}"#)
+    #expect(AccountPatchReadback.matches(account: try account("openai", "apikey", stored), request: undo))
+    #expect(!AccountPatchReadback.matches(account: probeOnly, request: undo))
+    #expect(String(decoding: try undo.fullUpdateBody(base: probeOnly), as: UTF8.self)
+            == #"{"upstream_billing_probe_enabled":true,"upstream_billing_rate_sync_enabled":true}"#)
+
+    var unsynced = try draft("openai", "apikey", #""extra":{"upstream_billing_probe_enabled":true}"#)
+    unsynced.values.upstreamBillingProbe = false
+    #expect(String(decoding: try unsynced.undoPatch().requestBody(), as: UTF8.self) == #"{"upstream_billing_probe_enabled":true}"#)
+}
+
 @Test func changedFieldNamesFollowTheRowOrder() throws {
     var edits = try draft()
     edits.values.sessionIDMasking = true

@@ -186,6 +186,68 @@ extension RedeemCodesSource {
     }
 }
 
+// MARK: - S6-05 writes
+
+extension DemoData.RedeemFixture {
+    /// Every status, expiry or group change answers 409 REDEEM_CODE_USED, as if the code was redeemed while the list showed it
+    /// unused; notes still save.
+    static let editUsedRace = "-ui-redeem-edit-used-race"
+}
+
+extension RedeemDemoStore {
+    private static let usedRace = APIError.server(status: 409, reason: RedeemWriteFailure.usedReason)
+
+    /// `POST admin/redeem-codes/batch-update` with the backend's refusals (60 §9.4): all ids or none.
+    func update(ids: [Int], fields: RedeemBatchUpdateFields, now: Date) throws -> Int {
+        guard !fields.isEmpty else { throw APIError.server(status: 400, reason: "REDEEM_CODE_BATCH_UPDATE_EMPTY") }
+        if case .at(let date)? = fields.expiresAt, date <= now { throw APIError.server(status: 400, reason: "REDEEM_CODE_EXPIRES_AT_INVALID") }
+        let targets = try ids.map { id in
+            guard let code = codes.first(where: { $0.id == id }) else { throw Self.notFound }
+            return code
+        }
+        if fields.touchesUsedSensitiveFields, arguments.contains(DemoData.RedeemFixture.editUsedRace) || targets.contains(where: \.isRedeemed) {
+            throw Self.usedRace
+        }
+        let changed = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, Self.applying(fields, to: $0, now: now)) })
+        replace(codes.map { changed[$0.id] ?? $0 })
+        return targets.count
+    }
+    /// `DELETE admin/redeem-codes/:id` with `redeem_codes.delete_guard`: a redeemed code or an admin row is refused.
+    func delete(id: Int) throws -> RedeemDeleteResult {
+        guard let code = codes.first(where: { $0.id == id }) else { return .alreadyGone }
+        guard !code.isRedeemed, !code.isAdminAdjustment else { throw Self.usedRace }
+        replace(codes.filter { $0.id != id })
+        return .deleted
+    }
+
+    /// The server stores an expired code as unused and maps it on the way out (dto/mappers.go).
+    private static func applying(_ fields: RedeemBatchUpdateFields, to code: AdminRedeemCode, now: Date) -> AdminRedeemCode {
+        let expiresAt: Date? = switch fields.expiresAt {
+        case nil: code.expiresAt
+        case .never?: nil
+        case .at(let date)?: date
+        }
+        let stored = fields.status?.rawValue ?? (code.status == "expired" ? "unused" : code.status)
+        let status = stored == "unused" && expiresAt.map({ $0 <= now }) == true ? "expired" : stored
+        let groupID: Int? = switch fields.groupID {
+        case nil: code.groupID
+        case .cleared?: nil
+        case .id(let id)?: id
+        }
+        let group = groupID.flatMap { id in DemoData.accountGroups.first { $0.id == id }.map { RedeemCodeGroup(id: id, name: $0.name) } }
+        return AdminRedeemCode(id: code.id, code: code.code, type: code.type, value: code.value, status: status, usedBy: code.usedBy, usedAt: code.usedAt,
+                               createdAt: code.createdAt, expiresAt: expiresAt, groupID: groupID, validityDays: code.validityDays,
+                               notes: fields.notes ?? code.notes, batchID: code.batchID, createdBy: code.createdBy, user: code.user, group: group)
+    }
+}
+
+extension RedeemWriteSource {
+    static func fixture(_ store: RedeemDemoStore) -> RedeemWriteSource {
+        RedeemWriteSource(update: { ids, fields in try await store.update(ids: ids, fields: fields, now: Date()) },
+                          delete: { try await store.delete(id: $0) }, code: { try await store.code(id: $0) })
+    }
+}
+
 extension RedeemRouteState {
     /// Under `-ui-testing`, `-ui-redeem-open <id>` and `-ui-redeem-reconcile` stand for the entries the tests cannot reach yet (a
     /// compensation receipt's “查看兑换码”, the overview's pending row); a route that already says where to go is kept.

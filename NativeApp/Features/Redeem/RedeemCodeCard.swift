@@ -3,7 +3,8 @@ import Sub2Core
 
 /// 60 §8.3–§8.4: one code as a card. The head (masked code, face value, second line, badge) toggles it open; an open card
 /// shows the code box, its facts, the notes and the button row. Buttons inside are `.borderless`, so a tap reaches only
-/// them. A collapsed card copies on a leading swipe. S6-05 adds 禁用 / 启用 / 编辑 / 续期, the trailing swipe and delete.
+/// them. A collapsed card copies on a leading swipe; with `onAction` (S6-05) the button row and the trailing swipe carry
+/// 禁用 / 启用 / 编辑 / 续期, and with `onDelete` ··· ends with 删除兑换码….
 struct RedeemCodeCard: View {
     let code: AdminRedeemCode
     let isOpen: Bool
@@ -17,6 +18,10 @@ struct RedeemCodeCard: View {
     let onCopy: () -> Void
     let onOpenUser: (Int) -> Void
     let onShowBatch: () -> Void
+    /// A write of this code is running: its buttons wait.
+    var isRunning = false
+    var onAction: ((RedeemCardAction) -> Void)?
+    var onDelete: (() -> Void)?
 
     private var zone: TimeZone { timeZone.timeZone }
     private var face: RedeemFaceValue { RedeemPresentation.faceValue(code) }
@@ -42,6 +47,14 @@ struct RedeemCodeCard: View {
                 Button(action: onCopy) { Label("复制兑换码", systemImage: "doc.on.doc") }
                     .tint(Palette.accentFill)
                     .accessibilityIdentifier("redeem.swipe.copy.\(code.id)")
+            }
+        }
+        // 60 §8.4: never delete here.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if !isOpen, !isRunning, onAction != nil, let swipe = RedeemPresentation.trailingSwipe(code, readOnly: readOnly) {
+                Button { onAction?(swipe) } label: { Label(swipe.title, systemImage: Self.symbol(swipe)) }
+                    .tint(swipe == .disable ? Palette.neutral : Palette.accentFill)
+                    .accessibilityIdentifier("redeem.swipe.\(Self.identifier(swipe)).\(code.id)")
             }
         }
     }
@@ -77,8 +90,9 @@ struct RedeemCodeCard: View {
         VStack(alignment: .leading, spacing: 10) {
             RedeemCodeBox(code: code.code, identifier: "redeem.card.\(code.id).box", onCopy: onCopy)
             VStack(spacing: 0) { facts }
-            HStack {
-                Spacer()
+            HStack(spacing: 8) {
+                ForEach(buttons, id: \.self) { actionButton($0) }
+                Spacer(minLength: 0)
                 moreMenu
             }
         }
@@ -145,8 +159,47 @@ struct RedeemCodeCard: View {
         case .copy: Button(item.title, systemImage: "doc.on.doc", action: onCopy)
         case .viewUser(let userID, _): Button(item.title, systemImage: "person") { onOpenUser(userID) }
         case .viewBatch: Button(item.title, systemImage: "square.stack.3d.up", action: onShowBatch)
-        // 删除兑换码…：S6-05
-        case .delete: EmptyView()
+        case .delete:
+            if let onDelete { Button(item.title, systemImage: "trash", role: .destructive, action: onDelete) }
+        }
+    }
+
+    // MARK: Writes (S6-05)
+
+    /// 未使用 “禁用 · 编辑”, 已禁用 “启用 · 编辑”, 已过期 “续期” (primary), redeemed “编辑备注”; none for a read-only token.
+    private var buttons: [RedeemCardAction] {
+        guard onAction != nil else { return [] }
+        return RedeemPresentation.actions(code, readOnly: readOnly).filter { $0 != .more }
+    }
+    private func actionButton(_ action: RedeemCardAction) -> some View {
+        Button { onAction?(action) } label: {
+            Label(action.title, systemImage: Self.symbol(action))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(action.isPrimary ? Palette.onAccent : Palette.ink1)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(action.isPrimary ? Palette.accentFill : Palette.sunken, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.borderless)
+        .disabled(isRunning)
+        .accessibilityIdentifier("redeem.card.\(code.id).\(Self.identifier(action))")
+    }
+    private static func identifier(_ action: RedeemCardAction) -> String {
+        switch action {
+        case .disable, .enable: "toggle"
+        case .edit, .editNotes: "edit"
+        case .renew: "renew"
+        case .more: "more"
+        }
+    }
+    private static func symbol(_ action: RedeemCardAction) -> String {
+        switch action {
+        case .disable: "minus.circle"
+        case .enable: "play.circle"
+        case .edit, .editNotes: "square.and.pencil"
+        case .renew: "arrow.clockwise"
+        case .more: "ellipsis"
         }
     }
 
