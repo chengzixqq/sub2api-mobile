@@ -1,7 +1,7 @@
 import SwiftUI
 import Sub2Core
 
-/// 20 §3.4 ⋯: the credential items first (S2-16 / S2-17 fill the slot; until then the old 刷新令牌), then “在 Web 中编辑”, and
+/// 20 §3.4 ⋯: the credential items first (S2-16's AccountCredentialMenuItems; S2-17 adds 重新授权…), then “在 Web 中编辑”, and
 /// “删除账号…” in red, always last. There is no “编辑账号”: each section edits itself. Opening the Web is not a server write, so
 /// a read-only token keeps it.
 struct AccountDetailMenu<Credentials: View>: View {

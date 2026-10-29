@@ -55,9 +55,12 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertLessThan(recover.frame.minX, test.frame.minX)
         XCTAssertFalse(app.buttons["account.action.stop"].exists || app.buttons["account.action.resume"].exists, app.debugDescription)
         diagnostics("account-detail-credential")
+        // S2-16: the fix opens the 更换 API Key sheet.
         fix.tap()
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("account.cred.key.sheet").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(element("account.cred.target").label, "OpenAI-备用-A · 点按底部按钮后立即生效")
         app.buttons["sheet.close"].tap()
+        XCTAssertTrue(element("account.cred.key.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 5), app.debugDescription)
     }
 
@@ -145,8 +148,8 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertFalse(element("account.detail.card").exists, app.debugDescription)
     }
 
-    /// The sections edit the account (S2-10), so ⋯ has no 编辑账号: 在 Web 中编辑 and 删除账号… last (S2-11), after the old token
-    /// refresh that token accounts keep until S2-16.
+    /// The sections edit the account (S2-10), so ⋯ has no 编辑账号: 在 Web 中编辑 and 删除账号… last (S2-11), after the credential
+    /// items (S2-16), whose 刷新令牌 runs at once.
     @MainActor func testMoreMenuKeepsTransitionalItems() {
         openDetail(4)
         defer { diagnostics("account-detail-more-final") }
@@ -169,9 +172,9 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertEqual(order, order.sorted(), app.debugDescription)
         XCTAssertFalse(menuButton("编辑账号").exists, app.debugDescription)
         menuButton("刷新令牌").tap()
-        XCTAssertTrue(dialogButton("刷新令牌").waitForExistence(timeout: 5), app.debugDescription)
-        dismissDialog()
-        XCTAssertTrue(dialogButton("刷新令牌").waitForNonExistence(timeout: 5), app.debugDescription)
+        let receipt = app.staticTexts["receipt.text"]
+        XCTAssertTrue(receipt.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(receipt.label.hasPrefix("已刷新令牌 · 新令牌 "), receipt.label)
     }
 
     /// S2D1-18: the group page's transitional account list pushes the detail itself, and going back stays in that list.
@@ -318,8 +321,9 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertEqual(element("account.basic.status").value as? String, "正常")
         XCTAssertEqual(element("account.basic.platform").value as? String, "OpenAI · API Key")
         XCTAssertEqual(element("account.basic.notes").value as? String, "无数据")
-        let expected = ["concurrency": "8", "priority": "1", "loadFactor": "默认", "groups": "标准组", "expiry": "不过期",
-                        "quota.daily": "$150.00"]
+        // Top to bottom: reveal only scrolls down, and 凭据 (S2-16) below 调度 lets a drag carry an earlier row off the screen.
+        let expected: KeyValuePairs = ["concurrency": "8", "priority": "1", "loadFactor": "默认", "groups": "标准组", "expiry": "不过期",
+                                       "quota.daily": "$150.00"]
         for (id, value) in expected {
             let row = element("account.sched.\(id)")
             reveal(row)
@@ -436,9 +440,9 @@ final class AccountDetailUITests: XCTestCase {
         let y = below < app.frame.maxY - 120 ? below : sheet.frame.minY - 80
         app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0)).withOffset(CGVector(dx: sheet.frame.midX, dy: y)).tap()
     }
-    /// System menu items are found by their title.
+    /// System menu items are found by their title, apart from the 凭据 section's own 刷新令牌 (S2-16).
     @MainActor private func menuButton(_ label: String) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+        app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'account.cred.')", label)).firstMatch
     }
     @MainActor private func text(_ label: String) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch

@@ -280,6 +280,21 @@ extension AppModel: AccountTestSource {
     }
 }
 
+// MARK: - S2-16 凭据
+
+/// 20 §6.4 刷新令牌 carries the session's generation (S2D1-05); `-ui-testing` refreshes the session's AccountDemoStore
+/// (DemoData+AccountCredentials.swift), which fails under `-ui-account-refresh-fail`.
+extension AppModel: AccountRefreshSource {
+    var siteTimeZone: TimeZone { siteSession?.serverTimeZone.timeZone ?? .current }
+    func refreshAccount(id: Int, idempotencyKey: UUID?, generation: UUID) async throws -> AccountRefreshResult {
+        if isUITesting {
+            let arguments = ProcessInfo.processInfo.arguments
+            return try accountDemoWrite(generation) { try $0.refreshToken(id: id, now: accountFixtureNow(), arguments: arguments) }
+        }
+        return try await accountWriteClient(generation).refreshAccount(id: id, idempotencyKey: idempotencyKey).value
+    }
+}
+
 extension AccountTestBackgroundActivity {
     /// 20 §4.4: the stream asks for background time, so a test keeps running for a while after the App leaves the screen.
     static let application = AccountTestBackgroundActivity(begin: { onExpire in

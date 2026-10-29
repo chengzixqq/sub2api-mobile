@@ -2,11 +2,10 @@ import SwiftUI
 import Sub2Core
 
 /// 20 §2: the account detail. From the list it opens on the row's snapshot; with only an id it shows skeletons until `GET :id`
-/// answers. Above the sections (S2-09 容量 · 今日 · 记录, then S2-10's 基础 · 调度, edited in AccountSectionSheet, S2-11's 代理 and
-/// S2-12's 模型 · 高级)
-/// sit the status card and the button row; the buttons go through AccountActions (20 §5). ⋯ holds 在 Web 中编辑 and 删除账号…
-/// (S2-11). 测试连接 opens the router's test sheet (S2-14); until their items land, 更换 API Key / 重新授权 open a placeholder
-/// (S2-16 / S2-17), and ⋯'s credential slot the old token refresh (S2-16).
+/// answers. Above the sections (S2-09 容量 · 今日 · 记录, then S2-10's 基础 · 调度, edited in AccountSectionSheet, S2-16's 凭据,
+/// S2-11's 代理 and S2-12's 模型 · 高级)
+/// sit the status card and the button row; the buttons go through AccountActions (20 §5). ⋯ holds the credential items (S2-16),
+/// 在 Web 中编辑 and 删除账号… (S2-11). 测试连接 opens the router's test sheet (S2-14); until S2-17 lands, 重新授权 opens a placeholder.
 struct AccountDetailScreen: View {
     @Environment(AppModel.self) private var model
     private let id: Int
@@ -49,8 +48,11 @@ private struct AccountDetailContent: View {
     @State private var popsAfterDelete = false
     @State private var sheet: AccountDetailSheet?
     @State private var recovering: UpstreamAccount?
-    @State private var confirmingRefresh = false
     @State private var running: AccountDetailAction?
+    /// 凭据 (S2-16): 刷新令牌, and the 更换 API Key / Base URL sheet with the version read before it opens.
+    @State private var refresher: AccountTokenRefresher
+    @State private var credentialSheet: AccountCredentialSheetRequest?
+    @State private var preparingCredential = false
     @State private var visible = false
     @State private var scrolledToFocus = false
     private let focus: AccountDetailFocus?
@@ -61,6 +63,8 @@ private struct AccountDetailContent: View {
         // 20 §5.6 / §2.6: a write's account replaces the page's at once.
         _actions = State(initialValue: AccountActions(model: app, onChange: { [weak made] in made?.applyWrite($0) },
                                                       onMissing: { [weak made] _ in made?.noteMissing() }))
+        _refresher = State(initialValue: AccountTokenRefresher(model: app, onChange: { [weak made] in made?.applyWrite($0) },
+                                                               onMissing: { [weak made] _ in made?.noteMissing() }))
         // 20 §3.4: the account read back after 恢复原代理 replaces the page's, and the list reads everything again.
         _revert = State(initialValue: AccountProxyRevert(source: app, receipts: app.receipts,
                                                          onAccount: { [weak made] in made?.applyEdit(AccountEditBase($0)) },
@@ -118,11 +122,10 @@ private struct AccountDetailContent: View {
             popsAfterDelete = false
             dismiss()
         }
-        .confirmationDialog("刷新令牌？", isPresented: $confirmingRefresh, titleVisibility: .visible) {
-            Button("刷新令牌") { Task { await refreshToken() } }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("站点：\(model.activeProfile?.name ?? "")\n账号：\(detail.account?.name ?? "")（#\(detail.accountID)）")
+        .accountCredentialSheet($credentialSheet)
+        // 20 §2.3: “本次已更换 Key” ends with the error it was made for.
+        .onChange(of: [detail.account?.status, detail.account?.errorAt], initial: true) { _, _ in
+            if let account = detail.account { model.accountKeyMarks.reconcile(account) }
         }
     }
 
@@ -139,6 +142,7 @@ private struct AccountDetailContent: View {
                 top(account)
                 sections(account)
                 editSections(account)
+                credentialSection(account)
                 proxySection(account)
                 AccountModelsSection(account: account, now: { serverNow }, edit: sectionEdit(.models)).id(AccountDetailFocus.models)
                 AccountAdvancedSection(account: account, catalog: detail.catalog, edit: sectionEdit(.adv)) { model.openAccountInWeb(account, using: openURL) }
@@ -201,6 +205,31 @@ private struct AccountDetailContent: View {
         let router = router
         Task { await revert.revert(account, openOrigin: { router.push(.proxyDetail(id: $0)) }) }
     }
+    /// 凭据 (S2-16): 更换 and 修改 open their sheet on the account's current version, like 编辑 (S2D1-06); 刷新令牌 needs none.
+    private func credentialSection(_ account: UpstreamAccount) -> some View {
+        AccountCredentialSection(account: account, kind: credentialKind(account), replacedAt: model.accountKeyMarks.mark(for: account)?.replacedAt,
+                                 canEdit: detail.canEdit && running == nil && !preparingCredential,
+                                 needsRefresh: detail.editNeedsRefresh || (!detail.canEdit && detail.failure != nil),
+                                 isRefreshing: refresher.isRunning(account.id), timeZone: serverZone.timeZone, now: { serverNow },
+                                 handlers: credentialHandlers(account))
+            .id(AccountDetailFocus.cred)
+    }
+    private func credentialKind(_ account: UpstreamAccount) -> AccountCredentialKind { AccountCredentialKind.of(account, catalog: detail.catalog) }
+    private func credentialHandlers(_ account: UpstreamAccount) -> AccountCredentialHandlers {
+        let refresher = refresher
+        return AccountCredentialHandlers(replaceKey: { beginCredentialEdit(.replaceKey) }, editBaseURL: { beginCredentialEdit(.baseURL) },
+                                         refresh: { Task { await refresher.refresh(account) } }, reauthorize: { sheet = .placeholder(.reauthorize) },
+                                         openWeb: { model.openAccountInWeb(account, using: openURL) })
+    }
+    private func beginCredentialEdit(_ kind: AccountCredentialSheetRequest.Kind) {
+        guard credentialSheet == nil, !preparingCredential else { return }
+        preparingCredential = true
+        Task {
+            defer { preparingCredential = false }
+            guard let base = await detail.editVersion(), let flow = detail.makePatchFlow() else { return }
+            credentialSheet = AccountCredentialSheetRequest(kind: kind, base: base, flow: flow)
+        }
+    }
     private func groupName(_ id: Int, in account: UpstreamAccount) -> String {
         account.groups.first { $0.id == id }?.name ?? model.groupDirectory?.name(for: id) ?? "#\(id)"
     }
@@ -217,7 +246,8 @@ private struct AccountDetailContent: View {
     private func top(_ account: UpstreamAccount) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             AccountStatusCard(account: account) { AccountUpstreamErrorLineView(account: account, upstream: detail.upstreamErrors.state) }
-            AccountActionButtonRow(row: AccountDetailPresentation.actionRow(account, now: serverNow), running: shownRunning(account)) {
+            AccountActionButtonRow(row: AccountDetailPresentation.actionRow(account, now: serverNow, keyReplaced: model.accountKeyMarks.isReplaced(account)),
+                                   running: shownRunning(account)) {
                 perform($0, on: account)
             }
                 .disabled(running != nil || actions.isRunning(account.id))
@@ -236,7 +266,8 @@ private struct AccountDetailContent: View {
             run(action) { await actions.enableAccount(account, etag: etag) }
         case .recover: recovering = account
         case .webCredential: model.openAccountInWeb(account, using: openURL)
-        case .replaceKey, .reauthorize: sheet = .placeholder(action)
+        case .replaceKey: beginCredentialEdit(.replaceKey)
+        case .reauthorize: sheet = .placeholder(action)
         // S2D1-20: 修改过期时间… opens the 调度 sheet.
         case .editExpiry: Task { await detail.beginEdit(.sched) }
         }
@@ -258,11 +289,7 @@ private struct AccountDetailContent: View {
 
     private func moreMenu(_ account: UpstreamAccount) -> some View {
         AccountDetailMenu(onOpenWeb: { model.openAccountInWeb(account, using: openURL) }, onDelete: { confirmDelete(account) }) {
-            if account.isTokenAccount {
-                Button("刷新令牌", systemImage: "arrow.clockwise") { confirmingRefresh = true }
-                    .readOnlyGate(showsCaption: false)
-                    .accessibilityIdentifier("account.detail.more.refresh")
-            }
+            AccountCredentialMenuItems(kind: credentialKind(account), isRefreshing: refresher.isRunning(account.id), handlers: credentialHandlers(account))
         }
     }
     /// 20 §3.4: the delete confirmation; a deleted (or already gone) account pops the page and the list reads everything again.
@@ -282,32 +309,14 @@ private struct AccountDetailContent: View {
         case .placeholder(let action): ComingSoonSheet(title: action.title)
         }
     }
-    /// The old detail's 刷新账号凭据 until S2-16; the key is made at the tap when the site takes one (R05).
-    private func refreshToken() async {
-        guard let account = detail.account, let session, session.generation == model.sessionGeneration else { return }
-        let key: UUID? = session.has(.adminIdempotentWrites) ? UUID() : nil
-        do {
-            guard !model.isUITesting else { throw AppFailure("界面测试模式不执行服务器写操作。") }
-            let result = try await session.client.refreshAccount(id: account.id, idempotencyKey: key).value
-            guard session.generation == model.sessionGeneration else { return }
-            let text = AccountCredentialCopy.refreshReceipt(result, timeZone: session.site.serverTimeZone.timeZone)
-            model.receipts.show(Receipt(text: text, systemImage: "arrow.clockwise"))
-        } catch {
-            guard session.generation == model.sessionGeneration, !(error is CancellationError) else { return }
-            model.receipts.show(Receipt(text: "刷新令牌没有成功：\(AccountActionCopy.reason(for: error))", systemImage: "exclamationmark.triangle",
-                                        tone: .critical))
-        }
-        await detail.load()
-    }
-
     // MARK: - Refresh gates (20 §2.6)
 
     /// Foreground, visible, nothing over the page (the router's sheets included) and no write running.
     private var isRefreshOpen: Bool {
         guard visible, scenePhase == .active, !model.isSuspended, sheet == nil, router.presentedSheet == nil, detail.editor == nil,
-              recovering == nil, !confirmingRefresh,
+              recovering == nil, credentialSheet == nil,
               running == nil, !detail.isRemoved, proxyEditor == nil, reverting == nil, deleteRequest == nil, !revert.isRunning else { return false }
-        return !actions.isRunning(detail.accountID)
+        return !actions.isRunning(detail.accountID) && !refresher.isRunning(detail.accountID)
     }
     private var countdownTarget: Date? { detail.account.flatMap { AccountDisplayState($0, now: serverNow).countdownTarget } }
     private func waitForCountdown(_ wait: AccountCountdownWait) async {
