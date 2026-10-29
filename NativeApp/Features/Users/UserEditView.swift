@@ -9,9 +9,9 @@ enum UserEditSheet: Identifiable, Hashable {
     var id: Self { self }
 }
 
-/// 30 §5 (S3-10; the edit state is S3-11's): pushed full screen without the tab bar. A fixed head (identity strip, the
-/// segments and their hint, folding while the form scrolls or a field has focus, design `useUeCompact`), the segment's
-/// form, and the bottom bar “下一步 / 上一步 · 创建用户”. Leaving with something typed asks first.
+/// 30 §5 (S3-10; the edit state is S3-11's): pushed full screen without the tab bar. A fixed head above the form (identity
+/// strip, the segments and their hint, folding while the form scrolls or a field has focus, design `useUeCompact`), the
+/// segment's form, and the bottom bar “下一步 / 上一步 · 创建用户”. Leaving with something typed asks first.
 struct UserEditView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
@@ -21,8 +21,6 @@ struct UserEditView: View {
     @State private var confirmsDiscard = false
     @State private var scrolled = false
     @State private var typing = false
-    /// The hint row with its gap: how much the head shrinks when it folds.
-    @State private var hintHeight = 0.0
     @FocusState private var focus: UserDraftField?
 
     init(mode: UserEditorModel.Mode, segment: UserEditSegment = .basic) {
@@ -38,21 +36,26 @@ struct UserEditView: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            form
-                .onChange(of: editor.segment) { _, segment in
-                    proxy.scrollTo(editor.notice == nil ? AnyHashable(Self.firstRow(of: segment)) : AnyHashable(Self.noticeRow), anchor: .top)
-                }
-                .onChange(of: editor.focusRequest) { _, request in
-                    guard let request else { return }
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(80))
-                        withAnimation { proxy.scrollTo(request.field, anchor: .top) }
+        VStack(spacing: 0) {
+            header
+            ScrollViewReader { proxy in
+                form
+                    .onChange(of: editor.segment) { _, segment in
+                        proxy.scrollTo(editor.notice == nil ? AnyHashable(Self.firstRow(of: segment)) : AnyHashable(Self.noticeRow), anchor: .top)
                     }
-                }
+                    .onChange(of: editor.focusRequest) { _, request in
+                        guard let request else { return }
+                        // The page's own message sits right above the segment's first row: keep it in view with the row.
+                        let target = editor.notice != nil && request.field == Self.firstRow(of: editor.segment)
+                            ? AnyHashable(Self.noticeRow) : AnyHashable(request.field)
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(80))
+                            withAnimation { proxy.scrollTo(target, anchor: .top) }
+                        }
+                    }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { actionBar }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { header }
-        .safeAreaInset(edge: .bottom, spacing: 0) { actionBar }
         .navigationTitle(UserEditCopy.newTitle)
         .navigationSubtitle(model.activeProfile?.name ?? "")
         .navigationBarTitleDisplayMode(.inline)
@@ -96,8 +99,9 @@ struct UserEditView: View {
         }
         .disabled(editor.isFrozen)
         .scrollDismissesKeyboard(.interactively)
-        .onScrollGeometryChange(for: [Double].self) { [Double($0.contentOffset.y), Double($0.contentInsets.top)] } action: { _, geometry in
-            let offset = UserEditCopy.scrollOffset(contentOffset: geometry[0], insetTop: geometry[1], foldedHeight: compact ? hintHeight : 0)
+        .onScrollGeometryChange(for: Double.self) {
+            UserEditCopy.scrollOffset(contentOffset: Double($0.contentOffset.y), insetTop: Double($0.contentInsets.top))
+        } action: { _, offset in
             let next = UserEditCopy.isScrolledCompact(offset: offset, wasCompact: scrolled)
             if next != scrolled { withAnimation(.snappy) { scrolled = next } }
         }
@@ -116,7 +120,6 @@ struct UserEditView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("user-edit.hint")
                     .padding(.top, 8)
-                    .onGeometryChange(for: Double.self) { Double($0.size.height) } action: { if $0 > 0 { hintHeight = $0 } }
                     .transition(.opacity)
             }
         }

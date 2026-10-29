@@ -6,12 +6,6 @@ extension UserEditSegment {
     init(_ section: UserDraftSection) { self = section == .basic ? .basic : .access }
 }
 
-/// A server refusal tied to the value it was given for (30 §5.5): it shows while the field still holds that value.
-struct UserServerIssue: Equatable {
-    let issue: UserDraftIssue
-    let value: String
-}
-
 /// A message that stays on the page until the next press of “创建用户”, with the answer's “详情” when there is one.
 struct UserEditNotice: Equatable {
     let text: String
@@ -38,12 +32,14 @@ final class UserEditorModel {
     private(set) var definitionsState = DefinitionsState.loading
     /// Issues show from the first press of “创建用户” on (design `showErrors`).
     private(set) var showsIssues = false
-    private(set) var serverIssues: [UserServerIssue] = []
+    /// The rows the last refusal marked (30 §5.5).
+    private(set) var serverMarks: UserServerMarks?
     private(set) var phase = Phase.editing
     private(set) var notice: UserEditNotice?
     private(set) var focusRequest: FocusRequest?
-    /// The number made at the last confirmation and the draft it was made for (R05): sent again only for that same draft.
-    @ObservationIgnored private var frozen: (operation: PendingUserCreateOperation, draft: UserAccessDraft)?
+    /// The number made at the last confirmation and the draft it was made for (R05): sent again only for that same draft,
+    /// after a result nobody could confirm only once the address is read back (00 §2.5.4).
+    @ObservationIgnored private var frozen: (operation: PendingUserCreateOperation, draft: UserAccessDraft, readsBackFirst: Bool)?
     @ObservationIgnored private var lastConfirmation: UserCreateConfirmation?
     /// 00 §2.5.3: after IDEMPOTENCY_STORE_UNAVAILABLE the kept number waits until then.
     @ObservationIgnored private var holdUntil: Date?
@@ -59,11 +55,11 @@ final class UserEditorModel {
     var initial: String? { UserEditCopy.newUserInitial(username: draft.username, email: draft.email) }
     var identityTail: String { UserEditCopy.newUserTail(role: draft.role) }
 
-    /// The local check in form order, then the server's refusals whose value is still there.
+    /// The local check in form order, then the last refusal's marks while their rows hold what was sent.
     var issues: [UserDraftIssue] {
         let local = draft.issues(against: nil, definitions: definitions)
         let fields = Set(local.map(\.field))
-        return local + serverIssues.filter { !fields.contains($0.issue.field) && value(of: $0.issue.field, in: draft) == $0.value }.map(\.issue)
+        return local + (serverMarks?.standing(in: draft) ?? []).filter { !fields.contains($0.field) }
     }
     func issue(for field: UserDraftField) -> String? {
         guard showsIssues else { return nil }
@@ -174,15 +170,16 @@ final class UserEditorModel {
             return
         }
         let sent = draft
-        let reusing = frozen.flatMap { $0.draft == sent ? $0.operation : nil }
-        if reusing != nil, let holdUntil, Date() < holdUntil {
+        let kept = frozen.flatMap { $0.draft == sent ? $0 : nil }
+        if kept != nil, let holdUntil, Date() < holdUntil {
             phase = .editing
             model.receipts.show(Receipt(text: UserCreateFailure.storeUnavailable, systemImage: "clock", tone: .caution))
             return
         }
         phase = .submitting
         let submission = UserCreateSubmission(effects: model.userCreateEffects(isPageAlive: { [weak self] in self?.isClosed == false }))
-        let outcome = await submission.run(request: request, attributes: sent.attributeChanges(from: nil, definitions: definitions), reusing: reusing)
+        let outcome = await submission.run(request: request, attributes: sent.attributeChanges(from: nil, definitions: definitions),
+                                           reusing: kept?.operation, readsBackFirst: kept?.readsBackFirst == true)
         await finish(outcome, sent: sent, balance: request.balance, model: model, router: router)
     }
     private func finish(_ outcome: UserCreateSubmission.Outcome, sent: UserAccessDraft, balance: Decimal?, model: AppModel, router: AppRouter) async {
@@ -191,14 +188,15 @@ final class UserEditorModel {
             land(on: user, model: model, router: router)
             let text = saved ? UserCreateReceipt.created(name: user.displayName, initialBalance: balance) : UserCreateReceipt.attributesFailed
             model.receipts.show(Receipt(text: text, systemImage: saved ? "checkmark.circle" : "exclamationmark.triangle", tone: saved ? .ok : .caution))
-        case .foundOnServer(let user):
+        case .foundOnServer(let user, let saved):
             land(on: user, model: model, router: router)
-            model.receipts.show(Receipt(text: UserCreateReceipt.foundOnServer, systemImage: "checkmark.circle"))
+            let text = saved ? UserCreateReceipt.foundOnServer : UserCreateReceipt.attributesFailed
+            model.receipts.show(Receipt(text: text, systemImage: saved ? "checkmark.circle" : "exclamationmark.triangle", tone: saved ? .ok : .caution))
         case .notCreated(let operation):
-            phase = .editing
-            frozen = (operation: operation, draft: sent)
-            notice = UserEditNotice(text: UserCreateReceipt.notCreated, details: nil)
-            model.receipts.show(Receipt(text: UserCreateReceipt.notCreated, systemImage: "exclamationmark.triangle", tone: .caution))
+            keep(operation, for: sent, readsBackFirst: false, saying: UserCreateReceipt.notCreated, model: model)
+        case .unconfirmed(let operation):
+            keep(operation, for: sent, readsBackFirst: true,
+                 saying: UserCreateReceipt.unconfirmed(sendsIdempotencyKey: operation.sendsIdempotencyKey), model: model)
         case .failed(let failure, let operation):
             await refused(failure, operation: operation, sent: sent, model: model, router: router)
         case .notAuthorized, .stale:
@@ -209,10 +207,10 @@ final class UserEditorModel {
     private func refused(_ failure: UserCreateFailure, operation: PendingUserCreateOperation?, sent: UserAccessDraft, model: AppModel,
                          router: AppRouter) async {
         phase = .editing
-        frozen = operation.map { (operation: $0, draft: sent) }
+        frozen = operation.map { (operation: $0, draft: sent, readsBackFirst: false) }
         holdUntil = failure.retryNotBefore
         if !failure.fieldIssues.isEmpty {
-            serverIssues = failure.fieldIssues.map { UserServerIssue(issue: $0, value: value(of: $0.field, in: sent)) }
+            serverMarks = UserServerMarks(failure.fieldIssues, sent: sent)
             showsIssues = true
             jump(to: failure.fieldIssues[0].field)
         }
@@ -220,6 +218,14 @@ final class UserEditorModel {
         if let text = failure.receipt { model.receipts.show(Receipt(text: text, systemImage: "xmark.octagon", tone: .critical)) }
         guard failure.next == .reconfirm, !isClosed else { return }
         if let lastConfirmation { phase = .confirming(lastConfirmation) } else { await submit(model: model, router: router) }
+    }
+    /// 30 §5.4 step 7: back to the form with the number kept for the same draft, and the words on the page until the next press.
+    private func keep(_ operation: PendingUserCreateOperation, for sent: UserAccessDraft, readsBackFirst: Bool, saying text: String,
+                      model: AppModel) {
+        phase = .editing
+        frozen = (operation: operation, draft: sent, readsBackFirst: readsBackFirst)
+        notice = UserEditNotice(text: text, details: nil)
+        model.receipts.show(Receipt(text: text, systemImage: "exclamationmark.triangle", tone: .caution))
     }
     /// 30 §5.1: the new page leaves the stack for the user's detail; the list reads its first page when it shows again.
     private func land(on user: AdminUser, model: AppModel, router: AppRouter) {
@@ -234,12 +240,5 @@ final class UserEditorModel {
     private func jump(to field: UserDraftField) {
         segment = UserEditSegment(field.section)
         focusRequest = FocusRequest(field: field)
-    }
-    private func value(of field: UserDraftField, in draft: UserAccessDraft) -> String {
-        switch field {
-        case .email: draft.email.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .password: draft.password
-        default: ""
-        }
     }
 }

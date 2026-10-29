@@ -117,30 +117,23 @@ private func group(_ id: Int, _ name: String, platform: String = "anthropic", ra
     #expect(UserEditCopy.unfoldDelay == .milliseconds(300))
 }
 
-/// The head sits in the scroll view's top inset. Folding takes the hint row out of it: the rows stay put (the plain reading
-/// drops by the row) or the scroll view keeps the reading; unfolding is the reverse. Either way the next reading must not
-/// flip the fold back, at the design's own 24pt / 2pt (the page hung in a layout loop when it did).
-@Test func headerFoldSurvivesItsOwnShrink() {
-    let unfolded = 180.0
-    for hint in [16.0, 24.3, 40.0] {
-        for tenth in 0...1200 {
-            let scrolled = Double(tenth) / 10
-            func read(_ plain: Double, folded: Bool) -> Double {
-                UserEditCopy.scrollOffset(contentOffset: plain - (folded ? unfolded - hint : unfolded),
-                                          insetTop: folded ? unfolded - hint : unfolded, foldedHeight: folded ? hint : 0)
-            }
-            if UserEditCopy.isScrolledCompact(offset: read(scrolled, folded: false), wasCompact: false) {
-                for after in [max(scrolled - hint, 0), scrolled] {
-                    #expect(UserEditCopy.isScrolledCompact(offset: read(after, folded: true), wasCompact: true), "收起后 \(hint) \(after)")
-                }
-            }
-            if !UserEditCopy.isScrolledCompact(offset: read(scrolled, folded: true), wasCompact: true) {
-                for after in [scrolled + hint, scrolled] {
-                    #expect(!UserEditCopy.isScrolledCompact(offset: read(after, folded: false), wasCompact: false), "展开后 \(hint) \(after)")
-                }
-            }
+/// The head sits above the form (design `.ue-tabhead` beside `.scroll`): folding resizes the form and leaves its reading as
+/// it was, so a fold or an unfold never flips itself back (the page hung in a layout loop when the head sat in the inset),
+/// and back at the form's top the reading is 0 whatever the inset, so the hint comes back (it used to keep the hint's
+/// height in the reading and stay folded).
+@Test func headerFoldReadsTheFormsOwnTop() {
+    for inset in [0.0, 20, 64] {
+        let top = UserEditCopy.scrollOffset(contentOffset: -inset, insetTop: inset)
+        #expect(top == 0)
+        #expect(!UserEditCopy.isScrolledCompact(offset: top, wasCompact: true))
+    }
+    for tenth in 0...1200 {
+        let reading = UserEditCopy.scrollOffset(contentOffset: Double(tenth) / 10 - 20, insetTop: 20)
+        if UserEditCopy.isScrolledCompact(offset: reading, wasCompact: false) {
+            #expect(UserEditCopy.isScrolledCompact(offset: reading, wasCompact: true), "收起后 \(reading)")
+        }
+        if !UserEditCopy.isScrolledCompact(offset: reading, wasCompact: true) {
+            #expect(!UserEditCopy.isScrolledCompact(offset: reading, wasCompact: false), "展开后 \(reading)")
         }
     }
-    #expect(UserEditCopy.scrollOffset(contentOffset: -156, insetTop: 156, foldedHeight: 24) == 24)
-    #expect(UserEditCopy.scrollOffset(contentOffset: -180, insetTop: 180, foldedHeight: 0) == 0)
 }

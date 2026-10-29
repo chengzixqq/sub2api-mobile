@@ -373,6 +373,8 @@ enum UserCreateFixtureArgument {
     static let uncertain = "-ui-user-create-uncertain"
     /// The reply is lost and nobody was created; the read-back finds nothing.
     static let lost = "-ui-user-create-lost"
+    /// The first read-back by email fails as the network still does; later ones answer.
+    static let readBackFailsOnce = "-ui-user-find-fail-once"
     /// 400 without a reason, as the server's request binding answers.
     static let invalid = "-ui-user-create-invalid"
     /// The creation waits three seconds, so the frozen form can be seen.
@@ -411,12 +413,19 @@ extension DemoData {
     /// Users created in this process by operation number: the same number is answered as a replay (00 §2.5.2).
     @MainActor static var userCreations: [UUID: AdminUser] = [:]
     @MainActor private static var emailExistsAnswered = false
+    @MainActor private static var readBackFailed = false
 
     /// Emails are unique ignoring case (user_repo.go); `-ui-user-email-exists` refuses the first creation whatever its address.
     @MainActor static func answersEmailExists(_ email: String, users: [AdminUser], arguments: [String]) -> Bool {
         if users.contains(where: { $0.email.caseInsensitiveCompare(email) == .orderedSame }) { return true }
         guard arguments.contains(UserCreateFixtureArgument.emailExists), !emailExistsAnswered else { return false }
         emailExistsAnswered = true
+        return true
+    }
+    /// `-ui-user-find-fail-once`: only the first read-back in this process fails.
+    @MainActor static func failsUserReadBack(arguments: [String]) -> Bool {
+        guard arguments.contains(UserCreateFixtureArgument.readBackFailsOnce), !readBackFailed else { return false }
+        readBackFailed = true
         return true
     }
     /// The created user as the server returns it: the request without the password, active, with the site default balance 0.

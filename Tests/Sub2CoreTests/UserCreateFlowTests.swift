@@ -119,3 +119,33 @@ private func newKey(_ cause: KeyedWriteFailure.NewKeyCause) -> KeyedWriteFailure
     #expect(cancelled.next == .unfreeze)
     #expect(cancelled.receipt == nil)
 }
+
+/// The read-back failed too: still unknown, in 00 §2.5.4's words with a key and 00 §2.4's without.
+@Test func unconfirmedReceiptFollowsTheKey() {
+    #expect(UserCreateReceipt.unconfirmed(sendsIdempotencyKey: true) == "结果未确认：服务器可能已执行。可以核对，或用同一编号重试，不会重复执行")
+    #expect(UserCreateReceipt.unconfirmed(sendsIdempotencyKey: false) == "结果未确认，请刷新核对后再操作")
+}
+
+/// 30 §5.5: a 400 without a reason marks 邮箱 and 密码 together. They stand while both hold what was sent and both go once
+/// either changes, so fixing the email alone sends again; spaces around the email are not a change.
+@Test func serverMarksStandTogetherUntilAMarkedRowChanges() {
+    var sent = UserAccessDraft()
+    sent.email = "qi,he@example.com"
+    sent.password = "Qm7v-Tr2p-Hx9k"
+    let refusal = UserCreateFailure.classify(APIError.server(status: 400, reason: nil))
+    let marks = UserServerMarks(refusal.fieldIssues, sent: sent)
+    #expect(marks.standing(in: sent).map(\.field) == [.email, .password])
+    var padded = sent
+    padded.email = " qi,he@example.com "
+    padded.username = "何琪"
+    #expect(marks.standing(in: padded).count == 2)
+    var fixed = sent
+    fixed.email = "qi.he@example.com"
+    #expect(marks.standing(in: fixed).isEmpty)
+    var retyped = sent
+    retyped.password = "Zx8c-Vb3n-Mq1w"
+    #expect(marks.standing(in: retyped).isEmpty)
+    let taken = UserServerMarks(UserCreateFailure.classify(APIError.server(status: 409, reason: "EMAIL_EXISTS")).fieldIssues, sent: sent)
+    #expect(taken.standing(in: retyped).map(\.message) == ["这个邮箱已被注册"])
+    #expect(taken.standing(in: fixed).isEmpty)
+}

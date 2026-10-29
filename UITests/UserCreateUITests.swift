@@ -258,8 +258,15 @@ final class UserCreateUITests: XCTestCase {
         XCTAssertTrue(notice.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(notice.label.contains("服务器没有接受填写的内容（错误码 HTTP 400），请检查邮箱和密码"), notice.label)
         XCTAssertEqual(element("user-edit.email.error").label, "请检查邮箱")
-        XCTAssertEqual(element("user-edit.password.error").label, "请检查密码")
         XCTAssertTrue(element("error.details.disclosure").exists, app.debugDescription)
+        // The message and the email row are in view; the password row is further down the form.
+        reveal(element("user-edit.password"))
+        XCTAssertEqual(element("user-edit.password.error").label, "请检查密码")
+        // The answer was about the request: fixing the email alone takes both marks away, so it can be sent again.
+        type("qi.he.2@example.invalid", into: "user-edit.email")
+        XCTAssertTrue(element("user-edit.email.error").waitForNonExistence(timeout: 5), app.debugDescription)
+        reveal(element("user-edit.password"))
+        XCTAssertFalse(element("user-edit.password.error").exists, app.debugDescription)
     }
 
     @MainActor func testUnknownResultReadsBackByEmail() {
@@ -283,6 +290,41 @@ final class UserCreateUITests: XCTestCase {
         XCTAssertTrue(notice.label.contains("没有创建成功，可以再试一次"), notice.label)
         XCTAssertTrue(app.buttons["user-edit.create"].isEnabled)
         XCTAssertFalse(app.buttons["user.more"].exists)
+    }
+
+    /// The reply is lost and the read-back fails too: still unknown, never “没有创建成功”; the next press reads back first.
+    @MainActor func testUnreadableResultStaysUnconfirmedAndReadsBackBeforeResending() {
+        launchAndLogin(arguments: ["-ui-user-create-uncertain", "-ui-user-find-fail-once"])
+        defer { diagnostics("user-create-unreadable-final") }
+        openCreate()
+        fillBasics()
+        app.buttons["user-edit.next"].tap()
+        app.buttons["user-edit.create"].tap()
+        let notice = element("user-edit.notice")
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(notice.label.contains("结果未确认"), notice.label)
+        XCTAssertFalse(notice.label.contains("没有创建成功"), notice.label)
+        XCTAssertFalse(app.buttons["user.more"].exists)
+        let create = app.buttons["user-edit.create"]
+        XCTAssertTrue(waitUntil(create, "isEnabled == true"), app.debugDescription)
+        create.tap()
+        XCTAssertTrue(app.buttons["user.more"].waitForExistence(timeout: 10), app.debugDescription)
+        waitForReceipt("已在服务器上找到这个用户")
+    }
+
+    /// 30 §5.1: the hint folds once the form is scrolled and comes back at its top.
+    @MainActor func testHintFoldsWhileScrolledAndReturnsAtTheTop() {
+        launchAndLogin()
+        defer { diagnostics("user-create-fold-final") }
+        openCreate()
+        let hint = element("user-edit.hint")
+        XCTAssertTrue(hint.exists, app.debugDescription)
+        let form = app.collectionViews.firstMatch
+        form.swipeUp()
+        XCTAssertTrue(hint.waitForNonExistence(timeout: 5), app.debugDescription)
+        form.swipeDown()
+        form.swipeDown()
+        XCTAssertTrue(hint.waitForExistence(timeout: 5), app.debugDescription)
     }
 
     @MainActor func testFrozenWhileCreatingAndAttributeFailure() {

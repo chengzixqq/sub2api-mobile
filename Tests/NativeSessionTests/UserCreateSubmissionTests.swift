@@ -51,17 +51,18 @@ private func unconfirmed() -> KeyedWriteFailure {
             },
             isCurrent: { [self] in current })
     }
-    func run(_ request: UserCreateRequest = newUser(), attributes: [Int: String] = [:],
-             reusing: PendingUserCreateOperation? = nil) async -> UserCreateSubmission.Outcome {
-        await UserCreateSubmission(effects: effects).run(request: request, attributes: attributes, reusing: reusing)
+    func run(_ request: UserCreateRequest = newUser(), attributes: [Int: String] = [:], reusing: PendingUserCreateOperation? = nil,
+             readsBackFirst: Bool = false) async -> UserCreateSubmission.Outcome {
+        await UserCreateSubmission(effects: effects).run(request: request, attributes: attributes, reusing: reusing, readsBackFirst: readsBackFirst)
     }
 }
 
 private func name(_ outcome: UserCreateSubmission.Outcome) -> String {
     switch outcome {
     case .created(let user, let saved, let replayed): "created \(user.id) \(saved) \(replayed)"
-    case .foundOnServer(let user): "found \(user.id)"
+    case .foundOnServer(let user, let saved): "found \(user.id) \(saved)"
     case .notCreated: "notCreated"
+    case .unconfirmed: "unconfirmed"
     case .failed(let failure, let operation): "failed \(failure.next) \(operation == nil ? "drop" : "keep")"
     case .notAuthorized: "notAuthorized"
     case .stale: "stale"
@@ -142,12 +143,13 @@ private func name(_ outcome: UserCreateSubmission.Outcome) -> String {
     #expect(name(await failing.run(attributes: [11: "Studio-K"])) == "created 27 false true")
 }
 
-/// 30 §5.4 step 7: an unknown result is looked up by email; nothing found, or the lookup failing, means not created.
+/// 30 §5.4 step 7: an unknown result is looked up by email; nothing found means not created. A lookup that fails too
+/// leaves it unknown (00 §2.4, §2.5.4): never “没有创建成功”.
 @MainActor @Test func uncertainResultReadsBackByEmail() async {
     let found = CreateHarness()
     found.createResult = .failure(unconfirmed())
     found.findResult = .success(created(id: 31))
-    #expect(name(await found.run()) == "found 31")
+    #expect(name(await found.run()) == "found 31 true")
     #expect(found.searched == ["qi.he@example.invalid"])
 
     let missing = CreateHarness()
@@ -157,7 +159,56 @@ private func name(_ outcome: UserCreateSubmission.Outcome) -> String {
     let failing = CreateHarness()
     failing.createResult = .failure(unconfirmed())
     failing.findResult = .failure(APIError.server(status: 500, reason: nil))
-    #expect(name(await failing.run()) == "notCreated")
+    guard case .unconfirmed(let kept) = await failing.run() else { Issue.record("expected unconfirmed"); return }
+    #expect(kept.id == failing.sent.first?.id)
+}
+
+/// 30 §5.4 step 7: the user found after an unknown result is taken as created, so the attributes go on it as after a 2xx.
+@MainActor @Test func foundOnServerWritesAttributes() async {
+    let found = CreateHarness()
+    found.createResult = .failure(unconfirmed())
+    found.findResult = .success(created(id: 31))
+    #expect(name(await found.run(attributes: [11: "Studio-K"])) == "found 31 true")
+    #expect(found.log == ["target", "create", "find", "attributes"])
+    #expect(found.attributeWrites.first?.0 == 31 && found.attributeWrites.first?.1 == [11: "Studio-K"])
+
+    let failing = CreateHarness()
+    failing.createResult = .failure(unconfirmed())
+    failing.findResult = .success(created(id: 31))
+    failing.attributesFail = true
+    #expect(name(await failing.run(attributes: [11: "Studio-K"])) == "found 31 false")
+}
+
+/// After an unconfirmed result the next press for the same draft reads back first (00 §2.4, §2.5.4): found is taken as
+/// created with nothing sent and no Face ID; not there sends the kept number and bytes; a failed lookup stays unconfirmed.
+@MainActor @Test func keptUnconfirmedOperationReadsBackBeforeSending() async throws {
+    let first = CreateHarness()
+    first.createResult = .failure(unconfirmed())
+    first.findResult = .failure(APIError.server(status: 503, reason: nil))
+    guard case .unconfirmed(let kept) = await first.run(newUser(balance: 150)) else { Issue.record("expected unconfirmed"); return }
+
+    let found = CreateHarness()
+    found.findResult = .success(created(id: 31))
+    #expect(name(await found.run(newUser(balance: 150), attributes: [11: "Studio-K"], reusing: kept, readsBackFirst: true)) == "found 31 true")
+    #expect(found.log == ["find", "attributes"])
+    #expect(found.sent.isEmpty && found.gated.isEmpty)
+
+    let missing = CreateHarness()
+    #expect(name(await missing.run(newUser(balance: 150), reusing: kept, readsBackFirst: true)) == "created 27 true false")
+    #expect(missing.log == ["find", "authorize", "create"])
+    let resent = try #require(missing.sent.first)
+    #expect(resent.id == kept.id && resent.body == kept.body)
+
+    let unreadable = CreateHarness()
+    unreadable.findResult = .failure(APIError.server(status: 503, reason: nil))
+    #expect(name(await unreadable.run(newUser(balance: 150), reusing: kept, readsBackFirst: true)) == "unconfirmed")
+    #expect(unreadable.sent.isEmpty && unreadable.gated.isEmpty)
+
+    let gone = CreateHarness()
+    gone.findResult = .failure(CancellationError())
+    gone.staleAfter = "find"
+    #expect(name(await gone.run(reusing: kept, readsBackFirst: true)) == "stale")
+    #expect(gone.sent.isEmpty)
 }
 
 /// A definite answer is never read back; the number stays for the same draft except after a key problem.
