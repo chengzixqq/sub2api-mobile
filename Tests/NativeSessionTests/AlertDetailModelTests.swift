@@ -8,8 +8,11 @@ import Sub2Core
 private let groupRule = AlertEventRule(id: 11, name: "标准组错误率", metricType: "error_rate", comparison: ">", threshold: 5, windowMinutes: 5)
 private let notFound = APIError.server(status: 404, reason: "OPS_ALERT_EVENT_NOT_FOUND")
 private let serverFailure = APIError.server(status: 500, reason: nil)
-/// A site that sends `rule` and `group_name` itself, so no event read asks for `alert-rules` or `groups/all`.
-private let detailSite = liveOpsSite(liveOpsCapabilities + [.opsAlertEventDetails])
+/// A site that sends `rule` and `group_name` itself, so no event read asks for `alert-rules` or `groups/all`, and that has
+/// `status-summary` for the group row.
+private let detailSite = liveOpsSite(liveOpsCapabilities + [.opsAlertEventDetails, .accountsStatusSummary])
+/// The same without `accounts.status_summary`: the group row counts D02 from `groups/all` and the accounts (10 §0.2).
+private let noSummarySite = liveOpsSite(liveOpsCapabilities + [.opsAlertEventDetails])
 
 private func groupEvent(_ id: Int = 41, metric: Double = 5.2, status: String = "firing", rule: AlertEventRule? = groupRule) -> AlertEvent {
     AlertEvent(id: id, ruleID: 11, severity: "P1", status: status, title: "P1: 标准组错误率", metricValue: metric, thresholdValue: 5, groupID: 12,
@@ -132,6 +135,25 @@ private func isScopeRead(_ call: StubLiveOpsSource.Call) -> Bool { call == .summ
     let third = await bench(missing)
     await third.model.load(refreshScope: true)
     #expect(third.model.groupLoad.value == .deleted)
+}
+
+@MainActor @Test func withoutStatusSummaryTheGroupRowCountsD02Locally() async throws {
+    let errored = UpstreamAccount(id: 7, name: "OpenAI-备用-A", platform: "openai", type: "apikey", status: "error", schedulable: false, groupIDs: [12])
+    let healthy = UpstreamAccount(id: 4, name: "OpenAI-主力-01", platform: "openai", type: "apikey", groupIDs: [12])
+    let source = StubLiveOpsSource(.init(summary: { AccountStatusSummary(groups: [standardGroup()]) }, alertEvent: { _ in groupEvent() },
+                                         allGroups: { [AdminGroup(id: 12, name: "标准组", accountCount: 2, activeAccountCount: 1)] },
+                                         accounts: { page, query in AccountListPage(items: [errored, healthy], total: 2, page: page, pageSize: query.pageSize, pages: 1) }))
+    let (_, model) = await bench(source, site: noSummarySite)
+    await model.load(refreshScope: true)
+    guard case .found(let group)? = model.groupLoad.value else { Issue.record("\(String(describing: model.groupLoad.value))"); return }
+    #expect(group.groupName == "标准组" && group.counts.total == 2 && group.counts.available == 1 && group.counts.needsAttention == 1)
+    #expect(await source.count { $0 == .summary } == 0)
+    #expect(await source.count { $0 == .allGroups(includeInactive: true) } == 1)
+    #expect(await source.count { $0 == .accounts(page: 1, pageSize: HomeFallback.localAccountPageSize) } == 1)
+    await source.update { $0.allGroups = { [AdminGroup(id: 3, name: "其他组", accountCount: 1, activeAccountCount: 1)] } }
+    await model.retryGroup()
+    #expect(model.groupLoad.value == .deleted)
+    #expect(await source.count { $0 == .summary } == 0)
 }
 
 @MainActor @Test func aScopeFailureStaysInItsRow() async {

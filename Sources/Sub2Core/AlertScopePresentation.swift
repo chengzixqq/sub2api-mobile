@@ -13,8 +13,8 @@ public enum AlertScopeDestination: Equatable, Sendable {
     case group(id: Int), monitorChannels, monitorOverview
 }
 
-/// A group-scoped event's group: the session's availability or `status-summary?group_id`; `deleted` only when that reply came back
-/// without it.
+/// A group-scoped event's group: the session's availability, `status-summary?group_id`, or without that capability the D02 count
+/// of `groups/all`; `deleted` only when that reply came back without it.
 public enum AlertGroupScope: Equatable, Sendable {
     case found(AccountStatusGroupSummary), deleted
 }

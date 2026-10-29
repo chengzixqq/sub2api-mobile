@@ -235,12 +235,17 @@ enum FallbackFetch {
                 HomeFallback.homeAvailability(try await source.accountStatusSummary(platform: nil, groupID: nil, includeAccounts: true))
             })
         }
+        return .availability(await localAvailability(source, now: now))
+    }
+    /// D02 without `accounts.status_summary` (10 §0.2): `groups/all` and the first page of accounts, counted here; either read
+    /// failing fails it. The alert detail's group row reads it too on such a site (S1-12).
+    static func localAvailability(_ source: any LiveOpsSource, now: Date) async -> Result<AccountStatusSummary, any Error> {
         async let groups = capture { try await source.allGroups(includeInactive: true) }
         let query = AccountListQuery(pageSize: HomeFallback.localAccountPageSize)
         let page = await capture { try await source.managedAccounts(page: 1, query: query) }
-        return .availability((await groups).flatMap { groups in
+        return (await groups).flatMap { groups in
             page.map { HomeFallback.localAvailability(groups: groups, accounts: $0.items, accountsComplete: $0.total <= $0.items.count, now: now) }
-        })
+        }
     }
 
     private static func costSnapshot(_ source: any LiveOpsSource, wanted: Bool) async -> DashboardCostSnapshot? {
