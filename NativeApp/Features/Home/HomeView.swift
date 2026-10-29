@@ -2,7 +2,8 @@ import SwiftUI
 import Sub2Core
 
 /// 10 §1 the overview's regular layout: the R18 banner, the six cells and the ops notice, then the queue (S1-10) and the today and
-/// run sections (S1-09b). The title is the site menu (MainTabs' `siteTitleMenu()`), the subtitle the server's date and freshness.
+/// run sections (S1-09b); 10 §2 the calm layout (HomeCalmView, S1-11) in its place while nothing needs a person. The title is the
+/// site menu (MainTabs' `siteTitleMenu()`), the subtitle the server's date and freshness.
 /// The session's LiveOpsStore polls while this tab shows and the App is active; coming back to the foreground restarts it, which
 /// reads at once (D18: no scene-phase handler here), and passing compliance reads again. Identifiers home.*.
 struct HomeView: View {
@@ -67,16 +68,33 @@ private struct HomeScreen: View {
         case .unreachable:
             unreachable
         case .skeleton, .content:
-            List {
-                bannerSection
-                figuresSection
-                HomeAttentionList(store: store, pending: pending, currentServerID: session?.serverID, awaitingAccountTest: $awaitingAccountTest)
-                HomeTodaySection(store: store)
-                HomeRunSection(store: store)
+            // X34: this address's records, an earlier login's among them, count once for the queue and for 10 §2.2 condition 4.
+            let records = pending
+            let calm = HomePresentation.isCalm(availability: store.home.availability, alerts: store.home.alerts, pending: records)
+            // 10 §2.1: the whole screen cross-fades whenever a reply changes the layout.
+            ZStack {
+                if calm {
+                    HomeCalmView(store: store) { bannerSection } figures: { figuresSection }
+                        .transition(.opacity)
+                } else {
+                    regularList(pending: records)
+                        .transition(.opacity)
+                }
             }
-            .homeListChrome()
-            .accessibilityIdentifier("home.regular")
+            .animation(.easeInOut, value: calm)
         }
+    }
+
+    private func regularList(pending: [any PendingMoneyWrite]) -> some View {
+        List {
+            bannerSection
+            figuresSection
+            HomeAttentionList(store: store, pending: pending, currentServerID: session?.serverID, awaitingAccountTest: $awaitingAccountTest)
+            HomeTodaySection(store: store)
+            HomeRunSection(store: store)
+        }
+        .homeListChrome()
+        .accessibilityIdentifier("home.regular")
     }
 
     /// R18: a login without a refresh token signs in again when its access ends; counted on the phone's clock (D03).
