@@ -108,7 +108,9 @@ final class UserListUITests: XCTestCase {
         let create = app.buttons["users.empty.create"]
         XCTAssertTrue(create.isEnabled)
         create.tap()
-        XCTAssertTrue(element("user-editor.email").waitForExistence(timeout: 5), app.debugDescription)
+        // S3-10: the new user page is pushed.
+        XCTAssertTrue(element("user-edit.email").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["新建用户"].exists, app.debugDescription)
     }
 
     @MainActor func testReadOnlyTokenShowsTodayDashAndGraysCreate() {

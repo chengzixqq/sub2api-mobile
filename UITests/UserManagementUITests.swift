@@ -3,27 +3,16 @@ import XCTest
 final class UserManagementUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
 
-    @MainActor func testCreateThenEditUserFieldsAndLeavePasswordUnchanged() {
+    /// Creating moved to UserCreateUITests (S3-10); S3-11 moves the rest and removes this file.
+    @MainActor func testEditUserFieldsAndLeavePasswordUnchanged() {
         launchAndLogin()
-        defer { diagnostics("users-create-edit-final") }
+        defer { diagnostics("users-edit-final") }
         app.tabBars.buttons["用户"].tap()
-        XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
-        app.buttons["users.create"].tap()
-        set("created@example.invalid", field: "user-editor.email", towardBottom: false)
-        set("新建用户", field: "user-editor.username")
-        set("fixture-create-password", field: "user-editor.password")
-        chooseRole("供应商")
-        set("创建备注", field: "user-editor.notes")
-        set("3", field: "user-editor.concurrency")
-        set("60", field: "user-editor.rpm")
-        set("12.50", field: "user-editor.initial-balance")
-        confirmWrite(email: "created@example.invalid")
-        // The fixture holds 26 users (S3-02); the new one is 27 and the newest, so it is the list's first row.
-        XCTAssertTrue(app.buttons["user.27"].waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["user.27"].tap()
+        XCTAssertTrue(app.buttons["user.2"].waitForExistence(timeout: 10))
+        app.buttons["user.2"].tap()
         openEditor()
-        assertField("user-editor.email", equals: "created@example.invalid")
-        assertField("user-editor.username", equals: "新建用户")
+        assertField("user-editor.email", equals: "bob@example.com")
+        assertField("user-editor.username", equals: "Bob")
         set("edited@example.invalid", field: "user-editor.email", towardBottom: false)
         set("编辑用户名", field: "user-editor.username")
         // A nonempty new password follows validation; fixture never persists or displays it.
@@ -51,25 +40,14 @@ final class UserManagementUITests: XCTestCase {
         set("仅修改名称", field: "user-editor.username", towardBottom: false)
         confirmWrite(email: "edited@example.invalid")
         reveal(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "仅修改名称")).firstMatch, towardBottom: false)
-        XCTAssertFalse(app.staticTexts["fixture-create-password"].exists)
         XCTAssertFalse(app.staticTexts["fixture-new-password"].exists)
     }
 
-    @MainActor func testCreateValidationAndEditPasswordValidation() {
+    @MainActor func testEditPasswordValidation() {
         launchAndLogin()
         defer { diagnostics("users-validation-final") }
         app.tabBars.buttons["用户"].tap()
         XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
-        app.buttons["users.create"].tap()
-        prepareWrite()
-        reveal(element("user-editor.result"))
-        XCTAssertTrue(element("user-editor.result").waitForExistence(timeout: 5))
-        XCTAssertTrue(element("user-editor.result").label.contains("邮箱"), app.debugDescription)
-        set("validation@example.invalid", field: "user-editor.email", towardBottom: false)
-        prepareWrite()
-        reveal(element("user-editor.result"))
-        XCTAssertTrue(element("user-editor.result").label.contains("密码"), app.debugDescription)
-        app.buttons["user-editor.close"].tap()
         app.buttons["user.1"].tap()
         openEditor()
         set("short", field: "user-editor.password", towardBottom: false)

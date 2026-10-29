@@ -364,3 +364,69 @@ enum BalanceFixtureArgument {
         throw unconfirmed(.stillProcessing)
     }
 }
+
+/// S3-10's `-ui-testing` launch arguments for a new user (30 §5.4, §5.5). Groups come from DemoData.accountGroups (X11).
+enum UserCreateFixtureArgument {
+    /// The first creation in this process answers 409 EMAIL_EXISTS; an address the session's users have always does.
+    static let emailExists = "-ui-user-email-exists"
+    /// The user is created but the reply is lost; the page reads it back by email and finds it.
+    static let uncertain = "-ui-user-create-uncertain"
+    /// The reply is lost and nobody was created; the read-back finds nothing.
+    static let lost = "-ui-user-create-lost"
+    /// 400 without a reason, as the server's request binding answers.
+    static let invalid = "-ui-user-create-invalid"
+    /// The creation waits three seconds, so the frozen form can be seen.
+    static let slow = "-ui-user-create-slow"
+    /// Every attribute write answers 400 ATTRIBUTE_VALIDATION_FAILED (S3-11 reuses it, S3D1-22).
+    static let attributeFailure = "-ui-user-attr-fail"
+    /// 公司 and 标签 are required (标签 is multi_select, which this App never requires, U28).
+    static let requiredAttribute = "-ui-user-attr-required"
+    /// The site defines no attribute.
+    static let noAttributes = "-ui-user-attrs-empty"
+}
+
+// S3-10: the attribute definitions, the session's attribute values (the only store, S3D1-22) and the creations by number.
+extension DemoData {
+    /// 11 公司 (text), 12 来源 (select), 13 标签 (multi_select, shown read-only).
+    static func userAttributeDefinitions(arguments: [String]) -> [UserAttributeDefinition] {
+        guard !arguments.contains(UserCreateFixtureArgument.noAttributes) else { return [] }
+        let required = arguments.contains(UserCreateFixtureArgument.requiredAttribute)
+        func options(_ labels: [String]) -> [UserAttributeDefinition.Option] { labels.map { UserAttributeDefinition.Option(value: $0, label: $0) } }
+        return [
+            UserAttributeDefinition(id: 11, key: "company", name: "公司", type: "text", isRequired: required, displayOrder: 1),
+            UserAttributeDefinition(id: 12, key: "source", name: "来源", type: "select", options: options(["官网注册", "渠道商", "老客户介绍"]), displayOrder: 2),
+            UserAttributeDefinition(id: 13, key: "tags", name: "标签", type: "multi_select", options: options(["重点客户", "试用"]), isRequired: required,
+                                    displayOrder: 3),
+        ]
+    }
+    /// Attribute values by session and user; S3-11 reads and writes the same store.
+    @MainActor static var userAttributeValues: [UUID: [Int: [Int: String]]] = [:]
+    /// The session's values; the first read seeds 王小明 (3) with 公司 Studio-K and 来源 渠道商.
+    @MainActor static func attributeValues(generation: UUID) -> [Int: [Int: String]] {
+        if let values = userAttributeValues[generation] { return values }
+        let seeded: [Int: [Int: String]] = [3: [11: "Studio-K", 12: "渠道商"]]
+        userAttributeValues[generation] = seeded
+        return seeded
+    }
+    /// Users created in this process by operation number: the same number is answered as a replay (00 §2.5.2).
+    @MainActor static var userCreations: [UUID: AdminUser] = [:]
+    @MainActor private static var emailExistsAnswered = false
+
+    /// Emails are unique ignoring case (user_repo.go); `-ui-user-email-exists` refuses the first creation whatever its address.
+    @MainActor static func answersEmailExists(_ email: String, users: [AdminUser], arguments: [String]) -> Bool {
+        if users.contains(where: { $0.email.caseInsensitiveCompare(email) == .orderedSame }) { return true }
+        guard arguments.contains(UserCreateFixtureArgument.emailExists), !emailExistsAnswered else { return false }
+        emailExistsAnswered = true
+        return true
+    }
+    /// The created user as the server returns it: the request without the password, active, with the site default balance 0.
+    static func createdUser(body: Data, id: Int, now: Date = Date()) throws -> AdminUser {
+        var payload = try JSONSerialization.jsonObject(with: body) as? [String: Any] ?? [:]
+        payload.removeValue(forKey: "password")
+        payload["id"] = id
+        payload["balance"] = payload["balance"] ?? 0
+        payload["status"] = "active"
+        payload["created_at"] = ServerTime.utcTimestamp(now)
+        return try JSONDecoder().decode(AdminUser.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+}

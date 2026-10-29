@@ -12,7 +12,7 @@ struct UserRouteDestination: View {
         // .userLedger：S3-04
         case .userLedger(let userID): UserLedgerView(userID: userID)
         // .userNew：S3-10
-        case .userNew: ComingSoonView(title: route.placeholderTitle)
+        case .userNew: UserEditView(mode: .create)
         // .userEdit：S3-11
         case .userEdit: ComingSoonView(title: route.placeholderTitle)
         // 其他区域：RouteDestination 不会分派到这里

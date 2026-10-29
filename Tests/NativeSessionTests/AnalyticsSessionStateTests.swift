@@ -118,6 +118,57 @@ private let perf = AnalyticsCardKey("perf", scope: .filterOnly)
     #expect(!session.hasValue(billing))
 }
 
+/// The root page starts a card's read, a pushed page asks for the same card, then the root's `.task` is cancelled: the read
+/// goes on and the pushed page gets its result.
+@MainActor @Test func aReadOutlivesThePageThatStartedIt() async {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let session = makeSession(scratch)
+    let gate = SessionGate(), counter = CallCounter()
+    let root = Task { @MainActor in
+        await session.load(billing, fixture: { _ in 0 }) { _, _ in
+            counter.count += 1
+            await gate.wait()
+            return 4
+        }
+    }
+    while !(await gate.arrived) { await Task.yield() }
+    let asked = CallCounter()
+    let chart = Task { @MainActor in
+        asked.count += 1
+        await load(session, billing, value: 9, counter: counter)
+    }
+    while asked.count == 0 { await Task.yield() }
+    root.cancel()
+    await gate.open()
+    await root.value
+    await chart.value
+    #expect(session.state(billing, as: Int.self)?.value == 4)
+    #expect(counter.count == 1)
+}
+
+/// A read for choices since changed is not joined: the next load reads for the new choices at once.
+@MainActor @Test func aChangeOfChoicesStartsANewReadInsteadOfJoiningTheOldOne() async {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let session = makeSession(scratch)
+    let gate = SessionGate()
+    let old = Task { @MainActor in
+        await session.load(billing, fixture: { _ in 0 }) { _, _ in
+            await gate.wait()
+            return 1
+        }
+    }
+    while !(await gate.arrived) { await Task.yield() }
+    session.select(.preset(.last7))
+    await load(session, billing, value: 2)
+    #expect(session.state(billing, as: Int.self)?.value == 2)
+    await gate.open()
+    await old.value
+    #expect(session.state(billing, as: Int.self)?.value == 2)
+    session.reset(billing)
+    await load(session, billing, value: 3)
+    #expect(session.state(billing, as: Int.self)?.value == 3)
+}
+
 @MainActor @Test func advanceNowKeepsCache() async {
     let scratch = ScratchDefaults(); defer { scratch.remove() }
     let clock = TestClock(morning)
