@@ -24,7 +24,7 @@ struct RedeemSheetDestination: View {
         // .redeemGenerate：S6-07
         case .redeemGenerate: ComingSoonSheet(title: sheet.placeholderTitle)
         // .redeemReconcile：S6-06
-        case .redeemReconcile: ComingSoonSheet(title: sheet.placeholderTitle)
+        case .redeemReconcile(let batchID): RedeemReconcileView(batchID: batchID)
         // .redeemGrant：S6-09
         case .redeemGrant: ComingSoonSheet(title: sheet.placeholderTitle)
         // 其他区域：SheetDestination 不会分派到这里

@@ -263,3 +263,81 @@ extension RedeemRouteState {
         return RedeemRouteState(open: open, filter: filter, reconcile: arguments.contains(DemoData.RedeemFixture.reconcile))
     }
 }
+
+// MARK: - S6-06 reconciliation
+
+extension DemoData.RedeemFixture {
+    /// The batch_id query finds the whole pending batch. Without one of these a check finds nothing and a retry generates it.
+    static let reconcileGenerated = "-ui-redeem-reconcile-generated"
+    /// It finds three quarters of the batch (15 of 20).
+    static let reconcileMismatch = "-ui-redeem-reconcile-mismatch"
+    /// The check's query fails with 502.
+    static let reconcileFailed = "-ui-redeem-reconcile-failed"
+    /// With `-ui-without-capabilities redeem_codes.stats`: the newest codes look like the batch.
+    static let legacyMatch = "-ui-redeem-legacy-match"
+    /// A retry's answer is lost.
+    static let retryUnknown = "-ui-redeem-retry-unknown"
+    /// A retry meets STORE_UNAVAILABLE: the same number waits `storeCooldown`.
+    static let retryStoreUnavailable = "-ui-redeem-retry-store-unavailable"
+    static let storeCooldown: TimeInterval = 10
+}
+
+extension DemoData {
+    /// The codes the fixture server holds for `batch`: deterministic hex, made at `now`, ids 5000 + 100 × the record id's first
+    /// byte on (0A… → 6000, 0B… → 6100).
+    static func fixtureBatchCodes(for batch: PendingRedeemBatch, count: Int? = nil, now: Date) -> [AdminRedeemCode] {
+        let first = 5_000 + Int(batch.id.uuid.0) * 100, spec = batch.spec
+        return (0..<(count ?? batch.count)).map { index in
+            let id = first + index
+            return AdminRedeemCode(id: id, code: String(format: "%08lx%08lx%08lx%08lx", id, id * 7, id * 13, id * 31), type: spec.type.rawValue,
+                                   value: spec.value, status: "unused", createdAt: now,
+                                   expiresAt: spec.expiresInDays.map { now.addingTimeInterval(TimeInterval($0) * 86_400) }, groupID: spec.groupID,
+                                   validityDays: spec.validityDays, notes: spec.notes.isEmpty ? nil : spec.notes, batchID: batch.id, createdBy: batch.actorUserID)
+        }
+    }
+    /// What the batch_id query finds; the codes found join the session's list.
+    @MainActor static func redeemReconcileOutcome(for batch: PendingRedeemBatch, store: RedeemDemoStore, now: Date,
+                                                  arguments: [String]) throws -> RedeemBatchReconcileOutcome {
+        if arguments.contains(RedeemFixture.reconcileFailed) { throw APIError.server(status: 502, reason: nil) }
+        let all = fixtureBatchCodes(for: batch, now: now)
+        if arguments.contains(RedeemFixture.reconcileGenerated) { store.insert(all); return .generated(all) }
+        guard arguments.contains(RedeemFixture.reconcileMismatch) else { return .notGenerated }
+        let some = Array(all.prefix(batch.count * 3 / 4))
+        store.insert(some)
+        return .countMismatch(some)
+    }
+    /// An old server's newest codes: the batch with `-ui-redeem-legacy-match`, nothing like it otherwise.
+    @MainActor static func redeemFallbackOutcome(for batch: PendingRedeemBatch, store: RedeemDemoStore, now: Date,
+                                                 arguments: [String]) throws -> RedeemBatchFallbackOutcome {
+        if arguments.contains(RedeemFixture.reconcileFailed) { throw APIError.server(status: 502, reason: nil) }
+        guard arguments.contains(RedeemFixture.legacyMatch) else { return .notFound }
+        let all = fixtureBatchCodes(for: batch, now: now)
+        store.insert(all)
+        return .likelyGenerated(all)
+    }
+    /// `POST admin/redeem-codes/generate` under the record's number. An old server replays what it stored, masked and without
+    /// X-Redeem-Batch-ID, so the codes are read again by id.
+    @MainActor static func redeemRetryReply(for batch: PendingRedeemBatch, store: RedeemDemoStore, legacy: Bool, now: Date,
+                                            arguments: [String]) throws -> WriteOutcome<[AdminRedeemCode]> {
+        func failure(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFailure {
+            KeyedWriteFailure(disposition: disposition, key: batch.key, actionID: nil, lastError: nil)
+        }
+        if arguments.contains(RedeemFixture.retryUnknown) { throw failure(.unconfirmed(.transport, retryNotBefore: nil)) }
+        if arguments.contains(RedeemFixture.retryStoreUnavailable) {
+            throw failure(.unconfirmed(.storeUnavailable, retryNotBefore: Date().addingTimeInterval(RedeemFixture.storeCooldown)))
+        }
+        let all = fixtureBatchCodes(for: batch, now: now)
+        store.insert(all)
+        guard legacy else { return WriteOutcome(value: all, batchID: batch.id) }
+        let masked = all.map { AdminRedeemCode(id: $0.id, code: "***", type: $0.type, value: $0.value, status: $0.status, createdAt: $0.createdAt) }
+        return WriteOutcome(value: masked, replayed: true)
+    }
+}
+
+extension RedeemDemoStore {
+    /// Codes the server made for a pending batch, once.
+    func insert(_ made: [AdminRedeemCode]) {
+        let known = Set(codes.map(\.id))
+        replace(codes + made.filter { !known.contains($0.id) })
+    }
+}
