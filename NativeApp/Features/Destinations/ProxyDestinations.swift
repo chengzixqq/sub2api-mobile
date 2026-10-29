@@ -9,7 +9,7 @@ struct ProxyRouteDestination: View {
         // .proxies：S6-11
         case .proxies(let filter): ProxiesView(filter: filter)
         // .proxyDetail：S6-12
-        case .proxyDetail: ComingSoonView(title: route.placeholderTitle)
+        case .proxyDetail(let id): ProxyDetailView(id: id)
         // .proxyFallbackAccounts：S6-13
         case .proxyFallbackAccounts: ComingSoonView(title: route.placeholderTitle)
         // 其他区域：RouteDestination 不会分派到这里
