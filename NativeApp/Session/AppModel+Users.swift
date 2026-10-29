@@ -260,6 +260,7 @@ extension AppModel {
     /// 30 §5.4 step 7: the fixture matches the session's users as the server's search does, then the address ignoring case.
     func findUserByEmail(_ email: String) async throws -> AdminUser? {
         guard isUITesting else { return try await requireClient().findUserByEmail(email) }
+        if DemoData.failsUserReadBack(arguments: ProcessInfo.processInfo.arguments) { throw APIError.server(status: 503, reason: nil) }
         let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
         return (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).first { $0.email.caseInsensitiveCompare(address) == .orderedSame }
     }

@@ -49,7 +49,35 @@ public enum UserCreateReceipt {
     public static let attributesFailed = "用户已创建，自定义属性没保存成功，可在编辑用户里补填"
     public static let foundOnServer = "已在服务器上找到这个用户"
     public static let notCreated = "没有创建成功，可以再试一次"
+    /// The read-back after an unknown result failed too: 00 §2.5.4 step 3 with a key, 00 §2.4 without one.
+    public static func unconfirmed(sendsIdempotencyKey: Bool) -> String {
+        sendsIdempotencyKey ? KeyedWriteFailure.unconfirmedMessage : "结果未确认，请刷新核对后再操作"
+    }
     public static func pendingIssues(_ count: Int) -> String { UserAccessDraft.pendingIssuesMessage(count) }
+}
+
+/// 30 §5.5: the rows one refusal marked, with what they were sent with. The answer was about that whole request (a 400
+/// without a reason marks 邮箱 and 密码 though only one of them may be wrong), so its marks stand while every marked row still
+/// holds what was sent, and all go once any of them changes.
+public struct UserServerMarks: Sendable, Equatable {
+    public let issues: [UserDraftIssue]
+    private let sent: [String]
+
+    public init(_ issues: [UserDraftIssue], sent draft: UserAccessDraft) {
+        self.issues = issues
+        sent = issues.map { Self.value(of: $0.field, in: draft) }
+    }
+    public func standing(in draft: UserAccessDraft) -> [UserDraftIssue] {
+        zip(issues, sent).allSatisfy { issue, value in Self.value(of: issue.field, in: draft) == value } ? issues : []
+    }
+    /// What the server was given for the row: the email as sent (trimmed), the password as typed.
+    private static func value(of field: UserDraftField, in draft: UserAccessDraft) -> String {
+        switch field {
+        case .email: draft.email.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .password: draft.password
+        default: ""
+        }
+    }
 }
 
 /// 30 §5.5: one failed creation, classified. Never the server's message (00 §3.4): the words are this table's or the catalog's.

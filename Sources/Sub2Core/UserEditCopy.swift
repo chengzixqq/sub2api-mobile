@@ -138,9 +138,10 @@ public enum UserEditCopy {
     public static func isScrolledCompact(offset: Double, wasCompact: Bool) -> Bool {
         wasCompact ? offset > unfoldOffset : offset > foldOffset
     }
-    /// How far the form is scrolled, read as if the head were unfolded. The head sits in the scroll view's top inset, so
-    /// folding it moves the plain reading by the hint row while the rows stay put; read plainly, a fold would undo itself.
-    public static func scrollOffset(contentOffset: Double, insetTop: Double, foldedHeight: Double) -> Double {
-        contentOffset + insetTop + foldedHeight
+    /// How far the form is scrolled from its own top. The head sits above the scroll view, not in its inset (design
+    /// `.ue-tabhead` beside `.scroll`), so folding resizes the form without moving this reading: no fold undoes itself, and
+    /// back at the top the reading is 0 again.
+    public static func scrollOffset(contentOffset: Double, insetTop: Double) -> Double {
+        contentOffset + insetTop
     }
 }
