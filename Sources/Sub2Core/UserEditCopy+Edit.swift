@@ -98,7 +98,11 @@ extension UserEditCopy {
         group.rateMultiplier.map { "默认 " + DisplayFormat.decimal(NSDecimalNumber(decimal: $0).doubleValue, maxFractionDigits: 3) } ?? "默认"
     }
 
-    // MARK: 并发
+    // MARK: 并发与 RPM
+    /// The RPM block's first line (30 §6.3).
+    public static let rpmTotalTitle = "用户总计"
+    /// The identity strip's capsule, which opens the keypad (30 §6.1).
+    public static let topupCapsule = "充值 / 退款"
     public static let adjustmentTitle = "调整备注"
     public static let adjustmentFootnote = "调整备注只写进这次的并发流水，不写进用户资料。"
     /// “可选 · 并发 2 → 4 的原因”.

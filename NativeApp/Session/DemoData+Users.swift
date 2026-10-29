@@ -448,10 +448,20 @@ enum UserEditFixtureArgument {
     static let saveUncertain = "-ui-user-save-uncertain"
     /// The reply is lost and nothing was saved; the read-back differs.
     static let saveDrift = "-ui-user-save-drift"
+    /// rpm-status answers 501 RPM_STATUS_UNAVAILABLE.
+    static let rpmUnavailable = "-ui-user-rpm-unavailable"
+    /// rpm-status fails with 500.
+    static let rpmFailed = "-ui-user-rpm-failed"
 }
 
 // S3-11: `PUT admin/users/:id` as strict as the server (S3D1-10), so a page that sends what it did not change fails.
 extension DemoData {
+    /// 王小明 (3) used 2 of 60 this minute, 2 of them on Claude Code 组 under his own RPM; everyone else nothing, unlimited.
+    static func rpmStatus(userID: Int) -> UserRPMStatus {
+        guard userID == 3 else { return UserRPMStatus(userUsed: 0, userLimit: 0, userTracked: true) }
+        return UserRPMStatus(userUsed: 2, userLimit: 60, userTracked: true,
+                             perGroup: [UserRPMStatus.Group(groupID: 5, groupName: "Claude Code 组", used: 2, limit: 30, source: "override", tracked: true)])
+    }
     /// Refusals first (balance, an unchanged key, a taken email, disabling an administrator, a rate ≤ 0), then the merge:
     /// allowed_groups replaces the list, group_rates merges key by key and null removes one. Password and adjustment notes are
     /// never kept.

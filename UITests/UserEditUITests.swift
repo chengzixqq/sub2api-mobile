@@ -61,6 +61,22 @@ final class UserEditUITests: XCTestCase {
         XCTAssertTrue(alert.staticTexts["备注还没保存，会被放弃。"].exists, app.debugDescription)
         alert.buttons["继续编辑"].tap()
         XCTAssertTrue(element("user-edit.notes").exists, app.debugDescription)
+        // A top-up from the strip took effect at once, so leaving names it.
+        app.buttons["user-edit.topup"].tap()
+        XCTAssertTrue(app.buttons["balance.key.5"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["balance.key.5"].tap()
+        app.buttons["balance.submit"].tap()
+        let topUp = app.alerts["向「王小明」充值 $5.00？"]
+        XCTAssertTrue(topUp.waitForExistence(timeout: 10), app.debugDescription)
+        topUp.buttons["充值 $5.00"].tap()
+        waitForReceipt("已向 王小明 充值 $5.00")
+        waitForLabel(element("user-edit.identity"), contains: "$17.40")
+        XCTAssertEqual(element("user-edit.notes").value as? String, "渠道客户", "立即生效的操作不覆盖草稿")
+        app.buttons["user-edit.back"].tap()
+        let again = app.alerts["放弃未保存的更改？"]
+        XCTAssertTrue(again.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(again.staticTexts["备注还没保存，会被放弃。\n已经立即生效、不会撤回：余额。"].exists, app.debugDescription)
+        again.buttons["继续编辑"].tap()
         app.buttons["user-edit.back"].tap()
         XCTAssertTrue(app.alerts["放弃未保存的更改？"].waitForExistence(timeout: 5), app.debugDescription)
         app.alerts.buttons["放弃更改"].tap()
@@ -268,6 +284,33 @@ final class UserEditUITests: XCTestCase {
         XCTAssertTrue(element("user-edit.email").waitForExistence(timeout: 5), app.debugDescription)
     }
 
+    @MainActor func testRPMStatusStates() {
+        launchAndLogin()
+        defer { diagnostics("user-edit-rpm-final") }
+        openEditor(3, name: "王小明")
+        app.buttons["user-edit.segment.access"].tap()
+        let total = element("user-edit.rpm.total")
+        reveal(total)
+        waitForLabel(total, contains: "2 / 60")
+        let group = element("user-edit.rpm.group.5")
+        XCTAssertTrue(group.label.contains("Claude Code 组") && group.label.contains("专属 RPM") && group.label.contains("2 / 30"), group.label)
+        XCTAssertTrue(text(containing: "RPM 状态 · 本分钟").exists, app.debugDescription)
+        app.terminate()
+        launchAndLogin(arguments: ["-ui-user-rpm-unavailable"])
+        openEditor(3, name: "王小明")
+        app.buttons["user-edit.segment.access"].tap()
+        let unavailable = element("user-edit.rpm.unavailable")
+        reveal(unavailable)
+        XCTAssertEqual(unavailable.label, "RPM 状态暂不可用")
+        app.terminate()
+        launchAndLogin(arguments: ["-ui-user-rpm-failed"])
+        openEditor(3, name: "王小明")
+        app.buttons["user-edit.segment.access"].tap()
+        let retry = app.buttons["user-edit.rpm.retry"]
+        reveal(retry)
+        XCTAssertEqual(retry.label, "RPM 状态加载失败 · 重试")
+    }
+
     @MainActor func testReadOnlyTokenGraysSave() {
         launchAndLogin(arguments: ["-ui-readonly-token"], accessToken: "sat_fixture-readonly")
         defer { diagnostics("user-edit-read-only-final") }
@@ -277,6 +320,7 @@ final class UserEditUITests: XCTestCase {
         keys.tap()
         XCTAssertTrue(app.buttons["user-edit.segment.basic"].waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["user-edit.segment.basic"].tap()
+        XCTAssertFalse(app.buttons["user-edit.topup"].isEnabled)
         type("只读改动", into: "user-edit.notes")
         XCTAssertFalse(app.buttons["user-edit.save"].isEnabled)
     }

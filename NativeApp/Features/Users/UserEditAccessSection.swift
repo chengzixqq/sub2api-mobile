@@ -11,6 +11,8 @@ struct UserEditAccessSection: View {
     let onRetryGroups: @MainActor () -> Void
     let onAddGroups: @MainActor () -> Void
     let onOpenGroup: @MainActor (Int) -> Void
+    /// A pull on the edit page reads the RPM block again.
+    var rpmRefreshToken = 0
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -18,6 +20,7 @@ struct UserEditAccessSection: View {
         exclusiveSection
         publicSection
         limitSection
+        if let id = editor.editingUserID { UserRPMStatusView(userID: id, refreshToken: rpmRefreshToken) }
     }
 
     // MARK: - 角色

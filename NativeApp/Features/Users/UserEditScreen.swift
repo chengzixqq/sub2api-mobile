@@ -7,8 +7,13 @@ import Sub2Core
 struct UserEditScreen: View {
     @Bindable var editor: UserEditorModel
     @Environment(AppModel.self) private var model
+    @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
     @State private var sheet: UserEditSheet?
+    @State private var rpmRefresh = 0
+    /// 30 §3.4 for the strip's capsule: R03's question first, then S3-07's check (S3-08, S3-07).
+    @State private var balanceEntry: BalanceKeypadEntry?
+    @State private var reconcileFlow = BalanceReconcileFlow()
     @State private var scrolled = false
     @State private var typing = false
     @FocusState private var focus: UserDraftField?
@@ -25,6 +30,10 @@ struct UserEditScreen: View {
             .toolbar(.hidden, for: .tabBar)
             .userEditToolbar(editor)
             .sheet(item: $sheet) { sheetContent($0) }
+            .balanceReconcileFlow(reconcileFlow)
+            .balanceKeypadEntry($balanceEntry) { [reconcileFlow, model, editor] op in
+                Task { await reconcileFlow.reconcile(op, model: model, balance: editor.stripUser?.balance) }
+            }
             .task { await editor.loadForEdit(model: model) }
             .task { if editor.definitionsState != .loaded { await editor.loadDefinitions(model: model) } }
             .task { await editor.loadBoundKeys(model: model) }
@@ -77,7 +86,9 @@ struct UserEditScreen: View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
                 if let user = editor.stripUser {
-                    UserEditIdentityStrip(user: user, isSelf: editor.isSelf, isPending: model.hasPendingBanner(userID: user.id), compact: compact)
+                    UserEditIdentityStrip(user: user, isSelf: editor.isSelf, isPending: model.hasPendingBanner(userID: user.id), compact: compact) {
+                        balanceEntry = BalanceKeypadEntry.open(userID: user.id, mode: .topup, model: model, router: router)
+                    }
                 }
                 UserEditSegmentBar(segments: UserEditSegment.allCases, selection: $editor.segment, issues: marks(\.issues), changed: marks(\.changed),
                                    keysTitle: UserEditCopy.keysSegmentTitle(count: editor.keyCount), isDisabled: editor.isFrozen)
@@ -107,14 +118,18 @@ struct UserEditScreen: View {
             case .access:
                 UserEditAccessSection(editor: editor, catalog: catalog, groups: model.groupDirectory?.state.display ?? .placeholder,
                                       onRetryGroups: { Task { await model.groupDirectory?.refresh() } },
-                                      onAddGroups: { sheet = .addExclusiveGroups }, onOpenGroup: { sheet = .group(id: $0) })
+                                      onAddGroups: { sheet = .addExclusiveGroups }, onOpenGroup: { sheet = .group(id: $0) },
+                                      rpmRefreshToken: rpmRefresh)
             case .keys:
                 UserEditKeysSlot(editor: editor)
             }
         }
         .disabled(editor.isFrozen)
         .scrollDismissesKeyboard(.interactively)
-        .refreshable { await editor.reloadStrip(model: model) }
+        .refreshable {
+            rpmRefresh += 1
+            await editor.reloadStrip(model: model)
+        }
         .onScrollGeometryChange(for: Double.self) {
             UserEditCopy.scrollOffset(contentOffset: Double($0.contentOffset.y), insetTop: Double($0.contentInsets.top))
         } action: { _, offset in
