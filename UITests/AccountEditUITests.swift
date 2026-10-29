@@ -413,11 +413,13 @@ final class AccountEditUITests: XCTestCase {
         XCTAssertEqual(element("accountSheet.models.summary").label, "只调度这 4 个")
         app.buttons["account.edit.save"].tap()
         waitForReceipt("已保存：模型")
+        // The page shows the save with its receipt; 撤销 goes before any scrolling, inside the receipt's 4.2 seconds (S2-16's
+        // 凭据 section made the page longer).
         let summary = element("account.section.models.meta")
-        reveal(summary)
-        XCTAssertTrue(waitUntil(summary, "label == '只调度这 4 个'"), summary.label)
+        XCTAssertEqual(summary.label, "只调度这 4 个")
         XCTAssertTrue(element("account.models.row.gpt-4-*").exists && !element("account.models.row.gpt-4o").exists, app.debugDescription)
         app.buttons["receipt.action"].tap()
+        reveal(summary)
         XCTAssertTrue(waitUntil(summary, "label == '只调度这 3 个'"), summary.label)
         XCTAssertTrue(element("account.models.row.gpt-4o").waitForExistence(timeout: 5), app.debugDescription)
     }
@@ -486,9 +488,10 @@ final class AccountEditUITests: XCTestCase {
         diagnostics("account-adv-switch")
         app.buttons["account.edit.save"].tap()
         waitForReceipt("已保存：会话 ID 伪装")
-        reveal(masking)
-        waitForValue(masking, equals: "开")
+        // 撤销 inside the receipt's 4.2 seconds, before scrolling (the page is longer since S2-16's 凭据 section).
+        XCTAssertEqual(masking.value as? String, "开")
         app.buttons["receipt.action"].tap()
+        reveal(masking)
         waitForValue(masking, equals: "关")
         let web = app.buttons["account.adv.web"]
         reveal(web)

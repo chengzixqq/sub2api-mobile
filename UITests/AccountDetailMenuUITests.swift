@@ -309,6 +309,25 @@ final class AccountDetailMenuUITests: XCTestCase {
         waitForLabel(row, contains: "us-west-3")
     }
 
+    /// S2-16, U17: a Bedrock account's 凭据 shows the stored secret and 在 Web 中更换凭据; ⋯ adds no credential item.
+    @MainActor func testBedrockCredentialSectionOpensWebAndMenuHasNoKeyItem() {
+        openDetail(7, arguments: [Fixture.bedrock])
+        defer { diagnostics("account-menu-bedrock-cred-final") }
+        let secret = element("account.cred.secret")
+        reveal(secret)
+        XCTAssertEqual(secret.value as? String, "已设置 · 不可查看")
+        XCTAssertFalse(app.buttons["account.cred.key.replace"].exists, app.debugDescription)
+        let web = app.buttons["account.cred.web"]
+        reveal(web)
+        XCTAssertTrue(text("已保存的凭据不可查看；这类凭据请在 Web 中更换。").exists, app.debugDescription)
+        web.tap()
+        waitForReceipt("已在浏览器打开「OpenAI-备用-A」的编辑页")
+        app.buttons["account.detail.more"].tap()
+        XCTAssertTrue(menuButton("删除账号…").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(menuButton("更换 API Key…").exists, app.debugDescription)
+        XCTAssertFalse(menuButton("刷新令牌").exists, app.debugDescription)
+    }
+
     // MARK: - Helpers
 
     @MainActor private func openDetail(_ id: Int, arguments: [String] = []) {

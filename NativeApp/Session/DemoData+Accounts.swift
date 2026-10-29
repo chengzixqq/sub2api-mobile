@@ -64,6 +64,8 @@ extension DemoData {
         static let otherAdminProxyID = 5
         /// `GET :id/models` answers 502 (S2-12; S2-14 reuses it).
         static let modelsError = "-ui-account-models-error"
+        /// `POST :id/refresh` answers 500 (S2-16).
+        static let refreshFail = "-ui-account-refresh-fail"
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -141,7 +143,7 @@ extension DemoData {
             demoAccount(10, "Grok-旧-01", "grok", "apikey", status: "inactive", groups: [], concurrency: (0, 2), priority: 9)
         ]
         // try! only here: a wire key that no longer decodes stops the first UI test instead of showing a wrong list.
-        return rows.map { try! JSONDecoder().decode(UpstreamAccount.self, from: JSONSerialization.data(withJSONObject: $0)) }
+        return rows.map { try! JSONDecoder().decode(UpstreamAccount.self, from: JSONSerialization.data(withJSONObject: credentialFields($0, base: base))) }
     }
 
     private static func demoAccount(_ id: Int, _ name: String, _ platform: String, _ type: String, status: String = "active", schedulable: Bool = true,
@@ -555,6 +557,9 @@ extension AccountDemoStore {
         if !request.credentialsPatch.isEmpty {
             let fields = merging(updated.credentials?.objectValue ?? [:], request.credentialsPatch.filter { !AccountCredentialKeys.isSensitive($0.key) })
             updated.credentials = .object(fields)
+            // S2-16: a new secret only shows as has_<key>, like the server's credentials_status.
+            let secrets = request.credentialsPatch.keys.filter(AccountCredentialKeys.isSensitive).map { ("has_" + $0, true) }
+            if !secrets.isEmpty { updated.credentialsStatus = (updated.credentialsStatus ?? [:]).merging(secrets) { _, new in new } }
         }
         return extraPatch.isEmpty ? updated : withExtra(extraPatch, on: updated)
     }

@@ -25,11 +25,17 @@ extension LiveOpsStore {
         storeAlert(event)
         return event
     }
-    /// The session's availability when it lists the group, otherwise `status-summary?group_id` (not gated by ops monitoring). A
-    /// reply without the group means it was deleted.
+    /// The session's availability when it lists the group, otherwise `status-summary?group_id`, or on a site without
+    /// `accounts.status_summary` (where that path is `accounts/:id`) the D02 count of `groups/all` and the accounts (10 §0.2);
+    /// neither is gated by ops monitoring. A reply without the group means it was deleted.
     func alertGroupScope(groupID: Int) async throws -> AlertGroupScope {
         if let group = availability?.groups.first(where: { $0.groupID == groupID }) { return .found(group) }
-        let summary = try await source.accountStatusSummary(platform: nil, groupID: groupID, includeAccounts: false)
+        let summary: AccountStatusSummary
+        if site()?.has(.accountsStatusSummary) == true {
+            summary = try await source.accountStatusSummary(platform: nil, groupID: groupID, includeAccounts: false)
+        } else {
+            summary = try await FallbackFetch.localAvailability(source, now: serverNow()).get()
+        }
         return summary.groups.first { $0.groupID == groupID }.map(AlertGroupScope.found) ?? .deleted
     }
     /// The monitor's channel list when it was read, unless a pull asks past it; otherwise the last 90 minutes.
