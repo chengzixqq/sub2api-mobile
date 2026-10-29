@@ -163,6 +163,20 @@ final class ProxiesUITests: XCTestCase {
         XCTAssertFalse(row(8).exists, app.debugDescription)
     }
 
+    /// 00 §2.7.2: the first read answers 429 (retry_after 6): the failure names the wait and offers no 重试, then the list reads
+    /// by itself.
+    @MainActor func testRateLimitedLoadWaitsThenReadsByItself() {
+        launchProxies([DemoArgument.throttled])
+        defer { diagnostics("proxies-throttled-final") }
+        XCTAssertTrue(element("proxies.failure").waitForExistence(timeout: 10), app.debugDescription)
+        let notice = text(containing: "请求过于频繁，")
+        XCTAssertTrue(notice.exists && notice.label.hasSuffix("秒后自动重试"), app.debugDescription)
+        XCTAssertFalse(app.buttons["重试"].exists, app.debugDescription)
+        diagnostics("proxies-throttled")
+        XCTAssertTrue(row(8).waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertFalse(element("proxies.failure").exists, app.debugDescription)
+    }
+
     @MainActor func testLaterPageFailureKeepsRowsAndRetries() {
         launchProxies([DemoArgument.secondPageError])
         defer { diagnostics("proxies-page2-final") }
@@ -199,6 +213,7 @@ final class ProxiesUITests: XCTestCase {
         static let listError = "-ui-proxies-error"
         static let secondPageError = "-ui-proxies-page2-error"
         static let testHTTPError = "-ui-proxies-test-http-error"
+        static let throttled = "-ui-proxies-throttled"
     }
 
     @MainActor func launchProxies(_ arguments: [String] = [], readOnlyToken: Bool = false) {

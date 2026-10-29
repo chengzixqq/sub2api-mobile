@@ -4,7 +4,7 @@ import Sub2Core
 /// 60 §12: the proxy list. “代理” with “<站点名> · N 个”; 全部测试 and + on the right only for who may write (60 §0.3, hidden
 /// rather than greyed); under 全部 the expiry banner, then the five capsules, the column header and the rows, each pushing its
 /// detail. No swipe actions, no polling. The session's ProxyStore holds the catalog; this page asks it to read on appearing
-/// (when older than 60 seconds), on pull, on returning to the foreground and after compliance.
+/// (when older than 60 seconds), on pull, on returning to the foreground, after compliance and once a 429 wait ends.
 struct ProxiesView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
@@ -38,6 +38,7 @@ struct ProxiesView: View {
                 }
             }
             .task(id: session?.generation) { await model.proxyStore?.ensureFresh() }
+            .task(id: model.proxyStore?.refresh.notBefore) { await retryAfterWait() }
             // A read stopped by the background reads again on return (D18); one refused while compliance was pending reads once
             // it is accepted (00 §1.10).
             .onChange(of: model.foregroundRevision) { _, _ in Task { await model.proxyStore?.ensureFresh() } }
@@ -54,6 +55,15 @@ struct ProxiesView: View {
 
     /// The sheet is S6-14's.
     private func add() { router.present(.proxyEdit(id: nil)) }
+
+    /// “请求过于频繁，N 秒后自动重试”: once the wait is over, a shown list reads again (00 §2.7.2).
+    private func retryAfterWait() async {
+        guard let store = model.proxyStore, let notBefore = store.refresh.notBefore else { return }
+        let wait = notBefore.timeIntervalSinceNow
+        if wait > 0 { do { try await Task.sleep(for: .seconds(wait)) } catch { return } }
+        // Not part of this task: the read clearing the wait restarts it, which must not stop the read.
+        Task { await store.ensureFresh() }
+    }
 
     /// Runs on after leaving the page; the receipt is the App's (12.4). A session that ended meanwhile shows none.
     private func testAll(_ store: ProxyStore) {
@@ -84,7 +94,7 @@ private struct ProxyListContent: View {
                 }
             case .failed(let reason):
                 Section {
-                    FailureView(message: reason ?? "", retry: { Task { await store.reload() } })
+                    FailureView(message: store.throttleMessage() ?? reason ?? "", retry: retry)
                         .accessibilityElement(children: .contain).accessibilityIdentifier("proxies.failure")
                 }
                 .listRowBackground(Color.clear)
@@ -141,11 +151,21 @@ private struct ProxyListContent: View {
         }
     }
 
-    /// 12.5: pages still loading show a spinner; a failed read keeps the rows above and offers to read everything again.
+    /// 12.5: pages still loading show a spinner; a failed read keeps the rows above and offers to read everything again (not
+    /// during a 429 wait, which it names).
     @ViewBuilder private func footer(isComplete: Bool, isRefreshing: Bool, updateFailed: Bool) -> some View {
         if updateFailed {
-            Button("加载失败 · 重试") { Task { await store.reload() } }
-                .frame(maxWidth: .infinity, minHeight: 44).accessibilityIdentifier("proxies.more-failure")
+            let throttle = store.throttleMessage()
+            Button { Task { await store.reload() } } label: {
+                VStack(spacing: 2) {
+                    Text("加载失败 · 重试")
+                    if let throttle { Text(throttle).font(.footnote).foregroundStyle(Palette.ink2) }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .disabled(throttle != nil)
+            .accessibilityLabel(["加载失败 · 重试", throttle].compactMap { $0 }.joined(separator: "，"))
+            .accessibilityIdentifier("proxies.more-failure")
         } else if isRefreshing, !isComplete {
             ProgressView().frame(maxWidth: .infinity, minHeight: 44).accessibilityIdentifier("proxies.more-loading")
         }
@@ -163,6 +183,12 @@ private struct ProxyListContent: View {
             .accessibilityIdentifier("proxies.banner")
             .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
         }
+    }
+
+    /// No retry during a 429 wait; the page reads again on its own when it ends.
+    private var retry: (() -> Void)? {
+        guard store.throttleMessage() == nil else { return nil }
+        return { Task { await store.reload() } }
     }
 
     /// 12.5 没有代理: 添加代理 only for who may write.

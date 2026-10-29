@@ -3,16 +3,17 @@ import Sub2Core
 
 /// 10 §1.3.4 今日（贰）: 每小时实际扣费, 账号成本 / 标准 / 利润, Tokens and 成功率, then 更多统计. The header follows the stats block and
 /// the chart's title row the hourly one (10 §1.5); a block without a value gets its own retry row, and the cells under a failed chart
-/// stay. 重试 reads home again past the server cache; the next poll retries by itself (S1D1-20). Identifiers home.today.*.
+/// stay. 重试 reads home again past the server cache; the next poll retries by itself (S1D1-20). The three rows are the calm
+/// layout's too (S1-11). Identifiers home.today.*.
 struct HomeTodaySection: View {
     let store: LiveOpsStore
     @Environment(\.sessionContext) private var session
 
     var body: some View {
         Section {
-            hourlyBlock
-            figures
-            moreStats
+            HomeHourlyBlock(store: store)
+            HomeTodayFigures(store: store)
+            HomeMoreStatsRow()
         } header: {
             NumberedSectionHeader(title: "今日", ordinal: "贰", meta: meta, id: "home.today.header") {
                 BlockStatusAccessory(state: store.home.stats, refresh: store.homeRefresh(for: .stats), id: "home.today",
@@ -21,34 +22,45 @@ struct HomeTodaySection: View {
         }
     }
 
-    private static let chartHeight: CGFloat = 104
-    private static let amountKinds: [HomeTodayKind] = [.accountCost, .standardCost, .profit]
-
     private var timeZone: TimeZone { session?.site.serverTimeZone.timeZone ?? .current }
     /// “00:00 起”, or “统计更新于 HH:MM” while the server's statistics lag (10 §1.3.1).
     private var meta: String { HomePresentation.statsFreshness(store.home.stats.value, timeZone: timeZone) ?? HomePresentation.todaySectionMeta }
     private func retry() { Task { await store.refreshHome(noCache: true) } }
+}
 
-    // MARK: 每小时实际扣费
+/// 每小时实际扣费: its title (the calm layout's is the section's), the hourly block's status and the legend, then the chart, its
+/// skeleton or one failure line.
+struct HomeHourlyBlock: View {
+    let store: LiveOpsStore
+    var style: HomeHourlyChart.Style = .bars
+    var showsTitle = true
+    @Environment(\.sessionContext) private var session
 
-    private var hourlyBlock: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("每小时实际扣费").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink1)
+                if showsTitle { Text("每小时实际扣费").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink1) }
                 BlockStatusAccessory(state: store.home.hourly, refresh: store.homeRefresh(for: .hourly), id: "home.today.hourly",
                                      resendsAfterWait: false, retry: retry)
                 Spacer(minLength: 8)
-                HomeHourlyLegend(style: .bars)
+                HomeHourlyLegend(style: style)
             }
-            hourlyContent
+            content
         }
         .padding(.vertical, 6)
+        // Without the title the first text is the legend; the separator below still starts at the row's edge.
+        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
     }
 
-    @ViewBuilder private var hourlyContent: some View {
+    private static let chartHeight: CGFloat = 104
+
+    private var timeZone: TimeZone { session?.site.serverTimeZone.timeZone ?? .current }
+    private func retry() { Task { await store.refreshHome(noCache: true) } }
+
+    @ViewBuilder private var content: some View {
         switch store.home.hourly.display {
         case .value(let hourly, _, _, _):
-            HomeHourlyChart(series: HomeHourlySeries(hourly, now: store.serverNow(), timeZone: timeZone), height: Self.chartHeight)
+            HomeHourlyChart(series: HomeHourlySeries(hourly, now: store.serverNow(), timeZone: timeZone), style: style, height: Self.chartHeight)
         case .placeholder:
             RoundedRectangle(cornerRadius: 6).fill(Palette.sunken).frame(height: Self.chartHeight)
                 .accessibilityElement()
@@ -60,15 +72,17 @@ struct HomeTodaySection: View {
                 .homeFailureContainer("home.today.hourly.failed")
         }
     }
+}
 
-    // MARK: 三格、Tokens 与成功率
+/// 账号成本 / 标准 / 利润 over Tokens and 成功率 (今日 SLA, its own read, skipped while ops monitoring is off).
+struct HomeTodayFigures: View {
+    let store: LiveOpsStore
 
-    private var figures: some View {
+    var body: some View {
         let cells = HomePresentation.todayCells(stats: store.home.stats.value, todaySLA: store.todaySLA)
         let stats = store.home.stats.display.homePhase
-        // 今日 SLA is its own read, skipped while ops monitoring is off.
         let slaLoading = !store.opsDisabled && store.todayOps.state.display.homePhase == .placeholder
-        return VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 10) {
                 ForEach(cells.filter { Self.amountKinds.contains($0.kind) }) { amountCell($0, isLoading: stats == .placeholder) }
             }
@@ -84,11 +98,13 @@ struct HomeTodaySection: View {
             .padding(.vertical, 10)
             if stats == .failed {
                 BlockFailureRow(state: store.home.stats, error: store.homeLastError(for: .stats), refresh: store.homeRefresh(for: .stats),
-                                id: "home.today", resendsAfterWait: false, retry: retry)
+                                id: "home.today", resendsAfterWait: false) { Task { await store.refreshHome(noCache: true) } }
                     .homeFailureContainer("home.today.failed")
             }
         }
     }
+
+    private static let amountKinds: [HomeTodayKind] = [.accountCost, .standardCost, .profit]
 
     /// Amounts in ink: billing figures are never coloured, a loss shows “−$” (10 §0.6).
     private func amountCell(_ cell: HomeValueCell, isLoading: Bool) -> some View {
@@ -104,10 +120,11 @@ struct HomeTodaySection: View {
         .accessibilityValue(isLoading ? HomeInlineFigure.loadingValue : DisplayFormat.spoken(cell.value))
         .accessibilityIdentifier("home.today." + cell.kind.rawValue)
     }
+}
 
-    // MARK: 更多统计
-
-    private var moreStats: some View {
+/// 更多统计: the analytics page, where the model, user and group rankings are.
+struct HomeMoreStatsRow: View {
+    var body: some View {
         NavigationLink(value: AppRoute.analytics()) {
             HStack(spacing: 12) {
                 Image(systemName: "chart.bar").foregroundStyle(Palette.ink3).frame(width: 24).accessibilityHidden(true)
