@@ -198,6 +198,24 @@ final class RedeemReconcileUITests: XCTestCase {
         XCTAssertFalse(element("redeem.result.code.1.text").label.contains("*"), element("redeem.result.code.1.text").label)
     }
 
+    /// 60 §10.4 第 2 步: a retry from “没找到” whose answer is lost may have run, so the page goes back to 结果待核对 with the
+    /// check offered again instead of still saying nothing was generated.
+    @MainActor func testUnconfirmedRetryFromNotFoundReturnsToThePendingPage() {
+        launchAndLogin(["-ui-pending-money", "-ui-redeem-retry-unknown"])
+        defer { diagnostics("reconcile-batch-notfound-retry-kept-final") }
+        openFromBanner()
+        tapAction("check")
+        XCTAssertTrue(waitForLabel("money.pending.header.title", "服务器上没有这一批"), app.debugDescription)
+        tapAction("retry")
+        XCTAssertTrue(waitForLabel("money.pending.notice", containing: "结果未确认，已记为待核对"), app.debugDescription)
+        XCTAssertTrue(waitForLabel("money.pending.header.title", "请求可能已提交"), app.debugDescription)
+        XCTAssertTrue(app.buttons["redeem.reconcile.check"].isEnabled, app.debugDescription)
+        XCTAssertFalse(app.buttons["redeem.reconcile.abandon"].exists, app.debugDescription)
+        diagnostics("reconcile-batch-notfound-retry-kept")
+        close()
+        XCTAssertTrue(element("redeem.pending.banner").exists, app.debugDescription)
+    }
+
     // MARK: - Helpers
 
     /// Signs in to “核对验收” with a password, or with a read-only access token.

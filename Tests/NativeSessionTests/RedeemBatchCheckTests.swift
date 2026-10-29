@@ -39,7 +39,6 @@ private func keyed(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFa
     var persistFails = false
     var resolveFails = false
     var isCurrent = true
-    var lastSentAt: Date?
     var sendResult: Result<WriteOutcome<[AdminRedeemCode]>, any Error> = .success(WriteOutcome(value: codes(), batchID: batchID))
     /// Replaces the scripted send (the same-address cases go through a real APIClient).
     var deliver: (@MainActor (PersistedMoneyWrite<PendingRedeemBatch>) async throws -> WriteOutcome<[AdminRedeemCode]>)?
@@ -48,7 +47,6 @@ private func keyed(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFa
     private(set) var resolved: [UUID] = []
     private(set) var holds: [UUID: Date] = [:]
     private(set) var fallbackSentAt: [Date?] = []
-    private(set) var sentAt: [UUID: Date] = [:]
 
     init(_ records: PendingRedeemBatch...) { self.records = Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0) }) }
 
@@ -81,8 +79,6 @@ private func keyed(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFa
                 resolved.append(record.id); records[record.id] = nil
             },
             hold: { [self] id, date in holds[id] = date },
-            noteSent: { [self] id, date in log.append("noteSent"); sentAt[id] = date },
-            lastSent: { [self] _ in lastSentAt },
             listChanged: { [self] in log.append("listChanged") },
             report: { _ in },
             isCurrent: { [self] in isCurrent },
@@ -116,7 +112,8 @@ private func keyed(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFa
 }
 
 @MainActor @Test func checkUsesTheFallbackOnAnOldServerOrWhenBatchIDIsIgnored() async {
-    let legacy = BatchHarness(pendingBatch()); legacy.legacy = true; legacy.lastSentAt = start.addingTimeInterval(400)
+    // The window reaches to the last send saved with the record, which outlives the App.
+    let legacy = BatchHarness(pendingBatch().with(lastSentAt: start.addingTimeInterval(400))); legacy.legacy = true
     legacy.fallbackResult = .success(.likelyGenerated(codes()))
     #expect(await legacy.check.check(batchID) == .probable(codes()))
     #expect(legacy.log == ["fallback"]); #expect(legacy.fallbackSentAt == [start.addingTimeInterval(400)]); #expect(legacy.resolved.isEmpty)
@@ -156,9 +153,8 @@ private func keyed(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFa
 @MainActor @Test func retryVerifiesABalanceBatchThenSavesBeforeSending() async {
     let harness = BatchHarness(pendingBatch())
     #expect(await harness.check.retry(batchID) == .succeeded(codes(), replayed: false))
-    #expect(harness.log == ["authorize", "persist", "noteSent", "send", "resolve", "listChanged"])
+    #expect(harness.log == ["authorize", "persist", "send", "resolve", "listChanged"])
     #expect(harness.gated == [.redeemGeneration(total: 20)]); #expect(harness.resolved == [batchID])
-    #expect(harness.sentAt[batchID] == start.addingTimeInterval(60))
 
     let concurrency = BatchHarness(pendingBatch(RedeemGenerateSpec(type: .concurrency, value: 2, count: 5)))
     _ = await concurrency.check.retry(batchID)

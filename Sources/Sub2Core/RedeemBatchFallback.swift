@@ -65,7 +65,7 @@ public enum RedeemBatchFallback {
 
 extension APIClient {
     /// Only reads, with the current identity, a record of this site or of an older login at its address (C-26). The window
-    /// follows the server clock; `sentAt` is the batch's last send in this run of the App.
+    /// follows the server clock; `sentAt` is the batch's last send (its saved `lastSentAt`).
     public func reconcileRedeemBatchFallback(_ batch: PendingRedeemBatch, sentAt: Date? = nil, sameAddress: Set<UUID>) async throws -> RedeemBatchFallbackOutcome {
         try MoneyRecordOrigin.check(recordServerID: batch.serverID, currentServerID: server.id, sameAddress: sameAddress)
         let page = try await redeemCodes(page: 1, query: RedeemBatchFallback.query(for: batch))

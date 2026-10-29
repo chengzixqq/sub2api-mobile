@@ -295,9 +295,21 @@ public struct PendingRedeemBatch: PendingMoneyWrite, Equatable {
     public let createdAt: Date
     public let idempotencyExpiresAt: Date?
     public let spec: RedeemGenerateSpec
+    /// When “用同一编号重试” last sent it: an old server's fallback window reaches to it (60 §11.4 末条). nil until a retry, and
+    /// then absent from files written before it.
+    public private(set) var lastSentAt: Date?
     public init(id: UUID = UUID(), serverID: UUID, actorUserID: Int?, createdAt: Date = Date(), idempotencyExpiresAt: Date? = nil, spec: RedeemGenerateSpec) {
         self.id = id; self.serverID = serverID; self.actorUserID = actorUserID; self.createdAt = createdAt
         self.idempotencyExpiresAt = idempotencyExpiresAt; self.spec = spec
+    }
+    public func with(lastSentAt: Date?) -> PendingRedeemBatch {
+        var copy = self
+        copy.lastSentAt = lastSentAt
+        return copy
+    }
+    /// This record over the saved copy of the same id: the last send only ever moves forward.
+    public func merging(stored: PendingRedeemBatch) -> PendingRedeemBatch {
+        with(lastSentAt: [lastSentAt, stored.lastSentAt].compactMap { $0 }.max())
     }
     public var count: Int { spec.count }
     public var total: Decimal? { spec.total }

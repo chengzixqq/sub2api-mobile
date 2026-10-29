@@ -254,3 +254,30 @@ private func pendingError(_ operation: () throws -> Void) -> PendingMoneyError? 
     #expect(try stamped.requestBody() == saved.requestBody())
     #expect(ledger.resendStamped(unsaved, at: at) == unsaved)
 }
+
+// MARK: S6-06: the last send of a retried redeem batch (60 §11.4 末条)
+
+/// An old server's fallback window reaches to the batch's last send, so the send is saved with the record (it outlives the
+/// App) and only moves forward, like a balance write's.
+@Test func redeemBatchLastSendIsSavedAndOnlyMovesForward() throws {
+    let scratch = Scratch(), files = scratch.files
+    defer { scratch.remove() }
+    let original = batch(), sent = Date(timeIntervalSince1970: 1_800_000_500), later = Date(timeIntervalSince1970: 1_800_000_900)
+    let ledger = try PendingMoneyLedger().remembering(original, in: files)
+    // A first send is not a resend.
+    #expect(ledger.resendStamped(batch(), at: sent).lastSentAt == nil)
+    let stamped = ledger.resendStamped(original, at: sent)
+    #expect(stamped.lastSentAt == sent); #expect(stamped.createdAt == original.createdAt); #expect(try stamped.requestBody() == original.requestBody())
+    let saved = try ledger.remembering(stamped, in: files)
+    #expect(PendingMoneyLedger.load(from: files).redeemBatches.first?.lastSentAt == sent)
+    #expect(try saved.remembering(original, in: files).redeemBatches.first?.lastSentAt == sent)
+    #expect(try saved.remembering(original.with(lastSentAt: later), in: files).redeemBatches.first?.lastSentAt == later)
+}
+
+@Test func redeemBatchFilesWithoutLastSendStillDecode() throws {
+    let plain = try JSONEncoder().encode([batch()])
+    #expect(!String(decoding: plain, as: UTF8.self).contains("lastSentAt"))
+    #expect(try JSONDecoder().decode([PendingRedeemBatch].self, from: plain).first?.lastSentAt == nil)
+    let retried = batch().with(lastSentAt: Date(timeIntervalSince1970: 1_800_000_500))
+    #expect(try JSONDecoder().decode(PendingRedeemBatch.self, from: JSONEncoder().encode(retried)) == retried)
+}
