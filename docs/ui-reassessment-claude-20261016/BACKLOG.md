@@ -257,6 +257,9 @@
 | 夹具 #35 与 24h“最近结束”的时段依赖 | S1-06 让 FixtureAlertBook 按 time_range 过滤（fired_at ∈ [base − 24h, base)，base 为会话开始时的服务器时间）。S1D1-11 冻结的 #35 在“昨天 21:52”（Asia/Shanghai）触发，所以服务器时间 21:52 以后开始的会话，24h 列表里没有 #35（它是唯一的 manual_resolved）。S1-16 的 MonitorUITests（最近结束两区与 meta）以及 base 取当前时间的单测（如 defaultFixtureHasEndedEvents）如果依赖 #35，会在每天 21:52–24:00 固定失败。请 S1-16 或编排者三选一：改 #35 为相对 base 的时间（要改 S1D1-11）；给 UI 测试加固定夹具时钟的启动参数；或让断言不依赖 #35。 |
 | 首页轮询重启后第一拍被跳过（残余） | LiveOpsStore.pollHomeBlocks 第一拍遇到 isHomeLoading 为真时跳过，并按 nextHomeDelay 等 60 秒。一次被取消的在途读取也算在途：LoadState 的 onCancel 只取消内层 Task，状态要等退栈后才回到 idle；退路的 fallbackCycle 和今日 SLA 的 todayOps.isLoading 也一样。S1-09 审查修正已经去掉概览 task 的多余重启（合规确认、foregroundRevision），只剩一种情况：在途读取期间可见性极短地抖动（Tab 切走马上切回、控制中心一拉一放），首页仍可能晚一个周期刷新。要彻底修，需要让 LoadState 识别“已被取消的在途读取”（task.isCancelled），并同时覆盖退路轮次和今日 SLA。 |
 | 概览「测试」关闭即刷新与后台测试 | S1-10 在「测试」sheet 关闭（或被替换）时对首页 nocache 刷新一次；S2-14 / S2-23 如果让测试在后台继续，测试结束时要再调 model.liveOps?.noteExternalWrite()，否则拿不到自动恢复后的状态（S1D1-28 已移交 S2-23） |
+| 平静布局的滞后规则 | 过载或限流在相邻两次轮询之间反复变化时，概览会在常规和平静之间来回切换。规格没有滞后要求，S1-11 未加；如果实际使用中感到闪烁，可以加“连续 N 次满足才进入平静”。 |
+| 平静布局排行失败时是否保留旧值 | S1-11 按 10 §2.6 处理：排行刷新失败就隐藏“按账号”区，直到下一次成功，代价是瞬时失败时该区会消失一个轮询周期。若更希望按 00 §0.5 保留旧值，只需改 HomePresentation.calmRanking 一处。 |
+| 待核对文件读不出时不阻止平静布局 | pendingPersistenceAvailable == false 时记录列表为空，概览仍可能进入平静布局。资金写入口由 moneyWriteGate 的 unavailable 拦截，设置页有暂停提示。若要保守处理（读不出就不平静），再改 HomeView 的 isCalm 入参。 |
 
 ### App 与设计 · 阶段 2
 
