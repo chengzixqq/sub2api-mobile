@@ -21,6 +21,8 @@ actor StubLiveOpsSource: LiveOpsSource {
         case accounts(page: Int, pageSize: Int)
         // S1-08
         case setOpsMonitoring(Bool), enableOpsLegacy
+        // S1-13
+        case snapshot(start: Date, end: Date)
     }
     struct Handlers: Sendable {
         var home: (@Sendable (_ noCache: Bool) async throws -> DashboardHome)?
@@ -47,6 +49,7 @@ actor StubLiveOpsSource: LiveOpsSource {
         var accounts: (@Sendable (Int, AccountListQuery) async throws -> AccountListPage)?
         var setOpsMonitoring: (@Sendable (Bool) async throws -> OpsMonitoringStatus)?
         var enableOpsLegacy: (@Sendable () async throws -> Void)?
+        var snapshot: (@Sendable (_ start: Date, _ end: Date) async throws -> OpsSnapshotV2)?
     }
     private var handlers: Handlers
     private(set) var calls: [Call] = []
@@ -182,6 +185,11 @@ actor StubLiveOpsSource: LiveOpsSource {
         calls.append(.enableOpsLegacy)
         guard let handler = handlers.enableOpsLegacy else { throw StubMissing() }
         try await handler()
+    }
+    func opsSnapshotV2(start: Date, end: Date) async throws -> OpsSnapshotV2 {
+        calls.append(.snapshot(start: start, end: end))
+        guard let handler = handlers.snapshot else { throw StubMissing() }
+        return try await handler(start, end)
     }
 }
 

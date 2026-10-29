@@ -64,6 +64,8 @@ final class LiveOpsStore {
     let alertActions: AlertActions
     /// AppModel's center, for the ops switch's receipts (S1-08).
     let receipts: ReceiptCenter
+    /// 监控 Tab（S1-13）: the segment chosen this session and the overview's blocks (LiveOpsStore+Monitor.swift).
+    let monitor = MonitorState()
 
     init(generation: UUID, source: any LiveOpsSource, site: @escaping @MainActor () -> SiteSession?, isCurrent: @escaping @MainActor () -> Bool,
          errorBadge: @escaping @MainActor () -> AccountErrorBadge? = { nil }, serverNow: @escaping @Sendable () -> Date,

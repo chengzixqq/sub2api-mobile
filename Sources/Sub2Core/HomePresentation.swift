@@ -176,7 +176,19 @@ public enum HomePresentation {
         let day = serverTimeZone.calendar.dateComponents([.month, .day, .weekday], from: now)
         let weekday = day.weekday.flatMap { weekdays.indices.contains($0 - 1) ? weekdays[$0 - 1] : nil } ?? ""
         let suffix = serverTimeZone.overviewSuffix(device: deviceTimeZone, at: now).map { " " + $0 } ?? ""
-        return "\(day.month ?? 0)月\(day.day ?? 0)日 \(weekday) · " + refreshText(status, now: now, timeZone: serverTimeZone.timeZone) + suffix
+        return "\(day.month ?? 0)月\(day.day ?? 0)日 \(weekday) · " + refreshPhrase(status, now: now, timeZone: serverTimeZone.timeZone) + suffix
+    }
+
+    /// The subtitle's freshness, shared with the monitor tab (S1-13): "正在加载…", "刚刚更新" and "N 分钟前更新" take “更新”
+    /// directly; a clock time (an hour or more, 00 §6.2) reads "更新于 今天 08:00".
+    public static func refreshPhrase(_ status: HomeRefreshStatus, now: Date, timeZone: TimeZone) -> String {
+        switch status {
+        case .loading: return "正在加载…"
+        case .partial: return "部分数据未更新"
+        case .updated(let at):
+            let relative = DisplayFormat.relativeTime(at, now: now, timeZone: timeZone)
+            return relative.last?.isNumber == true ? "更新于 " + relative : relative + "更新"
+        }
     }
 
     /// 10 §1.3.4 three cells and the usage row. `todaySLA` is nil with monitoring off: "—", never 0 or 100%.
@@ -219,17 +231,6 @@ public enum HomePresentation {
 
     /// Gregorian `weekday` − 1.
     private static let weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-
-    /// "刚刚" and "N 分钟前" take “更新” directly; a clock time (an hour or more, 00 §6.2) reads "更新于 今天 08:00".
-    private static func refreshText(_ status: HomeRefreshStatus, now: Date, timeZone: TimeZone) -> String {
-        switch status {
-        case .loading: return "正在加载…"
-        case .partial: return "部分数据未更新"
-        case .updated(let at):
-            let relative = DisplayFormat.relativeTime(at, now: now, timeZone: timeZone)
-            return relative.last?.isNumber == true ? "更新于 " + relative : relative + "更新"
-        }
-    }
 
     /// The value of a block whose last read succeeded.
     private static func current<Value: Sendable>(_ state: BlockState<Value>) -> Value? {
