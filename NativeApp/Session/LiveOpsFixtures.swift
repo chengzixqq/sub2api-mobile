@@ -93,6 +93,12 @@ enum LiveOpsFixtures {
         // S1-11: `calmErrorAppeared` is set by FixtureLiveOpsSource, never by an argument.
         var calmThenError = false
         var calmErrorAppeared = false
+        // S1-12 (LiveOpsFixtures+AlertDetail.swift): these go with any variant; `alertDetailTurnedOpsOff` is set by
+        // FixtureLiveOpsSource, never by an argument.
+        var alertGone = false
+        var alertDetailOpsOff = false
+        var alertDetailTurnedOpsOff = false
+        var withholdsAlertDetails = false
         var opsDisabled: Bool { ops != .on }
         init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
@@ -116,6 +122,9 @@ enum LiveOpsFixtures {
             alertsOverflow = arguments.contains(Argument.alertsOverflow)
             testRecovers = arguments.contains(Argument.testRecovers)
             calmThenError = arguments.contains(Argument.calmThenError)
+            alertGone = arguments.contains(Argument.alertGone)
+            alertDetailOpsOff = arguments.contains(Argument.alertDetailOpsDisabled)
+            withholdsAlertDetails = UITestArguments.withheldCapabilities(arguments: arguments).contains(Capability.opsAlertEventDetails.rawValue)
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -325,7 +334,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         if options.homeLegacy { throw APIError.server(status: 404, envelope: nil) }
         if options.testRecovers, noCache { options.errorAccountRecovered = true }
         if options.calmThenError, noCache, homeCalls > 1 { options.calmErrorAppeared = true }
-        return LiveOpsFixtures.home(options, base: base, events: book.events)
+        return LiveOpsFixtures.home(options, base: base, events: book.events.map { LiveOpsFixtures.served($0, options) })
     }
     func dashboardRates(window: LiveRatesWindow) -> LiveRates { LiveOpsFixtures.rates(base: base, opsDisabled: options.opsDisabled) }
     func opsOverview(start: Date, end: Date) throws -> OpsOverview {
@@ -345,8 +354,10 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     func accountsRanking(limit: Int, timezone: ServerTimeZone) -> [AccountsRankingItem] {
         Array(LiveOpsFixtures.ranking(options.variant).prefix(max(0, limit)))
     }
-    /// The home summary (the error variant's read succeeds here); platform and group are not filtered.
+    /// The home summary (the error variant's read succeeds here); platform is not filtered. A group's read (S1-12) holds only that
+    /// group.
     func accountStatusSummary(platform: String?, groupID: Int?, includeAccounts: Bool) -> AccountStatusSummary {
+        if let groupID { return LiveOpsFixtures.groupStatusSummary(groupID: groupID, base: base) }
         let summary = LiveOpsFixtures.availability(options.variant == .availabilityError ? .allOK : options.variant, base: base)
         return includeAccounts ? summary : AccountStatusSummary(collectedAt: summary.collectedAt, totals: summary.totals, groups: summary.groups)
     }
@@ -354,14 +365,22 @@ actor FixtureLiveOpsSource: LiveOpsSource {
                      platform: String?) throws -> [AlertEvent] {
         try requireOps()
         return book.events(status: status, timeRange: timeRange, limit: limit, before: before, groupID: groupID, platform: platform, now: base)
+            .map { LiveOpsFixtures.served($0, options) }
     }
     func alertEventCounts() throws -> AlertCounts {
         try requireOps()
         return AlertCounts.counting(events)
     }
+    /// S1-12: `-ui-alert-gone` answers 404 for every id; `-ui-alert-detail-ops-disabled` finds ops monitoring just turned off.
     func alertEvent(id: Int) throws -> AlertEvent {
         try requireOps()
-        return try book.event(id: id)
+        if options.alertGone { throw LiveOpsFixtures.alertGoneError }
+        if options.alertDetailOpsOff, !options.alertDetailTurnedOpsOff {
+            options.alertDetailTurnedOpsOff = true
+            options.ops = .settingOff
+            throw LiveOpsFixtures.opsDisabledError
+        }
+        return LiveOpsFixtures.served(try book.event(id: id), options)
     }
     func alertRules() throws -> [AlertEventRule] {
         try requireOps()

@@ -538,8 +538,7 @@ final class HomeUITests: XCTestCase {
         assertPushedAway(from: groups)
     }
 
-    /// 10 §1.3.3, §6.7: an alert row is AlertRow with the level as its badge and opens the alert (S0-14's placeholder; S1-12
-    /// changes only this assertion).
+    /// 10 §1.3.3, §6.7: an alert row is AlertRow with the level as its badge and opens the alert's detail (S1-12).
     @MainActor func testHomeAlertRowOpensAlertRoute() {
         launchAndLogin()
         defer { diagnostics("home-attention-alert-final") }
@@ -549,8 +548,8 @@ final class HomeUITests: XCTestCase {
         XCTAssertFalse(first.label.contains("已静默"), first.label)
         XCTAssertTrue(second.label.contains("P2") && second.label.contains("已静默"), second.label)
         first.tap()
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.navigationBars["告警详情"].exists, app.debugDescription)
+        XCTAssertTrue(element("alert.detail").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["告警"].exists || app.navigationBars.staticTexts["告警"].exists, app.debugDescription)
         XCTAssertTrue(app.tabBars.buttons["概览"].isSelected)
     }
 

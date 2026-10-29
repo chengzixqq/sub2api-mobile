@@ -7,7 +7,7 @@ struct TodayRouteDestination: View {
     var body: some View {
         switch route {
         // .alert：S1-12
-        case .alert: ComingSoonView(title: route.placeholderTitle)
+        case .alert(let id): AlertDetailView(id: id)
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }
