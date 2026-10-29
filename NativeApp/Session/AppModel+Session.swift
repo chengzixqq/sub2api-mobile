@@ -67,6 +67,7 @@ extension AppModel {
         if profileArchive[profile.id] == nil {
             siteFlags.remove(serverID: profile.id, handingOverTo: MoneyRecordOrigin.sameAddressIDs(of: profile, among: profiles + Array(profileArchive.values)))
         }
+        analyticsMemory.removeAll(serverID: profile.id)
         do { try await credentials.remove(serverID: profile.id) } catch { report(error) }
         let result = await teardown(ended, of: profile, mode: .removeSite, pushDeviceIDs: pushIDs)
         switch SiteRemovalNotice.after(removingCurrent: isActive, hasReceiptHost: activeProfile != nil, notes: result?.notes ?? []) {
