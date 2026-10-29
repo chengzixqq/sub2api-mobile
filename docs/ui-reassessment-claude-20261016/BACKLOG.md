@@ -309,6 +309,10 @@
 | 多协议账号切换账号类型 / API 协议时联动接入端点 | 规格只写改 account_mode / api_protocol；App 照 Web EditAccountModal，在端点为官方预设或缺省时一并改写 base_url / api_base_urls / protocol_rules；自定义端点时两行只读并加脚注“这个账号用的是自定义接入端点，账号类型和 API 协议请在 Web 中修改。”（新文案，待用户看效果图；S2-12） |
 | MetaCatalog 补解码 multi_protocol.routing | S2-12 用“任一模式有 protocol_rules”判断按模型分流（与当前目录一致：opencode_go、command_code）；将来出现没有规则的 by_model 平台会误判，影响未设置 api_protocol 时显示“Chat Completions”还是“自适应”，建议由 S2-02 的目录解码补上 routing |
 | 高级分区：倍率同步开启时探测行的提示 | 账号开着“按上游声明倍率同步账号计费倍率”时，关闭“自动探测上游声明倍率”会让后端连同步一起关掉（撤销可以恢复）。规格的副文案“只探测，不改账号计费倍率”没有提到这一点。是否在同步开启时给探测行加一句提示（例如“关闭后倍率同步也会关闭”），等用户定。 |
+| 中断回执是否带账号名 | 20 §4.4 的回执“测试被中断，不能判定是否成功”照抄规格，不带账号名；多个账号同时在后台测试时分不清是哪个被中断（点“重新测试”针对的是该任务的账号）。是否改为“「{name}」测试被中断，不能判定是否成功”待定（S2-14） |
+| ACCOUNT_TEST_BUSY 的按钮倒计时文案 | 后端对 ACCOUNT_TEST_BUSY 不写 Retry-After，按 00 §2.7.2 默认 30 秒；按钮文案“N 秒后重新测试”和置灰到点为止的做法是 S2-14 定的，规格没给，待设计确认 |
+| AccountDetailUITests.testBasicAndScheduleSectionsShowReadOnlyValues 不稳定 | 用例用字典遍历 6 个调度行，Swift 字典顺序每次进程随机，而 reveal 只向下滚，靠上的行排到后面时滚不回去，失败在第 325 行；集成 gate 0fc3f65 记为 FLAKY，S2-14 check 中两次都失败，单独重跑通过。应改为有序的数组遍历（测试文件归 S2-10，S2-14 未改） |
+| items.json 补登记 S2-14 的文件外改动 | S2-14 新建了 NativeApp/Session/DemoData+AccountTests.swift（DemoData+Accounts.swift 已有 703 行，放不下），并在 Package.swift 的 NativeSessionSupport exclude 阶段 2 段加了一行；这两个文件都不在条目 files 里，请补进 items.json 并重跑 build.py |
 
 ### App 与设计 · 阶段 3
 
@@ -429,3 +433,4 @@
 | 兑换码禁用 / 启用的撤销回执 | 60 §8.4 没写撤销成功或失败时的回执。现在的做法：撤销成功不出回执，徽章自己会变；失败沿用禁用 / 启用的错误表（409 刷新该卡，超时读回一次）。请用户确认。 |
 | 后端 GET /admin/redeem-codes/:id 不带 user / group | 写操作后单卡刷新拿不到使用者和分组对象，App 现在用 keepingRelations 保留旧卡的 user / group。建议后端 GetByID 加上 WithUser / WithGroup。 |
 | 兑换码编辑 sheet：当前分组已停用或不是订阅分组 | 当前分组不在可选项里时，仍作为已选胶囊显示并标“（已停用）”，不改选就不发 group_id。请用户确认这个显示方式。 |
+| 兑换码编辑：已过期且无过期时间的“保持”文案 | Web 端“使过期”只改 status，会留下 expires_at 为空的已过期码。规格 60 §9.3 写的是“有原过期时间时才有保持”，没有覆盖这种码。App 暂时给它“保持（已过期）”并设为初值，避免一打开就续期成永不过期。文案和做法请用户确认。 |
