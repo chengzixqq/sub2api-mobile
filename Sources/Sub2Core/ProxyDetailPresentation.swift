@@ -36,10 +36,12 @@ public enum ProxyDetailCopy {
 public enum ProxyStatusToggle: Sendable, Equatable {
     case disable, enable, renew
 
-    public init(_ proxy: AdminProxy) {
+    /// `now` is the server's clock. The sweep marks only active proxies, so one stopped before its day came is still “inactive”;
+    /// enabled as it is, the next sweep would move its accounts off (60 §14.4 wants a new expiry first), so it is renewed too.
+    public init(_ proxy: AdminProxy, now: Date) {
         switch proxy.status ?? "active" {
         case "expired": self = .renew
-        case "inactive": self = .enable
+        case "inactive": self = proxy.expiresAt.map { $0 <= now } == true ? .renew : .enable
         default: self = .disable
         }
     }

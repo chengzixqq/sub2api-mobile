@@ -217,7 +217,7 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
 @MainActor @Test func proxyDetailToggleStatusUndoAndReadBack() async throws {
     let stub = StubDetailSource()
     let model = makeModel(stub)
-    await model.toggleStatus()
+    await model.toggleStatus(now: checked)
     #expect(await stub.updates == [ProxyUpdateRequest(status: .inactive)])
     #expect(model.proxy == withStatus("inactive"))
     #expect(model.proxy?.accountCount == 3 && model.proxy?.latencyMs == 182 && model.proxy?.qualityScore == 80)
@@ -233,7 +233,7 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
         return reply(status: request.status)
     })
     let failing = makeModel(undoFails)
-    await failing.toggleStatus()
+    await failing.toggleStatus(now: checked)
     let undo = try #require(failing.receipts.current)
     failing.receipts.performAction(id: undo.id)
     #expect(await eventually { await MainActor.run { failing.receipts.current?.text.hasPrefix("撤销没有成功：") == true } })
@@ -242,31 +242,31 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     // A lost reply is read back: applied, not applied, unknown.
     let landed = StubDetailSource(proxy: { _, _ in withStatus("inactive") }, update: { _, _ in throw lost })
     let applied = makeModel(landed)
-    await applied.toggleStatus()
+    await applied.toggleStatus(now: checked)
     #expect(applied.proxy?.status == "inactive" && applied.receipts.current?.text == "已停用 hk-02 · 在用的 3 个账号不受影响")
     #expect(await landed.updates.count == 1)
     let missed = makeModel(StubDetailSource(proxy: { _, _ in hk02 }, update: { _, _ in throw lost }))
-    await missed.toggleStatus()
+    await missed.toggleStatus(now: checked)
     #expect(missed.proxy?.status == "active" && missed.receipts.current?.text == "停用没有成功：" + lost.localizedDescription)
     let unknown = makeModel(StubDetailSource(proxy: { _, _ in throw lost }, update: { _, _ in throw lost }))
-    await unknown.toggleStatus()
+    await unknown.toggleStatus(now: checked)
     #expect(unknown.receipts.current?.text == "结果未确认，请刷新核对后再操作" && unknown.receipts.current?.tone == .caution)
 
     let readOnly = APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY")
     let refused = makeModel(StubDetailSource(update: { _, _ in throw readOnly }))
-    await refused.toggleStatus()
+    await refused.toggleStatus(now: checked)
     #expect(refused.receipts.current?.text == "停用没有成功：" + readOnly.localizedDescription && refused.proxy == hk02)
 
     let inactive = withStatus("inactive")
     let enabling = StubDetailSource()
     let enable = makeModel(enabling, seed: inactive)
-    await enable.toggleStatus()
+    await enable.toggleStatus(now: checked)
     #expect(await enabling.updates == [ProxyUpdateRequest(status: .active)])
     #expect(enable.receipts.current?.text == "已启用 hk-02")
 
     let expired = StubDetailSource()
     let renew = makeModel(expired, seed: withStatus("expired"))
-    await renew.toggleStatus()
+    await renew.toggleStatus(now: checked)
     #expect(await expired.updates.isEmpty)
 }
 
@@ -325,7 +325,7 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     flag.value = false
     await stale.test()
     await stale.load()
-    await stale.toggleStatus()
+    await stale.toggleStatus(now: checked)
     #expect(await ended.testCalls == 0)
     #expect(await ended.proxyCalls.isEmpty)
     #expect(await ended.updates.isEmpty)
@@ -352,4 +352,38 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(note.name == .proxyAddressDidChange && ProxyAddressSignal.change(in: note) == change)
     #expect(ProxyAddressSignal.change(in: Notification(name: .proxyAddressDidChange)) == nil)
     #expect(ProxyAddressSignal.change(in: Notification(name: .proxyAddressDidChange, userInfo: ["proxyID": 3])) == nil)
+}
+
+/// H02: an older server's `GET :id` has no counts and the list search found none; the shown counts stay, here and in the
+/// catalog, and so do they after a lost PUT read back from it.
+@MainActor @Test func proxyDetailCountlessReadKeepsShownCounts() async throws {
+    let countless = AdminProxy(id: 1, name: "hk-02", scheme: "socks5", host: "203.0.113.24", port: 1080, username: "relay", password: "fixture-pass",
+                               status: "inactive", fallbackMode: "proxy", backupProxyID: 2, expiryWarnDays: 7)
+    let stub = StubDetailSource(rows: [hk02, sg01], proxy: { id, _ in id == 1 ? countless : try stored(id) })
+    let store = await loadedStore(stub)
+    let model = makeModel(stub, store: store)
+    await model.load()
+    #expect(model.proxy?.status == "inactive" && model.proxy?.accountCount == 3 && model.proxy?.hasAccountCountKey == true)
+    #expect(store.proxy(id: 1)?.accountCount == 3)
+    #expect(ProxyDeleteBlock.before(try #require(model.proxy)) == .inUse(name: "hk-02", accounts: 3))
+
+    let lostReply = StubDetailSource(proxy: { _, _ in countless }, update: { _, _ in throw lost })
+    guard case .applied(let row) = await ProxyStatusWrite(id: 1, source: lostReply, isCurrent: { true }).send(.inactive, onto: hk02) else {
+        Issue.record("the read back should count as applied")
+        return
+    }
+    #expect(row.status == "inactive" && row.accountCount == 3)
+}
+
+/// The sweep only marks active proxies: one stopped before its day came is still “inactive” and goes to 续期, never enabled.
+@MainActor @Test func proxyDetailStoppedPastItsDayIsNotEnabled() async {
+    let lapsed = AdminProxy(id: 1, name: "hk-02", status: "inactive", expiresAt: checked.addingTimeInterval(-86_400), accountCount: 3,
+                            hasAccountCountKey: true)
+    let stub = StubDetailSource()
+    let model = makeModel(stub, seed: lapsed)
+    await model.toggleStatus(now: checked)
+    #expect(await stub.updates.isEmpty && model.receipts.current == nil && !model.isUpdatingStatus)
+    let open = makeModel(stub, seed: withStatus("inactive"))
+    await open.toggleStatus(now: checked)
+    #expect(await stub.updates == [ProxyUpdateRequest(status: .active)])
 }

@@ -296,6 +296,7 @@ final class ProxiesUITests: XCTestCase {
     enum DetailArgument {
         static let notFound = "-ui-proxy-not-found"
         static let accountsError = "-ui-proxy-accounts-error"
+        static let accountsErrorOnce = "-ui-proxy-accounts-error-once"
         static let qualityError = "-ui-proxy-quality-error"
         static let deleteConflict = "-ui-proxy-delete-conflict"
         static let slowDetail = "-ui-proxy-slow-detail"
@@ -639,4 +640,19 @@ final class ProxiesUITests: XCTestCase {
         XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: item)], timeout: timeout) == .completed
     }
     @MainActor func goBack() { app.navigationBars.buttons.element(boundBy: 0).tap() }
+
+    // MARK: - S6-12 审查修正
+
+    /// 00 §4.6 (D18): back in the foreground the detail reads its proxy and accounts again; 贰's first read had failed.
+    @MainActor func testForegroundReadsDetailAgain() {
+        openDetail(1, title: "hk-02", arguments: [DetailArgument.accountsErrorOnce])
+        defer { diagnostics("proxy-detail-foreground-final") }
+        let retry = app.buttons["proxy.accounts.retry"]
+        reveal(retry)
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.buttons["proxy.account.1"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertFalse(retry.exists, app.debugDescription)
+        XCTAssertTrue(app.navigationBars["hk-02"].exists, app.debugDescription)
+    }
 }

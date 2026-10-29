@@ -3,8 +3,9 @@ import Sub2Core
 
 /// 60 §13: one proxy. The name with “SOCKS5 · host:port” and ··· on top; the status card with the latency block and the three
 /// facts, the button row (hidden for who may not write), then 壹 有效期, 贰 使用该 IP 的账号 and 叁 连接. Pushed from the list
-/// (its row shows at once), from an account's proxy row or from search (only an id: the card's placeholder first). Reads on entry
-/// and on pull, never polls; an address edit (H04) reads once more 5 seconds later. ProxyDetailModel decides what to send.
+/// (its row shows at once), from an account's proxy row or from search (only an id: the card's placeholder first). Reads on entry,
+/// on pull and back in the foreground, never polls; an address edit (H04) reads once more 5 seconds later. ProxyDetailModel
+/// decides what to send.
 struct ProxyDetailView: View {
     let id: Int
     @Environment(AppModel.self) private var model
@@ -43,6 +44,8 @@ struct ProxyDetailView: View {
                 }
             }
             .task(id: session?.generation) { await appeared() }
+            // 00 §4.6 (D18): back in the foreground the proxy and its accounts are read again, as a pull would.
+            .onChange(of: model.foregroundRevision) { _, _ in Task { await detail?.load() } }
             .onReceive(NotificationCenter.default.publisher(for: .proxyAddressDidChange)) { addressChanged($0) }
             .onChange(of: model.proxyStore?.proxy(id: id)) { _, row in detail?.adopt(row) }
             .onChange(of: deleteRequest == nil) { _, closed in confirmationClosed(closed) }
@@ -133,7 +136,7 @@ struct ProxyDetailView: View {
 
     /// 13.4: titled with the name and the address; 编辑代理, 复制代理 URL, 质量检测, 停用 / 启用 / 续期…, then 删除代理… in red.
     private func moreMenu(_ proxy: AdminProxy, detail: ProxyDetailModel) -> some View {
-        let toggle = ProxyStatusToggle(proxy)
+        let toggle = ProxyStatusToggle(proxy, now: clock)
         let url = ProxyPresentation.copyURL(proxy)
         return Menu {
             Section(ProxyPresentation.displayName(proxy)) {
@@ -161,7 +164,7 @@ struct ProxyDetailView: View {
 
     private func perform(_ toggle: ProxyStatusToggle, detail: ProxyDetailModel) {
         guard toggle != .renew else { return router.present(.proxyEdit(id: id)) }
-        Task { await detail.toggleStatus() }
+        Task { await detail.toggleStatus(now: clock) }
     }
     /// 60 §0.4: this phone only and gone after 120 seconds; the URL carries the password, so it is never shown or logged.
     private func copy(_ url: String?) {

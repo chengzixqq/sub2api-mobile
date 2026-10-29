@@ -26,17 +26,17 @@ struct ProxyStatusWrite: Sendable {
             guard isCurrent() else { return .ignored }
             switch ProxyDetailFailure.classify(error) {
             case .cancelled: return .ignored
-            case .unconfirmed: return await readBack(status, after: error)
+            case .unconfirmed: return await readBack(status, after: error, onto: base)
             case let failure: return .failed(failure, fresh: nil)
             }
         }
     }
 
     /// 00 §2.4: landed when the status reads the target; another status means it did not, in the transport's words; an
-    /// unreadable proxy stays unknown.
-    @MainActor private func readBack(_ status: ProxyStatusChange, after error: any Error) async -> Outcome {
+    /// unreadable proxy stays unknown. An older server's read without counts keeps `base`'s (H02).
+    @MainActor private func readBack(_ status: ProxyStatusChange, after error: any Error, onto base: AdminProxy?) async -> Outcome {
         do {
-            let fresh = try await source.proxy(id: id)
+            let fresh = try await source.proxy(id: id).keepingCounts(of: base)
             guard isCurrent() else { return .ignored }
             return fresh.status == status.rawValue ? .applied(fresh) : .failed(.rejected(error.localizedDescription), fresh: fresh)
         } catch {

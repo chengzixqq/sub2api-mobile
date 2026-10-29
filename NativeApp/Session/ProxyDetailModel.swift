@@ -214,10 +214,11 @@ final class ProxyDetailModel {
 
     // MARK: - 停用 / 启用
 
-    /// Straight away, with 撤销 (60 §0.4). An expired proxy is renewed in the editor instead, so nothing is sent for it.
-    func toggleStatus() async {
+    /// Straight away, with 撤销 (60 §0.4). An expired proxy, or a stopped one past its day (`serverNow` is the server's clock),
+    /// is renewed in the editor instead, so nothing is sent for it.
+    func toggleStatus(now serverNow: Date) async {
         guard let shown = proxy, !isBusy, isCurrent() else { return }
-        let toggle = ProxyStatusToggle(shown)
+        let toggle = ProxyStatusToggle(shown, now: serverNow)
         guard let target = toggle.target, let back = toggle.undoTarget else { return }
         isUpdatingStatus = true
         let outcome = await ProxyStatusWrite(id: id, source: source, isCurrent: isCurrent).send(target, onto: shown)
@@ -330,11 +331,13 @@ final class ProxyDetailModel {
 
     // MARK: - Helpers
 
-    /// What the server holds now: drops a read still running and writes the row back to the catalog.
-    private func show(_ proxy: AdminProxy) {
+    /// What the server holds now: drops a read still running and writes the row back to the catalog. An older server's read
+    /// without counts keeps the ones shown (H02).
+    private func show(_ fresh: AdminProxy) {
+        let row = fresh.keepingCounts(of: proxy ?? store?.proxy(id: id))
         detailTicket = UUID()
-        detail = .loaded(proxy, at: now())
-        store?.replace(proxy)
+        detail = .loaded(row, at: now())
+        store?.replace(row)
     }
     private func markGone() {
         detailTicket = UUID()

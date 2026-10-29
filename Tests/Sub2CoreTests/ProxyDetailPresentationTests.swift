@@ -72,10 +72,15 @@ private func values(_ rows: [ProxyKV]) -> [String: String] {
 }
 
 @Test func proxyDetailStatusToggleAndReceipts() {
-    #expect(ProxyStatusToggle(proxy(status: "active")) == .disable)
-    #expect(ProxyStatusToggle(proxy(status: nil)) == .disable)
-    #expect(ProxyStatusToggle(proxy(status: "inactive")) == .enable)
-    #expect(ProxyStatusToggle(proxy(status: "expired")) == .renew)
+    #expect(ProxyStatusToggle(proxy(status: "active"), now: noon) == .disable)
+    #expect(ProxyStatusToggle(proxy(status: nil), now: noon) == .disable)
+    #expect(ProxyStatusToggle(proxy(status: "inactive"), now: noon) == .enable)
+    #expect(ProxyStatusToggle(proxy(status: "expired"), now: noon) == .renew)
+    // Stopped before its day came: the sweep only marks active proxies, so it is still “inactive” and is renewed, not enabled.
+    #expect(ProxyStatusToggle(proxy(status: "inactive", expires: "2026-10-13T00:00:00+08:00"), now: noon) == .renew)
+    #expect(ProxyStatusToggle(proxy(status: "inactive", expires: "2026-10-16T12:00:00+08:00"), now: noon) == .renew)
+    #expect(ProxyStatusToggle(proxy(status: "inactive", expires: "2026-10-16T12:00:01+08:00"), now: noon) == .enable)
+    #expect(ProxyStatusToggle(proxy(status: "active", expires: "2026-10-13T00:00:00+08:00"), now: noon) == .disable)
     #expect([ProxyStatusToggle.disable, .enable, .renew].map(\.menuTitle) == ["停用代理", "启用代理", "续期…"])
     #expect(ProxyStatusToggle.disable.target == .inactive && ProxyStatusToggle.disable.undoTarget == .active)
     #expect(ProxyStatusToggle.enable.target == .active && ProxyStatusToggle.enable.undoTarget == .inactive)
@@ -139,4 +144,20 @@ private func values(_ rows: [ProxyKV]) -> [String: String] {
     #expect(ProxyDetailFailure.classify(CancellationError()) == .cancelled)
     let readOnly = APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY")
     #expect(ProxyDetailFailure.classify(readOnly) == .rejected(readOnly.localizedDescription))
+}
+
+/// H02: an older server's `GET :id` has no `account_count`; the counts the row was shown with stay.
+@Test func proxyDetailKeepsShownCountsOverACountlessRead() {
+    let shown = proxy(accounts: 3, moved: 2)
+    let countless = AdminProxy(id: 1, name: "hk-02", scheme: "socks5", host: "203.0.113.24", port: 1080, status: "inactive", latencyMs: 90,
+                               latencyStatus: "success", qualityScore: 70, qualityGrade: "C")
+    let kept = countless.keepingCounts(of: shown)
+    #expect(kept.accountCount == 3 && kept.hasAccountCountKey && kept.fallbackAccountCount == 2)
+    #expect(kept.status == "inactive" && kept.latencyMs == 90 && kept.qualityScore == 70 && kept.qualityGrade == "C")
+    #expect(countless.keepingCounts(of: nil) == countless)
+    #expect(countless.keepingCounts(of: proxy(id: 2)) == countless)
+    #expect(countless.keepingCounts(of: proxy(accounts: nil, moved: nil)) == countless)
+    // A read with the key is the server's count, 0 included.
+    let counted = proxy(accounts: 0, moved: 0)
+    #expect(counted.keepingCounts(of: shown) == counted)
 }

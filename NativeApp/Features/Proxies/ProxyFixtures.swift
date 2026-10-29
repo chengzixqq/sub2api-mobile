@@ -117,6 +117,8 @@ actor FixtureProxySource: ProxySource {
     private let now: @Sendable () -> Date
     private var secondPageFailed = false
     private var throttleServed = false
+    /// S6-12: `-ui-proxy-accounts-error-once` failed its first `:id/accounts` read.
+    private var accountsFailureServed = false
 
     init(proxies: [AdminProxy], options: DemoData.ProxyFixtureOptions, now: @escaping @Sendable () -> Date = { Date() }) {
         rows = proxies; self.options = options; self.now = now
@@ -168,6 +170,8 @@ extension DemoData {
         /// Every `GET :id` answers 404 PROXY_NOT_FOUND.
         static let notFoundArgument = "-ui-proxy-not-found"
         static let accountsErrorArgument = "-ui-proxy-accounts-error"
+        /// Only the session's first `GET :id/accounts` fails with 502.
+        static let accountsErrorOnceArgument = "-ui-proxy-accounts-error-once"
         /// 质量检测 answers with the base probe failed (78, B).
         static let qualityErrorArgument = "-ui-proxy-quality-error"
         /// The first delete of a proxy nothing uses answers 409 PROXY_IN_USE without metadata: an account took it meanwhile.
@@ -176,11 +180,12 @@ extension DemoData {
         static let slowDetailArgument = "-ui-proxy-slow-detail"
         static let slowDelay: Duration = .seconds(2)
         static let qualityDelay: Duration = .seconds(5)
-        var notFound, accountsError, qualityError, deleteConflict, slowDetail: Bool
+        var notFound, accountsError, accountsErrorOnce, qualityError, deleteConflict, slowDetail: Bool
 
         init(arguments: [String] = ProcessInfo.processInfo.arguments) {
             notFound = arguments.contains(Self.notFoundArgument)
             accountsError = arguments.contains(Self.accountsErrorArgument)
+            accountsErrorOnce = arguments.contains(Self.accountsErrorOnceArgument)
             qualityError = arguments.contains(Self.qualityErrorArgument)
             deleteConflict = arguments.contains(Self.deleteConflictArgument)
             slowDetail = arguments.contains(Self.slowDetailArgument)
@@ -216,7 +221,12 @@ extension FixtureProxySource: ProxyDetailSource {
     }
     func proxyAccounts(id: Int) async throws -> [ProxyAccountRef] {
         guard storedProxy(id: id) != nil else { throw Self.notFound }
-        if DemoData.ProxyDetailFixtureOptions().accountsError { throw Self.failure }
+        let detail = DemoData.ProxyDetailFixtureOptions()
+        if detail.accountsError { throw Self.failure }
+        if detail.accountsErrorOnce, !accountsFailureServed {
+            accountsFailureServed = true
+            throw Self.failure
+        }
         return DemoData.proxyAccountFixtures()[id] ?? []
     }
     /// Five seconds later, so a UI test sees “检测中…”: 92 (A) with the base probe passed, or 78 (B) with it failed; the

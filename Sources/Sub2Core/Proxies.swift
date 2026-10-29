@@ -406,6 +406,13 @@ extension AdminProxy {
         return rebuilt(configuration: updated, probe: moved ? ProxyProbe() : probe, quality: quality)
     }
 
+    /// H02: a `GET :id` of an older server has no `account_count` (nor `fallback_account_count`), and the list search that fills
+    /// them in may fail or miss the id. The counts the same proxy was shown with then stay instead of reading as none.
+    public func keepingCounts(of shown: AdminProxy?) -> AdminProxy {
+        guard !hasAccountCountKey, let shown, shown.id == id, shown.hasAccountCountKey else { return self }
+        return shown.rebuilt(configuration: self, probe: probe, quality: quality)
+    }
+
     private var probe: ProxyProbe {
         ProxyProbe(latencyMs: latencyMs, status: latencyStatus, message: latencyMessage, checkedAt: latencyCheckedAt, ipAddress: ipAddress,
                    country: country, countryCode: countryCode, region: region, city: city)
