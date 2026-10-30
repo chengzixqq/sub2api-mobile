@@ -389,6 +389,9 @@
 | 编辑页侧滑返回 | 有未保存改动或正在保存时隐藏系统返回，侧滑返回随之不可用（与新建页一致），防止绕过离开确认；是否要用 UIKit 拦截侧滑以保留手势，待定 |
 | RPM 状态块刷新失败的提示 | 已显示数据后，某次 15 秒刷新失败时保留旧值、不提示；是否标“数据可能已过时”待定 |
 | 编辑用户 RPM 块可见性在 iOS 26 上的回调顺序 | 审查（S3-11）认为 UserRPMStatusView 的 onAppear/onDisappear 挂在随状态换行的内容上，可能停掉 15 秒轮询。iOS 27 模拟器上 testRPMStatusKeepsRefreshingWhileShown 在原代码上通过，所以没改。如果 iOS 26 真机上发现轮询停止，把可见性改挂到固定容器（或改用 onScrollVisibilityChange） |
+| Key 名称按反转义显示 | S3D1-12：App 卡片、回执和分组 sheet 标题显示反转义后的名称（“A&B”），Web 显示实体原文（“A&amp;B”）。如要与 Web 一致，只改 AdminAPIKey.displayName 一处。 |
+| 老服务端忽略 Key 的 status | 方案补充的保险：停用 / 启用后响应里 status 没变，就回执“这个站点还不支持停用 Key”，不记已立即生效、不给撤销；审查可以决定是否删掉。 |
+| Key 列表下拉刷新失败的提示 | 规格没写；目前保留已读的卡片，并给回执“Key 刷新失败，显示的是上次读取的内容”。 |
 
 ### App 与设计 · 阶段 4
 
