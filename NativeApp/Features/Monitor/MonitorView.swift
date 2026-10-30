@@ -3,9 +3,9 @@ import Sub2Core
 
 /// 10 §4–§6 the monitor tab: 概况 / 渠道 / 告警 under the large title 监控, the subtitle following the segment. The segment chosen
 /// stays for the session (U08, LiveOpsStore.monitor); a cross-tab intent is taken once (10 §0.7-4). The ··· menu refreshes and,
-/// for the owner while monitoring is on, turns ops monitoring off after two confirmations (U10). 概况 and 渠道 (S1-15) poll while
-/// they show and the App is active (D18: no scene-phase handler; the task restarts on the phase). 告警 is a placeholder until
-/// S1-16. Identifiers monitor.*.
+/// for the owner while monitoring is on, turns ops monitoring off after two confirmations (U10). 概况, 渠道 (S1-15) and 告警 (S1-16)
+/// poll while they show and the App is active (D18: no scene-phase handler; the task restarts on the phase); 告警's row buttons ask
+/// first through `.alertActions` (S1-06). Identifiers monitor.*.
 struct MonitorView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sessionContext) private var session
@@ -32,8 +32,9 @@ private struct MonitorScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
     @State private var confirmsDisable = false
+    @State private var alertRequest: AlertActionRequest?
 
-    /// What starts and stops the shown segment's timers: the ops switch for 概况, the channel monitor's for 渠道 (10 §5.2).
+    /// What starts and stops the shown segment's timers: the ops switch for 概况 and 告警, the channel monitor's for 渠道 (10 §5.2).
     private struct PollKey: Hashable {
         let segment: MonitorSegment
         let polls: Bool
@@ -43,9 +44,9 @@ private struct MonitorScreen: View {
     }
     private var pollKey: PollKey {
         let segment = store.monitor.segment
-        let overview = segment == .overview
+        let opsGated = segment != .channels
         return PollKey(segment: segment, polls: visible && router.selectedTab == .monitor && scenePhase == .active,
-                       opsDisabled: overview && store.opsDisabled, opsRevision: overview ? store.opsRevision : 0,
+                       opsDisabled: opsGated && store.opsDisabled, opsRevision: opsGated ? store.opsRevision : 0,
                        channelMonitorEnabled: segment == .channels ? store.channelMonitorFeatureEnabled : nil)
     }
 
@@ -66,7 +67,7 @@ private struct MonitorScreen: View {
             switch key.segment {
             case .overview: if !key.opsDisabled { await store.monitorOverviewPolling() }
             case .channels: await store.channelsPolling()
-            case .alerts: break
+            case .alerts: if !key.opsDisabled { await store.monitorAlertsPolling() }
             }
         }
     }
@@ -82,14 +83,13 @@ private struct MonitorScreen: View {
             case .channels:
                 ChannelsSection(store: store)
             case .alerts:
-                // S1-16（告警）替换这里的占位。
-                Section { placeholder(store.monitor.segment) }
-                    .listRowBackground(Color.clear)
+                AlertsSection(store: store, request: $alertRequest)
             }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Palette.canvas)
+        .alertActions($alertRequest)
     }
 
     /// 10 §4.1: a segment with something to look at carries its count.
@@ -102,12 +102,6 @@ private struct MonitorScreen: View {
         }
         .pickerStyle(.segmented)
         .accessibilityIdentifier("monitor.segment")
-    }
-
-    private func placeholder(_ segment: MonitorSegment) -> some View {
-        ContentUnavailableView("即将推出", systemImage: MainTab.monitor.systemImage, description: Text("\(segment.title)会在后续版本提供。"))
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("monitor.placeholder")
     }
 
     private var subtitle: String {
@@ -133,12 +127,12 @@ private struct MonitorScreen: View {
         return OpsDisabledPresentation.offersDisable(isAdministrator: me.isAdministrator, route: store.opsWriteRoute, isOpsDisabled: store.opsDisabled)
     }
 
-    /// A pull or 刷新 reads everything the segment shows, 渠道 past the server's cache (10 §5.6); until S1-16 the 告警 segment's
-    /// count is the firing list's.
+    /// A pull or 刷新 reads everything the segment shows, 渠道 past the server's cache (10 §5.6), 告警's 最近结束 from its first page
+    /// (10 §6.6).
     private func refresh() async {
         switch store.monitor.segment {
         case .overview: await store.refreshMonitorOverview(force: true)
-        case .alerts: await store.refreshFiringAlerts(maxAge: 0)
+        case .alerts: await store.refreshMonitorAlerts(force: true)
         case .channels: await store.refreshChannels(bypassCache: true)
         }
     }

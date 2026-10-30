@@ -56,9 +56,19 @@ actor StubLiveOpsSource: LiveOpsSource {
         var metricsHistory: (@Sendable (_ timeRange: String, _ maxPoints: Int) async throws -> SystemMetricsHistory)?
         var logsHealth: (@Sendable () async throws -> SystemLogHealth)?
         var ingress: (@Sendable (_ page: Int, _ pageSize: Int) async throws -> IngressRejectList)?
+        /// S1-16: answers alertEvents with every parameter in view; `alertEvents` answers when it is not set.
+        var alertEventPages: (@Sendable (AlertEventsRequest) async throws -> [AlertEvent])?
+    }
+    /// S1-16: one alertEvents call as sent, for 最近结束's pages.
+    struct AlertEventsRequest: Equatable, Sendable {
+        let status: String?
+        let timeRange: String?
+        let limit: Int
+        let before: AlertEventCursor?
     }
     private var handlers: Handlers
     private(set) var calls: [Call] = []
+    private(set) var alertEventRequests: [AlertEventsRequest] = []
 
     init(_ handlers: Handlers = Handlers()) { self.handlers = handlers }
     func update(_ change: @Sendable (inout Handlers) -> Void) { change(&handlers) }
@@ -104,6 +114,9 @@ actor StubLiveOpsSource: LiveOpsSource {
     func alertEvents(status: String?, timeRange: String?, limit: Int, before: AlertEventCursor?, groupID: Int?,
                      platform: String?) async throws -> [AlertEvent] {
         calls.append(.alertEvents(status: status, limit: limit))
+        let request = AlertEventsRequest(status: status, timeRange: timeRange, limit: limit, before: before)
+        alertEventRequests.append(request)
+        if let pages = handlers.alertEventPages { return try await pages(request) }
         guard let handler = handlers.alertEvents else { throw StubMissing() }
         return try await handler(status, limit)
     }
