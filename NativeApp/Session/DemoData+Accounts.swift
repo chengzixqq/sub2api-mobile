@@ -66,6 +66,14 @@ extension DemoData {
         static let modelsError = "-ui-account-models-error"
         /// `POST :id/refresh` answers 500 (S2-16).
         static let refreshFail = "-ui-account-refresh-fail"
+        /// Claude-官方-02's token was refused (401) and the failure stopped it (S2-17).
+        static let tokenError = "-ui-account-token-error"
+        /// Claude-官方-02 is stopped (inactive) with its switch on (S2-17).
+        static let tokenInactive = "-ui-account-token-inactive"
+        /// Each authorization session's first save answers 500 REAUTH_PERSIST_FAILED; 重试保存 then works (S2-17).
+        static let reauthPersistFail = "-ui-account-reauth-persist-fail"
+        /// reauthorize answers 400 REAUTH_UNSUPPORTED (shadow_account) (S2-17).
+        static let reauthUnsupported = "-ui-account-reauth-unsupported"
 
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
@@ -237,6 +245,8 @@ final class AccountDemoStore {
     private let arguments: [String]
     private var listReads = 0
     private var todayThrottleServed = false
+    /// S2-17: the authorization sessions this session's links opened (DemoData+AccountReauth).
+    var oauthSessions = AccountOAuthFixtureState()
     private static var latest: (generation: UUID, store: AccountDemoStore)?
     private static let failure = APIError.server(status: 502, reason: nil)
 
@@ -246,7 +256,8 @@ final class AccountDemoStore {
             ? [] : DemoData.demoAccounts(base: base, longWindows: arguments.contains(DemoData.AccountFixture.longWindows))
         let grouped = arguments.contains(DemoData.AccountFixture.groupTransition) ? Self.joiningGroupTen(demo) : demo
         let expiring = arguments.contains(DemoData.AccountFixture.expired) ? Self.expiringDeepSeek(grouped, base: base) : grouped
-        accounts = arguments.contains(DemoData.AccountFixture.bedrockError) ? Self.bedrockBackup(expiring) : expiring
+        let backup = arguments.contains(DemoData.AccountFixture.bedrockError) ? Self.bedrockBackup(expiring) : expiring
+        accounts = Self.tokenFixtures(backup, base: base, arguments: arguments)
     }
     private static func joiningGroupTen(_ rows: [UpstreamAccount]) -> [UpstreamAccount] {
         rows.map { row in
@@ -424,7 +435,7 @@ final class AccountDemoStore {
         return account
     }
     private func etag(_ id: Int) -> String { "\"cv-\(versions[id] ?? 1)\"" }
-    private func bump(_ id: Int) { versions[id] = (versions[id] ?? 1) + 1 }
+    func bump(_ id: Int) { versions[id] = (versions[id] ?? 1) + 1 }
 
     private static func byName(_ rows: [UpstreamAccount], descending: Bool) -> [UpstreamAccount] {
         let sorted = rows.sorted { ($0.name, $0.id) < ($1.name, $1.id) }

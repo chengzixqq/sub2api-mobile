@@ -117,7 +117,8 @@ public struct AccountOAuthErrorCopy: Sendable, Equatable {
         "GROK_OAUTH_TOKEN_EXCHANGE_FAILED", "GROK_OAUTH_REQUEST_FAILED", "GROK_OAUTH_CLIENT_INIT_FAILED", "GROK_OAUTH_INVALID_TOKEN_RESPONSE"
     ]
     private static let unsupported = "这个账号不能在手机上重新授权"
-    private static func unsupportedText(_ detail: String?) -> String {
+    /// REAUTH_UNSUPPORTED by `metadata.detail`; S2-17 checks the same cases before a link is made.
+    public static func unsupportedText(_ detail: String?) -> String {
         switch detail {
         case "shadow_account": "影子账号的凭据跟随母账号，请重新授权母账号"
         case "codex_personal_access_token": "PAT 账号请在 Web 重新导入"
