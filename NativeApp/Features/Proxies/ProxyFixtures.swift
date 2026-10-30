@@ -119,6 +119,8 @@ actor FixtureProxySource: ProxySource {
     private var throttleServed = false
     /// S6-12: `-ui-proxy-accounts-error-once` failed its first `:id/accounts` read.
     private var accountsFailureServed = false
+    /// S6-13: the accounts a revert moved back onto each proxy, listed by `:id/accounts` after the fixed ones.
+    private var restored: [Int: [ProxyAccountRef]] = [:]
 
     init(proxies: [AdminProxy], options: DemoData.ProxyFixtureOptions, now: @escaping @Sendable () -> Date = { Date() }) {
         rows = proxies; self.options = options; self.now = now
@@ -160,6 +162,8 @@ actor FixtureProxySource: ProxySource {
         if let index = rows.firstIndex(where: { $0.id == proxy.id }) { rows[index] = proxy } else { rows.append(proxy) }
     }
     func remove(id: Int) { rows.removeAll { $0.id == id } }
+    /// S6-13: a revert's accounts join the proxy's `:id/accounts`.
+    func restore(_ accounts: [ProxyAccountRef], to proxyID: Int) { restored[proxyID, default: []] += accounts }
 }
 
 // MARK: - S6-12 详情
@@ -227,7 +231,7 @@ extension FixtureProxySource: ProxyDetailSource {
             accountsFailureServed = true
             throw Self.failure
         }
-        return DemoData.proxyAccountFixtures()[id] ?? []
+        return (DemoData.proxyAccountFixtures()[id] ?? []) + (restored[id] ?? [])
     }
     /// Five seconds later, so a UI test sees “检测中…”: 92 (A) with the base probe passed, or 78 (B) with it failed; the
     /// snapshot is saved either way.
@@ -299,8 +303,9 @@ extension DemoData {
         static let listError = "-ui-proxy-fallback-list-error"
     }
 
-    /// This session's FixtureProxySource and moved accounts. A revert writes the remaining count onto the proxy's row, so the list
-    /// and the detail read it, and restores the account fixtures' own fallen-back account (Kimi-01) as well.
+    /// This session's FixtureProxySource and moved accounts. A revert writes the remaining and the using counts onto the proxy's
+    /// row and adds the accounts no longer moved off to its `:id/accounts`, so the list and the detail read them, and restores the
+    /// account fixtures' own fallen-back account (Kimi-01) as well.
     @MainActor static func proxyFallbackEndpoints(model: AppModel) -> ProxyFallbackEndpoints {
         let generation = model.sessionGeneration
         let source = proxySource(for: generation, base: model.accountFixtureNow())
@@ -320,8 +325,12 @@ extension DemoData {
                     || !ProxyFallbackPresentation.canRevert(origin, now: model.accountFixtureNow()) {
                     throw APIError.server(status: 409, reason: ProxyReason.fallbackOriginUnavailable)
                 }
+                let before = moved.accounts(proxyID: id)
                 let result = moved.revert(proxyID: id, accountIDs: accountIDs, arguments: arguments)
-                await source.replace(origin.fixtureMoving(moved.accounts(proxyID: id).count))
+                let left = moved.accounts(proxyID: id)
+                let back = before.filter { account in !left.contains { $0.id == account.id } }
+                await source.restore(back.map { ProxyAccountRef(id: $0.id, name: $0.name, platform: $0.platform, type: $0.type) }, to: id)
+                await source.replace(origin.fixtureMoving(left.count, using: (origin.accountCount ?? 0) + back.count))
                 for account in result.revertedIDs + result.skipped.map(\.id) { try? model.accountDemo.revertProxyFallback(id: account) }
                 return result
             })
@@ -379,11 +388,11 @@ final class ProxyFallbackDemoStore {
 }
 
 private extension AdminProxy {
-    /// The same row with another `fallback_account_count`.
-    func fixtureMoving(_ count: Int) -> AdminProxy {
+    /// The same row with other `fallback_account_count` and `account_count`.
+    func fixtureMoving(_ count: Int, using accounts: Int) -> AdminProxy {
         AdminProxy(id: id, name: name, scheme: scheme, host: host, port: port, username: username, password: password, status: status,
                    createdAt: createdAt, updatedAt: updatedAt, expiresAt: expiresAt, fallbackMode: fallbackMode, backupProxyID: backupProxyID,
-                   expiryWarnDays: expiryWarnDays, accountCount: accountCount, hasAccountCountKey: hasAccountCountKey, fallbackAccountCount: count,
+                   expiryWarnDays: expiryWarnDays, accountCount: accounts, hasAccountCountKey: true, fallbackAccountCount: count,
                    latencyMs: latencyMs, latencyStatus: latencyStatus, latencyMessage: latencyMessage, latencyCheckedAt: latencyCheckedAt,
                    ipAddress: ipAddress, country: country, countryCode: countryCode, region: region, city: city, qualityStatus: qualityStatus,
                    qualityScore: qualityScore, qualityGrade: qualityGrade, qualitySummary: qualitySummary, qualityChecked: qualityChecked)

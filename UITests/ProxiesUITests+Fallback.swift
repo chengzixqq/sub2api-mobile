@@ -163,4 +163,38 @@ extension ProxiesUITests {
         let byTitle = app.buttons.matching(NSPredicate(format: "label == %@", "恢复")).firstMatch
         return byTitle.exists ? byTitle : nil
     }
+
+    // MARK: - S6-13 审查修正
+
+    /// From DeepSeek-01's proxy row while the catalog never loaded (its read fails): the revert still reaches the detail under
+    /// the page, which reads hk-01 and 贰 again; the 被改走的账号 row is gone and both accounts are back on it.
+    @MainActor func testRevertFromAccountEntryReadsDetailAgain() {
+        launchProxies([DemoArgument.listError])
+        defer { diagnostics("proxy-fallback-account-entry-final") }
+        XCTAssertTrue(element("proxies.failure").waitForExistence(timeout: 10), app.debugDescription)
+        app.tabBars.buttons["账号"].tap()
+        XCTAssertTrue(app.buttons["accounts.chip.all"].waitForExistence(timeout: 10), app.debugDescription)
+        let account = app.buttons["account.8"]
+        reveal(account)
+        account.tap()
+        XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+        let proxyRow = element("account.proxy.row")
+        reveal(proxyRow)
+        proxyRow.tap()
+        XCTAssertTrue(app.navigationBars["hk-01"].waitForExistence(timeout: 10), app.debugDescription)
+        let link = app.buttons["proxy.fallbackLink"]
+        reveal(link)
+        link.tap()
+        XCTAssertTrue(fallbackRow(9).waitForExistence(timeout: 10), app.debugDescription)
+        revertAllAndConfirm("把 2 个账号改回走 hk-01？")
+        waitForReceipt("已恢复 2 个账号到 hk-01")
+        XCTAssertTrue(element("proxy.fallback.empty").waitForExistence(timeout: 10), app.debugDescription)
+        goBack()
+        XCTAssertTrue(app.navigationBars["hk-01"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(link.waitForNonExistence(timeout: 10), app.debugDescription)
+        let restored = app.buttons["proxy.account.12"]
+        reveal(restored)
+        XCTAssertTrue(restored.exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["proxy.account.9"].exists && app.buttons["proxy.account.8"].exists, app.debugDescription)
+    }
 }

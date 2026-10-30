@@ -4,8 +4,8 @@ import Sub2Core
 /// 60 §13: one proxy. The name with “SOCKS5 · host:port” and ··· on top; the status card with the latency block and the three
 /// facts, the button row (hidden for who may not write), then 壹 有效期, 贰 使用该 IP 的账号 and 叁 连接. Pushed from the list
 /// (its row shows at once), from an account's proxy row or from search (only an id: the card's placeholder first). Reads on entry,
-/// on pull and back in the foreground, never polls; an address edit (H04) reads once more 5 seconds later. ProxyDetailModel
-/// decides what to send.
+/// on pull and back in the foreground, never polls; an address edit (H04) reads once more 5 seconds later, a revert on its
+/// 被改走的账号 page at once. ProxyDetailModel decides what to send.
 struct ProxyDetailView: View {
     let id: Int
     @Environment(AppModel.self) private var model
@@ -47,6 +47,7 @@ struct ProxyDetailView: View {
             // 00 §4.6 (D18): back in the foreground the proxy and its accounts are read again, as a pull would.
             .onChange(of: model.foregroundRevision) { _, _ in Task { await detail?.load() } }
             .onReceive(NotificationCenter.default.publisher(for: .proxyAddressDidChange)) { addressChanged($0) }
+            .onReceive(NotificationCenter.default.publisher(for: .proxyFallbackDidRevert)) { fallbackReverted($0) }
             .onChange(of: model.proxyStore?.proxy(id: id)) { _, row in detail?.adopt(row) }
             .onChange(of: deleteRequest == nil) { _, closed in confirmationClosed(closed) }
             .confirmDelete($deleteRequest)
@@ -226,5 +227,10 @@ struct ProxyDetailView: View {
         guard let change = ProxyAddressSignal.change(in: notification), change.proxyID == id, change.generation == model.sessionGeneration,
               let detail else { return }
         Task { await detail.beginAddressReprobe() }
+    }
+    /// 60 §13.4: accounts went back onto this proxy, so its counts and 贰 are read again, whether or not the catalog holds it.
+    private func fallbackReverted(_ notification: Notification) {
+        guard ProxyFallbackSignal.matches(notification, proxyID: id, generation: model.sessionGeneration), let detail else { return }
+        Task { await detail.load() }
     }
 }
