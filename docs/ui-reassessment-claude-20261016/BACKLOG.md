@@ -272,6 +272,10 @@
 | 渠道行状态图标与账号状态图标统一 | S1-15 的 ChannelGlyph（ChannelsSection.swift 私有）与账号行 AccountStateGlyph、代理行 ProxyGlyphView 写法相同但各自一份；S1-18 或阶段 2 收口时评估是否抽成共用组件 |
 | 渠道行点进旧分组详情 | S5-06 之前 .group(id:) 落到旧 GroupDestination，-ui-testing 下旧分组夹具只有 id 10 / 11，渠道夹具按 DEMO.groups 取 id 1–10，点其他行会进入“加载失败”的旧详情；S5-06 换页后自然解决，S1-15 的 UI 用例只点 id 10 |
 | 渠道监控“站点不支持”文案统一 | 旧站点没有 channel-monitor-v2 路由时（非 JSON 404），首页退路（S1-07，HomeFallback.outcome(unsupportedAsDisabled: true)）显示“渠道监控未开启”，告警详情平台行只认 403 CHANNEL_MONITOR_DISABLED；监控 · 渠道段（S1-15 审查修正）按 00 §3.3 显示“站点版本较旧，暂不支持此功能”并本会话停读。是否让首页渠道行、告警详情平台行共用同一个不支持态与文案，由用户决定。 |
+| Mac Xcode 升到 27.2 | 2026-10-31 00:07 起，check 报 TOOLCHAIN_EXIT=3（Toolchain.json 固定 27.1 / 27A9275），UI 测试报 UI_UNAVAILABLE（CoreSimulator 过旧）。需要用户决定回退 Xcode 还是更新固定版本，并在 Mac 上执行 sudo xcodebuild -runFirstLaunch；之后补跑 S1-16 的 check 与 UI 测试（S1-16 检查时发现）。 |
+| 最近结束按结束时间筛选 | 后端 alert-events 的 time_range 按 fired_at 过滤，触发早于 24 小时、最近才结束的事件（例如持续两天、刚被手动解决的告警）不会出现在“最近结束”。需要后端支持按 resolved_at 范围筛选；App 暂按规格用 time_range=24h（S1-16）。 |
+| 最近结束轮询合并的已知限制 | 轮询与写后只合并第一页：触发时间早于第一页、之后才结束的事件，要等下拉刷新才出现；24 小时窗口滑动后，已加载的旧行保留到下次下拉（S1-16）。 |
+| 告警列表游标类 400 没有 reason | before_fired_at / before_id / limit 校验失败都走 response.BadRequest，reason 为空，App 只能把「加载更早」收到的无 reason 400 一律视为游标被拒并重拉第一页。建议后端给这类错误加稳定 reason（S1-16）。 |
 
 ### App 与设计 · 阶段 2
 
