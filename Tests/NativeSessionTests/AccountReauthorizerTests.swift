@@ -342,3 +342,49 @@ private func succeededResult(_ outcome: AccountReauthOutcome) -> AccountReauthRe
     #expect(result.receipt.text == "已重新授权 · 账号类型改为 Setup\u{00A0}Token · 令牌已替换")
     #expect(source.reauthorized.last?.request.authKind == .setupToken)
 }
+
+/// 20 §6.2: the fallback's token, once exchanged, is only saved again; 替换令牌 cannot spend the used code a second time, and a
+/// security prompt passed during the save keeps the token for 重试.
+@MainActor @Test func heldTokenIsNeverExchangedAgain() async throws {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let account = tokenAccount(), source = ScriptedReauthSource(endpoint: false), authenticator = RecordingAuthenticator()
+    source.exchangeReplies = [.success(try claudeToken()), .failure(APIError.server(status: 400, reason: "CLAUDE_OAUTH_SESSION_NOT_FOUND"))]
+    source.applyReplies = [.failure(APIError.server(status: 500, reason: nil)), .failure(APIError.server(status: 423, reason: nil).withSecurityOutcome(.passed)),
+                           .success(saved(account))]
+    source.readReplies = [.success(VersionedAccount(account: account, etag: "\"cv-1\""))]
+    let reauthorizer = makeReauthorizer(account, source, faceID: true, authenticator: authenticator, scratch: scratch)
+    #expect(await reauthorizer.submit(submission(for: account), switchedTo: nil) == .notice)
+    #expect(reauthorizer.notice == .persistFailed && reauthorizer.hasHeldCredentials)
+    #expect(await reauthorizer.submit(submission(for: account), switchedTo: nil) == .cancelled)
+    #expect(authenticator.calls == 1 && source.exchanged.count == 1 && source.applied.count == 1)
+    #expect(reauthorizer.notice == .persistFailed && reauthorizer.hasHeldCredentials)
+
+    #expect(await reauthorizer.retry() == .notice)
+    guard case .reconfirm = reauthorizer.notice else { Issue.record("no reconfirm"); return }
+    #expect(reauthorizer.hasHeldCredentials && reauthorizer.canRetry(at: .now))
+    #expect(succeededResult(await reauthorizer.retry()) != nil)
+    #expect(source.exchanged.count == 1 && source.applied.count == 3 && authenticator.calls == 1)
+    #expect(source.applied[0].credentials == source.applied[2].credentials && !reauthorizer.hasHeldCredentials)
+}
+
+/// 20 §6.5: only a refresh from this attempt counts. The server refreshing the old token after the sheet opened is not the save.
+@MainActor @Test func readBackIgnoresARefreshOfTheOldTokenSinceTheSheetOpened() async throws {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let account = tokenAccount(refreshedAgo: 3_600), source = ScriptedReauthSource()
+    let refreshedMeanwhile = VersionedAccount(account: tokenAccount(refreshedAgo: 300), etag: "\"cv-2\"")
+    source.reauthorizeReplies = [.failure(persistFailed()), .failure(reauthTransport)]
+    source.readReplies = [.success(refreshedMeanwhile), .success(refreshedMeanwhile)]
+    let reauthorizer = makeReauthorizer(account, source, scratch: scratch)
+    #expect(await reauthorizer.submit(submission(for: account), switchedTo: nil) == .notice)
+    #expect(reauthorizer.notice == .persistFailed && reauthorizer.hasHeldCredentials)
+    #expect(await reauthorizer.retry() == .notice)
+    #expect(reauthorizer.notice == .unconfirmed && reauthorizer.hasHeldCredentials && source.reads == 2)
+
+    let fallback = ScriptedReauthSource(endpoint: false)
+    fallback.exchangeReplies = [.success(try claudeToken())]
+    fallback.applyReplies = [.failure(reauthTransport)]
+    fallback.readReplies = [.success(refreshedMeanwhile)]
+    let applying = makeReauthorizer(account, fallback, scratch: scratch)
+    #expect(await applying.submit(submission(for: account), switchedTo: nil) == .notice)
+    #expect(applying.notice == .unconfirmed && applying.hasHeldCredentials)
+}

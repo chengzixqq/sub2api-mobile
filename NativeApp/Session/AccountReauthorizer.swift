@@ -44,8 +44,9 @@ enum AccountReauthOutcome: Sendable, Equatable {
 /// 20 §6.2–§6.5 one 替换令牌: Face ID first (60 §3.4), then `reauthorize` (the token stays on the server), or without
 /// accounts.reauthorize exchange-code → OAuthCredentialBuilder → apply-oauth-credentials, the token held here until it is saved.
 /// Nothing is sent again by itself (00 §2.4): REAUTH_PERSIST_FAILED and an unanswered request read the account back, and only
-/// the user's 重试保存 / 重试 sends the same body (or the same token) again, without another Face ID check. A result that arrives
-/// after the session changed is dropped.
+/// the user's 重试保存 / 重试 sends the same body (or the same token) again, without another Face ID check; while either is held a
+/// new 替换令牌 is refused, so the fallback's code, spent by the exchange, is never sent again. A result that arrives after the
+/// session changed is dropped.
 @MainActor @Observable
 final class AccountReauthorizer {
     enum Phase: Sendable, Equatable { case idle, verifying, submitting, readingBack }
@@ -57,7 +58,7 @@ final class AccountReauthorizer {
         /// NOT_OAUTH / REAUTH_UNSUPPORTED: 在 Web 中编辑.
         case unsupported(String)
         case failed(String)
-        /// The security sheet cleared the request (00 §2.6.2): 替换令牌 again.
+        /// The security sheet cleared the request (00 §2.6.2): 替换令牌 again, or 重试 with the fallback's token still held.
         case reconfirm(String)
     }
     private enum Pending: Sendable {
@@ -95,14 +96,14 @@ final class AccountReauthorizer {
     func canRetry(at instant: ContinuousClock.Instant) -> Bool {
         guard pending != nil else { return false }
         switch (notice, window) {
-        case (.unconfirmed?, _), (.persistFailed?, .open): return true
+        case (.unconfirmed?, _), (.reconfirm?, _), (.persistFailed?, .open): return true
         case (.persistFailed?, .until(let end)): return instant < end
         default: return false
         }
     }
 
     func submit(_ submission: OAuthSubmission, switchedTo: OAuthAuthKind?) async -> AccountReauthOutcome {
-        guard phase == .idle, let session = source.oauthSession, !session.isReadOnlyToken else { return .cancelled }
+        guard phase == .idle, pending == nil, let session = source.oauthSession, !session.isReadOnlyToken else { return .cancelled }
         discard()
         notice = nil
         phase = .verifying
@@ -187,7 +188,10 @@ final class AccountReauthorizer {
         let disposition = AccountActionCopy.disposition(of: error)
         switch disposition {
         case .cancelled: return dropped()
-        case .reconfirm: return show(.reconfirm(error.localizedDescription))
+        case .reconfirm:
+            // The fallback's token stays: 重试 saves it without spending the code again (20 §6.2).
+            let notice = Notice.reconfirm(error.localizedDescription)
+            return applying ? hold(notice, .open) : show(notice)
         default: break
         }
         if let copy {
@@ -212,8 +216,8 @@ final class AccountReauthorizer {
         if (error as? APIError)?.kind == .validation { return stepped(Self.localError(error)) }
         return show(.failed(AccountReauthorizePresentation.failure(reason: AccountActionCopy.reason(for: error))))
     }
-    /// 20 §6.5: saved when `token_status.refreshed_at` is from this attempt (AccountTokenReadback allows for whole seconds) or
-    /// newer than the account had before.
+    /// 20 §6.5: saved when `token_status.refreshed_at` is from this send (AccountTokenReadback allows for whole seconds). The
+    /// account the sheet opened with is not the value before the send: the server may have refreshed the old token since.
     private func readBack(holding notice: Notice, window: RetryWindow, _ attempt: Attempt, startedAt: Date) async -> AccountReauthOutcome {
         phase = .readingBack
         let fresh: VersionedAccount
@@ -225,8 +229,7 @@ final class AccountReauthorizer {
             return hold(notice, window)
         }
         guard isCurrent(attempt.session) else { return dropped() }
-        let previous = AccountTokenTiming.refreshedAt(account)
-        guard AccountTokenReadback.check(fresh.account, since: startedAt, previousRefreshedAt: previous) == .replaced else { return hold(notice, window) }
+        guard AccountTokenReadback.check(fresh.account, since: startedAt) == .replaced else { return hold(notice, window) }
         return succeeded(fresh.account, version: fresh, attempt)
     }
 

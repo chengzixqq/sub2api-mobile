@@ -14,6 +14,7 @@ struct UserEditScreen: View {
     /// 30 §3.4 for the strip's capsule: R03's question first, then S3-07's check (S3-08, S3-07).
     @State private var balanceEntry: BalanceKeypadEntry?
     @State private var reconcileFlow = BalanceReconcileFlow()
+    @State private var keyPrompts = UserKeyPrompts()
     @State private var scrolled = false
     @State private var typing = false
     @FocusState private var focus: UserDraftField?
@@ -36,7 +37,7 @@ struct UserEditScreen: View {
             }
             .task { await editor.loadForEdit(model: model) }
             .task { if editor.definitionsState != .loaded { await editor.loadDefinitions(model: model) } }
-            .task { await editor.loadBoundKeys(model: model) }
+            .task(id: editor.keys != nil) { await editor.keys?.ensureListLoaded() }
             .task(id: focus) { await followFocus() }
             .onChange(of: catalog) { _, next in editor.adoptCatalog(next) }
             // A balance written from the strip, a key's group change: the strip reads the user again; the form stays.
@@ -67,7 +68,7 @@ struct UserEditScreen: View {
                 header
                 ScrollViewReader { proxy in
                     // 30 §6.1: another segment starts at its top, with the head unfolded.
-                    form
+                    form(proxy)
                         .id(editor.segment)
                         .onChange(of: editor.segment) { _, _ in withAnimation(.snappy) { scrolled = false } }
                         .onChange(of: editor.focusRequest) { _, request in
@@ -79,6 +80,7 @@ struct UserEditScreen: View {
                         }
                 }
             }
+            .userKeyPrompts(keyPrompts, model: editor.keys, editor: editor)
         }
     }
 
@@ -110,7 +112,7 @@ struct UserEditScreen: View {
         Dictionary(editor.segmentMarks.map { (UserEditSegment($0.section), $0[keyPath: count]) }, uniquingKeysWith: +)
     }
 
-    private var form: some View {
+    private func form(_ proxy: ScrollViewProxy) -> some View {
         Form {
             switch editor.segment {
             case .basic:
@@ -121,13 +123,14 @@ struct UserEditScreen: View {
                                       onAddGroups: { sheet = .addExclusiveGroups }, onOpenGroup: { sheet = .group(id: $0) },
                                       rpmRefreshToken: rpmRefresh)
             case .keys:
-                UserEditKeysSlot(editor: editor)
+                if let keys = editor.keys { UserKeysSegment(model: keys, editor: editor, prompts: keyPrompts) { proxy.scrollTo($0, anchor: .top) } }
             }
         }
         .disabled(editor.isFrozen)
         .scrollDismissesKeyboard(.interactively)
         .refreshable {
             rpmRefresh += 1
+            if editor.segment == .keys { await editor.keys?.refreshAll() }
             await editor.reloadStrip(model: model)
         }
         .onScrollGeometryChange(for: Double.self) {
@@ -177,17 +180,5 @@ struct UserEditScreen: View {
         try? await Task.sleep(for: UserEditCopy.unfoldDelay)
         guard !Task.isCancelled else { return }
         withAnimation(.snappy) { typing = focus != nil }
-    }
-}
-
-/// The third segment, “Key 与限额”, until S3-12 puts the key cards here (30 §7).
-struct UserEditKeysSlot: View {
-    let editor: UserEditorModel
-
-    var body: some View {
-        Section {
-            Text(UserEditCopy.keysPlaceholder).foregroundStyle(Palette.ink2).frame(minHeight: 44, alignment: .leading)
-                .accessibilityIdentifier("user-edit.keys.placeholder")
-        }
     }
 }

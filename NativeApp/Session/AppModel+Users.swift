@@ -266,8 +266,13 @@ extension AppModel {
     // MARK: - 核对
 
     // MARK: - Key
+    /// The fixture reads the session's copy of the key table (S3-12's UserKeyDemoStore) and drops tombstones as the client does.
     func userAPIKeys(userID: Int) async throws -> [AdminAPIKey] {
-        if isUITesting { try DemoData.failUserDetailRead(.keys); return DemoData.apiKeys(userID: userID) }
+        if isUITesting {
+            try DemoData.failUserDetailRead(.keys)
+            if ProcessInfo.processInfo.arguments.contains(UserKeyFixtureArgument.listError) { throw APIError.server(status: 500, reason: nil) }
+            return UserKeyDemoStore.current(for: sessionGeneration).keys(userID: userID).filter { !$0.isTombstone }
+        }
         return try await requireClient().userAPIKeys(userID: userID, maskedView: siteSession?.has(.apiKeysMaskedView) == true)
     }
 
@@ -363,5 +368,60 @@ extension AppModel {
         DemoData.userCreations[operation.id] = user
         if arguments.contains(Argument.uncertain) { throw lostReply }
         return WriteOutcome(value: user)
+    }
+}
+
+// S3-12: the key segment's calls (UserKeysModel) and their -ui-testing branches over UserKeyDemoStore.
+extension AppModel: UserKeysSource {
+    /// E01 / E04 exist wherever admin/me answered (30 §0.1); `-ui-legacy-keys` stands for an older server.
+    var userKeysContext: UserKeysContext? {
+        guard let site = siteSession else { return nil }
+        let arguments = isUITesting ? ProcessInfo.processInfo.arguments : []
+        // The fixtures read the phone's clock (S3D1-06).
+        let clock = isUITesting ? nil : client?.serverClock
+        return UserKeysContext(generation: sessionGeneration, isReadOnlyToken: site.isReadOnlyToken,
+                               simpleMode: site.me.isSimpleRunMode || arguments.contains(UserKeyFixtureArgument.simpleMode),
+                               adminKeyWrites: !site.me.isLegacyServer && !arguments.contains(UserKeyFixtureArgument.legacy),
+                               refreshesConcurrency: site.has(.apiKeysCurrentConcurrency), serverTimeZone: site.serverTimeZone,
+                               now: { clock?.now() ?? Date() })
+    }
+    private var keyMaskedView: Bool { siteSession?.has(.apiKeysMaskedView) == true }
+
+    func apiKey(id: Int) async throws -> AdminAPIKey {
+        if isUITesting { return try UserKeyDemoStore.current(for: sessionGeneration).key(id: id) }
+        return try await requireClient().apiKey(id: id, maskedView: keyMaskedView)
+    }
+    /// A read-only token never calls it (R14); the fixture refuses it the way the server does.
+    func apiKeysTodayUsage(ids: [Int]) async throws -> [Int: Decimal] {
+        guard isUITesting else { return try await requireClient().apiKeysTodayUsage(ids: ids) }
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        if ProcessInfo.processInfo.arguments.contains(UserKeyFixtureArgument.usageError) { throw APIError.server(status: 500, reason: nil) }
+        return DemoData.keyTodayCosts.filter { ids.contains($0.key) }
+    }
+    func userSubscriptions(userID: Int) async throws -> [AdminUserSubscription] {
+        if isUITesting { return DemoData.userSubscriptions(userID: userID) }
+        return try await requireClient().userSubscriptions(userID: userID)
+    }
+    /// The fixture also moves the session user's grant, as the server does in the key's transaction.
+    func updateAPIKey(id: Int, _ change: AdminAPIKeyUpdateRequest) async throws -> AdminAPIKeyWriteResult {
+        guard isUITesting else { return try await requireClient().updateAPIKey(id: id, change, maskedView: keyMaskedView) }
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        let generation = sessionGeneration
+        let result = try UserKeyDemoStore.current(for: generation).update(id: id, change, arguments: ProcessInfo.processInfo.arguments)
+        var users = demoUsersBySession[generation] ?? DemoData.allUsers
+        if let userID = result.apiKey?.userID, let index = users.firstIndex(where: { $0.id == userID }) {
+            users[index] = DemoData.userAfterKeyWrite(users[index], result)
+            demoUsersBySession[generation] = users
+        }
+        return result
+    }
+    /// S3D1-10: the one immediate writer of a grant, shaped like S3-09's save (both keys together).
+    func updateUserGroups(userID: Int, allowedGroups: [Int], restrictPublicGroups: Bool) async throws -> AdminUser {
+        if isUITesting, ProcessInfo.processInfo.arguments.contains(UserKeyFixtureArgument.revokeFails) { throw APIError.server(status: 500, reason: nil) }
+        guard let target = await userCreateTarget(generation: sessionGeneration) else { throw CancellationError() }
+        let operation = try PendingUserUpdateOperation(serverID: target.serverID, identity: target.identity, userID: userID,
+                                                       request: UserUpdateRequest(allowedGroups: allowedGroups, restrictPublicGroups: restrictPublicGroups),
+                                                       serverSupportsIdempotentWrites: siteSession?.has(.adminIdempotentWrites) == true)
+        return try await updateUser(operation).value
     }
 }

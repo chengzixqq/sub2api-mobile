@@ -19,8 +19,10 @@ extension UserEditorModel {
     var segmentMarks: [UserEditSegmentMark] { UserEditSegmentMark.marks(changed: changedFields, issues: issues, showsIssues: showsIssues) }
     var statusLine: String { UserEditStatusLine.text(segmentMarks) }
     /// The third segment's “（N）”: every key the user has, deleted ones aside; nil while unknown.
-    var keyCount: Int? { boundKeys?.filter { !$0.isTombstone }.count }
-    func boundKeyCount(groupID: Int) -> Int { UserEditSaveReceipt.boundKeyCount(groupID: groupID, keys: boundKeys ?? []) }
+    var keyCount: Int? { keys?.count }
+    /// The base's grant as the key cards read it (S3-12).
+    var keyAccess: UserKeyAccess { baseline.map(UserKeyAccess.init(baseline:)) ?? UserKeyAccess() }
+    func boundKeyCount(groupID: Int) -> Int { keys?.bindingCount(groupID: groupID) ?? 0 }
     var editDisplayName: String { stripUser?.displayName ?? "" }
     /// The role the page opened with: an administrator cannot be disabled or deleted (U30).
     var isOriginalAdmin: Bool { baseline?.role == .admin }
@@ -52,6 +54,7 @@ extension UserEditorModel {
             stripUser = user
             isSelf = UserDetailPresentation.isSelf(user, meID: model.currentAdminUserID)
             startEditing(user, catalog: UserGroupCatalog(groups: model.groupDirectory?.groups ?? []))
+            attachKeys(model: model)
             editLoad = .loaded
         case .failure(let error):
             settleLoadFailure(error, userID: id, model: model)
