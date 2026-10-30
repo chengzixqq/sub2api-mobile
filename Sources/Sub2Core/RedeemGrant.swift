@@ -106,6 +106,12 @@ public struct GrantDraftState: Sendable, Equatable {
     public func sent() -> GrantDraftState { GrantDraftState(code: code, key: key, hasSent: true) }
     /// REDEEM_CODE_CONFLICT / REDEEM_CODE_EXPIRED: back to step 3 with a new code, confirmed again.
     public func renumbered(code: String) -> GrantDraftState { GrantDraftState(code: code) }
+    /// The subscription group that would go out (60 §19.3 “默认第一个”). Once a grant went out, only the one chosen, which the
+    /// sheet pins when it sends: falling back to another group in silence would send the old code, made with the old group.
+    public func group(chosen id: Int?, in groups: [AdminGroup]) -> AdminGroup? {
+        let chosen = groups.first { $0.id == id }
+        return hasSent ? chosen : chosen ?? groups.first
+    }
 }
 
 /// The type tiles of step 1 (60 §19.3, U52).

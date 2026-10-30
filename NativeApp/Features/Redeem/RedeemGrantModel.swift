@@ -105,7 +105,8 @@ final class RedeemGrantModel {
 
     // MARK: What the steps show
 
-    func selectedGroup(in groups: [AdminGroup]) -> AdminGroup? { groups.first { $0.id == groupID } ?? groups.first }
+    /// After a send only the pinned group: one gone from the list (a refused group, a re-read directory) is chosen again, an edit.
+    func selectedGroup(in groups: [AdminGroup]) -> AdminGroup? { draftState.group(chosen: groupID, in: groups) }
     /// What would go out now; nil while anything is missing.
     func draft(groups: [AdminGroup]) -> RedeemGrantDraft? {
         guard !needsNewCode, let type else { return nil }
@@ -172,6 +173,8 @@ final class RedeemGrantModel {
             let record = try draft.compensation(id: key, serverID: serverID, actorUserID: app.siteSession?.me.user?.id, createdAt: Date(), user: user,
                                                 code: confirmed.code)
             draftState = confirmed.sent()
+            // The default group becomes the chosen one: the code now goes with it (60 §19.4 step 5).
+            if let id = record.groupID { groupID = id }
             return record
         } catch {
             notice = error.localizedDescription

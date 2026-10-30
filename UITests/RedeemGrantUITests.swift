@@ -207,6 +207,36 @@ final class RedeemGrantUITests: XCTestCase {
         waitForLabel(element("grant.pending.notes"), equals: "当前登录的是只读令牌，不能修改")
     }
 
+    /// A refused group (60 §19.4): back to step 2 with the group it went out with still chosen; the server made the code with
+    /// that group before refusing it, so the code stays only while nothing changes (step 5).
+    @MainActor func testRefusedGroupKeepsItsGroupUntilAnEdit() {
+        launchAndLogin(["-ui-grant-group-gone"])
+        defer { diagnostics("grant-group-gone-final") }
+        openGrantSheet(userID: 3, name: "王小明")
+        app.buttons["grant.type.subscription"].tap()
+        XCTAssertTrue(app.buttons["grant.group.4"].waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["grant.next"].tap()
+        let code = element("money.pending.receipt.code")
+        XCTAssertTrue(code.waitForExistence(timeout: 5), app.debugDescription)
+        let sent = code.label
+        app.buttons["grant.submit"].tap()
+        let alert = app.alerts["向「王小明」发放 企业专线 30 天订阅？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        alert.buttons["发放 30 天订阅"].tap()
+        XCTAssertTrue(app.navigationBars["订阅补偿"].waitForExistence(timeout: 10), app.debugDescription)
+        waitForLabel(element("grant.notice"), contains: "这个分组不能用于订阅，请重新选择")
+        XCTAssertTrue(app.buttons["grant.group.4"].isSelected, app.debugDescription)
+        app.buttons["grant.next"].tap()
+        XCTAssertTrue(code.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(code.label, sent, app.debugDescription)
+        app.buttons["grant.back"].tap()
+        app.buttons["grant.days.90"].tap()
+        app.buttons["grant.next"].tap()
+        XCTAssertTrue(code.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertNotEqual(code.label, sent, app.debugDescription)
+        XCTAssertTrue(code.label.contains("····"), code.label)
+    }
+
     // MARK: - Helpers
 
     /// Password sign-in, or the access-token method for `accessToken` (a `sat_` key selects it on its own, 60 §4.3).
