@@ -13,16 +13,19 @@ struct ChannelFixtureOptions: Equatable, Sendable {
     static let failsArgument = "-ui-channel-overview-fails"
     /// coverage.state stale, so 渠道 shows the collection-delay note.
     static let coverageStaleArgument = "-ui-channel-coverage-stale"
+    /// Only the overview answers a non-JSON 404 (a site from before channel-monitor-v2), so 渠道 shows 站点版本较旧.
+    static let unsupportedArgument = "-ui-channel-overview-unsupported"
     var monitorOff = false
     var fails = false
     var coverageStale = false
+    var unsupported = false
 
-    init(monitorOff: Bool = false, fails: Bool = false, coverageStale: Bool = false) {
-        self.monitorOff = monitorOff; self.fails = fails; self.coverageStale = coverageStale
+    init(monitorOff: Bool = false, fails: Bool = false, coverageStale: Bool = false, unsupported: Bool = false) {
+        self.monitorOff = monitorOff; self.fails = fails; self.coverageStale = coverageStale; self.unsupported = unsupported
     }
     init(arguments: [String]) {
         self.init(monitorOff: arguments.contains(Self.monitorOffArgument), fails: arguments.contains(Self.failsArgument),
-                  coverageStale: arguments.contains(Self.coverageStaleArgument))
+                  coverageStale: arguments.contains(Self.coverageStaleArgument), unsupported: arguments.contains(Self.unsupportedArgument))
     }
 }
 
@@ -47,6 +50,7 @@ extension LiveOpsFixtures {
     static func channelReply(_ options: Options, base: Date) throws -> ChannelOverview {
         if options.channels.monitorOff { throw channelMonitorDisabledError }
         if options.channels.fails { throw FixtureLiveOpsSource.unreachableError }
+        if options.channels.unsupported { throw APIError.server(status: 404, envelope: nil) }
         return channelOverview(options, base: base)
     }
 

@@ -59,12 +59,14 @@ private func refused(_ call: () async throws -> Void) async -> APIError? {
     #expect(ChannelFixtureOptions(arguments: ["-ui-channel-monitor-off"]) == ChannelFixtureOptions(monitorOff: true))
     #expect(ChannelFixtureOptions(arguments: ["-ui-channel-overview-fails"]) == ChannelFixtureOptions(fails: true))
     #expect(ChannelFixtureOptions(arguments: ["-ui-channel-coverage-stale"]) == ChannelFixtureOptions(coverageStale: true))
+    #expect(ChannelFixtureOptions(arguments: ["-ui-channel-overview-unsupported"]) == ChannelFixtureOptions(unsupported: true))
     #expect(ChannelFixtureOptions(arguments: ["-ui-testing"]) == ChannelFixtureOptions())
     let arguments = ["-ui-channel-monitor-off", "-ui-channel-coverage-stale"]
     #expect(LiveOpsFixtures.Options(arguments: arguments).channels == ChannelFixtureOptions(arguments: arguments))
 }
 
-/// 10 §5.2, §5.5: the fixture site answers 403 CHANNEL_MONITOR_DISABLED, 503 or a stale coverage; the ops switch changes nothing.
+/// 10 §5.2, §5.5: the fixture site answers 403 CHANNEL_MONITOR_DISABLED, 503, a non-JSON 404 or a stale coverage; the ops switch changes
+/// nothing.
 @Test func fixtureSourceHonoursChannelOptions() async throws {
     func source(_ arguments: [String]) -> FixtureLiveOpsSource {
         FixtureLiveOpsSource(options: LiveOpsFixtures.Options(arguments: arguments), base: base)
@@ -73,6 +75,8 @@ private func refused(_ call: () async throws -> Void) async -> APIError? {
     #expect(off?.statusCode == 403 && off?.reason == "CHANNEL_MONITOR_DISABLED")
     let failing = await refused { _ = try await source([ChannelFixtureOptions.failsArgument]).channelOverview(range: "90m", refresh: true) }
     #expect(failing?.statusCode == 503)
+    let old = await refused { _ = try await source([ChannelFixtureOptions.unsupportedArgument]).channelOverview(range: "90m", refresh: false) }
+    #expect(old?.statusCode == 404 && old?.kind == .unsupported)
     let stale = try await source([ChannelFixtureOptions.coverageStaleArgument]).channelOverview(range: "90m", refresh: false)
     #expect(stale.coverage?.state == "stale" && ChannelPresentation.showsCoverageHint(stale.coverage))
     let opsOff = try await source([LiveOpsFixtures.Argument.opsDisabled]).channelOverview(range: "90m", refresh: false)

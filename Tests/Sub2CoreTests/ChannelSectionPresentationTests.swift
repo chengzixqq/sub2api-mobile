@@ -14,8 +14,9 @@ private let disabledError = APIError.server(status: 403, reason: "CHANNEL_MONITO
 private let serverFailure = APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE")
 private let listed = ChannelOverview(items: [item("healthy")])
 private func state(_ display: BlockDisplay<ChannelOverview>, featureEnabled: Bool? = true, disabledReason: String? = nil,
-                   lastError: APIError? = nil) -> ChannelSectionState {
-    ChannelSectionPresentation.state(featureEnabled: featureEnabled, disabledReason: disabledReason, display: display, lastError: lastError)
+                   unsupported: Bool = false, lastError: APIError? = nil) -> ChannelSectionState {
+    ChannelSectionPresentation.state(featureEnabled: featureEnabled, disabledReason: disabledReason, unsupported: unsupported, display: display,
+                                     lastError: lastError)
 }
 
 @Test func featureOffOrDisabledReplyWinsOverData() {
@@ -54,6 +55,20 @@ private func state(_ display: BlockDisplay<ChannelOverview>, featureEnabled: Boo
         #expect(ChannelSectionPresentation.disabledReason(other) == nil)
         #expect(!ChannelSectionPresentation.isForbidden(other))
     }
+}
+
+/// 00 §3.3: a non-JSON 404 is a site from before channel-monitor-v2, not a failure; a JSON 404 still fails, and the switch wins.
+@Test func nonJSONNotFoundIsUnsupported() {
+    let unsupported = APIError.server(status: 404, envelope: nil), missing = APIError.server(status: 404, reason: "NOT_FOUND")
+    let shown = BlockDisplay<ChannelOverview>.value(listed, at: Date(), isRefreshing: false, updateFailed: false)
+    #expect(state(.failed(reason: nil), lastError: unsupported) == .unsupported)
+    #expect(state(.placeholder, unsupported: true) == .unsupported && state(shown, unsupported: true) == .unsupported)
+    #expect(state(shown, featureEnabled: false, unsupported: true) == .disabled)
+    #expect(state(.failed(reason: nil), lastError: missing) == .failed)
+    #expect(ChannelSectionPresentation.isUnsupported(unsupported) && !ChannelSectionPresentation.isForbidden(unsupported))
+    #expect(!ChannelSectionPresentation.isUnsupported(missing) && !ChannelSectionPresentation.isUnsupported(nil))
+    #expect(ChannelSectionPresentation.disabledReason(unsupported) == nil)
+    #expect(ChannelSectionPresentation.unsupportedTitle == "站点版本较旧，暂不支持此功能")
 }
 
 @Test func countCellsKeepOrderAndCountStaleAsUnknown() {

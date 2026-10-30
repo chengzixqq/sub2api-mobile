@@ -8,6 +8,8 @@ public enum ChannelSectionState: Sendable, Equatable {
     case disabled
     /// Any other 403 (a vendor workspace, 10 §0.1).
     case forbidden
+    /// A non-JSON 404: a site from before channel-monitor-v2 (00 §3.3), not asked again this session.
+    case unsupported
     /// A failure before any list: the tiles “—” and 渠道加载失败 · 重试.
     case failed
     case empty
@@ -62,6 +64,7 @@ public enum ChannelSectionPresentation {
     public static let disabledDetail = "可在 Web 后台的渠道监控设置中开启"
     public static let emptyTitle = "还没有渠道数据"
     public static let failedTitle = "渠道加载失败"
+    public static let unsupportedTitle = ReasonCatalog.entry(status: 404, reason: nil, bodyIsJSON: false).message
     public static let channelMonitorDisabledReason = HomeFallback.channelMonitorDisabledReason
 
     /// 403 CHANNEL_MONITOR_DISABLED gives its reason; anything else nil.
@@ -72,14 +75,18 @@ public enum ChannelSectionPresentation {
     public static func isForbidden(_ error: APIError?) -> Bool {
         error?.statusCode == 403 && !AlertScopePresentation.isChannelMonitorDisabled(error)
     }
-    public static func state(featureEnabled: Bool?, disabledReason: String?, display: BlockDisplay<ChannelOverview>,
+    /// A non-JSON 404 (00 §3.3).
+    public static func isUnsupported(_ error: APIError?) -> Bool { error?.kind == .unsupported }
+    public static func state(featureEnabled: Bool?, disabledReason: String?, unsupported: Bool = false, display: BlockDisplay<ChannelOverview>,
                              lastError: APIError?) -> ChannelSectionState {
         if featureEnabled == false || disabledReason != nil { return .disabled }
+        if unsupported { return .unsupported }
         switch display {
         case .placeholder: return .loading
         case .disabled: return .disabled
         case .failed:
             if Self.disabledReason(lastError) != nil { return .disabled }
+            if isUnsupported(lastError) { return .unsupported }
             return isForbidden(lastError) ? .forbidden : .failed
         case .value(let overview, _, _, let updateFailed):
             return overview.items.isEmpty ? .empty : .list(updateFailed: updateFailed)

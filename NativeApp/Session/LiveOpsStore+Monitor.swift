@@ -48,6 +48,8 @@ final class MonitorState {
     private(set) var channelsDisabledReason: String?
     /// When the last channel answer came in, on the store's device clock.
     @ObservationIgnored private(set) var channelsSettledAt: Date?
+    /// The overview answered a non-JSON 404 (no channel-monitor-v2): not asked again this session (00 §3.3).
+    private(set) var channelsUnsupported = false
 
     /// What the timers ask of a block's LoadState; S1-14 adds its blocks to this one switch.
     func load(_ block: MonitorOverviewBlock) -> MonitorBlockLoad {
@@ -86,6 +88,7 @@ final class MonitorState {
         if channelsDisabledReason != disabledReason { channelsDisabledReason = disabledReason }
     }
     func markChannelsSettled(at date: Date) { channelsSettledAt = date }
+    func markChannelsUnsupported() { channelsUnsupported = true }
 }
 
 /// One block's LoadState as the timers see it.
