@@ -711,4 +711,64 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["概览"].isSelected, app.debugDescription)
         XCTAssertFalse(app.segmentedControls["monitor.segment"].exists, app.debugDescription)
     }
+
+    // MARK: S1-18 补偿行与本站点旧登录的行
+
+    /// S3-07's records (DemoData.pendingVariants; the UI tests cannot import the App, so change both together): Alice's $10.00
+    /// compensation of this site; an earlier login at this address with Alice's $50.00 top-up, a batch of 10 and Bob's $8.00
+    /// compensation. The note is MoneyRecordOrigin.oldLoginNote.
+    private enum PendingExpected {
+        static let grantHere = "pending-0c000000-0000-4000-8000-000000000001"
+        static let earlierRows = [("pending-0b000000-0000-4000-8000-000000000001", "充值结果待核对"),
+                                  ("pending-0b000000-0000-4000-8000-000000000002", "兑换码生成结果待核对"),
+                                  ("pending-0b000000-0000-4000-8000-000000000003", "补偿结果待核对")]
+        static let oldLoginNote = "本站点的旧登录下发起"
+    }
+
+    /// R02, 10 §2.2 condition 4: a compensation of this site keeps the regular layout as the queue's only row; it presents the
+    /// record's 补偿结果待核对 sheet (S6-09), and closing it leaves the record as it was: the overview only reads.
+    @MainActor func testCompensationRowKeepsRegularLayoutAndPresentsPendingSheet() {
+        launchAndLogin(arguments: ["-ui-home-calm", "-ui-pending-compensation-here"])
+        defer { diagnostics("home-attention-compensation-final") }
+        XCTAssertEqual(loadedAttention().value as? String, "1 项")
+        XCTAssertTrue(element("home.regular").exists && !element("home.calm.flag").exists, app.debugDescription)
+        let row = shownRow(PendingExpected.grantHere)
+        for part in ["补偿结果待核对", "Alice · ", "未确认是否发放", "$10.00"] { XCTAssertTrue(row.label.contains(part), row.label) }
+        XCTAssertFalse(row.label.contains(PendingExpected.oldLoginNote), row.label)
+        diagnostics("home-attention-compensation")
+        row.tap()
+        XCTAssertTrue(element("grant.pending").waitForExistence(timeout: 10), app.debugDescription)
+        element("sheet.close").tap()
+        XCTAssertTrue(element("grant.pending").waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// X34: an earlier login's three records at this address are listed in R02's order, each with the note, and open the same
+    /// pages as this site's: the user, the redeem codes' check and the compensation sheet; the calm layout stays away.
+    @MainActor func testEarlierLoginRowsAreAnnotatedAndOpenTheirPages() {
+        launchAndLogin(arguments: ["-ui-home-calm", "-ui-pending-old-site"])
+        defer { diagnostics("home-attention-earlier-login-final") }
+        XCTAssertEqual(loadedAttention().value as? String, "3 项")
+        XCTAssertFalse(element("home.calm.flag").exists, app.debugDescription)
+        var previous: XCUIElement?
+        for (id, title) in PendingExpected.earlierRows {
+            let row = shownRow(id)
+            XCTAssertTrue(row.label.contains(title) && row.label.contains(PendingExpected.oldLoginNote), row.label)
+            if let previous, previous.exists { XCTAssertLessThanOrEqual(previous.frame.maxY, row.frame.minY + 1, "\(previous.frame) \(row.frame)") }
+            previous = row
+        }
+        diagnostics("home-attention-earlier-login")
+        let grant = shownRow(PendingExpected.earlierRows[2].0)
+        grant.tap()
+        XCTAssertTrue(element("grant.pending").waitForExistence(timeout: 10), app.debugDescription)
+        element("sheet.close").tap()
+        XCTAssertTrue(grant.waitForExistence(timeout: 10), app.debugDescription)
+        for (id, _) in PendingExpected.earlierRows.prefix(2) {
+            let row = shownRow(id)
+            row.tap()
+            assertPushedAway(from: row)
+            goBack(to: row)
+        }
+        XCTAssertTrue(element("home.regular").exists, app.debugDescription)
+    }
 }

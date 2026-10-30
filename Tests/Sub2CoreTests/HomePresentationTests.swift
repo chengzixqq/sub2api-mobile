@@ -260,3 +260,20 @@ private func calm(availability: BlockState<AccountStatusSummary> = loaded(limite
     #expect(HomePresentation.sessionRenewalBanner(expiresAt: now.addingTimeInterval(3_900), now: now) == "本次登录无法自动续期，约 1 小时 5 分钟后需要重新登录")
     #expect(HomePresentation.sessionRenewalBanner(expiresAt: nil, now: now) == "本次登录无法自动续期，到期后需要重新登录")
 }
+
+/// X34 (S1-18): which records count is the caller's (AppModel.pendingMoneyWrites(sameAddressAs:)); isCalm itself never filters
+/// them by site id, so a record of another login of this address keeps the regular layout too.
+@Test func calmTreatsPendingRecordsFromAnyServerIDAsNotCalm() {
+    let other = UUID(uuidString: "00000000-0000-0000-0000-0000000000CC")!
+    let records: [any PendingMoneyWrite] = [
+        PendingBalanceOperation(serverID: other, userID: 7, amount: 50, operation: .add, actorUserID: 1, createdAt: now),
+        PendingRedeemBatch(serverID: other, actorUserID: 1, createdAt: now, spec: RedeemGenerateSpec(type: .balance, value: 10, count: 20)),
+        PendingCompensation(serverID: other, actorUserID: 1, createdAt: now, userID: 8, userDisplayName: "李雷", userEmail: "lilei@example.com",
+                            code: "GRANT-0001", type: .balance, value: 5)
+    ]
+    for record in records {
+        #expect(record.serverID != HomeTestData.serverID)
+        #expect(!calm(pending: [record]))
+    }
+    #expect(calm(pending: []))
+}

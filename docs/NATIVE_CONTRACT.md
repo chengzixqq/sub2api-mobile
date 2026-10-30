@@ -68,10 +68,10 @@ actor APIClient {
 - `Page<T>`: items, total, page, pageSize, pages; `hasMore: Bool`.
 - `AdminUser`: id Int, email String, username String?, balance Decimal, status String, role String?, concurrency Int?.
 - `UpstreamAccount`: id Int, name String, platform String, type String, status String, schedulable Bool, errorMessage String?, concurrency Int?.
-- `DashboardSummary`: initial stats DashboardStats, empty trend and nil monitoring. `dashboardTrend()` and `dashboardMonitoring()` load details explicitly with independent states/errors; slow or failed details must not delay or discard the counters.
+- `DashboardSummary`: stats DashboardStats and trend; `monitoring` was removed in stage 1. The home screen reads `dashboardHome(timezone:include:noCache:) -> DashboardHome` (FINAL-SPEC 10 §1.7), whose sections succeed, fail or time out independently.
 - `DashboardStats`: todayRequests Int, todayTokens Int, todayCost Decimal, totalUsers Int, totalAccounts Int, errorAccounts Int, rpm Double, tpm Double.
 - `TrendPoint`: date String, requests Int, totalTokens Int, cost Decimal; Identifiable.
-- `OpsSnapshot`: errorRate Double?, qps Double?, activeRequests Int? (missing is unavailable, never fabricated zero).
+- `OpsOverview` (Sources/Sub2Core/OpsMonitoring.swift): every figure is optional and missing job heartbeats are an empty list; missing values show —, never a fabricated zero.
 - `AccountTodayStats`: requests Int, tokens Int, cost Decimal.
 - `UserUsageSummary`: totalRequests Int, totalTokens Int, totalCost Decimal.
 - `UserAPIKey`: id Int, name String, key String?, status String, quota Decimal, quotaUsed Decimal (UI masks key).
