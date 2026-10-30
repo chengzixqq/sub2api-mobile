@@ -29,7 +29,7 @@ extension AccountDemoStore {
         let arguments = ProcessInfo.processInfo.arguments
         let interval: Duration = arguments.contains(DemoData.AccountFixture.testSlow) ? .milliseconds(1_500) : .milliseconds(250)
         let breaksOff = arguments.contains(DemoData.AccountFixture.testInterrupt)
-        let passes = !arguments.contains(DemoData.AccountFixture.testFail)
+        let passes = newAccountTestPasses(id: id) ?? !arguments.contains(DemoData.AccountFixture.testFail)
         let after = Self.tested(before, passes: passes, now: now)
         let script = Self.testEvents(before: before, after: after, model: model, passes: passes, now: now)
         let events = breaksOff ? Array(script.prefix(2)) : script

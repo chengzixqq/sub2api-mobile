@@ -2,14 +2,16 @@ import SwiftUI
 import Sub2Core
 
 /// 10 §0.7-6: the receipt above the tab bar of the tab in view. MainTabs puts one over each tab's stack; ReceiptCenter
-/// announces it once, so the overlays never speak.
+/// announces it once, so the overlays never speak. A sheet with its own overlay (`inSheet`) takes the receipt while shown.
 struct ReceiptOverlay: View {
+    var inSheet = false
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var host = UUID()
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            if let receipt = model.receipts.current {
+            if model.receipts.draws(host: inSheet ? host : nil), let receipt = model.receipts.current {
                 ReceiptBar(receipt: receipt) { model.receipts.performAction(id: receipt.id) }
                     .id(receipt.id)
                     // Without a button it is only read: taps reach the page under it (S0-16 shows one after every login).
@@ -20,6 +22,8 @@ struct ReceiptOverlay: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 12 + model.receipts.bottomClearance)
         .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.28), value: model.receipts.current?.id)
+        .onAppear { if inSheet { model.receipts.addSheetHost(host) } }
+        .onDisappear { if inSheet { model.receipts.removeSheetHost(host) } }
     }
 }
 

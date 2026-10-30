@@ -174,3 +174,23 @@ private actor ManualSleeper {
         #expect(receipts.bottomClearance == 0, "\(invalid)")
     }
 }
+
+/// S2-20: a sheet drawing its own receipt takes it from the tabs' overlays under it; the newest sheet draws it and closing it
+/// hands it back, so the receipt is drawn (and found by VoiceOver and UI tests) once.
+@MainActor @Test func newestSheetHostDrawsTheReceiptAlone() {
+    let receipts = ReceiptCenter(sleep: { _ in try await Task.sleep(for: .seconds(3_600)) })
+    let form = UUID(), test = UUID()
+    #expect(receipts.draws(host: nil))
+    receipts.addSheetHost(form)
+    #expect(!receipts.draws(host: nil) && receipts.draws(host: form))
+    receipts.addSheetHost(test)
+    receipts.addSheetHost(test)
+    #expect(!receipts.draws(host: form) && receipts.draws(host: test))
+    receipts.removeSheetHost(test)
+    #expect(receipts.draws(host: form) && !receipts.draws(host: test))
+    receipts.show(Receipt(text: "已移除 1 个不再适用的分组"))
+    receipts.clear()
+    #expect(receipts.draws(host: form))
+    receipts.removeSheetHost(form)
+    #expect(receipts.draws(host: nil) && !receipts.draws(host: form))
+}

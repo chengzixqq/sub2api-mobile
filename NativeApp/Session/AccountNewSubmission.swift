@@ -92,11 +92,14 @@ final class AccountNewSubmission {
         default: account?.id
         }
     }
-    /// 00 §2.5.4 step 4: nothing can be edited while a result is out or the account exists.
+    /// 00 §2.5.4 step 4: nothing can be edited while a result is out. Once created and outside the scheduler the form opens again
+    /// for 修改凭据后重试 (S2-20, 20 §7.4-2); the platform stays locked by the account itself.
     var locksForm: Bool {
-        if isBusy || createdAccountID != nil { return true }
-        if case .unconfirmed = stage { return true }
-        return false
+        if isBusy { return true }
+        switch stage {
+        case .pausing, .pauseUnconfirmed, .unconfirmed: return true
+        default: return false
+        }
     }
     /// The subtitle's third part once the account exists.
     var scheduleStatus: AccountNewScheduleStatus {

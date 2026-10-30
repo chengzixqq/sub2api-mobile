@@ -11,6 +11,10 @@ struct AccountNewDockContent: Equatable, Sendable {
         case resend
         case reconcile
         case retryPause
+        /// S2-20 after a failed test: PATCH the edits, then test again.
+        case saveAndRetest(enabled: Bool)
+        /// S2-20 after a failed test without edits.
+        case retest(enabled: Bool)
         var title: String {
             switch self {
             case .create: AccountNewFlow.dockActionTitle(isCreated: false, hasChanges: false)
@@ -18,9 +22,16 @@ struct AccountNewDockContent: Equatable, Sendable {
             case .resend: "重试"
             case .reconcile: "核对"
             case .retryPause: "重试停止调度"
+            case .saveAndRetest: AccountNewFlow.dockActionTitle(isCreated: true, hasChanges: true)
+            case .retest: AccountNewFlow.dockActionTitle(isCreated: true, hasChanges: false)
             }
         }
-        var isEnabled: Bool { if case .create(let enabled) = self { enabled } else { true } }
+        var isEnabled: Bool {
+            switch self {
+            case .create(let enabled), .saveAndRetest(let enabled), .retest(let enabled): enabled
+            case .retrySameKey, .resend, .reconcile, .retryPause: true
+            }
+        }
     }
 
     let title: String
@@ -82,6 +93,39 @@ struct AccountNewDockContent: Equatable, Sendable {
     }
     private static func busy(_ title: String) -> AccountNewDockContent {
         AccountNewDockContent(title: title, showsProgress: true, primary: .create(enabled: false))
+    }
+}
+
+// MARK: - S2-20 测试之后
+
+extension AccountNewDockContent {
+    /// 20 §7.1 after a failed test: “保存并重新测试” with edits, “重新测试” without; the 还差 list first, its button greyed.
+    static func afterTest(accountID: Int, status: AccountNewScheduleStatus, hasChanges: Bool, missing: [String]) -> AccountNewDockContent {
+        guard missing.isEmpty else {
+            let items = missingItems(missing)
+            return AccountNewDockContent(title: items.title, detail: items.detail, jumpsToFirstMissing: true, primary: .saveAndRetest(enabled: false),
+                                         accessibilityLabel: items.accessibilityLabel)
+        }
+        let text = AccountNewTestPresentation.dockText(accountID: accountID, status: status, hasChanges: hasChanges)
+        return AccountNewDockContent(title: text.title, detail: text.detail, primary: hasChanges ? .saveAndRetest(enabled: true) : .retest(enabled: true))
+    }
+}
+
+extension AccountNewSubmission.Stage {
+    /// The test sheet opens once the account exists (S2-20): before that the dock says how the create stands.
+    var opensTestSheet: Bool {
+        switch self {
+        case .pausing, .created, .pauseUnconfirmed: true
+        default: false
+        }
+    }
+    /// The sheet's second row, 停止调度.
+    var testSheetPause: AccountNewTestSnapshot.Pause {
+        switch self {
+        case .pausing: .running
+        case .pauseUnconfirmed: .unconfirmed
+        default: .done
+        }
     }
 }
 

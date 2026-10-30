@@ -360,6 +360,11 @@ extension AppModel: AccountCreateSource {
     }
 }
 
+// MARK: - S2-20 新建账号的测试与启用调度
+
+/// The run after a new account's test reads and switches through S2-06's members above.
+extension AppModel: AccountNewScheduleWriter {}
+
 extension AccountTestBackgroundActivity {
     /// 20 §4.4: the stream asks for background time, so a test keeps running for a while after the App leaves the screen.
     static let application = AccountTestBackgroundActivity(begin: { onExpire in

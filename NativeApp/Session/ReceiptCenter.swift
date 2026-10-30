@@ -83,4 +83,12 @@ final class ReceiptCenter {
     }
     /// Negative and non-finite values are 0. The bar sets it while shown and 0 when it leaves; receipts do not change it.
     func setBottomClearance(_ value: Double) { bottomClearance = value.isFinite && value > 0 ? value : 0 }
+
+    /// Sheets drawing their own receipt (the new-account form and its test sheet, S2-20), oldest first: the newest draws it and
+    /// the tabs' overlays under the sheets stay empty, so it is drawn (and found by VoiceOver and UI tests) once.
+    private(set) var sheetHosts: [UUID] = []
+    func addSheetHost(_ id: UUID) { if !sheetHosts.contains(id) { sheetHosts.append(id) } }
+    func removeSheetHost(_ id: UUID) { sheetHosts.removeAll { $0 == id } }
+    /// `host`: a sheet's overlay; nil for a tab's.
+    func draws(host: UUID?) -> Bool { host.map { sheetHosts.last == $0 } ?? sheetHosts.isEmpty }
 }

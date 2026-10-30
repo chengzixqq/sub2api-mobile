@@ -77,7 +77,7 @@ private let unconfirmedFailure = KeyedWriteFailure(disposition: .unconfirmed(.tr
     try #require(keys.made.count == 1 && source.sentCreates.count == 1)
     #expect(source.sentCreates.count == 1 && source.sentCreates[0].key == keys.made[0] && source.sentCreates[0].request == createRequest())
     #expect(source.sentCreates[0].generation == source.accountCreateSession?.generation)
-    #expect(flow.stage == .created(accountID: 13) && flow.account?.id == 13 && flow.locksForm && flow.scheduleStatus == .paused)
+    #expect(flow.stage == .created(accountID: 13) && flow.account?.id == 13 && !flow.locksForm && flow.scheduleStatus == .paused)
     #expect(source.sentLookups.isEmpty && source.sentChecks.isEmpty)
 }
 
@@ -391,4 +391,16 @@ private let unconfirmedFailure = KeyedWriteFailure(disposition: .unconfirmed(.tr
     }
     let passed = APIError.server(status: 423, reason: "COMPLIANCE_REQUIRED").withSecurityOutcome(.passed)
     #expect(AccountNewSubmission.failure(of: passed, mixedPlatform: false) == .reconfirm(passed.localizedDescription))
+}
+
+/// S2-20 (20 §7.4-2): once created the form opens again for 修改凭据后重试; the platform stays locked by the account itself.
+@MainActor @Test func createdStageNoLongerLocksForm() async throws {
+    let source = FakeCreateSource(), keys = KeyMaker()
+    source.creates = [.success(try newAccount(schedulable: true))]
+    source.pauses = [.failure(APIError.server(status: 502, reason: nil)), .success(try newAccount(schedulable: false))]
+    let flow = submission(source, keys)
+    await flow.submit(createRequest())
+    #expect(flow.locksForm && flow.createdAccountID == 13)
+    await flow.retryPause()
+    #expect(flow.stage == .created(accountID: 13) && !flow.locksForm && flow.createdAccountID == 13)
 }

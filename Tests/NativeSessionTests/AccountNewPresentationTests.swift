@@ -86,3 +86,27 @@ private typealias Dock = AccountNewDockContent
     #expect(AccountNewCopy.authorized(email: "ops@example.com") == "已授权 · ops@example.com")
     #expect(AccountNewCopy.authorized(email: nil) == "已授权" && AccountNewCopy.authorized(email: "  ") == "已授权")
 }
+
+// MARK: - S2-20 after a failed test
+
+@Test func afterTestDockOffersSaveOrRetest() {
+    let changed = Dock.afterTest(accountID: 13, status: .paused, hasChanges: true, missing: [])
+    #expect(changed == Dock(title: "保存到账号 #13", detail: "测试通过才启用调度", primary: .saveAndRetest(enabled: true)))
+    let same = Dock.afterTest(accountID: 13, status: .paused, hasChanges: false, missing: [])
+    #expect(same == Dock(title: "账号 #13 · 暂停调度", detail: "没有改动，用原设置再测一次", primary: .retest(enabled: true)))
+    #expect(Dock.afterTest(accountID: 13, status: .error, hasChanges: false, missing: []).title == "账号 #13 · 错误（已停止调度）")
+    let missing = Dock.afterTest(accountID: 13, status: .paused, hasChanges: true, missing: ["API Key"])
+    #expect(missing.title == "还差" && missing.detail == "API Key" && missing.jumpsToFirstMissing && missing.primary == .saveAndRetest(enabled: false))
+    #expect(missing.accessibilityLabel == "还差API Key，跳到API Key")
+    let titles: [Dock.Action] = [.saveAndRetest(enabled: true), .retest(enabled: true)]
+    #expect(titles.map(\.title) == ["保存并重新测试", "重新测试"])
+    #expect(!Dock.Action.saveAndRetest(enabled: false).isEnabled && Dock.Action.retest(enabled: true).isEnabled)
+}
+
+@Test func testSheetPauseRowFollowsTheStage() {
+    #expect(AccountNewSubmission.Stage.pausing(accountID: 13).testSheetPause == .running)
+    #expect(AccountNewSubmission.Stage.pauseUnconfirmed(accountID: 13, reason: "x").testSheetPause == .unconfirmed)
+    #expect(AccountNewSubmission.Stage.created(accountID: 13).testSheetPause == .done)
+    #expect(AccountNewSubmission.Stage.created(accountID: 13).opensTestSheet && AccountNewSubmission.Stage.pausing(accountID: 13).opensTestSheet)
+    #expect(!AccountNewSubmission.Stage.creating(confirming: false).opensTestSheet && !AccountNewSubmission.Stage.notCreated.opensTestSheet)
+}

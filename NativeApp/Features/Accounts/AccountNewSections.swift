@@ -201,8 +201,10 @@ struct AccountNewMoreSection: View {
                     }
                 }
                 .frame(minHeight: 44)
+                // On the label only: on the group it would replace the identifiers of the rows inside (load factor, expiry).
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("account-new.more")
             }
-            .accessibilityIdentifier("account-new.more")
             .id(AccountNewModel.Anchor.more)
         } header: {
             Text("更多")

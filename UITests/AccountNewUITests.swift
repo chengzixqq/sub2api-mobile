@@ -1,6 +1,6 @@
 import XCTest
 
-/// 20 §7 新建账号 (S2-19) on the fixture site (DemoData+Accounts, DemoData+AccountNew): 11 demo accounts, the next id is 13;
+/// 20 §7 新建账号 (S2-19, and the test sheet of S2-20) on the fixture site (DemoData+Accounts, DemoData+AccountNew): 11 demo accounts, the next id is 13;
 /// Anthropic has 3 accounts (Claude-04), OpenAI 2 (OpenAI-03), Antigravity none (Antigravity-01); 高级组 (#1) holds Anthropic
 /// accounts. Keys are typed (PasteButton, fileImporter, Safari and the loopback listener need a real device).
 final class AccountNewUITests: XCTestCase {
@@ -19,6 +19,11 @@ final class AccountNewUITests: XCTestCase {
         static let groupsError = "-ui-account-groups-error"
         static let proxiesError = "-ui-account-proxies-error"
         static let writeFail = "-ui-account-write-fail"
+        static let newTestFail = "-ui-account-new-test-fail"
+        static let newPauseFail = "-ui-account-new-pause-fail"
+        static let testSlow = "-ui-account-test-slow"
+        static let failedOutcome = "测试未通过 · API Key 无效或已撤销"
+        static let passedOutcome = "测试通过 · 已启用调度"
     }
 
     /// 20 §1.1, §7.1, §7.4-4: “＋” opens the form with everything missing; 取消 before a platform closes it without asking.
@@ -58,8 +63,9 @@ final class AccountNewUITests: XCTestCase {
         XCTAssertTrue(app.buttons["account-new.submit"].isEnabled, app.debugDescription)
     }
 
-    /// 20 §7.4-1: the defaults, then 创建并测试 creates outside the scheduler; the form closes with the receipt and the list reads again.
-    @MainActor func testAPIKeyCreateClosesFormWithPausedReceiptAndRefreshesList() {
+    /// 20 §7.1, §7.3, §7.4-1: the defaults, then 创建并测试 creates outside the scheduler and tests in the sheet; the pass turns
+    /// scheduling on, 完成 closes the form with “参与调度” and the list reads again.
+    @MainActor func testAPIKeyCreateTestsEnablesSchedulingAndCompletes() {
         launchAndLogin()
         defer { diagnostics("account-new-create-final") }
         fillClaudeConsole()
@@ -75,35 +81,58 @@ final class AccountNewUITests: XCTestCase {
         reveal(element("account-new.more"))
         XCTAssertTrue(text(containing: "不过期").exists, app.debugDescription)
         submit()
-        waitForReceipt("已创建「\(Fixture.claudeName)」· 暂停调度")
-        XCTAssertEqual(app.buttons["receipt.action"].label, "查看")
+        XCTAssertTrue(element("account-new.test.sheet").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["创建并测试"].exists, app.debugDescription)
+        waitForValue(element("account-new.test.stage.create"), equals: "#\(Fixture.newID)")
+        waitForLabel(element("account-new.test.outcome"), equals: Fixture.passedOutcome)
+        XCTAssertEqual(element("account-new.test.stage.enable").value as? String, "参与调度")
+        XCTAssertTrue(element("account-new.test.view").exists, app.debugDescription)
+        waitForLabel(element("account-new.test.output"), containing: "行")
+        diagnostics("account-new-create-passed")
+        tapInSheet("account-new.test.done")
         XCTAssertTrue(app.buttons["account-new.cancel"].waitForNonExistence(timeout: 5), app.debugDescription)
+        waitForReceipt("已创建「\(Fixture.claudeName)」· 参与调度")
+        XCTAssertEqual(app.buttons["receipt.action"].label, "查看")
         app.buttons["receipt.action"].tap()
         XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         let row = app.buttons["account.\(Fixture.newID)"]
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(row.label.contains(Fixture.claudeName) && row.label.contains("暂停"), row.label)
+        XCTAssertTrue(row.label.contains(Fixture.claudeName) && !row.label.contains("暂停"), row.label)
     }
 
-    /// An older server ignores `schedulable: false`: the App stops the account right after (20 §7.4-1).
+    /// An older server ignores `schedulable: false`: the App stops the account right after (20 §7.4-1). The key is refused, the
+    /// backend marks the account as an error, and 保留（错误状态） closes with its receipt (20 §7.3 失败, §7.4-3).
     @MainActor func testServerIgnoringSchedulableIsStoppedAfterCreate() {
-        launchAndLogin(arguments: [Fixture.createLegacy])
+        launchAndLogin(arguments: [Fixture.createLegacy, Fixture.newTestFail])
         defer { diagnostics("account-new-legacy-final") }
         fillClaudeConsole()
         submit()
-        waitForReceipt("已创建「\(Fixture.claudeName)」· 暂停调度")
-        let row = app.buttons["account.\(Fixture.newID)"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(row.label.contains("暂停"), row.label)
+        waitForLabel(element("account-new.test.outcome"), equals: Fixture.failedOutcome)
+        XCTAssertEqual(element("account-new.test.stage.pause").value as? String, "不接收请求")
+        XCTAssertEqual(element("account-new.test.stage.enable").value as? String, "未启用")
+        XCTAssertEqual(element("account-new.test.outcome.raw").label, "上游返回 401 · API returned 401: invalid x-api-key")
+        XCTAssertTrue(element("account-new.test.outcome.detail").label.contains("后端已把账号 #13 标为“错误”"), app.debugDescription)
+        XCTAssertEqual(element("account-new.test.keep").label, "保留（错误状态）")
+        tapInSheet("account-new.test.keep")
+        XCTAssertTrue(app.buttons["account-new.cancel"].waitForNonExistence(timeout: 5), app.debugDescription)
+        waitForReceipt("已保留「\(Fixture.claudeName)」· 错误（已停止调度）")
+        XCTAssertEqual(app.buttons["receipt.action"].label, "查看")
+        XCTAssertTrue(app.buttons["account.\(Fixture.newID)"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    /// The stop fails: the form stays, locked, with the banner and 重试停止调度; 取消 offers 仍然关闭.
+    /// The stop fails: the sheet says so with 重试停止调度 and 删除账号…; closed, the form stays locked with the banner; 取消 offers
+    /// 仍然关闭 and 删除账号….
     @MainActor func testPauseFailureKeepsCreatedAccountLocked() {
         launchAndLogin(arguments: [Fixture.createLegacy, Fixture.writeFail])
         defer { diagnostics("account-new-pause-failure-final") }
         fillClaudeConsole()
         submit()
+        waitForLabel(element("account-new.test.outcome"), equals: "停止调度没有确认 · 结果待核对")
+        XCTAssertEqual(element("account-new.test.stage.pause").value as? String, "没有确认")
+        XCTAssertTrue(element("account-new.test.repause").exists && element("account-new.test.delete").exists, app.debugDescription)
+        tapInSheet("account-new.test.close")
+        XCTAssertTrue(element("account-new.test.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
         waitForLabel(element("account-new.dock.text"), equals: "停止调度没有确认，账号 #13 可能在接收请求")
         let banner = element("account-new.banner")
         reveal(banner, towardBottom: false)
@@ -117,7 +146,7 @@ final class AccountNewUITests: XCTestCase {
         diagnostics("account-new-pause-failure")
         app.buttons["account-new.cancel"].tap()
         XCTAssertTrue(text(containing: "账号「\(Fixture.claudeName)」可能还在参与调度").waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(app.buttons["仍然关闭"].exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["仍然关闭"].exists && app.buttons["删除账号…"].exists, app.debugDescription)
         app.buttons["仍然关闭"].tap()
         XCTAssertTrue(app.buttons["account-new.cancel"].waitForNonExistence(timeout: 5), app.debugDescription)
         waitForReceipt("「\(Fixture.claudeName)」停止调度没有确认 · 结果待核对")
@@ -147,7 +176,7 @@ final class AccountNewUITests: XCTestCase {
         submit()
         XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
         alert.buttons["继续创建"].tap()
-        waitForReceipt("已创建「Antigravity-01」· 暂停调度")
+        finishPassingTest(name: "Antigravity-01")
     }
 
     /// 20 §7.4-5: turning “在 /v1/messages 中使用” off drops the Anthropic group; 撤销 puts both back.
@@ -161,11 +190,12 @@ final class AccountNewUITests: XCTestCase {
         reveal(high)
         high.tap()
         waitForLabel(element("account-new.groups.count"), containing: "已选 1")
-        turnMixedScheduling(on: false)
-        waitForLabel(app.staticTexts["receipt.text"], equals: "已移除 1 个不再适用的分组")
-        XCTAssertEqual(app.buttons["receipt.action"].label, "撤销")
-        XCTAssertTrue(high.waitForNonExistence(timeout: 5), app.debugDescription)
-        app.buttons["receipt.action"].tap()
+        tapMixedScheduling(to: false)
+        // The receipt stays 4.2 seconds: it first, one look at the switch and the chip, then 撤销.
+        waitForReceipt("已移除 1 个不再适用的分组")
+        XCTAssertEqual(app.switches["account-new.groups.mixed"].value as? String, "0")
+        XCTAssertFalse(high.exists, app.debugDescription)
+        app.buttons.matching(NSPredicate(format: "identifier == 'receipt.action' AND label == '撤销'")).firstMatch.tap()
         XCTAssertTrue(high.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(high.isSelected, app.debugDescription)
         XCTAssertEqual(app.switches["account-new.groups.mixed"].value as? String, "1")
@@ -286,7 +316,7 @@ final class AccountNewUITests: XCTestCase {
         defer { diagnostics("account-new-unconfirmed-final") }
         fillClaudeConsole()
         submit()
-        waitForReceipt("已创建「\(Fixture.claudeName)」· 暂停调度")
+        finishPassingTest(name: Fixture.claudeName)
         XCTAssertTrue(app.buttons["account.\(Fixture.newID)"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.buttons["account.\(Fixture.newID + 1)"].exists, app.debugDescription)
     }
@@ -301,7 +331,7 @@ final class AccountNewUITests: XCTestCase {
         let retry = app.buttons["account-new.submit"]
         XCTAssertEqual(retry.label, "用同一编号重试")
         retry.tap()
-        waitForReceipt("已创建「\(Fixture.claudeName)」· 暂停调度")
+        finishPassingTest(name: Fixture.claudeName)
         XCTAssertTrue(app.buttons["account.\(Fixture.newID)"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.buttons["account.\(Fixture.newID + 1)"].exists, app.debugDescription)
     }
@@ -322,7 +352,7 @@ final class AccountNewUITests: XCTestCase {
         reveal(proxies)
         XCTAssertTrue(proxies.exists, app.debugDescription)
         submit()
-        waitForReceipt("已创建「\(Fixture.claudeName)」· 暂停调度")
+        finishPassingTest(name: Fixture.claudeName)
     }
 
     /// 00 §2.5.4, 20 §7.5: the answer and the check by name are both lost, so the account may exist; 取消 says so rather than
@@ -344,7 +374,131 @@ final class AccountNewUITests: XCTestCase {
         XCTAssertTrue(app.buttons["account.\(Fixture.newID)"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
+    // MARK: - S2-20 测试 sheet
+
+    /// 20 §7.4-2 / -3: 修改凭据后重试 returns to the form with the banner, the note and 重新测试; 处理 → 保存为停用 closes with its receipt.
+    @MainActor func testFailedTestSavedAsInactiveFromBanner() {
+        launchAndLogin(arguments: [Fixture.newTestFail])
+        defer { diagnostics("account-new-inactive-final") }
+        fillClaudeConsole()
+        submit()
+        waitForLabel(element("account-new.test.outcome"), equals: Fixture.failedOutcome)
+        tapInSheet("account-new.test.edit")
+        XCTAssertTrue(element("account-new.test.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(text(containing: "测试未通过 · #13 已标为错误").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(text(containing: "#13 已创建 · 错误（已停止调度）").exists, app.debugDescription)
+        waitForLabel(app.buttons["account-new.submit"], equals: "重新测试")
+        reveal(element("account-new.retry-note"))
+        XCTAssertTrue(element("account-new.retry-note").label.contains("账号 #13 已创建，已被标为错误（已停止调度）"), app.debugDescription)
+        let resolve = app.buttons["account-new.banner.resolve"]
+        reveal(resolve, towardBottom: false)
+        resolve.tap()
+        XCTAssertTrue(text(containing: "账号「\(Fixture.claudeName)」已创建，怎么处理？").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["保留（错误状态）"].exists && app.buttons["删除账号…"].exists && app.buttons["继续修改"].exists, app.debugDescription)
+        app.buttons["保存为停用"].tap()
+        XCTAssertTrue(app.buttons["account-new.cancel"].waitForNonExistence(timeout: 5), app.debugDescription)
+        waitForReceipt("已保存「\(Fixture.claudeName)」为停用 · 不参与调度")
+        XCTAssertEqual(app.buttons["receipt.action"].label, "查看")
+        app.buttons["receipt.action"].tap()
+        XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// DECISIONS 第 114 行, X09: 删除账号… in the result asks for the whole name (Face ID is off in the fixture), case and all.
+    @MainActor func testFailedTestDeleteRequiresTypedNameWithFaceIDOff() {
+        launchAndLogin(arguments: [Fixture.newTestFail])
+        defer { diagnostics("account-new-delete-final") }
+        fillClaudeConsole()
+        submit()
+        waitForLabel(element("account-new.test.outcome"), equals: Fixture.failedOutcome)
+        tapInSheet("account-new.test.delete")
+        let title = element("delete.title")
+        XCTAssertTrue(title.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(title.label.contains("删除账号") && title.label.contains(Fixture.claudeName), title.label)
+        let confirm = app.buttons["delete.confirm"]
+        XCTAssertFalse(confirm.isEnabled, app.debugDescription)
+        let input = element("delete.input")
+        input.tap()
+        input.typeText("claude-04")
+        XCTAssertFalse(confirm.isEnabled, app.debugDescription)
+        input.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 9) + Fixture.claudeName)
+        XCTAssertTrue(waitUntil(confirm, "isEnabled == true"), app.debugDescription)
+        confirm.tap()
+        XCTAssertTrue(app.buttons["account-new.cancel"].waitForNonExistence(timeout: 10), app.debugDescription)
+        waitForReceipt("已删除账号「\(Fixture.claudeName)」")
+        XCTAssertTrue(app.buttons["account.\(Fixture.newID)"].waitForNonExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 20 §7.4-2: a new key makes the dock 保存并重新测试; the PATCH goes first (保存修改 #13), then the test passes and clears the error.
+    @MainActor func testEditedCredentialsAreSavedThenRetestPasses() {
+        launchAndLogin(arguments: [Fixture.newTestFail])
+        defer { diagnostics("account-new-retest-final") }
+        fillClaudeConsole()
+        submit()
+        waitForLabel(element("account-new.test.outcome"), equals: Fixture.failedOutcome)
+        tapInSheet("account-new.test.edit")
+        XCTAssertTrue(element("account-new.test.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        typeSecret("sk-ant-api03-ui-fixture-key-0002", in: "account-new.apikey")
+        waitForLabel(app.buttons["account-new.submit"], equals: "保存并重新测试")
+        submit()
+        XCTAssertTrue(app.navigationBars["保存并重新测试"].waitForExistence(timeout: 10), app.debugDescription)
+        waitForLabel(element("account-new.test.outcome"), equals: Fixture.passedOutcome)
+        XCTAssertEqual(element("account-new.test.stage.save").value as? String, "#13")
+        XCTAssertTrue(element("account-new.test.outcome.detail").label.hasPrefix("错误状态已自动清除。"), app.debugDescription)
+        tapInSheet("account-new.test.done")
+        XCTAssertTrue(app.buttons["account-new.cancel"].waitForNonExistence(timeout: 5), app.debugDescription)
+        waitForReceipt("已创建「\(Fixture.claudeName)」· 参与调度")
+    }
+
+    /// 20 §7.3 停调度失败: 重试停止调度 works this time and the test starts by itself.
+    @MainActor func testPauseFailureRetryStopsSchedulingThenTests() {
+        launchAndLogin(arguments: [Fixture.newPauseFail])
+        defer { diagnostics("account-new-repause-final") }
+        fillClaudeConsole()
+        submit()
+        waitForLabel(element("account-new.test.outcome"), equals: "停止调度没有确认 · 结果待核对")
+        XCTAssertEqual(element("account-new.test.stage.pause").value as? String, "没有确认")
+        tapInSheet("account-new.test.repause")
+        finishPassingTest(name: Fixture.claudeName)
+    }
+
+    /// 20 §7.4-4, §4.4: 后台继续 while the test runs closes the form; the run goes on and turns scheduling on, then says so.
+    @MainActor func testClosingDuringTestContinuesInBackgroundWithReceipts() {
+        launchAndLogin(arguments: [Fixture.testSlow])
+        defer { diagnostics("account-new-background-final") }
+        fillClaudeConsole()
+        submit()
+        let background = app.buttons["account-new.test.background"]
+        XCTAssertTrue(background.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["account-new.test.close"].exists, app.debugDescription)
+        background.tap()
+        XCTAssertTrue(app.buttons["account-new.cancel"].waitForNonExistence(timeout: 5), app.debugDescription)
+        waitForReceipt("「\(Fixture.claudeName)」在后台继续测试，完成后通知你")
+        let passed = "「\(Fixture.claudeName)」测试通过 · 已启用调度"
+        XCTAssertTrue(waitUntil(app.staticTexts["receipt.text"], "label == %@", passed, timeout: 20), app.debugDescription)
+        XCTAssertEqual(app.buttons["receipt.action"].label, "查看")
+        app.buttons["receipt.action"].tap()
+        XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
     // MARK: - Helpers
+
+    /// The sheet opens once the account exists; the fixture's test passes and turns scheduling on; 完成 closes everything.
+    @MainActor private func finishPassingTest(name: String, file: StaticString = #filePath, line: UInt = #line) {
+        let outcome = element("account-new.test.outcome")
+        XCTAssertTrue(outcome.waitForExistence(timeout: 15), app.debugDescription, file: file, line: line)
+        waitForLabel(outcome, equals: Fixture.passedOutcome, file: file, line: line)
+        tapInSheet("account-new.test.done", file: file, line: line)
+        XCTAssertTrue(app.buttons["account-new.cancel"].waitForNonExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        waitForReceipt("已创建「\(name)」· 参与调度", file: file, line: line)
+    }
+    /// A button of the test sheet, scrolled into view first: the list makes rows below the fold only once they are near.
+    @MainActor private func tapInSheet(_ identifier: String, file: StaticString = #filePath, line: UInt = #line) {
+        let item = element(identifier), list = element("account-new.test.sheet")
+        XCTAssertTrue(list.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        for _ in 0..<6 where !(item.waitForExistence(timeout: 2) && item.isHittable) { list.swipeUp() }
+        XCTAssertTrue(item.exists && item.isHittable, app.debugDescription, file: file, line: line)
+        item.tap()
+    }
 
     @MainActor private func launchAndLogin(arguments: [String] = []) {
         continueAfterFailure = false
@@ -396,13 +550,17 @@ final class AccountNewUITests: XCTestCase {
         row.tap()
     }
     @MainActor private func turnMixedScheduling(on: Bool) {
+        tapMixedScheduling(to: on)
+        XCTAssertTrue(waitUntil(app.switches["account-new.groups.mixed"], "value == %@", on ? "1" : "0"), app.debugDescription)
+    }
+    /// The tap alone, for a check that cannot wait (the receipt after turning it off).
+    @MainActor private func tapMixedScheduling(to on: Bool) {
         let toggle = app.switches["account-new.groups.mixed"]
         reveal(toggle)
         if (toggle.value as? String == "1") != on {
             let knob = toggle.switches.firstMatch
             (knob.exists ? knob : toggle).tap()
         }
-        XCTAssertTrue(waitUntil(toggle, "value == %@", on ? "1" : "0"), app.debugDescription)
     }
     @MainActor private func submit() {
         let button = app.buttons["account-new.submit"]
@@ -416,13 +574,19 @@ final class AccountNewUITests: XCTestCase {
         field.tap()
         field.typeText(value + "\n")
     }
-    /// The text is trailing-aligned: a tap at its end, then deletes.
+    /// The text is trailing-aligned, and a tap puts the caret on the nearest word boundary: the tap goes to the field's last
+    /// points so the caret lands after the last word, then deletes. A caret that still landed inside a word gets another round.
     @MainActor private func clear(_ identifier: String) {
         let field = element(identifier)
         reveal(field)
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
-        let count = (field.value as? String)?.count ?? 20
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: count + 2) + "\n")
+        var focused = false
+        for _ in 0..<3 {
+            guard let value = field.value as? String, !value.isEmpty, value != field.placeholderValue else { break }
+            field.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)).withOffset(CGVector(dx: -2, dy: 0)).tap()
+            focused = true
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count + 2))
+        }
+        if focused { field.typeText("\n") }
     }
     @MainActor private func enter(_ text: String, in identifier: String) {
         let field = element(identifier); reveal(field); field.tap(); field.typeText(text)
@@ -438,8 +602,10 @@ final class AccountNewUITests: XCTestCase {
     @MainActor private func element(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier].firstMatch }
     /// A row's label and value together: menus and links read “title, value”, or keep the value apart.
     @MainActor private func readout(_ item: XCUIElement) -> String { item.label + " " + String(describing: item.value ?? "") }
+    /// A receipt lasts 4.2 seconds: the wait ends as soon as it is there (a predicate expectation is polled once a second).
     @MainActor private func waitForReceipt(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
-        waitForLabel(app.staticTexts["receipt.text"], equals: text, file: file, line: line)
+        let receipt = app.staticTexts.matching(NSPredicate(format: "identifier == 'receipt.text' AND label == %@", text)).firstMatch
+        XCTAssertTrue(receipt.waitForExistence(timeout: 10), "≠ \(text)\n\(app.debugDescription)", file: file, line: line)
     }
     @MainActor private func waitForLabel(_ item: XCUIElement, equals text: String, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(waitUntil(item, "label == %@", text, timeout: 10), "\(item.label) ≠ \(text)\n\(app.debugDescription)", file: file, line: line)

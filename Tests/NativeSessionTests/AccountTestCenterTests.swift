@@ -487,3 +487,280 @@ private func isTerminated(_ stream: AsyncThrowingStream<AccountTestEvent, any Er
     router.showAccount(id: 7)
     #expect(router.path(for: .accounts) == [.account(id: 3), .account(id: 7)])
 }
+
+// MARK: - 新建账号（S2-20）: the test, then the switch on, held by the center so closing the form does not stop it
+
+@MainActor private final class FakeScheduleWriter: AccountNewScheduleWriter {
+    var session: AccountWriteSession?
+    var readBacks: [Result<UpstreamAccount, any Error>] = []
+    var switches: [Result<UpstreamAccount, any Error>] = []
+    var switchesSessionOnRead = false
+    private(set) var reads = 0
+    private(set) var sent: [(enabled: Bool, key: UUID?, generation: UUID)] = []
+
+    init(generation: UUID, idempotentWrites: Bool = true) {
+        session = AccountWriteSession(generation: generation, idempotentWrites: idempotentWrites, recoverSchedulable: true, patch: true,
+                                      isReadOnlyToken: false)
+    }
+    var accountWriteSession: AccountWriteSession? { session }
+    func setAccountSchedulable(id: Int, enabled: Bool, idempotencyKey: UUID?, generation: UUID) async throws -> WriteOutcome<UpstreamAccount> {
+        sent.append((enabled, idempotencyKey, generation))
+        return WriteOutcome(value: try (switches.isEmpty ? .success(newAccount(schedulable: true)) : switches.removeFirst()).get())
+    }
+    func accountWithVersion(id: Int) async throws -> VersionedAccount {
+        reads += 1
+        if switchesSessionOnRead, let current = session {
+            session = AccountWriteSession(generation: UUID(), idempotentWrites: current.idempotentWrites, recoverSchedulable: true, patch: true,
+                                          isReadOnlyToken: false)
+        }
+        return VersionedAccount(account: try (readBacks.isEmpty ? .success(newAccount()) : readBacks.removeFirst()).get(), etag: "\"cv-1\"")
+    }
+}
+
+@MainActor private final class KeyMaker {
+    private(set) var made: [UUID] = []
+    func make() -> UUID { let key = UUID(); made.append(key); return key }
+}
+
+private func newAccount(status: String = "active", schedulable: Bool = false) -> UpstreamAccount {
+    UpstreamAccount(id: 13, name: "Claude-04", platform: "anthropic", type: "apikey", status: status, schedulable: schedulable)
+}
+private func newTarget() -> AccountTestTarget { AccountTestTarget(account: newAccount(), platformName: "Anthropic") }
+private func newResult(_ success: Bool, marked: Bool = false, status: String? = nil) -> AccountTestEvent {
+    AccountTestEvent(type: "test_result", data: AccountTestResult(
+        success: success, firstTokenMs: success ? 1210 : nil, totalMs: 3420, upstreamStatus: success ? 200 : 401,
+        account: .init(status: status ?? (success ? "active" : "error"), schedulable: false, errorKind: success ? nil : "auth"),
+        recovery: success ? .init(clearedError: false, clearedRateLimit: false) : nil,
+        marked: success ? nil : .init(error: marked, rateLimited: false, tempUnschedulable: false)))
+}
+
+/// One new-account case: the harness, the writer (held here: the run keeps it weakly), the keys made and the accounts opened.
+@MainActor private struct NewAccountCase {
+    let h: Harness
+    let writer: FakeScheduleWriter
+    let keys = KeyMaker()
+    let opened = Opened()
+
+    init(source: FakeTestSource = FakeTestSource(), idempotentWrites: Bool = true) {
+        h = Harness(source)
+        writer = FakeScheduleWriter(generation: source.generation, idempotentWrites: idempotentWrites)
+    }
+    @discardableResult
+    func start(status: AccountNewScheduleStatus = .paused, model: String? = "claude-sonnet-4-5") -> AccountNewTestRun? {
+        let keys = keys, opened = opened
+        return h.center.startNewAccountTest(newTarget(), model: model, status: status, writer: writer, opener: { opened.ids.append($0) },
+                                            makeKey: { keys.make() })
+    }
+    /// The attached test ends with `events`; the run's follow-up (read, switch) has finished when this returns.
+    func finish(_ events: [AccountTestEvent], index: Int = 0) async {
+        await settle { h.source.streams.count > index }
+        h.finishStream(events, index: index)
+        await settle { h.center.state(for: 13)?.ending != nil }
+        await h.center.newAccountRun(for: 13)?.settled()
+    }
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func newAccountPassEnablesSchedulingQuietlyWhileAttached() async throws {
+    let c = NewAccountCase()
+    let run = try #require(c.start())
+    #expect(run.phase == .testing && c.h.center.newAccountRun(for: 13) === run)
+    await c.finish(partial + [newResult(true)])
+    #expect(run.phase == .passed && run.verdict?.passed == true && run.latest?.etag == "\"cv-1\"")
+    #expect(c.writer.reads == 1 && c.writer.sent.count == 1)
+    #expect(c.writer.sent.first?.enabled == true && c.writer.sent.first?.key == c.keys.made.first && c.keys.made.count == 1)
+    #expect(c.writer.sent.first?.generation == c.h.source.generation)
+    #expect(c.h.receipts.current == nil)
+    #expect(c.h.center.completion(for: 13) != nil && c.h.center.state(for: 13)?.ending != nil)
+
+    let unkeyed = NewAccountCase(idempotentWrites: false)
+    let other = try #require(unkeyed.start())
+    await unkeyed.finish([newResult(true)])
+    #expect(other.phase == .passed && unkeyed.writer.sent.first?.key == nil && unkeyed.keys.made.isEmpty)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func newAccountFailureLeavesSchedulingOffWithTheHeldStatus() async throws {
+    let c = NewAccountCase()
+    let run = try #require(c.start())
+    await c.finish([AccountTestEvent(type: "error", message: "invalid x-api-key Bearer abc"), newResult(false, marked: true)])
+    #expect(run.phase == .failed && run.status == .error && c.writer.sent.isEmpty)
+    #expect(run.verdict?.reason == "API Key 无效或已撤销" && run.verdict?.detailLine == "上游返回 401 · invalid x-api-key [已隐藏]")
+
+    let quiet = NewAccountCase()
+    let paused = try #require(quiet.start())
+    await quiet.finish([newResult(false, marked: false, status: "active")])
+    #expect(paused.phase == .failed && paused.status == .paused && quiet.writer.sent.isEmpty)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func unconfirmedEnableReadsBackThenRetriesWithTheSameKey() async throws {
+    let c = NewAccountCase()
+    let lost = KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: "k", actionID: nil, lastError: nil)
+    c.writer.switches = [.failure(lost)]
+    c.writer.readBacks = [.success(newAccount()), .success(newAccount())]
+    let run = try #require(c.start())
+    await c.finish([newResult(true)])
+    guard case .enableFailed = run.phase else { Issue.record("\(run.phase)"); return }
+    #expect(c.writer.reads == 2)
+    run.retryEnable()
+    await run.settled()
+    #expect(run.phase == .passed && c.writer.sent.count == 2 && c.writer.sent[1].key == c.writer.sent[0].key && c.keys.made.count == 1)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func readBackShowingEnabledCountsAsPassed() async throws {
+    let c = NewAccountCase()
+    c.writer.switches = [.failure(transportError)]
+    c.writer.readBacks = [.success(newAccount()), .success(newAccount(schedulable: true))]
+    let run = try #require(c.start())
+    await c.finish([newResult(true)])
+    #expect(run.phase == .passed && c.writer.sent.count == 1)
+
+    let on = NewAccountCase()
+    on.writer.readBacks = [.success(newAccount(schedulable: true))]
+    let already = try #require(on.start())
+    await on.finish([newResult(true)])
+    #expect(already.phase == .passed && on.writer.sent.isEmpty)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func definiteEnableFailureRetriesWithANewKey() async throws {
+    let c = NewAccountCase()
+    c.writer.switches = [.failure(APIError.server(status: 400, reason: nil))]
+    let run = try #require(c.start())
+    await c.finish([newResult(true)])
+    guard case .enableFailed(let reason) = run.phase else { Issue.record("\(run.phase)"); return }
+    #expect(reason?.isEmpty == false && c.writer.reads == 1)
+    run.retryEnable()
+    await run.settled()
+    #expect(run.phase == .passed && c.writer.sent.count == 2 && c.writer.sent[1].key != c.writer.sent[0].key && c.keys.made.count == 2)
+
+    let unkeyed = NewAccountCase(idempotentWrites: false)
+    unkeyed.writer.switches = [.failure(APIError.server(status: 400, reason: nil))]
+    let other = try #require(unkeyed.start())
+    await unkeyed.finish([newResult(true)])
+    other.retryEnable()
+    await other.settled()
+    #expect(unkeyed.writer.sent.map(\.key) == [nil, nil] && other.phase == .passed)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func detachedRunAnnouncesBackgroundThenThePassOpensTheAccount() async throws {
+    let c = NewAccountCase()
+    let run = try #require(c.start())
+    await settle { c.h.source.streams.count == 1 }
+    c.h.center.detachNewAccountTest(13)
+    #expect(run.isDetached && c.h.center.state(for: 13)?.isDetached == true)
+    #expect(c.h.receipts.current?.text == "「Claude-04」在后台继续测试，完成后通知你" && c.h.receipts.current?.action == nil)
+    c.h.finishStream([newResult(true)])
+    await settle { c.h.receipts.current?.text == "「Claude-04」测试通过 · 已启用调度" }
+    #expect(c.h.receipts.current?.text == "「Claude-04」测试通过 · 已启用调度" && c.h.receipts.current?.action?.title == "查看")
+    if let id = c.h.receipts.current?.id { c.h.receipts.performAction(id: id) }
+    #expect(c.opened.ids == [13] && run.phase == .passed)
+    #expect(c.h.center.newAccountRun(for: 13) == nil && c.h.center.state(for: 13) == nil)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func detachedFailureReceiptNamesTheHeldStatusAndResolveOpensTheAccount() async throws {
+    let c = NewAccountCase()
+    try #require(c.start())
+    await settle { c.h.source.streams.count == 1 }
+    c.h.center.detachNewAccountTest(13)
+    c.h.finishStream([newResult(false, marked: true)])
+    await settle { c.h.receipts.current?.text.contains("测试未通过") == true }
+    #expect(c.h.receipts.current?.text == "「Claude-04」测试未通过 · 已标为错误（已停止调度）" && c.h.receipts.current?.action?.title == "处理")
+    if let id = c.h.receipts.current?.id { c.h.receipts.performAction(id: id) }
+    #expect(c.opened.ids == [13])
+
+    let quiet = NewAccountCase()
+    try #require(quiet.start())
+    await settle { quiet.h.source.streams.count == 1 }
+    quiet.h.center.detachNewAccountTest(13)
+    quiet.h.finishStream([newResult(false, status: "active")])
+    await settle { quiet.h.receipts.current?.text == "「Claude-04」测试未通过 · 仍暂停调度" }
+    #expect(quiet.h.receipts.current?.text == "「Claude-04」测试未通过 · 仍暂停调度" && quiet.h.receipts.current?.tone == .critical)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func detachedEnableFailureReceipt() async throws {
+    let c = NewAccountCase()
+    c.writer.switches = [.failure(APIError.server(status: 400, reason: nil))]
+    try #require(c.start())
+    await settle { c.h.source.streams.count == 1 }
+    c.h.center.detachNewAccountTest(13)
+    c.h.finishStream([newResult(true)])
+    await settle { c.h.receipts.current?.text == "「Claude-04」测试通过 · 启用调度没有成功" }
+    #expect(c.h.receipts.current?.tone == .caution && c.h.receipts.current?.action?.title == "查看")
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func incompleteNewAccountTestNeverEnables() async throws {
+    let c = NewAccountCase(source: FakeTestSource(testRuns: false))
+    let run = try #require(c.start())
+    await settle { c.h.source.streams.count == 1 }
+    c.h.center.detachNewAccountTest(13)
+    c.h.finishStream(partial, throwing: transportError)
+    await settle { c.h.receipts.current?.text.contains("中断") == true }
+    #expect(run.phase == .interrupted && c.writer.sent.isEmpty && c.writer.reads == 0)
+    #expect(c.h.receipts.current?.text == "「Claude-04」测试被中断，不能判定是否成功 · 仍暂停调度" && c.h.receipts.current?.action?.title == "处理")
+
+    let refused = NewAccountCase()
+    refused.h.source.streamFailure = APIError.server(status: 500, reason: nil)
+    let notStarted = try #require(refused.start())
+    await settle { notStarted.phase != .testing }
+    guard case .notStarted(let message) = notStarted.phase else { Issue.record("\(notStarted.phase)"); return }
+    #expect(message.hasPrefix("测试没有开始") && refused.writer.sent.isEmpty)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func sessionChangeOrAGoneWriterDropsTheRunWithoutWrites() async throws {
+    let c = NewAccountCase()
+    c.writer.switchesSessionOnRead = true
+    let run = try #require(c.start())
+    await settle { c.h.source.streams.count == 1 }
+    c.h.center.detachNewAccountTest(13)
+    c.h.finishStream([newResult(true)])
+    await settle { c.writer.reads == 1 }
+    await run.settled()
+    #expect(c.writer.sent.isEmpty && run.phase == .testing)
+    #expect(c.h.receipts.current?.text == "「Claude-04」在后台继续测试，完成后通知你")
+
+    var gone: NewAccountCase? = NewAccountCase()
+    let orphan = try #require(gone?.start())
+    let center = try #require(gone?.h.center), source = try #require(gone?.h.source), receipts = try #require(gone?.h.receipts)
+    await settle { source.streams.count == 1 }
+    center.detachNewAccountTest(13)
+    gone = nil
+    source.streams[0].yield(newResult(true))
+    source.streams[0].finish()
+    await settle { orphan.verdict != nil }
+    await orphan.settled()
+    #expect(orphan.verdict != nil && orphan.phase == .testing)
+    #expect(receipts.current?.text == "「Claude-04」在后台继续测试，完成后通知你")
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func genericCompletionReceiptIsLeftOutForNewAccounts() async throws {
+    let c = NewAccountCase()
+    c.h.center.start(target(), model: nil, opener: nil)
+    try #require(c.start())
+    await settle { c.h.source.streams.count == 2 }
+    c.h.center.detach(7)
+    c.h.center.detachNewAccountTest(13)
+    c.h.finishStream([result(true)], index: 0)
+    await settle { c.h.receipts.current?.text == "「主号」测试通过" }
+    c.h.finishStream([newResult(true)], index: 1)
+    await settle { c.h.center.state(for: 13) == nil }
+    #expect(c.h.receipts.current?.text != "「Claude-04」测试通过")
+    await settle { c.h.receipts.current?.text == "「Claude-04」测试通过 · 已启用调度" }
+    #expect(c.h.receipts.current?.text == "「Claude-04」测试通过 · 已启用调度" && c.h.center.completion(for: 13) != nil)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func restartEndAndCancelAll() async throws {
+    let c = NewAccountCase()
+    let run = try #require(c.start(status: .paused))
+    await c.finish([newResult(false, marked: true)])
+    #expect(run.status == .error)
+    let again = try #require(c.start(status: .paused, model: "claude-haiku-4-5"))
+    #expect(again === run && run.phase == .testing && run.status == .error && run.verdict == nil)
+    #expect(c.start() == nil)
+    await settle { c.h.source.streams.count == 2 }
+    #expect(c.h.source.calls.last == "stream 13 claude-haiku-4-5")
+    c.h.center.endNewAccountTest(13)
+    #expect(c.h.center.newAccountRun(for: 13) == nil && c.h.center.isRunning(13))
+
+    let other = NewAccountCase()
+    try #require(other.start())
+    other.h.center.cancelAll()
+    #expect(other.h.center.newAccountRuns.isEmpty && other.h.center.states.isEmpty)
+}
