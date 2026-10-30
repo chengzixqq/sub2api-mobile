@@ -492,3 +492,5 @@
 | 代理有效期日期改用 monthDayClock | ProxyEditDraft 的“保持 yyyy-MM-dd”用 ServerTimeZone.dayString，续期脚注里的“MM/DD”用 ProxyExpiry.monthDay；S6-26 收口时看是否改为转调 S3-04 的 DisplayFormat.monthDayClock（S3D1-28） |
 | 编辑超时读回缺 UI 用例 | 代理编辑超时后的读回（一致 / 不一致 / 读不到）只有 ProxyEditFlowTests 覆盖；要不要加夹具参数（如 -ui-proxy-update-timeout）补 UI 用例，以后再定 |
 | 代理编辑对象条地址的写法 | 续期对象条用 ProxyPresentation.addressLine（“SOCKS5H · host:port”），和详情副标题一致；规格示例里的地址是演示数据，夹具实际显示 198.51.100.30 |
+| 公告编辑 sheet 结果未确认时仍可关闭 | AnnouncementEditSheet（S6-18）处于 createUnconfirmed 或 updateUnconfirmed 时，只在 isBusy 或 hasChanges 时禁止下滑；取消弹的是“放弃修改？”，关闭后也不重读列表。S6-14 审查修正前的代理 sheet 是同一个问题（00 §2.5.4 第 1 条）。建议 S6-26 合并 DismissAttemptBridge 时，一并改成“结果未确认 / 稍后核对”。 |
+| 新建类写入结果未确认、关闭 sheet 后不拦截再次新建 | 00 §2.5.4 第 4 条要求核对完成前不发起同类写入。代理、公告、分组等新建类写入没有本机记录，sheet 关闭后编号也随之丢失。代理 sheet 目前只在关闭前提示，关闭后重读列表，不拦截再次添加。如果要拦截，需要给新建类写入加会话内的待核对记录，是否这样做由各模块决定。 |
