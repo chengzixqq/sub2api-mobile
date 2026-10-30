@@ -372,3 +372,78 @@ extension DemoData {
         return WriteOutcome(value: all, replayed: arguments.contains(RedeemFixture.generateReplayed), batchID: batch.id)
     }
 }
+
+// MARK: - S6-09 compensation
+
+/// S6-09's `-ui-testing` answers of create-and-redeem and of the user's subscriptions; what a check finds is S6-08's
+/// `-ui-reconcile-*` (S6D1-15). Without one a grant succeeds and its code joins the session's list (ids 95001 on).
+enum GrantFixtureArgument {
+    static let replayed = "-ui-grant-replayed"
+    /// The answer is lost: the sheet turns into the pending page and the record stays.
+    static let unknown = "-ui-grant-unknown"
+    /// The first send of the run meets 409 REDEEM_CODE_CONFLICT; the renumbered one goes through.
+    static let conflict = "-ui-grant-conflict"
+    /// A subscription grant meets 404 GROUP_NOT_FOUND.
+    static let groupGone = "-ui-grant-group-gone"
+    static let userGone = "-ui-grant-user-gone"
+    /// 503 IDEMPOTENCY_STORE_UNAVAILABLE: the same number waits `storeCooldown`.
+    static let storeUnavailable = "-ui-grant-store-unavailable"
+    static let storeCooldown: TimeInterval = 10
+    /// The user's subscriptions cannot be read.
+    static let subscriptionsError = "-ui-grant-subs-error"
+    /// The user's concurrency is 0, unlimited (U52).
+    static let unlimited = "-ui-grant-unlimited"
+}
+
+extension DemoData {
+    @MainActor private static var grantConflictMet = false
+
+    /// `POST admin/redeem-codes/create-and-redeem` under the record's number: the redeemed code joins the session's list.
+    @MainActor static func grantReply(for grant: PendingCompensation, store: RedeemDemoStore, now: Date,
+                                      arguments: [String]) throws -> WriteOutcome<AdminRedeemCode> {
+        func failure(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFailure {
+            KeyedWriteFailure(disposition: disposition, key: grant.key, actionID: nil, lastError: nil)
+        }
+        if arguments.contains(GrantFixtureArgument.unknown) { throw failure(.unconfirmed(.transport, retryNotBefore: nil)) }
+        if arguments.contains(GrantFixtureArgument.storeUnavailable) {
+            throw failure(.unconfirmed(.storeUnavailable, retryNotBefore: Date().addingTimeInterval(GrantFixtureArgument.storeCooldown)))
+        }
+        if arguments.contains(GrantFixtureArgument.conflict), !grantConflictMet {
+            grantConflictMet = true
+            throw APIError.server(status: 409, reason: "REDEEM_CODE_CONFLICT")
+        }
+        if arguments.contains(GrantFixtureArgument.groupGone), grant.type == .subscription { throw APIError.server(status: 404, reason: "GROUP_NOT_FOUND") }
+        if arguments.contains(GrantFixtureArgument.userGone) { throw APIError.server(status: 404, reason: "USER_NOT_FOUND") }
+        let id = (store.codes.map(\.id).filter { $0 > 95_000 }.max() ?? 95_000) + 1
+        let group = grant.groupID.flatMap { groupID in accountGroups.first { $0.id == groupID }.map { RedeemCodeGroup(id: groupID, name: $0.name) } }
+        let made = AdminRedeemCode(id: id, code: grant.code, type: grant.type.rawValue, value: grant.value, status: "used", usedBy: grant.userID, usedAt: now,
+                                   createdAt: now, groupID: grant.groupID, validityDays: grant.validityDays, notes: grant.notes.isEmpty ? nil : grant.notes,
+                                   createdBy: grant.actorUserID, user: RedeemCodeUser(id: grant.userID, email: grant.userEmail, username: grant.userDisplayName),
+                                   group: group)
+        store.insert([made])
+        return WriteOutcome(value: made, replayed: arguments.contains(GrantFixtureArgument.replayed))
+    }
+    /// 王小明's 企业专线 (group 4) runs another 20 days, so a grant extends it from its end; everyone else has none.
+    static func grantSubscriptions(userID: Int, now: Date, arguments: [String]) throws -> [AdminUserSubscription] {
+        if arguments.contains(GrantFixtureArgument.subscriptionsError) { throw APIError.server(status: 500, reason: nil) }
+        guard userID == 3 else { return [] }
+        return [AdminUserSubscription(id: 701, userID: 3, groupID: 4, startsAt: now.addingTimeInterval(-10 * 86_400),
+                                      expiresAt: now.addingTimeInterval(20 * 86_400), status: "active")]
+    }
+    static func grantUser(_ user: AdminUser, arguments: [String]) -> AdminUser {
+        guard arguments.contains(GrantFixtureArgument.unlimited) else { return user }
+        var unlimited = user
+        unlimited.concurrency = 0
+        return unlimited
+    }
+    /// The fixture user after a grant: balance and concurrency go up; a subscription changes no user field.
+    static func granted(_ user: AdminUser, by grant: PendingCompensation) -> AdminUser {
+        var changed = user
+        switch grant.type {
+        case .balance: changed.balance += grant.value
+        case .concurrency: changed.concurrency = (user.concurrency ?? 0) + NSDecimalNumber(decimal: grant.value).intValue
+        case .subscription: break
+        }
+        return changed
+    }
+}

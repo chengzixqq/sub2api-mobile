@@ -182,7 +182,8 @@ struct ProxyFallbackAccountsView: View {
                                                  endpoints: endpoints, store: store, accountSignal: model.accountListSignal, receipts: model.receipts,
                                                  authorize: { [weak model] in await model?.biometricGate.authorize($0) ?? false },
                                                  isCurrent: { [weak model] in model?.sessionGeneration == generation },
-                                                 now: { client.serverClock.now() })
+                                                 now: { client.serverClock.now() },
+                                                 afterRevert: { [proxyID] in ProxyFallbackSignal.post(proxyID: proxyID, generation: generation) })
         page = created
         pageGeneration = generation
         await created.load()

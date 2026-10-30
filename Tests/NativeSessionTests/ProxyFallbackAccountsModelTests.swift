@@ -63,6 +63,8 @@ private struct StubList: ProxySource {
     var allows = true
     var asked: [GatedAction] = []
     var clock = checked
+    /// How often the page told the detail to read again.
+    var told = 0
 }
 
 private let checked = Date(timeIntervalSince1970: 1_800_000_000)
@@ -91,7 +93,7 @@ private func proxy(status: String = "active", expires: TimeInterval? = 45 * 86_4
     ProxyFallbackAccountsModel(proxyID: 4, seed: seed, isSupported: isSupported, endpoints: stub.endpoints, store: store, accountSignal: signal,
                                receipts: receipts,
                                authorize: { recorder.asked.append($0); return recorder.allows },
-                               isCurrent: { recorder.isCurrent }, now: { recorder.clock })
+                               isCurrent: { recorder.isCurrent }, now: { recorder.clock }, afterRevert: { recorder.told += 1 })
 }
 private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + .seconds(5)
@@ -340,4 +342,52 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(!ProxyAccess.canRevertFallback(me: vendor(.init(proxyManage: true)), isReadOnlyToken: false))
     #expect(!ProxyAccess.canRevertFallback(me: vendor(.init(accountManage: true)), isReadOnlyToken: false))
     #expect(!ProxyAccess.canRevertFallback(me: vendor(nil), isReadOnlyToken: false))
+}
+
+// MARK: - S6-13 审查修正
+
+/// 60 §13.4 “之后重拉本页、详情与列表”: a revert answered or read back tells the detail to read the proxy and 贰 again, since the
+/// catalog's row reaches only a detail whose proxy the catalog holds. Nothing sent, or nothing the server took, tells nothing.
+@MainActor @Test func fallbackRevertTellsTheDetailToReadAgain() async {
+    let answered = Recorder()
+    let page = makePage(StubFallback(accounts: { call in call == 1 ? movedRows : [] }), recorder: answered)
+    await page.load()
+    #expect(await page.revert(.all) == .reverted)
+    #expect(answered.told == 1)
+
+    let lostReply = Recorder()
+    let readBack = makePage(StubFallback(accounts: { call in call == 1 ? movedRows : [minimax] }, revert: { _, _ in throw lost }), recorder: lostReply)
+    await readBack.load()
+    #expect(await readBack.revert(.account(9)) == .unconfirmed)
+    #expect(lostReply.told == 1)
+
+    let denied = Recorder()
+    denied.allows = false
+    let refused = makePage(StubFallback(), recorder: denied)
+    await refused.load()
+    #expect(await refused.revert(.all) == .denied)
+    let expired = Recorder()
+    let blocked = makePage(StubFallback(proxy: { _ in proxy(status: "expired") }), seed: proxy(status: "expired"), recorder: expired)
+    await blocked.load()
+    #expect(await blocked.revert(.all) == .blocked)
+    let origin = Recorder()
+    let unavailable = makePage(StubFallback(revert: { _, _ in throw APIError.server(status: 409, reason: ProxyReason.fallbackOriginUnavailable) }),
+                               recorder: origin)
+    await unavailable.load()
+    #expect(await unavailable.revert(.all) == .originUnavailable)
+    let rejected = Recorder()
+    let tooMany = makePage(StubFallback(revert: { _, _ in throw APIError.server(status: 400, reason: "TOO_MANY_ACCOUNTS") }), recorder: rejected)
+    await tooMany.load()
+    #expect(await tooMany.revert(.all) == .failed)
+    #expect([denied, expired, origin, rejected].allSatisfy { $0.told == 0 })
+}
+
+@Test func fallbackSignalNamesItsProxyAndSession() {
+    let generation = UUID()
+    let posted = ProxyFallbackSignal.notification(proxyID: 4, generation: generation)
+    #expect(ProxyFallbackSignal.matches(posted, proxyID: 4, generation: generation))
+    #expect(!ProxyFallbackSignal.matches(posted, proxyID: 1, generation: generation))
+    #expect(!ProxyFallbackSignal.matches(posted, proxyID: 4, generation: UUID()))
+    let address = ProxyAddressSignal.notification(ProxyAddressChange(proxyID: 4, generation: generation))
+    #expect(!ProxyFallbackSignal.matches(address, proxyID: 4, generation: generation))
 }

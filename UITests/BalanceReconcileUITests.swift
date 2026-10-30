@@ -150,17 +150,18 @@ final class BalanceReconcileUITests: XCTestCase {
         }
     }
 
-    @MainActor func testCompensationRowOpensGrantPlaceholder() {
+    @MainActor func testCompensationRowOpensGrantPendingPage() {
         launchAndLogin(["-ui-pending-compensation-here"])
         defer { diagnostics("reconcile-compensation-final") }
         openAlice()
         XCTAssertTrue(element("user.pending.\(Self.grantHere)").waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(labelled(containing: "补偿结果待核对 · $10.00").exists, app.debugDescription)
         check(Self.grantHere)
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.navigationBars["发放兑换码（补偿）"].exists, app.debugDescription)
+        // S6-09: the record's 结果待核对 page in the compensation sheet.
+        XCTAssertTrue(element("grant.pending").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["补偿结果待核对"].exists, app.debugDescription)
         app.buttons["sheet.close"].tap()
-        XCTAssertTrue(element("route.placeholder").waitForNonExistence(timeout: 10))
+        XCTAssertTrue(element("grant.pending").waitForNonExistence(timeout: 10))
         XCTAssertTrue(element("user.pending.\(Self.grantHere)").exists, app.debugDescription)
     }
 
