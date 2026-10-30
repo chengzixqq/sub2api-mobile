@@ -23,6 +23,8 @@ actor StubLiveOpsSource: LiveOpsSource {
         case setOpsMonitoring(Bool), enableOpsLegacy
         // S1-13
         case snapshot(start: Date, end: Date)
+        // S1-14
+        case concurrency, metricsHistory(timeRange: String, maxPoints: Int), logsHealth, ingress(timeRange: String, page: Int, pageSize: Int)
     }
     struct Handlers: Sendable {
         var home: (@Sendable (_ noCache: Bool) async throws -> DashboardHome)?
@@ -50,6 +52,10 @@ actor StubLiveOpsSource: LiveOpsSource {
         var setOpsMonitoring: (@Sendable (Bool) async throws -> OpsMonitoringStatus)?
         var enableOpsLegacy: (@Sendable () async throws -> Void)?
         var snapshot: (@Sendable (_ start: Date, _ end: Date) async throws -> OpsSnapshotV2)?
+        var concurrency: (@Sendable () async throws -> OpsConcurrency)?
+        var metricsHistory: (@Sendable (_ timeRange: String, _ maxPoints: Int) async throws -> SystemMetricsHistory)?
+        var logsHealth: (@Sendable () async throws -> SystemLogHealth)?
+        var ingress: (@Sendable (_ page: Int, _ pageSize: Int) async throws -> IngressRejectList)?
     }
     private var handlers: Handlers
     private(set) var calls: [Call] = []
@@ -190,6 +196,26 @@ actor StubLiveOpsSource: LiveOpsSource {
         calls.append(.snapshot(start: start, end: end))
         guard let handler = handlers.snapshot else { throw StubMissing() }
         return try await handler(start, end)
+    }
+    func opsConcurrency() async throws -> OpsConcurrency {
+        calls.append(.concurrency)
+        guard let handler = handlers.concurrency else { throw StubMissing() }
+        return try await handler()
+    }
+    func systemMetricsHistory(timeRange: String, maxPoints: Int) async throws -> SystemMetricsHistory {
+        calls.append(.metricsHistory(timeRange: timeRange, maxPoints: maxPoints))
+        guard let handler = handlers.metricsHistory else { throw StubMissing() }
+        return try await handler(timeRange, maxPoints)
+    }
+    func systemLogsHealth() async throws -> SystemLogHealth {
+        calls.append(.logsHealth)
+        guard let handler = handlers.logsHealth else { throw StubMissing() }
+        return try await handler()
+    }
+    func ingressRejections(timeRange: String, page: Int, pageSize: Int) async throws -> IngressRejectList {
+        calls.append(.ingress(timeRange: timeRange, page: page, pageSize: pageSize))
+        guard let handler = handlers.ingress else { throw StubMissing() }
+        return try await handler(page, pageSize)
     }
 }
 

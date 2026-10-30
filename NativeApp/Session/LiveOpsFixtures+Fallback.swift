@@ -9,10 +9,12 @@ extension LiveOpsFixtures {
     /// the App), and add `-ui-home-legacy` for the home request itself.
     static let homeLegacyWithheldCapabilities = "dashboard.home,dashboard.rates,dashboard.account_cost,accounts.status_summary,ops.alert_event_counts"
 
-    /// The home's ops block as the overview of the last five minutes (230 requests: RPM 46, TPM 240K).
+    /// The home's ops block as the overview of the last five minutes (230 requests: RPM 46, TPM 240K), with the monitor's server
+    /// figures (S1-14, LiveOpsFixtures+Server.swift).
     static func fiveMinuteOverview(base: Date) -> OpsOverview {
         OpsOverview(startTime: base.addingTimeInterval(-300), endTime: base, healthScore: 94, sla: 0.992, errorRate: 0.008, requestCountTotal: 230,
-                    tokenConsumed: 1_200_000, upstream429Count: 12, upstream529Count: 3)
+                    tokenConsumed: 1_200_000, upstream429Count: 12, upstream529Count: 3, qps: OpsRateSummary(current: 0.8, peak: 2.4, avg: 0.8),
+                    systemMetrics: serverSystemMetrics(now: base), jobHeartbeats: serverJobHeartbeats(now: base))
     }
     /// `dashboard/stats` with today and the RPM / TPM of the home fixture.
     static func dashboardStats(_ base: Date) -> DashboardStats {

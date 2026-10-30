@@ -2,7 +2,8 @@ import Foundation
 import Sub2Core
 
 // S1-13: the monitor overview's reads for `-ui-testing`. The run reads `opsOverview(timeRange: "5m")`, the home fixture's last
-// five minutes (LiveOpsFixtures+Fallback.swift), so 概况 shows what the overview's 运行 shows. S1-14 adds the server section here.
+// five minutes (LiveOpsFixtures+Fallback.swift), so 概况 shows what the overview's 运行 shows. The server section's reads are in
+// LiveOpsFixtures+Server.swift (S1-14).
 
 /// Failure switches for the overview's blocks; they go with any home variant.
 struct MonitorFixtureOptions: Equatable, Sendable {
@@ -10,12 +11,22 @@ struct MonitorFixtureOptions: Equatable, Sendable {
     static let overviewFailsArgument = "-ui-monitor-overview-fails"
     /// snapshot-v2 answers 503, so the line becomes 趋势加载失败 · 重试.
     static let trendFailsArgument = "-ui-monitor-trend-fails"
+    /// S1-14: `ops/concurrency` answers `enabled: false` (realtime monitoring off, ops monitoring on).
+    static let realtimeOffArgument = "-ui-monitor-realtime-off"
     var overviewFails = false
     var trendFails = false
+    var realtimeOff = false
+    /// S1-14: `-ui-without-capabilities` takes out `ops.ingress_reject_totals`, so the rejections come as an old server's pages.
+    var ingressTotalsWithheld = false
 
-    init(overviewFails: Bool = false, trendFails: Bool = false) { self.overviewFails = overviewFails; self.trendFails = trendFails }
+    init(overviewFails: Bool = false, trendFails: Bool = false, realtimeOff: Bool = false, ingressTotalsWithheld: Bool = false) {
+        self.overviewFails = overviewFails; self.trendFails = trendFails; self.realtimeOff = realtimeOff
+        self.ingressTotalsWithheld = ingressTotalsWithheld
+    }
     init(arguments: [String]) {
-        self.init(overviewFails: arguments.contains(Self.overviewFailsArgument), trendFails: arguments.contains(Self.trendFailsArgument))
+        self.init(overviewFails: arguments.contains(Self.overviewFailsArgument), trendFails: arguments.contains(Self.trendFailsArgument),
+                  realtimeOff: arguments.contains(Self.realtimeOffArgument),
+                  ingressTotalsWithheld: UITestArguments.withheldCapabilities(arguments: arguments).contains(Capability.opsIngressRejectTotals.rawValue))
     }
 }
 

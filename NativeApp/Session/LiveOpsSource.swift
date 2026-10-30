@@ -11,7 +11,7 @@ protocol AlertActionSource: Sendable {
 }
 
 /// C-27, S1D1-05: the reads behind LiveOpsStore, named and typed as on APIClient (no default arguments here). S1-06, S1-07,
-/// S1-08, S1-12, S1-13 and S1-17 add theirs; every new requirement also goes into ClientLiveOpsSource, FixtureLiveOpsSource
+/// S1-08, S1-12, S1-13, S1-14 and S1-17 add theirs; every new requirement also goes into ClientLiveOpsSource, FixtureLiveOpsSource
 /// and the tests' StubLiveOpsSource in the same commit (S1D1-06).
 protocol LiveOpsSource: AlertActionSource {
     func dashboardHome(timezone: ServerTimeZone, include: [HomeSectionKey]?, noCache: Bool) async throws -> DashboardHome
@@ -39,6 +39,11 @@ protocol LiveOpsSource: AlertActionSource {
     func enableOpsMonitoringLegacy() async throws
     // S1-13 · 监控概况（10 §4.2）
     func opsSnapshotV2(start: Date, end: Date) async throws -> OpsSnapshotV2
+    // S1-14 · 监控概况的服务器区（10 §4.2）
+    func opsConcurrency() async throws -> OpsConcurrency
+    func systemMetricsHistory(timeRange: String, maxPoints: Int) async throws -> SystemMetricsHistory
+    func systemLogsHealth() async throws -> SystemLogHealth
+    func ingressRejections(timeRange: String, page: Int, pageSize: Int) async throws -> IngressRejectList
 }
 
 /// The session's own client (D13): LiveOpsStore never makes an APIClient of its own.
@@ -88,4 +93,12 @@ struct ClientLiveOpsSource: LiveOpsSource {
     func setOpsMonitoring(enabled: Bool) async throws -> OpsMonitoringStatus { try await client.setOpsMonitoring(enabled: enabled) }
     func enableOpsMonitoringLegacy() async throws { try await client.enableOpsMonitoringLegacy() }
     func opsSnapshotV2(start: Date, end: Date) async throws -> OpsSnapshotV2 { try await client.opsSnapshotV2(start: start, end: end) }
+    func opsConcurrency() async throws -> OpsConcurrency { try await client.opsConcurrency() }
+    func systemMetricsHistory(timeRange: String, maxPoints: Int) async throws -> SystemMetricsHistory {
+        try await client.systemMetricsHistory(timeRange: timeRange, maxPoints: maxPoints)
+    }
+    func systemLogsHealth() async throws -> SystemLogHealth { try await client.systemLogsHealth() }
+    func ingressRejections(timeRange: String, page: Int, pageSize: Int) async throws -> IngressRejectList {
+        try await client.ingressRejections(timeRange: timeRange, page: page, pageSize: pageSize)
+    }
 }
