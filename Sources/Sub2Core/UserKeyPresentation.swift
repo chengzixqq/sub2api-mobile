@@ -339,6 +339,9 @@ public enum UserKeyPresentation {
         guard exactUndoSupported else { return .twoStep(back, revokeGroupID: granted) }
         return .exact(try AdminAPIKeyUpdateRequest(groupID: undo.fromGroupID ?? 0, revokeGroupAccessID: granted))
     }
+    /// 撤销 binds the key to its old group, and binding an exclusive standard group grants it (admin_group.go): one the base
+    /// no longer has cannot be gone back to without granting it again, so that change offers no 撤销 (as 30 §0.6 replace-group).
+    public static func groupUndoAvailable(from: AdminGroup?, access: UserKeyAccess) -> Bool { !newlyGranted(target: from, access: access) }
     /// After 409 GROUP_STILL_IN_USE the whole transaction was rolled back, so the key is put back alone.
     public static let undoKeptGrantReceipt = "Key 已还原；该分组还有其他 Key 在用，授权保留"
     public static let twoStepPartialReceipt = "Key 已还原，但分组授权没收回，请在权限与并发里手动移除"

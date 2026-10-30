@@ -71,7 +71,7 @@ final class UserKeysModel {
     @ObservationIgnored let hooks: UserKeysHooks
     @ObservationIgnored let writeGate: UserKeysWriteGate
     @ObservationIgnored private var listTask: Task<Void, Never>?
-    @ObservationIgnored private var hasEntered = false
+    @ObservationIgnored private var entryTask: Task<Void, Never>?
     @ObservationIgnored private var hasOpenedFirst = false
 
     init(userID: Int, source: any UserKeysSource, receipts: ReceiptCenter, hooks: UserKeysHooks, writeGate: UserKeysWriteGate = .open) {
@@ -92,11 +92,11 @@ final class UserKeysModel {
         guard listTask != nil || phase != .loaded else { return }
         await loadList()
     }
-    /// Switching to the segment reads the list, today's spend and the subscriptions, once per page.
+    /// Switching to the segment reads the list, today's spend and the subscriptions, once per page. The reads are the model's:
+    /// the view asking can go (another segment rebuilds the form) without leaving them cancelled for good.
     func enterSegment() async {
-        guard !hasEntered else { return }
-        hasEntered = true
-        await refreshAll()
+        if entryTask == nil { entryTask = Task { await self.refreshAll() } }
+        await entryTask?.value
     }
     /// The pull: everything again.
     func refreshAll() async {
@@ -170,10 +170,14 @@ final class UserKeysModel {
             todayCosts = nil
         }
     }
-    /// A failed read leaves no subscription, so subscription groups read as unavailable.
+    /// A failed read leaves no subscription, so subscription groups read as unavailable; a cancelled one keeps what was read.
     func loadSubscriptions() async {
         guard let source, let generation = context?.generation else { return }
-        let loaded = (try? await source.userSubscriptions(userID: userID)) ?? []
+        let loaded: [AdminUserSubscription]
+        do { loaded = try await source.userSubscriptions(userID: userID) } catch {
+            guard !(error is CancellationError) else { return }
+            loaded = []
+        }
         guard isCurrent(generation) else { return }
         subscriptions = loaded
     }
@@ -250,8 +254,10 @@ extension UserKeysModel {
     /// The sheet's pick; the current group sends nothing.
     func changeGroup(_ key: AdminAPIKey, to targetID: Int?) async {
         guard (key.groupID ?? 0) != (targetID ?? 0), canWrite(key), let context else { return }
-        let groups = hooks.groups()
-        let granted = UserKeyPresentation.newlyGranted(target: targetID.flatMap { id in groups.first { $0.id == id } }, access: hooks.access())
+        let groups = hooks.groups(), access = hooks.access()
+        let group = { (id: Int?) in id.flatMap { id in groups.first { $0.id == id } } }
+        let granted = UserKeyPresentation.newlyGranted(target: group(targetID), access: access)
+        let undoable = UserKeyPresentation.groupUndoAvailable(from: group(key.groupID), access: access)
         let change = UserKeyChange.group(from: key.groupID, to: targetID)
         guard beginGate(granted) else { return }
         let sent = await send(change, keyID: key.id, context: context)
@@ -263,7 +269,9 @@ extension UserKeysModel {
         let undo = UserKeyGroupUndo(keyID: key.id, keyName: key.displayName, fromGroupID: key.groupID, toGroupID: targetID, newlyGranted: granted)
         let text = UserKeyPresentation.groupReceipt(keyName: key.displayName, targetName: targetID.map { UserKeyPresentation.groupName($0, groups: groups) },
                                                     newlyGranted: granted)
-        receipts.show(Receipt(text: text, systemImage: "square.stack.3d.up", undo: { [self] in Task { await undoGroup(undo) } }))
+        var undoAction: (@MainActor @Sendable () -> Void)?
+        if undoable { undoAction = { [self] in Task { await undoGroup(undo) } } }
+        receipts.show(Receipt(text: text, systemImage: "square.stack.3d.up", undo: undoAction))
         await refreshConcurrency(key.id, context: context)
     }
 

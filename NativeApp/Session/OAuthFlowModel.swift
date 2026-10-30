@@ -121,6 +121,7 @@ final class OAuthFlowModel {
         request = rebuilt(kind: kind)
         dropLink()
     }
+    /// A new account's tier follows the type (S2-19).
     func selectGeminiType(_ type: GeminiOAuthType) {
         guard choosesGeminiType, platform == .gemini, type != request.geminiOAuthType else { return }
         request = rebuilt(geminiType: type)
@@ -203,7 +204,8 @@ final class OAuthFlowModel {
     }
     private func rebuilt(kind: OAuthAuthKind? = nil, geminiType: GeminiOAuthType? = nil, projectID: String?? = nil, proxyID: Int?? = nil) -> OAuthLinkRequest {
         OAuthLinkRequest(platform: request.platform, kind: kind ?? request.kind, proxyID: proxyID ?? request.proxyID, accountID: request.accountID,
-                         geminiOAuthType: geminiType ?? request.geminiOAuthType, projectID: projectID ?? request.projectID, tierID: request.tierID)
+                         geminiOAuthType: geminiType ?? request.geminiOAuthType, projectID: projectID ?? request.projectID,
+                         tierID: geminiType?.defaultTierID ?? request.tierID)
     }
     private static func linkError(_ error: any Error, platform: OAuthPlatform, reasonsSupported: Bool) -> AccountOAuthErrorCopy {
         let copy = (error as? APIError).flatMap { AccountOAuthErrorCopy.resolve($0, flow: .authURL, platform: platform, reasonsSupported: reasonsSupported) }

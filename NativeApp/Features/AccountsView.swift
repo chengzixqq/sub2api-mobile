@@ -45,6 +45,21 @@ struct AccountsView: View {
         .onChange(of: model.securityPrompts.complianceRevision) { _, _ in Task { await store?.reload() } }
         // A detail deleted the account, reverted or changed its proxy (20 §3.4): the whole list again.
         .onChange(of: model.accountListSignal.revision) { _, _ in Task { await store?.reload() } }
+        // 20 §7.6 (S2-19): the timers pause under a sheet; after 新建账号 the whole list is read again.
+        .onChange(of: router.presentedSheet) { old, new in
+            store?.setSheetPresented(new != nil)
+            if old == .accountNew, new == nil { Task { await store?.reload() } }
+        }
+        .toolbar {
+            if initialGroupID == nil, store?.isSelecting != true {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { router.present(.accountNew) } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("新建账号")
+                        .accessibilityIdentifier("accounts.new")
+                        .readOnlyGate(showsCaption: false)
+                }
+            }
+        }
         .task(id: scenePhase == .active) { await tickClock() }
     }
 

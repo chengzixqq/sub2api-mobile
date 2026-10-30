@@ -259,6 +259,16 @@ private func body(_ request: AdminAPIKeyUpdateRequest) throws -> String { String
     #expect(granted.keyChange == .group(from: 5, to: 2))
 }
 
+@Test func groupUndoUnavailableWhenGoingBackWouldGrantAgain() {
+    let group = { (id: Int) in groups.first { $0.id == id } }
+    // 5 is exclusive and standard, and the base lacks it: binding the key to it again grants it again.
+    #expect(!UserKeyPresentation.groupUndoAvailable(from: group(5), access: studio))
+    #expect(UserKeyPresentation.groupUndoAvailable(from: group(5), access: UserKeyAccess(allowedGroups: [5])))
+    #expect(UserKeyPresentation.groupUndoAvailable(from: group(2), access: studio))
+    #expect(UserKeyPresentation.groupUndoAvailable(from: group(4), access: studio))
+    #expect(UserKeyPresentation.groupUndoAvailable(from: nil, access: studio))
+}
+
 @Test func allowedGroupsAfterRevokeKeepsUnknownIDs() {
     #expect(UserKeyPresentation.allowedGroupsAfterRevoke([5, 1, 99, 2], revoking: 5) == [1, 2, 99])
     #expect(UserKeyPresentation.allowedGroupsAfterRevoke(nil, revoking: 5) == [])
