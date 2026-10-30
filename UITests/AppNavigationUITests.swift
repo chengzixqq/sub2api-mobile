@@ -34,8 +34,11 @@ final class AppNavigationUITests: XCTestCase {
         launchNavigationSite()
         defer { diagnostics("app-tabs-monitor-final") }
         app.tabBars.buttons["监控"].tap()
-        XCTAssertTrue(app.segmentedControls["monitor.segment"].waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(element("monitor.placeholder").exists, app.debugDescription)
+        let segments = app.segmentedControls["monitor.segment"]
+        XCTAssertTrue(segments.waitForExistence(timeout: 5), app.debugDescription)
+        // S1-13: 概况 opens first with its run section.
+        XCTAssertTrue(element("monitor.run.health").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(segments.segment("概况").isSelected, app.debugDescription)
     }
 
     @MainActor func testSearchTabShowsDirectory() {
@@ -112,13 +115,13 @@ final class AppNavigationUITests: XCTestCase {
         let segments = app.segmentedControls["monitor.segment"]
         XCTAssertTrue(segments.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.tabBars.buttons["监控"].isSelected, app.debugDescription)
-        XCTAssertTrue(segments.buttons["告警"].isSelected, app.debugDescription)
+        XCTAssertTrue(segments.segment("告警").isSelected, app.debugDescription)
         // The intent is taken once: a segment chosen afterwards survives leaving and returning to the tab.
-        segments.buttons["概况"].tap()
+        segments.segment("概况").tap()
         app.tabBars.buttons["用户"].tap()
         app.tabBars.buttons["监控"].tap()
         XCTAssertTrue(segments.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(segments.buttons["概况"].isSelected, app.debugDescription)
+        XCTAssertTrue(segments.segment("概况").isSelected, app.debugDescription)
     }
 
     @MainActor func testSearchTextShowsPlaceholder() {
