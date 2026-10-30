@@ -181,6 +181,43 @@ private func key(_ id: Int, group: Int?, masked: String? = "sk-…0001") -> Admi
     #expect(moved.notes == baseline().notes && moved.role == .user && moved.rpmLimit == 0)
 }
 
+/// The same save moves the draft too: a removed exclusive group's rate was kept only for “撤回”, so once the removal is saved
+/// it goes, or the next “保存” would write it back for a group the user no longer has.
+@Test func settlingASavedRemovalDropsItsRate() throws {
+    var draft = UserAccessDraft(editing: baseline(), catalog: catalog)
+    draft.exclusiveGroupIDs = []
+    draft.notes = "改过"
+    draft.password = "abc12345"
+    let request = try #require(draft.updateRequest(from: baseline(), catalog: catalog))
+    #expect(request.groupRates == [5: nil])
+    let (base, next) = UserEditSettle.apply(request, baseline: baseline(), draft: draft, catalog: catalog)
+    #expect(base.allowedGroups.isEmpty && base.groupRates.isEmpty)
+    #expect(next.groupRates.isEmpty)
+    #expect(next.password.isEmpty)
+    #expect(next.changedFields(from: base, catalog: catalog, definitions: []).isEmpty)
+    #expect(next.updateRequest(from: base, catalog: catalog) == nil)
+
+    // A rate typed for the group before removing it was never sent; it goes as well.
+    let plain = baseline(rates: nil)
+    var typed = UserAccessDraft(editing: plain, catalog: catalog)
+    typed.groupRates[5] = amount("1.5")
+    typed.exclusiveGroupIDs = []
+    let removal = try #require(typed.updateRequest(from: plain, catalog: catalog))
+    #expect(removal.groupRates == nil)
+    let (plainBase, settled) = UserEditSettle.apply(removal, baseline: plain, draft: typed, catalog: catalog)
+    #expect(settled.changedFields(from: plainBase, catalog: catalog, definitions: []).isEmpty)
+
+    // The rates of groups the user keeps stay as saved.
+    let both = baseline(allowed: [5, 9])
+    var replaced = UserAccessDraft(editing: both, catalog: catalog)
+    replaced.groupRates[9] = amount("1.25")
+    replaced.exclusiveGroupIDs = [9]
+    let replacing = try #require(replaced.updateRequest(from: both, catalog: catalog))
+    let (replacedBase, kept) = UserEditSettle.apply(replacing, baseline: both, draft: replaced, catalog: catalog)
+    #expect(kept.groupRates == [9: amount("1.25")])
+    #expect(kept.changedFields(from: replacedBase, catalog: catalog, definitions: []).isEmpty)
+}
+
 /// What S3-09's request already guarantees, checked once more from the edit page's side.
 @Test func requestShapeGuards() throws {
     var attributesOnly = UserAccessDraft(editing: baseline(), catalog: catalog)
