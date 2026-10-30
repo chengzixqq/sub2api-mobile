@@ -46,7 +46,7 @@ struct UserKeysSegment: View {
                 if model.keys.isEmpty { emptyRow(context) }
                 ForEach(model.keys) { card($0, context: context) }
             }
-            if !context.adminKeyWrites { newKeyGap }
+            if context.adminKeyWrites { newKeyRow } else { newKeyGap }
         } header: {
             NumberedSectionHeader(title: UserKeyPresentation.sectionTitle,
                                   meta: model.phase == .loaded ? UserKeyPresentation.sectionMeta(model.keys, now: context.now(), simpleMode: context.simpleMode) : nil,
@@ -60,7 +60,10 @@ struct UserKeysSegment: View {
         UserKeyCard(key: key, isExpanded: model.expandedID == key.id, isBusy: model.inFlight.contains(key.id), today: model.todayCost(for: key.id),
                     context: context, access: editor.keyAccess, groups: groups, canChangeGroup: editor.canStartImmediateWrite,
                     onToggle: { toggle(key.id) }, onChangeGroup: { prompts.groupKey = key }, onReset: { prompts.resetKey = key },
-                    onSetStatus: { status in Task { await model.setStatus(key, to: status) } }, onGap: { prompts.gap = $0 })
+                    onSetStatus: { status in Task { await model.setStatus(key, to: status) } }, onGap: { prompts.gap = $0 },
+                    reveal: prompts.manage.revealAvailability(model: app), onEdit: { prompts.manage.beginEdit(key) },
+                    onReveal: { Task { await prompts.manage.reveal(key, keys: model, model: app) } },
+                    onDelete: { requestDelete(key) })
             .id("keys.card.\(key.id)")
     }
 
@@ -74,7 +77,20 @@ struct UserKeysSegment: View {
         .accessibilityIdentifier("keys.empty")
     }
 
-    /// E01 missing: the design's dashed row; S3-13 draws the real “＋ 新建 Key” when it exists.
+    /// E01 (S3-13): “＋ 新建 Key” at the end of the list.
+    private var newKeyRow: some View {
+        Button { prompts.manage.beginCreate(userID: model.userID) } label: {
+            Label(UserKeyPresentation.newKey, systemImage: "plus").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .accessibilityIdentifier("keys.new")
+        .readOnlyGate()
+    }
+    private func requestDelete(_ key: AdminAPIKey) {
+        prompts.manage.requestDelete(key, siteName: app.activeProfile?.name ?? "", userDisplayName: editor.stripUser?.displayName ?? "",
+                                     keys: model, model: app)
+    }
+
+    /// E01 missing: the design's dashed row instead of “＋ 新建 Key”.
     private var newKeyGap: some View {
         Button { prompts.gap = UserKeyPresentation.newKey } label: {
             HStack(spacing: 8) {
@@ -114,17 +130,21 @@ final class UserKeyPrompts {
     var resetKey: AdminAPIKey?
     /// What the server lacks (keyGap).
     var gap: String?
+    /// S3-13: 新建 / 编辑 Key, the full key and 删除 Key, hung on the page with the rest.
+    let manage = UserKeyManageModel()
 }
 
 extension View {
-    /// 换分组, 重置速率限制's confirmation and keyGap, hung on the edit page above its form.
+    /// 换分组, 重置速率限制's confirmation and keyGap, and S3-13's key form, full key and delete confirmation, hung on the
+    /// edit page above its form.
     func userKeyPrompts(_ prompts: UserKeyPrompts, model: UserKeysModel?, editor: UserEditorModel) -> some View {
-        modifier(UserKeyPromptsModifier(prompts: prompts, model: model, editor: editor))
+        modifier(UserKeyPromptsModifier(prompts: prompts, manage: prompts.manage, model: model, editor: editor))
     }
 }
 
 private struct UserKeyPromptsModifier: ViewModifier {
     @Bindable var prompts: UserKeyPrompts
+    @Bindable var manage: UserKeyManageModel
     let model: UserKeysModel?
     let editor: UserEditorModel
     @Environment(AppModel.self) private var app
@@ -144,11 +164,25 @@ private struct UserKeyPromptsModifier: ViewModifier {
             .alert(prompts.gap.map(UserKeyPresentation.gapTitle) ?? "", isPresented: gapShown) {
                 Button(UserKeyPresentation.gapDismiss, role: .cancel) {}
             } message: { Text(UserKeyPresentation.gapMessage) }
+            // S3-13: the full key opens only once the form has gone (`formDismissed`).
+            .sheet(item: $manage.form, onDismiss: { manage.formDismissed() }) { formSheet($0) }
+            .sheet(item: $manage.revealed, onDismiss: { manage.secretDismissed() }) { UserKeyRevealSheet(secret: $0) }
+            .confirmDelete($manage.deleteRequest)
     }
 
-    private func options(for key: AdminAPIKey) -> [UserKeyGroupOption] {
+    @ViewBuilder private func formSheet(_ form: UserKeyFormModel) -> some View {
+        if let model {
+            UserKeyFormSheet(model: form, groupOptions: { options(currentGroupID: $0) }, zone: model.context?.serverTimeZone ?? .device,
+                             immediateWritesAllowed: editor.canStartImmediateWrite) { [manage, app] in
+                await manage.submit($0, keys: model, model: app)
+            }
+        }
+    }
+
+    private func options(for key: AdminAPIKey) -> [UserKeyGroupOption] { options(currentGroupID: key.groupID) }
+    private func options(currentGroupID: Int?) -> [UserKeyGroupOption] {
         UserKeyPresentation.groupOptions(groups: app.groupDirectory?.groups ?? [], access: editor.keyAccess, subscriptions: model?.subscriptions ?? [],
-                                         currentGroupID: key.groupID, now: model?.context?.now() ?? Date())
+                                         currentGroupID: currentGroupID, now: model?.context?.now() ?? Date())
     }
     private var resetShown: Binding<Bool> { Binding(get: { prompts.resetKey != nil }, set: { if !$0 { prompts.resetKey = nil } }) }
     private var gapShown: Binding<Bool> { Binding(get: { prompts.gap != nil }, set: { if !$0 { prompts.gap = nil } }) }

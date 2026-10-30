@@ -531,6 +531,16 @@ enum UserKeyFixtureArgument {
     static let revokeFails = "-ui-key-revoke-fails"
     /// run_mode simple for this chapter only (S3D1-21; `-ui-simple-mode` is S5-13's).
     static let simpleMode = "-ui-user-keys-simple"
+    /// S3-13: 新建 answers 403 API_KEY_COUNT_EXCEEDED.
+    static let countExceeded = "-ui-key-count-exceeded"
+    /// S3-13: a PUT that renames answers 400 API_KEY_NAME_REQUIRED.
+    static let nameRequired = "-ui-key-name-required"
+    /// S3-13: 新建 runs, then its reply is lost.
+    static let createUncertain = "-ui-key-create-uncertain"
+    /// S3-13: the first 新建's reply is lost and nothing is made; only that same number sent again goes through.
+    static let createLost = "-ui-key-create-lost"
+    /// S3-13: reveal answers 404 API_KEY_NOT_FOUND.
+    static let revealGone = "-ui-key-reveal-gone"
 }
 
 // S3-12 (S3D1-04): Studio-K 团队's key matrix and subscription, today's spend per key, and what a key write does to the user.
@@ -582,6 +592,11 @@ extension DemoData {
 @MainActor final class UserKeyDemoStore {
     private static var stores: [UUID: UserKeyDemoStore] = [:]
     private var rows: [Int: [AdminAPIKey]]
+    /// S3-13: keys made in this session from 9001 (S3D1-04), their first results by number, `-ui-key-create-lost`'s number.
+    private var nextID = 9001
+    private var creations: [UUID: CreatedAPIKey] = [:]
+    private var lostKey: UUID?
+    private var lostOnce = false
 
     /// One per session; the first use copies the table.
     static func current(for generation: UUID) -> UserKeyDemoStore {
@@ -604,6 +619,7 @@ extension DemoData {
             throw Self.keyGone
         }
         let key = try self.key(id: id)
+        if arguments.contains(UserKeyFixtureArgument.nameRequired), change.name != nil { throw APIError.server(status: 400, reason: "API_KEY_NAME_REQUIRED") }
         var granted: AdminGroup?, revoked: Int?
         if let groupID = change.groupID {
             if let revoke = change.revokeGroupAccessID {
@@ -617,14 +633,14 @@ extension DemoData {
             }
         }
         let groupID = change.groupID.map { $0 > 0 ? $0 : nil } ?? key.groupID
-        let stored = Self.rebuilt(key, groupID: groupID, status: change.status?.rawValue ?? key.status, resets: change.resetRateLimitUsage,
+        let stored = Self.rebuilt(Self.edited(key, change), groupID: groupID, status: change.status?.rawValue ?? key.status, resets: change.resetRateLimitUsage,
                                   concurrency: key.currentConcurrency, now: now)
         rows[userID] = keys(userID: userID).map { $0.id == id ? stored : $0 }
         // The reply does not read the concurrency (apikey_handler.go): 0.
         return AdminAPIKeyWriteResult(apiKey: Self.rebuilt(stored, groupID: groupID, status: stored.status, resets: false, concurrency: 0, now: now),
                                       autoGrantedGroupAccess: granted != nil, grantedGroupID: granted?.id, grantedGroupName: granted?.name,
                                       revokedGroupAccess: revoked != nil, revokedGroupID: revoked,
-                                      previous: change.status.map { _ in AdminAPIKeyPrevious(status: key.status) })
+                                      previous: Self.previous(key, change))
     }
 
     private static let keyGone = APIError.server(status: 404, reason: "API_KEY_NOT_FOUND")
@@ -649,5 +665,79 @@ extension DemoData {
                            usage5h: resets ? 0 : key.usage5h, usage1d: resets ? 0 : key.usage1d, usage7d: resets ? 0 : key.usage7d,
                            reset5hAt: resets ? nil : key.reset5hAt, reset1dAt: resets ? nil : key.reset1dAt, reset7dAt: resets ? nil : key.reset7dAt,
                            createdAt: key.createdAt, updatedAt: now, user: key.user)
+    }
+}
+
+// S3-13: 新建, 编辑, 删除 and reveal on the session's key table. Plaintexts are made up and never in the list fixtures.
+extension DemoData {
+    static func createdKeyPlaintext(id: Int) -> String { "sk-ui-created-\(id)" }
+    static func revealedKeyPlaintext(id: Int) -> String { "sk-ui-full-\(id)" }
+}
+
+extension UserKeyDemoStore {
+    /// `-ui-key-create-lost`: the first number's first send is dropped and any other number always is, so only a retry under
+    /// the same number goes through.
+    func dropsCreate(key: UUID, arguments: [String]) -> Bool {
+        guard arguments.contains(UserKeyFixtureArgument.createLost) else { return false }
+        if lostKey == nil { lostKey = key }
+        guard key == lostKey else { return true }
+        defer { lostOnce = true }
+        return !lostOnce
+    }
+    /// AdminCreate, then the group bound by the admin rules (apikey_handler.go): the name stored escaped, an exclusive standard
+    /// group reported granted.
+    func create(userID: Int, _ request: AdminAPIKeyCreateRequest, key: UUID, arguments: [String], now: Date = Date()) throws -> (CreatedAPIKey, Bool) {
+        if let first = creations[key] { return (first, true) }
+        if arguments.contains(UserKeyFixtureArgument.countExceeded) { throw APIError.server(status: 403, reason: "API_KEY_COUNT_EXCEEDED") }
+        let group = try request.groupID.map { try target($0, userID: userID, arguments: arguments, now: now) }
+        let granted = group.flatMap { $0.isExclusive == true && $0.subscriptionType != "subscription" ? $0 : nil }
+        let id = nextID
+        nextID += 1
+        let made = AdminAPIKey(id: id, userID: userID, keyMasked: "sk-…\(id)", name: UserKeyName.escaped(request.name), groupID: request.groupID,
+                               status: "active", effectiveStatus: "active", ipWhitelist: request.ipWhitelist, ipBlacklist: request.ipBlacklist,
+                               quota: request.quota, expiresAt: request.expiresInDays.map { now.addingTimeInterval(TimeInterval($0) * 86_400) },
+                               rateLimit5h: request.rateLimit5h, rateLimit1d: request.rateLimit1d, rateLimit7d: request.rateLimit7d,
+                               createdAt: now, updatedAt: now)
+        rows[userID] = keys(userID: userID) + [made]
+        let created = CreatedAPIKey(apiKey: made, key: DemoData.createdKeyPlaintext(id: id), autoGrantedGroupAccess: granted != nil,
+                                    grantedGroupID: granted?.id, grantedGroupName: granted?.name)
+        creations[key] = created
+        return (created, false)
+    }
+    /// An unknown or deleted key answers 404 API_KEY_NOT_FOUND.
+    func delete(id: Int) throws {
+        _ = try key(id: id)
+        rows = rows.mapValues { $0.filter { $0.id != id } }
+    }
+    func reveal(id: Int) throws -> APIKeyReveal { APIKeyReveal(id: try key(id: id).id, key: DemoData.revealedKeyPlaintext(id: id)) }
+
+    /// applyAPIKeyUpdate's fields: the name escaped, the quota used reset, the expiry set or cleared.
+    static func edited(_ key: AdminAPIKey, _ change: AdminAPIKeyUpdateRequest) -> AdminAPIKey {
+        let expiresAt: Date? = switch change.expiresAt {
+        case .unchanged: key.expiresAt
+        case .clear: nil
+        case .set(let date): date
+        }
+        return AdminAPIKey(id: key.id, userID: key.userID, keyMasked: key.keyMasked, name: change.name.map(UserKeyName.escaped) ?? key.name,
+                           groupID: key.groupID, status: key.status, effectiveStatus: key.effectiveStatus,
+                           ipWhitelist: change.ipWhitelist ?? key.ipWhitelist, ipBlacklist: change.ipBlacklist ?? key.ipBlacklist,
+                           lastUsedAt: key.lastUsedAt, lastUsedIP: key.lastUsedIP, quota: change.quota ?? key.quota,
+                           quotaUsed: change.resetQuota ? 0 : key.quotaUsed, expiresAt: expiresAt, currentConcurrency: key.currentConcurrency,
+                           rateLimit5h: change.rateLimit5h ?? key.rateLimit5h, rateLimit1d: change.rateLimit1d ?? key.rateLimit1d,
+                           rateLimit7d: change.rateLimit7d ?? key.rateLimit7d, usage5h: key.usage5h, usage1d: key.usage1d, usage7d: key.usage7d,
+                           reset5hAt: key.reset5hAt, reset1dAt: key.reset1dAt, reset7dAt: key.reset7dAt, createdAt: key.createdAt,
+                           updatedAt: key.updatedAt, user: key.user)
+    }
+    /// admin_group.go `previous`: the old value of every column the write changed; nil when none (a group change alone).
+    static func previous(_ key: AdminAPIKey, _ change: AdminAPIKeyUpdateRequest) -> AdminAPIKeyPrevious? {
+        let expiry: AdminAPIKeyPrevious.Expiry? = change.expiresAt == .unchanged ? nil : (key.expiresAt.map { AdminAPIKeyPrevious.Expiry.at($0) } ?? .never)
+        let previous = AdminAPIKeyPrevious(name: change.name.map { _ in key.name }, status: change.status.map { _ in key.status },
+                                           quota: change.quota.map { _ in key.quota }, quotaUsed: change.resetQuota ? key.quotaUsed : nil,
+                                           expiresAt: expiry, ipWhitelist: change.ipWhitelist.map { _ in key.ipWhitelist },
+                                           ipBlacklist: change.ipBlacklist.map { _ in key.ipBlacklist },
+                                           rateLimit5h: change.rateLimit5h.map { _ in key.rateLimit5h },
+                                           rateLimit1d: change.rateLimit1d.map { _ in key.rateLimit1d },
+                                           rateLimit7d: change.rateLimit7d.map { _ in key.rateLimit7d })
+        return previous == AdminAPIKeyPrevious() ? nil : previous
     }
 }
