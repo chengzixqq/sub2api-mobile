@@ -26,9 +26,9 @@ final class ProxiesUITests: XCTestCase {
         expect(row(3), contains: ["已过期", "1 个账号仍在用", "链接失败"])
         reveal(row(1))
         expect(row(1), contains: ["182ms", "SOCKS5 · 203.0.113.24:1080", "3 个账号在用", "6 天后到期"])
-        // S6-14 replaces the placeholder sheet.
+        // S6-14's sheet: nothing typed, 取消 closes it at once.
         app.buttons["proxies.add"].tap()
-        let close = app.buttons["sheet.close"]
+        let close = app.buttons["proxyEdit.cancel"]
         XCTAssertTrue(close.waitForExistence(timeout: 10), app.debugDescription)
         close.tap()
         XCTAssertTrue(close.waitForNonExistence(timeout: 10), app.debugDescription)
@@ -148,7 +148,7 @@ final class ProxiesUITests: XCTestCase {
         XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(empty.label.contains("还没有代理"), empty.label)
         app.buttons["proxies.empty.add"].tap()
-        let close = app.buttons["sheet.close"]
+        let close = app.buttons["proxyEdit.cancel"]
         XCTAssertTrue(close.waitForExistence(timeout: 10), app.debugDescription)
         close.tap()
         XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
@@ -347,8 +347,9 @@ final class ProxiesUITests: XCTestCase {
         XCTAssertTrue(note.label.contains("已过期，1 个账号仍在用这个代理。"), note.label)
         reveal(renew, down: false)
         renew.tap()
-        // S6-14 replaces the placeholder sheet.
-        let close = app.buttons["sheet.close"]
+        // S6-14's sheet in its renewal mode: nothing changed, 取消 closes it at once.
+        XCTAssertTrue(app.navigationBars["续期代理"].waitForExistence(timeout: 10), app.debugDescription)
+        let close = app.buttons["proxyEdit.cancel"]
         XCTAssertTrue(close.waitForExistence(timeout: 10), app.debugDescription)
         close.tap()
         XCTAssertTrue(close.waitForNonExistence(timeout: 10), app.debugDescription)

@@ -121,6 +121,8 @@ actor FixtureProxySource: ProxySource {
     private var accountsFailureServed = false
     /// S6-13: the accounts a revert moved back onto each proxy, listed by `:id/accounts` after the fixed ones.
     private var restored: [Int: [ProxyAccountRef]] = [:]
+    /// S6-14: the add answered for each key (the same key answers the same proxy).
+    private var createdByKey: [UUID: AdminProxy] = [:]
 
     init(proxies: [AdminProxy], options: DemoData.ProxyFixtureOptions, now: @escaping @Sendable () -> Date = { Date() }) {
         rows = proxies; self.options = options; self.now = now
@@ -246,12 +248,10 @@ extension FixtureProxySource: ProxyDetailSource {
         replace(row.applying(result))
         return result
     }
-    /// `PUT :id`: only the status for now (S6-14 adds the rest); answers the plain dto.AdminProxy, without counts or probes.
+    /// `PUT :id`: every key sent (S6-14's `applyEdit`); answers the plain dto.AdminProxy, without counts or probes.
     func updateProxy(id: Int, _ request: ProxyUpdateRequest) async throws -> AdminProxy {
         guard let row = storedProxy(id: id) else { throw Self.notFound }
-        let reply = row.fixtureConfiguration(status: request.status?.rawValue ?? row.status)
-        replace(row.mergingConfiguration(from: reply))
-        return reply
+        return try applyEdit(request, to: row)
     }
     /// `DELETE :id`: 409 PROXY_IN_USE while accounts use it, with `fallback_account_count` while accounts were moved off it.
     func deleteProxy(id: Int) async throws -> DeleteResult {
@@ -271,12 +271,6 @@ extension FixtureProxySource: ProxyDetailSource {
 }
 
 private extension AdminProxy {
-    /// The configuration alone, as a PUT answers it.
-    func fixtureConfiguration(status: String?) -> AdminProxy {
-        AdminProxy(id: id, name: name, scheme: scheme, host: host, port: port, username: username, password: password, status: status,
-                   createdAt: createdAt, updatedAt: updatedAt, expiresAt: expiresAt, fallbackMode: fallbackMode, backupProxyID: backupProxyID,
-                   expiryWarnDays: expiryWarnDays)
-    }
     /// The same row with another account count.
     func fixtureCounting(accounts: Int) -> AdminProxy {
         AdminProxy(id: id, name: name, scheme: scheme, host: host, port: port, username: username, password: password, status: status,
@@ -396,5 +390,84 @@ private extension AdminProxy {
                    latencyMs: latencyMs, latencyStatus: latencyStatus, latencyMessage: latencyMessage, latencyCheckedAt: latencyCheckedAt,
                    ipAddress: ipAddress, country: country, countryCode: countryCode, region: region, city: city, qualityStatus: qualityStatus,
                    qualityScore: qualityScore, qualityGrade: qualityGrade, qualitySummary: qualitySummary, qualityChecked: qualityChecked)
+    }
+}
+
+// MARK: - S6-14 添加、编辑与续期
+
+extension DemoData {
+    /// The editor's launch argument.
+    enum ProxyEditFixtureArgument {
+        /// An add or an edit that sends a backup answers 404 PROXY_NOT_FOUND: the backup was deleted meanwhile.
+        static let backupGone = "-ui-proxy-backup-gone"
+    }
+    /// The server's probe of a new address lands this long after the write (the add reads it 3 seconds later, the detail 5).
+    static let proxyEditProbeDelay: Duration = .seconds(2)
+}
+
+extension FixtureProxySource: ProxyEditSource {
+    /// `POST admin/proxies`: the next id, active, with nothing on it; the same key answers the same proxy (a replay). The probe
+    /// lands `proxyEditProbeDelay` later (158ms).
+    func createProxy(_ request: ProxyCreateRequest, idempotencyKey: UUID, onEvent: KeyedWriteEventHandler?) async throws -> WriteOutcome<AdminProxy> {
+        if let done = createdByKey[idempotencyKey] { return WriteOutcome(value: done, replayed: true) }
+        if request.backupProxyID != nil, ProcessInfo.processInfo.arguments.contains(DemoData.ProxyEditFixtureArgument.backupGone) { throw Self.notFound }
+        _ = try request.requestBody()
+        let id = (rows.map(\.id).max() ?? 0) + 1
+        let reply = AdminProxy(id: id, name: request.name, scheme: request.scheme, host: request.host, port: request.port,
+                               username: ProxyWriteFixture.nonEmpty(request.username), password: ProxyWriteFixture.nonEmpty(request.password),
+                               status: ProxyStatusChange.active.rawValue, createdAt: now(), updatedAt: now(), expiresAt: request.expiresAt,
+                               fallbackMode: request.fallbackMode.rawValue, backupProxyID: request.backupProxyID, expiryWarnDays: request.expiryWarnDays)
+        createdByKey[idempotencyKey] = reply
+        replace(reply.fixtureCounting(accounts: 0))
+        probeLater(id)
+        return WriteOutcome(value: reply)
+    }
+
+    /// Applies every key sent, as UpdateProxy merges them; a changed address drops the probe and probes again (H04).
+    fileprivate func applyEdit(_ request: ProxyUpdateRequest, to row: AdminProxy) throws -> AdminProxy {
+        if case .set? = request.backupProxyID, ProcessInfo.processInfo.arguments.contains(DemoData.ProxyEditFixtureArgument.backupGone) {
+            throw Self.notFound
+        }
+        _ = try request.requestBody(proxyID: row.id)
+        let reply = row.fixtureEdited(by: request)
+        replace(row.mergingConfiguration(from: reply))
+        if request.touchesNetwork { probeLater(row.id) }
+        return reply
+    }
+
+    private func probeLater(_ id: Int) {
+        Task {
+            try? await Task.sleep(for: DemoData.proxyEditProbeDelay)
+            self.landProbe(id)
+        }
+    }
+    private func landProbe(_ id: Int) {
+        guard let row = storedProxy(id: id) else { return }
+        replace(row.applying(ProxyTestResult(success: true, message: "Proxy is accessible", latencyMs: 158, ipAddress: row.host, checkedAt: now())))
+    }
+}
+
+private enum ProxyWriteFixture {
+    static func nonEmpty(_ text: String) -> String? { text.isEmpty ? nil : text }
+}
+
+private extension AdminProxy {
+    /// The configuration a PUT answers: this row with the request's keys, without counts or probes.
+    func fixtureEdited(by request: ProxyUpdateRequest) -> AdminProxy {
+        let expires: Date? = switch request.expiresAt {
+        case nil: expiresAt
+        case .clear?: nil
+        case .set(let date)?: date
+        }
+        let backup: Int? = switch request.backupProxyID {
+        case nil: backupProxyID
+        case .clear?: nil
+        case .set(let id)?: id
+        }
+        return AdminProxy(id: id, name: request.name ?? name, scheme: request.scheme ?? scheme, host: request.host ?? host, port: request.port ?? port,
+                          username: request.username ?? username, password: request.password ?? password,
+                          status: request.status?.rawValue ?? status, createdAt: createdAt, updatedAt: Date(), expiresAt: expires,
+                          fallbackMode: request.fallbackMode?.rawValue ?? fallbackMode, backupProxyID: backup,
+                          expiryWarnDays: request.expiryWarnDays ?? expiryWarnDays)
     }
 }

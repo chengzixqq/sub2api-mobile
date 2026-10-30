@@ -95,6 +95,22 @@ private func record(_ draft: RedeemGrantDraft, serverID: UUID = grantKey, user: 
     #expect(opened.renumbered(code: "fresh-4") == GrantDraftState(code: "fresh-4"))
 }
 
+/// 60 §19.3 “默认第一个” until a grant went out; then only the group it went out with (§19.4 step 5): the code may exist on the
+/// server with that group, so a group gone from the list is chosen again, which takes a new code.
+@Test func grantGroupFallsBackToTheFirstOnlyBeforeASend() {
+    let groups = [AdminGroup(id: 4, name: "企业专线", sortOrder: 1), AdminGroup(id: 6, name: "标准订阅", sortOrder: 2)]
+    let fresh = GrantDraftState(code: grantCode), sent = fresh.confirmed().sent()
+    #expect(fresh.group(chosen: nil, in: groups)?.id == 4)
+    #expect(fresh.group(chosen: 6, in: groups)?.id == 6)
+    #expect(fresh.group(chosen: 9, in: groups)?.id == 4)
+    #expect(fresh.group(chosen: 4, in: []) == nil)
+    #expect(sent.group(chosen: 6, in: groups)?.id == 6)
+    #expect(sent.group(chosen: 9, in: groups) == nil)
+    #expect(sent.group(chosen: nil, in: groups) == nil)
+    #expect(sent.renumbered(code: "fresh").group(chosen: 9, in: groups)?.id == 4)
+    #expect(sent.edited(newCode: { "fresh" }).group(chosen: 9, in: groups)?.id == 4)
+}
+
 @Test func availabilityFollowsU52() {
     let unlimited = GrantAvailability(user: AdminUser(id: 1, email: "a@example.com", concurrency: 0), hasSubscriptionGroups: true)
     #expect(unlimited.reason(for: .concurrency) == "这个用户并发不限制，发放后反而会变成有上限")

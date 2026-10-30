@@ -24,7 +24,7 @@ struct ProxySheetDestination: View {
     var body: some View {
         switch sheet {
         // .proxyEdit：S6-14
-        case .proxyEdit: ComingSoonSheet(title: sheet.placeholderTitle)
+        case .proxyEdit(let id): ProxyEditDestination(id: id)
         // 其他区域：SheetDestination 不会分派到这里
         default: ComingSoonSheet(title: sheet.placeholderTitle)
         }
