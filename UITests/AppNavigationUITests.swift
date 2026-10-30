@@ -116,6 +116,9 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(segments.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.tabBars.buttons["监控"].isSelected, app.debugDescription)
         XCTAssertTrue(segments.segment("告警").isSelected, app.debugDescription)
+        // S1-16: the segment shows its alerts (#41, 来源 LiveOpsFixtureIDs).
+        XCTAssertTrue(app.descendants(matching: .any)["monitor.alerts.firing"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["monitor.alerts.row.41"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         // The intent is taken once: a segment chosen afterwards survives leaving and returning to the tab.
         segments.segment("概况").tap()
         app.tabBars.buttons["用户"].tap()

@@ -274,4 +274,27 @@ final class AlertDetailUITests: XCTestCase {
         XCTAssertFalse(element("alert.detail.silence").isEnabled, app.debugDescription)
         XCTAssertTrue(element("readonly.caption").exists, app.debugDescription)
     }
+
+    // MARK: S1-16 从监控 · 告警进入
+
+    /// 10 §6.1: a row of 监控 · 告警 opens the alert on the monitor tab's own stack; back returns to the segment.
+    @MainActor func testAlertsSegmentRowOpensDetail() {
+        launchAndLogin()
+        defer { diagnostics("alert-detail-from-monitor-final") }
+        app.tabBars.buttons["监控"].tap()
+        let segments = app.segmentedControls["monitor.segment"]
+        XCTAssertTrue(segments.waitForExistence(timeout: 10), app.debugDescription)
+        segments.segment("告警").tap()
+        let row = app.buttons["monitor.alerts.row.41"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        row.tap()
+        XCTAssertTrue(element("alert.detail.status").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(isAlertPage, app.debugDescription)
+        XCTAssertEqual(element("alert.detail.ruleName").label, "标准组错误率")
+        assertSelected(tab: "监控")
+        goBack()
+        XCTAssertTrue(segments.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(segments.segment("告警").isSelected, app.debugDescription)
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+    }
 }
