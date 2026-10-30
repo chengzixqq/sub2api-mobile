@@ -249,7 +249,8 @@ final class SettingsUITests: XCTestCase {
         let grant = element("settings.pending.check.0B000000-0000-4000-8000-000000000003")
         reveal(grant, towardBottom: false)
         grant.tap()
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
+        // S6-09: the compensation's 结果待核对 page, checked here with the current identity.
+        XCTAssertTrue(element("grant.pending").waitForExistence(timeout: 10), app.debugDescription)
     }
 
     // MARK: Helpers
