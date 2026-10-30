@@ -21,6 +21,9 @@ struct AccountsView: View {
     @State private var clockTick = Date()
     /// The transitional entry pushes details the way it was pushed itself; changing the path would pop the group page.
     @State private var openedAccountID: Int?
+    /// 20 §1.4 (S2-22): the 告警 sheet a header's alert opened, and the alert detail to push once it has closed.
+    @State private var alertSheetEvent: AlertEvent?
+    @State private var alertDetailAfterSheet: Int?
     private let initialGroupID: Int?
 
     init(initialGroupID: Int? = nil) { self.initialGroupID = initialGroupID }
@@ -47,9 +50,11 @@ struct AccountsView: View {
         .onChange(of: model.accountListSignal.revision) { _, _ in Task { await store?.reload() } }
         // 20 §7.6 (S2-19): the timers pause under a sheet; after 新建账号 the whole list is read again.
         .onChange(of: router.presentedSheet) { old, new in
-            store?.setSheetPresented(new != nil)
+            store?.setSheetPresented(hasSheet)
             if old == .accountNew, new == nil { Task { await store?.reload() } }
         }
+        .onChange(of: alertSheetEvent?.id) { _, _ in store?.setSheetPresented(hasSheet) }
+        .sheet(item: $alertSheetEvent, onDismiss: openAlertDetailAfterSheet) { alertSheet($0) }
         .toolbar {
             if initialGroupID == nil, store?.isSelecting != true {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -117,12 +122,11 @@ struct AccountsView: View {
         let collapsed = store.isCollapsed(section.platform)
         let name = AccountNaming.platformName(section.platform, catalog: store.catalog)
         Section {
-            HStack(spacing: 0) {
-                AccountSectionHeader(title: name, section: section, isCollapsed: collapsed,
-                                     picked: store.isSelecting ? store.selection.pickedCount(in: section.rows.map(\.id)) : 0) {
-                    withAnimation(.snappy) { store.toggleCollapsed(section.platform) }
-                }
-                .accessibilityIdentifier("accounts.section.\(section.platform)")
+            AccountSectionHeader(title: name, section: section, isCollapsed: collapsed,
+                                 picked: store.isSelecting ? store.selection.pickedCount(in: section.rows.map(\.id)) : 0,
+                                 alert: alertBadge(store, platform: section.platform),
+                                 toggle: { withAnimation(.snappy) { store.toggleCollapsed(section.platform) } },
+                                 openAlert: { alertSheetEvent = $0.event }) {
                 if store.isSelecting { sectionSelect(store, section, name: name, collapsed: collapsed) }
             }
             .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
@@ -139,6 +143,31 @@ struct AccountsView: View {
                                            isEnabled: batch?.isRunning != true) { store.toggleSectionSelection(ids) }
             .padding(.trailing, 12)
     }
+
+    /// 20 §1.3 (S2-22): the account tab's own list only; the group page's entry shows none.
+    private func alertBadge(_ store: AccountListModel, platform: String) -> AccountAlertBadge? {
+        guard initialGroupID == nil else { return nil }
+        return AccountAlertMatch.badge(for: store.firingAlerts(platform: platform), now: serverNow, timeZone: serverZone)
+    }
+    /// 20 §1.4: 只看需处理的账号 closes the sheet and picks the chip; 告警详情 closes it, then pushes the alert (10 §3).
+    private func alertSheet(_ event: AlertEvent) -> some View {
+        AccountAlertSheet(event: event, catalog: store?.catalog ?? .builtin,
+                          onShowNeeds: {
+                              alertSheetEvent = nil
+                              Task { await store?.select(.needs) }
+                          },
+                          onOpenDetail: {
+                              alertDetailAfterSheet = event.id
+                              alertSheetEvent = nil
+                          })
+    }
+    private func openAlertDetailAfterSheet() {
+        guard let id = alertDetailAfterSheet else { return }
+        alertDetailAfterSheet = nil
+        router.push(.alert(id: id))
+    }
+    /// The light refresh pauses under the router's sheets and under the 告警 sheet (20 §1.6).
+    private var hasSheet: Bool { router.presentedSheet != nil || alertSheetEvent != nil }
 
     /// Selection mode: a tap ticks the row; no rail, chevron or swipe (20 §1.3, §8.1).
     private func row(_ entry: AccountRailRow, store: AccountListModel, names: [Int: String]) -> some View {
@@ -375,34 +404,71 @@ private struct AccountChipLabel: View {
     }
 }
 
-/// 20 §1.3 platform header: “Anthropic 4”, the right-side flags, and a chevron; the whole header collapses the section.
-/// Its numbers describe the whole platform whatever the chip.
-private struct AccountSectionHeader: View {
+/// 20 §1.3 platform header: “Anthropic 4”, the alert (S2-22), the right-side flags, and a chevron; the whole header collapses the
+/// section. Its numbers describe the whole platform whatever the chip. As in the design (VaSection), the collapse button lies
+/// under the whole row and the alert and selection mode's 全选 are their own buttons over it, so tapping them does not collapse;
+/// the words over it let taps through and are read in its label.
+private struct AccountSectionHeader<Accessory: View>: View {
     let title: String
     let section: AccountPlatformSection
     let isCollapsed: Bool
     /// Selection mode's picked rows, read after the state (design VaSection).
     let picked: Int
+    let alert: AccountAlertBadge?
     let toggle: @MainActor () -> Void
+    let openAlert: @MainActor (AccountAlertBadge) -> Void
+    @ViewBuilder let accessory: Accessory
 
     var body: some View {
-        Button { toggle() } label: {
+        HStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink1).lineLimit(1)
-                Text(DisplayFormat.grouped(section.total)).font(.footnote.weight(.medium)).monospacedDigit().foregroundStyle(Palette.ink3)
+                lead
+                if let alert { AccountAlertBadgeButton(badge: alert, platform: section.platform) { openAlert(alert) } }
                 Spacer(minLength: 4)
-                ForEach(section.flags, id: \.text) { ToneBadge(text: $0.text, tone: $0.tone) }
-                Image(systemName: "chevron.down")
-                    .font(.footnote.weight(.semibold)).foregroundStyle(Palette.ink3)
-                    .rotationEffect(.degrees(isCollapsed ? -90 : 0))
-                    .frame(width: 24, height: 24)
+                trail
             }
             .padding(EdgeInsets(top: 10, leading: 16, bottom: isCollapsed ? 10 : 6, trailing: 12))
             .frame(minHeight: 48)
-            .contentShape(Rectangle())
+            accessory
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title)，\(section.spokenSummary)，\(isCollapsed ? "已收起" : "已展开")" + (picked > 0 ? "，已选 \(picked) 个" : ""))
+        .background { hitArea }
+        .accessibilityElement(children: .contain)
+    }
+
+    /// Read first, before the alert and 全选.
+    private var hitArea: some View {
+        Button { toggle() } label: { Color.clear.contentShape(Rectangle()) }
+            .buttonStyle(AccountSectionHitStyle())
+            .accessibilityLabel("\(title)，\(section.spokenSummary)，\(isCollapsed ? "已收起" : "已展开")" + (picked > 0 ? "，已选 \(picked) 个" : ""))
+            .accessibilityIdentifier("accounts.section.\(section.platform)")
+            .accessibilitySortPriority(1)
+    }
+
+    private var lead: some View {
+        HStack(spacing: 8) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink1).lineLimit(1)
+            Text(DisplayFormat.grouped(section.total)).font(.footnote.weight(.medium)).monospacedDigit().foregroundStyle(Palette.ink3)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+    private var trail: some View {
+        HStack(spacing: 8) {
+            ForEach(section.flags, id: \.text) { ToneBadge(text: $0.text, tone: $0.tone) }
+            Image(systemName: "chevron.down")
+                .font(.footnote.weight(.semibold)).foregroundStyle(Palette.ink3)
+                .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                .frame(width: 24, height: 24)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The header's hit area under its words: a light wash while pressed.
+private struct AccountSectionHitStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.background(configuration.isPressed ? Palette.sunken : Color.clear)
     }
 }
 

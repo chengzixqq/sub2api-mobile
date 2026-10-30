@@ -80,10 +80,11 @@ struct AlertStatusCard<Accessory: View>: View {
 
 /// 10 §3.3 按钮行, only while firing: 「手动解决」 (primary) and 「静默…」 or 「改静默时长…」, as AlertActions offers them; the whole row is
 /// greyed for a read-only token (C-1, X10) and waits while a write of this event is on its way. Identifiers alert.detail.resolve,
-/// alert.detail.silence.
+/// alert.detail.silence; the account tab's 告警 sheet (S2-22, 20 §1.4) passes its own prefix.
 struct AlertDetailActions: View {
     let actions: [AlertActionKind]
     let isRunning: Bool
+    var identifierPrefix = "alert.detail"
     let onAction: (AlertActionKind) -> Void
 
     var body: some View {
@@ -91,12 +92,12 @@ struct AlertDetailActions: View {
             if actions.contains(.resolve) {
                 Button("手动解决", systemImage: "checkmark") { onAction(.resolve) }
                     .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("alert.detail.resolve")
+                    .accessibilityIdentifier(identifierPrefix + ".resolve")
             }
             if let silence = actions.first(where: { $0 != .resolve }) {
                 Button(silence == .silence ? "静默…" : "改静默时长…", systemImage: "hourglass") { onAction(silence) }
                     .buttonStyle(.bordered)
-                    .accessibilityIdentifier("alert.detail.silence")
+                    .accessibilityIdentifier(identifierPrefix + ".silence")
             }
         }
         .controlSize(.large)

@@ -382,4 +382,183 @@ final class AccountListUITests: XCTestCase {
         let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", part), object: item)
         XCTAssertEqual(XCTWaiter().wait(for: [changed], timeout: 10), .completed, "“\(part)” missing in “\(item.label)”", file: file, line: line)
     }
+
+    // MARK: - 组头告警牌与“告警”sheet（S2-22）
+
+    /// 来源 LiveOpsFixtureIDs：#40 fires on anthropic (P2, silenced until an hour after the session started); #41 is a group's
+    /// and makes no platform badge.
+    private enum AlertFixture {
+        static let platform = "anthropic"
+        static let note = "告警只精确到分组或平台，不指向具体账号；先看本组需处理的账号。"
+        static let writeFails = "-ui-alert-write-fails"
+        static let opsDisabled = "-ui-ops-disabled"
+    }
+
+    /// 20 §1.3 / §1.4: the badge after the title is its own button; its sheet has the card, 维度, 状态, the note, the buttons and the
+    /// links, and closing it leaves the section open.
+    @MainActor func testAlertBadgeOpensSheetWithoutCollapsingSection() {
+        launchAndOpenAccounts()
+        defer { diagnostics("account-alert-sheet-final") }
+        let badge = alertBadge()
+        reveal(badge)
+        XCTAssertNotNil(badge.label.range(of: #"^P[0-3] 告警："#, options: .regularExpression), badge.label)
+        XCTAssertTrue(badge.label.hasSuffix("，打开处置"), badge.label)
+        XCTAssertFalse(app.buttons["accounts.section.openai.alert"].exists, app.debugDescription)
+        openAlertSheet()
+        XCTAssertTrue(app.navigationBars["告警"].exists, app.debugDescription)
+        XCTAssertFalse(element("accounts.alert.title").label.isEmpty, app.debugDescription)
+        let level = element("accounts.alert.level")
+        XCTAssertNotNil(level.label.range(of: #"^P[0-3]"#, options: .regularExpression), level.label)
+        assertLabel(element("accounts.alert.scope"), contains: ["维度", "平台 · Anthropic"])
+        assertLabel(element("accounts.alert.status"), contains: ["状态", "告警中"])
+        XCTAssertEqual(element("accounts.alert.note").label, AlertFixture.note)
+        for id in ["resolve", "silence", "needs", "detailLink"] {
+            XCTAssertTrue(app.buttons["accounts.alert.\(id)"].exists, "accounts.alert.\(id) \(app.debugDescription)")
+        }
+        diagnostics("account-alert-sheet")
+        app.buttons["accounts.alert.close"].tap()
+        XCTAssertTrue(element("accounts.alert.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        assertLabel(element("accounts.section.\(AlertFixture.platform)"), contains: ["已展开"])
+        reveal(app.buttons["account.1"])
+    }
+
+    /// 20 §1.4 只看需处理的账号 ›: the sheet closes and the chip becomes 需处理.
+    @MainActor func testAlertSheetShowNeedsSwitchesChip() {
+        launchAndOpenAccounts()
+        defer { diagnostics("account-alert-needs-final") }
+        openAlertSheet()
+        tapInSheet("accounts.alert.needs")
+        XCTAssertTrue(element("accounts.alert.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        let needs = element("accounts.chip.needs")
+        reveal(needs, towardBottom: false)
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: needs)
+        XCTAssertEqual(XCTWaiter().wait(for: [selected], timeout: 10), .completed, app.debugDescription)
+        XCTAssertTrue(app.buttons["account.7"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["account.1"].exists, app.debugDescription)
+    }
+
+    /// 20 §1.4 告警详情 ›: the sheet closes, then the alert's page is pushed on the account tab (10 §3); back is the list again.
+    @MainActor func testAlertSheetDetailLinkPushesAlertRoute() {
+        launchAndOpenAccounts()
+        defer { diagnostics("account-alert-detail-final") }
+        openAlertSheet()
+        tapInSheet("accounts.alert.detailLink")
+        XCTAssertTrue(element("accounts.alert.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("alert.detail.status").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.tabBars.buttons["账号"].isSelected, app.debugDescription)
+        goBack()
+        XCTAssertTrue(element("accounts.section.\(AlertFixture.platform)").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(alertBadge().exists, app.debugDescription)
+    }
+
+    /// 20 §1.4 / 10 §7.1: 手动解决 asks first; once it went through the sheet closes, the receipt says so and the badge is gone.
+    @MainActor func testResolveFromAlertSheetRemovesBadge() {
+        launchAndOpenAccounts()
+        defer { diagnostics("account-alert-resolve-final") }
+        openAlertSheet()
+        confirmResolveInSheet()
+        XCTAssertTrue(element("accounts.alert.sheet").waitForNonExistence(timeout: 10), app.debugDescription)
+        waitForReceipt("已手动解决")
+        XCTAssertTrue(alertBadge().waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("accounts.section.\(AlertFixture.platform)").exists, app.debugDescription)
+    }
+
+    /// 改静默时长… on the silenced event: 24 小时 closes the sheet and moves the badge's time; 撤销 brings the old time back.
+    @MainActor func testChangeSilenceFromAlertSheetUpdatesBadgeAndUndoRestores() {
+        launchAndOpenAccounts()
+        defer { diagnostics("account-alert-silence-final") }
+        let badge = alertBadge()
+        reveal(badge)
+        let before = badge.label
+        XCTAssertTrue(before.contains("已静默至"), before)
+        openAlertSheet()
+        let silence = app.buttons["accounts.alert.silence"]
+        XCTAssertEqual(silence.label, "改静默时长…")
+        silence.tap()
+        let day = app.buttons.matching(NSPredicate(format: "label == %@", "静默 24 小时")).firstMatch
+        XCTAssertTrue(day.waitForExistence(timeout: 5), app.debugDescription)
+        day.tap()
+        XCTAssertTrue(element("accounts.alert.sheet").waitForNonExistence(timeout: 10), app.debugDescription)
+        let receipt = app.staticTexts["receipt.text"].firstMatch
+        XCTAssertTrue(receipt.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(receipt.label.hasPrefix("静默改为至 "), receipt.label)
+        let undo = app.buttons.matching(NSPredicate(format: "identifier == 'receipt.action' AND label == '撤销'")).firstMatch
+        XCTAssertTrue(undo.exists, app.debugDescription)
+        XCTAssertNotEqual(badge.label, before)
+        XCTAssertTrue(badge.label.contains("已静默至"), badge.label)
+        undo.tap()
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", before), object: badge)
+        XCTAssertEqual(XCTWaiter().wait(for: [restored], timeout: 10), .completed, badge.label)
+    }
+
+    /// 10 §7.1 step 4: a failed write changes nothing; the sheet stays and shows why over itself (the tab's own receipt, under
+    /// the sheet, is in the tree too, so the text is matched by its first copy).
+    @MainActor func testAlertWriteFailureKeepsSheetOpenWithReceipt() {
+        launchAndOpenAccounts(arguments: [AlertFixture.writeFails])
+        defer { diagnostics("account-alert-write-fails-final") }
+        openAlertSheet()
+        confirmResolveInSheet()
+        let receipt = app.staticTexts.matching(NSPredicate(format: "identifier == 'receipt.text' AND label == %@", "站点暂时不可用")).firstMatch
+        XCTAssertTrue(receipt.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("accounts.alert.sheet").exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["accounts.alert.resolve"].isEnabled, app.debugDescription)
+        diagnostics("account-alert-write-fails")
+        app.buttons["accounts.alert.close"].tap()
+        XCTAssertTrue(element("accounts.alert.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(alertBadge().exists, app.debugDescription)
+    }
+
+    /// 20 §1.5: with ops monitoring off the header has no badge and nothing is said about it.
+    @MainActor func testOpsDisabledHidesAlertBadge() {
+        launchAndOpenAccounts(arguments: [AlertFixture.opsDisabled])
+        defer { diagnostics("account-alert-ops-off-final") }
+        let header = element("accounts.section.\(AlertFixture.platform)")
+        reveal(header)
+        XCTAssertFalse(alertBadge().waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertFalse(text(containing: "运维").exists, app.debugDescription)
+    }
+
+    /// 00 §2.6.3 / C-1: a read-only token still sees the badge and the sheet; its two writes are greyed with “只读令牌”, and the
+    /// links still work.
+    @MainActor func testReadOnlyTokenGreysAlertSheetActions() {
+        launchWithReadOnlyToken()
+        defer { diagnostics("account-alert-readonly-final") }
+        app.tabBars.buttons["账号"].tap()
+        openAlertSheet()
+        XCTAssertFalse(app.buttons["accounts.alert.resolve"].isEnabled, app.debugDescription)
+        XCTAssertFalse(app.buttons["accounts.alert.silence"].isEnabled, app.debugDescription)
+        XCTAssertTrue(element("readonly.caption").exists, app.debugDescription)
+        tapInSheet("accounts.alert.needs")
+        XCTAssertTrue(element("accounts.alert.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        let needs = element("accounts.chip.needs")
+        reveal(needs, towardBottom: false)
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: needs)
+        XCTAssertEqual(XCTWaiter().wait(for: [selected], timeout: 10), .completed, app.debugDescription)
+    }
+
+    @MainActor private func alertBadge() -> XCUIElement { app.buttons["accounts.section.\(AlertFixture.platform).alert"].firstMatch }
+    @MainActor private func openAlertSheet(file: StaticString = #filePath, line: UInt = #line) {
+        let badge = alertBadge()
+        reveal(badge, file: file, line: line)
+        badge.tap()
+        XCTAssertTrue(element("accounts.alert.sheet").waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+    }
+    /// The sheet opens at half height: a drag on its card raises it before a lower button is tapped.
+    @MainActor private func tapInSheet(_ identifier: String, file: StaticString = #filePath, line: UInt = #line) {
+        let item = app.buttons[identifier].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        if !item.isHittable {
+            element("accounts.alert.title").swipeUp()
+            item.waitUntilSettled()
+        }
+        XCTAssertTrue(item.isHittable, app.debugDescription, file: file, line: line)
+        item.tap()
+    }
+    /// 手动解决 in the sheet, then the alert's own 手动解决 (10 §7.1).
+    @MainActor private func confirmResolveInSheet(file: StaticString = #filePath, line: UInt = #line) {
+        app.buttons["accounts.alert.resolve"].tap()
+        let confirm = app.alerts["手动解决这条告警？"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        confirm.buttons["手动解决"].firstMatch.tap()
+    }
 }
