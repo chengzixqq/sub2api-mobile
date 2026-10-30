@@ -43,4 +43,9 @@ extension LiveOpsStore {
         if !bypassCache, let overview = channels.value { return overview }
         return try await source.channelOverview(range: Self.alertChannelRange, refresh: false)
     }
+    /// S1-17, 10 §3.2 错误请求条数 through the ops switch's entries (S1D1-02): the log page's own count (R19).
+    func alertErrorCount(_ query: AlertErrorCountQuery) async throws -> Int {
+        let filter = query.filter, kind = query.kind
+        return try await controlled { try await $0.errorCount(filter: filter, kind: kind) }()
+    }
 }

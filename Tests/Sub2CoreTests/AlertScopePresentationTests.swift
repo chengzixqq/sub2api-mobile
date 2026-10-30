@@ -215,3 +215,94 @@ private func channel(_ platform: String, _ groupID: Int, _ state: String, _ reli
     #expect(!AlertScopePresentation.isChannelMonitorDisabled(.server(status: 403, reason: "FORBIDDEN")))
     #expect(!AlertScopePresentation.isChannelMonitorDisabled(nil))
 }
+
+// MARK: - 错误请求计数（S1-17）
+
+private func sentQuery(_ request: URLRequest) -> [String: String] {
+    guard let url = request.url, let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return [:] }
+    return Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
+}
+
+@Test func errorLogKindCoversTheThreeErrorMetrics() {
+    #expect(AlertScopePresentation.errorLogKind(metricType: "error_rate") == .request)
+    #expect(AlertScopePresentation.errorLogKind(metricType: "success_rate") == .request)
+    #expect(AlertScopePresentation.errorLogKind(metricType: "upstream_error_rate") == .upstream)
+    #expect(AlertScopePresentation.errorLogKind(metricType: " error_rate\n") == .request)
+    let others: [String?] = ["ERROR_RATE", "p95_latency_ms", "cpu_usage_percent", "account_error_count", "account_error_ratio",
+                             "group_available_ratio", "", nil]
+    for metric in others { #expect(AlertScopePresentation.errorLogKind(metricType: metric) == nil, "\(String(describing: metric))") }
+}
+
+@Test func errorCountQueryNeedsGroupOrSiteWideScope() {
+    let query = AlertScopePresentation.errorCountQuery
+    #expect(query(event()) == AlertErrorCountQuery(kind: .request, groupID: 12))
+    #expect(query(event(platform: "anthropic", rule: rule("upstream_error_rate"))) == AlertErrorCountQuery(kind: .upstream, groupID: 12))
+    #expect(query(event(rule: rule("success_rate"))) == AlertErrorCountQuery(kind: .request, groupID: 12))
+    #expect(query(event(groupID: nil, groupName: nil)) == AlertErrorCountQuery(kind: .request, groupID: nil))
+    #expect(query(event(groupID: nil, rule: rule("upstream_error_rate"), groupName: nil)) == AlertErrorCountQuery(kind: .upstream, groupID: nil))
+    #expect(query(event(groupID: 0, groupName: nil)) == AlertErrorCountQuery(kind: .request, groupID: nil))
+    #expect(query(event(platform: "anthropic", groupID: nil)) == nil)
+    #expect(query(event(rule: rule("group_available_ratio"))) == nil)
+    #expect(query(event(groupID: nil, rule: rule("cpu_usage_percent"))) == nil)
+    #expect(query(event(rule: nil)) == nil)
+}
+
+@Test func errorCountFilterIsTwentyFourHourRollingWindow() {
+    #expect(AlertScopePresentation.errorCountWindow == .h24 && AlertScopePresentation.errorCountWindow.rawValue == "24h")
+    let filter = AlertErrorCountQuery(kind: .request, groupID: 12).filter
+    #expect(filter.time == .rolling(.h24) && filter.groupID == 12 && filter.pageSize == 1)
+    #expect(filter.accountID == nil && filter.userID == nil && filter.model == nil && filter.requestID == nil && filter.modelSource == nil)
+    #expect(AlertErrorCountQuery(kind: .upstream, groupID: nil).filter == RequestLogFilter(time: .rolling(.h24), pageSize: 1))
+}
+
+@Test func errorCountRowTitleCountAndDestination() {
+    let group = AlertErrorCountQuery(kind: .request, groupID: 12)
+    let row = { (query: AlertErrorCountQuery, shown: AlertEvent, scope: AlertGroupScope?, count: Int?, failed: Bool) in
+        AlertScopePresentation.errorCountRow(query, event: shown, groupScope: scope, count: count, refreshFailed: failed)
+    }
+    #expect(row(group, event(), nil, 37, false)
+        == AlertScopeRow(title: "错误请求", trailing: "近 24 小时 37 条", destination: .logs(kind: .request, groupID: 12, groupName: "标准组")))
+    #expect(row(AlertErrorCountQuery(kind: .upstream, groupID: 12), event(), nil, 9, false)
+        == AlertScopeRow(title: "上游错误", trailing: "近 24 小时 9 条", destination: .logs(kind: .upstream, groupID: 12, groupName: "标准组")))
+    #expect(row(group, event(), nil, 12_345, false).trailing == "近 24 小时 12,345 条")
+    #expect(row(group, event(), nil, 0, false).trailing == "近 24 小时 0 条")
+    let pending = row(group, event(), nil, nil, false)
+    #expect(pending.trailing == nil && pending.detail == nil && pending.destination == .logs(kind: .request, groupID: 12, groupName: "标准组"))
+    let stale = row(group, event(), nil, 37, true)
+    #expect(stale.detail == "更新失败" && stale.trailing == "近 24 小时 37 条")
+    #expect(row(group, event(), nil, nil, true).detail == nil)
+    #expect(row(group, event(groupName: nil), found(name: "备用组"), 37, false).destination == .logs(kind: .request, groupID: 12, groupName: "备用组"))
+    #expect(row(group, event(groupName: "  "), nil, 37, false).destination == .logs(kind: .request, groupID: 12, groupName: nil))
+    #expect(row(group, event(), .deleted, 37, false).destination == .logs(kind: .request, groupID: 12, groupName: "标准组"))
+    let siteWide = AlertErrorCountQuery(kind: .request, groupID: nil)
+    #expect(row(siteWide, event(groupID: nil, groupName: nil), nil, 128, false)
+        == AlertScopeRow(title: "错误请求", trailing: "近 24 小时 128 条", destination: .logs(kind: .request, groupID: nil, groupName: nil)))
+}
+
+@Test func errorCountFailureTitleNamesTheRow() {
+    #expect(AlertScopePresentation.errorCountFailureTitle(.request) == "错误请求 · 加载失败")
+    #expect(AlertScopePresentation.errorCountFailureTitle(.upstream) == "上游错误 · 加载失败")
+}
+
+/// 10 §3.2's two requests as the alert detail sends them through 40 §6.7's errorCount (R19).
+@Test func errorCountRequestMatchesSpecQuery() async throws {
+    let transport = ScriptedTransport { request in
+        if request.url!.path.hasSuffix("upstream-errors") { return okReply(#"{"items":[],"total":9,"page":1,"page_size":1,"pages":9}"#) }
+        return okReply(#"{"items":[],"total":37,"page":1,"page_size":1,"pages":37,"has_more":true,"total_exact":true}"#)
+    }
+    let client = APIClient(server: stubServer(), credential: .adminKey("fixture"), transport: transport, requestClock: .immediate,
+                           serverTimeZone: ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00")!)
+    let grouped = AlertErrorCountQuery(kind: .request, groupID: 12), upstream = AlertErrorCountQuery(kind: .upstream, groupID: 12)
+    #expect(try await client.errorCount(filter: grouped.filter, kind: grouped.kind) == 37)
+    #expect(try await client.errorCount(filter: upstream.filter, kind: upstream.kind) == 9)
+    let siteWide = AlertErrorCountQuery(kind: .request, groupID: nil)
+    #expect(try await client.errorCount(filter: siteWide.filter, kind: siteWide.kind) == 37)
+    let requests = await transport.requests
+    #expect(requests.map { $0.url!.path } == ["/api/v1/admin/ops/request-errors", "/api/v1/admin/ops/upstream-errors", "/api/v1/admin/ops/request-errors"])
+    for (index, request) in requests.enumerated() {
+        let query = sentQuery(request)
+        #expect(query["time_range"] == "24h" && query["page"] == "1" && query["page_size"] == "1")
+        #expect(query["group_id"] == (index < 2 ? "12" : nil))
+        for key in ["start_time", "end_time", "timezone"] { #expect(query[key] == nil, "\(key)") }
+    }
+}

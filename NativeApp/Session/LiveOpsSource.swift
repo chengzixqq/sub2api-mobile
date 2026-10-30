@@ -44,6 +44,8 @@ protocol LiveOpsSource: AlertActionSource {
     func systemMetricsHistory(timeRange: String, maxPoints: Int) async throws -> SystemMetricsHistory
     func systemLogsHealth() async throws -> SystemLogHealth
     func ingressRejections(timeRange: String, page: Int, pageSize: Int) async throws -> IngressRejectList
+    // S1-17 · 告警详情的错误请求条数（10 §3.2）：只用 40 §6.7 的 errorCount（R19）
+    func errorCount(filter: RequestLogFilter, kind: ErrorLogKind) async throws -> Int
 }
 
 /// The session's own client (D13): LiveOpsStore never makes an APIClient of its own.
@@ -101,4 +103,5 @@ struct ClientLiveOpsSource: LiveOpsSource {
     func ingressRejections(timeRange: String, page: Int, pageSize: Int) async throws -> IngressRejectList {
         try await client.ingressRejections(timeRange: timeRange, page: page, pageSize: pageSize)
     }
+    func errorCount(filter: RequestLogFilter, kind: ErrorLogKind) async throws -> Int { try await client.errorCount(filter: filter, kind: kind) }
 }

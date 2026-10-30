@@ -253,3 +253,138 @@ private func isScopeRead(_ call: StubLiveOpsSource.Call) -> Bool { call == .summ
     #expect(await sleeper.seconds.count == 1)
     #expect(model.phase == .notFound)
 }
+
+// MARK: - 错误请求计数（S1-17）
+
+private let upstreamRule = AlertEventRule(id: 12, name: "上游错误率", metricType: "upstream_error_rate", comparison: ">", threshold: 5, windowMinutes: 10)
+private func siteWideEvent(_ id: Int = 41) -> AlertEvent {
+    AlertEvent(id: id, ruleID: 11, severity: "P1", status: "firing", firedAt: Date().addingTimeInterval(-720), rule: groupRule)
+}
+private func countCalls(_ source: StubLiveOpsSource) async -> [StubLiveOpsSource.Call] {
+    await source.calls.filter { if case .errorCount = $0 { true } else { false } }
+}
+private func countCall(_ kind: ErrorLogKind, groupID: Int?) -> StubLiveOpsSource.Call {
+    let query = AlertErrorCountQuery(kind: kind, groupID: groupID)
+    return .errorCount(query.filter, query.kind)
+}
+
+@MainActor @Test func errorCountLoadsWithScopeForGroupErrorAlert() async {
+    let source = StubLiveOpsSource(.init(summary: { AccountStatusSummary(groups: [standardGroup()]) }, alertEvent: { _ in groupEvent() },
+                                         errorCount: { _, _ in 37 }))
+    let (_, model) = await bench(source, listed: [groupEvent()])
+    await model.load(refreshScope: true)
+    #expect(await countCalls(source) == [countCall(.request, groupID: 12)])
+    #expect(model.errorCountQuery == AlertErrorCountQuery(kind: .request, groupID: 12))
+    #expect(model.errorCountLoad.value == 37 && model.phase == .ready && model.groupLoad.value == .found(standardGroup()))
+}
+
+@MainActor @Test func errorCountUsesUpstreamKindAndSiteWideFilter() async {
+    let events = [41: groupEvent(rule: upstreamRule), 50: siteWideEvent(50)]
+    let source = StubLiveOpsSource(.init(summary: { AccountStatusSummary() }, alertEvent: { id in events[id] ?? groupEvent(id) },
+                                         channels: { anthropicChannels }, errorCount: { _, kind in kind == .upstream ? 9 : 128 }))
+    let group = await bench(source, id: 41)
+    await group.model.load(refreshScope: true)
+    #expect(group.model.errorCountLoad.value == 9)
+    let site = await bench(source, id: 50)
+    await site.model.load(refreshScope: true)
+    #expect(site.model.errorCountLoad.value == 128)
+    #expect(await countCalls(source) == [countCall(.upstream, groupID: 12), countCall(.request, groupID: nil)])
+    #expect(await source.calls.filter(isScopeRead) == [.summary])
+}
+
+@MainActor @Test func errorCountSkippedForOtherScopesAndWhenOpsDisabled() async {
+    let groupRatio = AlertEventRule(id: 14, name: "可用比例", metricType: "group_available_ratio", comparison: "<", threshold: 60)
+    let platformError = AlertEvent(id: 40, ruleID: 12, severity: "P2", status: "firing", platform: "anthropic", rule: groupRule)
+    let events = [40: platformError, 41: groupEvent(rule: groupRatio), 37: serverEvent()]
+    let source = StubLiveOpsSource(.init(summary: { AccountStatusSummary() }, alertEvent: { id in events[id] ?? groupEvent(id) },
+                                         channels: { anthropicChannels }, errorCount: { _, _ in 37 }))
+    for id in [40, 41, 37] {
+        let (_, model) = await bench(source, id: id)
+        await model.load(refreshScope: true)
+        #expect(model.errorCountQuery == nil && model.errorCountLoad.value == nil, "\(id)")
+    }
+    #expect(await countCalls(source).isEmpty)
+    for error in [notFound, opsDisabledError] {
+        let failing = StubLiveOpsSource(.init(alertEvent: { _ in throw error }, errorCount: { _, _ in 37 }))
+        let (_, model) = await bench(failing, listed: [groupEvent()])
+        await model.load(refreshScope: true)
+        #expect(await countCalls(failing).isEmpty)
+    }
+    // admin/me says off and the failed read said nothing else: the shown event's count is not asked for.
+    let off = StubLiveOpsSource(.init(summary: { AccountStatusSummary() }, alertEvent: { _ in throw serverFailure }, errorCount: { _, _ in 37 }))
+    let (harness, model) = await bench(off, site: liveOpsSite(liveOpsCapabilities + [.opsAlertEventDetails, .accountsStatusSummary], opsEnabled: false))
+    harness.store.storeAlert(groupEvent())
+    await model.load(refreshScope: true)
+    #expect(harness.store.opsDisabled && model.event?.id == 41)
+    #expect(await countCalls(off).isEmpty)
+}
+
+@MainActor @Test func errorCountIsNotPolledButReloadsWithScope() async {
+    let tally = Tally()
+    let source = StubLiveOpsSource(.init(summary: { AccountStatusSummary() }, alertEvent: { _ in groupEvent() },
+                                         errorCount: { _, _ in 36 + tally.next() }))
+    let sleeper = PollSleeper(stopAfter: 3)
+    let (_, model) = await bench(source, listed: [groupEvent()], sleeper: sleeper)
+    await model.polling()
+    await model.load(refreshScope: false)
+    #expect(await countCalls(source).isEmpty)
+    await model.load(refreshScope: true)
+    await model.load(refreshScope: true)
+    #expect(await countCalls(source).count == 2 && model.errorCountLoad.value == 38)
+    await model.load(refreshScope: true, pullToRefresh: true)
+    #expect(await countCalls(source).count == 3 && model.errorCountLoad.value == 39)
+}
+
+@MainActor @Test func errorCountFailureStaysInItsRowAndRetries() async {
+    let failure = APIError.server(status: 500, reason: "INTERNAL_ERROR")
+    let source = StubLiveOpsSource(.init(summary: { AccountStatusSummary(groups: [standardGroup()]) }, alertEvent: { _ in groupEvent() },
+                                         errorCount: { _, _ in throw failure }))
+    let (_, model) = await bench(source, listed: [groupEvent()])
+    await model.load(refreshScope: true)
+    #expect(model.errorCountLoad.value == nil && model.errorCountLoad.lastError?.statusCode == 500)
+    #expect(model.phase == .ready && model.groupLoad.value == .found(standardGroup()))
+    await source.update { $0.errorCount = { _, _ in 37 } }
+    await model.retryErrorCount()
+    #expect(model.errorCountLoad.value == 37 && model.errorCountLoad.lastError == nil)
+    #expect(await countCalls(source).count == 2)
+    #expect(await source.count { $0 == .alertEvent(41) } == 1)
+    #expect(await source.count { $0 == .summary } == 1)
+    await source.update { $0.errorCount = { _, _ in throw failure } }
+    await model.retryErrorCount()
+    #expect(model.errorCountLoad.value == 37 && model.errorCountLoad.lastError != nil && model.errorCountLoad.error != nil)
+}
+
+@MainActor @Test func errorCountOpsDisabledReplyMarksStore() async {
+    let source = StubLiveOpsSource(.init(summary: { AccountStatusSummary() }, alertEvent: { _ in groupEvent() },
+                                         errorCount: { _, _ in throw opsDisabledError }))
+    let (harness, model) = await bench(source, listed: [groupEvent()])
+    await model.load(refreshScope: true)
+    #expect(harness.store.opsDisabled && model.errorCountLoad.lastError?.reason == "OPS_DISABLED")
+}
+
+/// S1D1-16: an old server's event has no rule until `alert-rules` fills it in, and only a known error rule asks for the count.
+@MainActor @Test func errorCountWaitsForLegacyRuleFill() async {
+    let legacySite = liveOpsSite(liveOpsCapabilities + [.accountsStatusSummary])
+    let source = StubLiveOpsSource(.init(summary: { AccountStatusSummary() }, alertEvent: { _ in groupEvent(rule: nil) },
+                                         alertRules: { [groupRule] }, errorCount: { _, _ in 37 }))
+    let (_, model) = await bench(source, site: legacySite)
+    await model.load(refreshScope: true)
+    #expect(await countCalls(source) == [countCall(.request, groupID: 12)])
+    #expect(model.errorCountLoad.value == 37)
+    let unknown = StubLiveOpsSource(.init(summary: { AccountStatusSummary() }, alertEvent: { _ in groupEvent(rule: nil) },
+                                          alertRules: { [] }, errorCount: { _, _ in 37 }))
+    let (_, other) = await bench(unknown, site: legacySite)
+    await other.load(refreshScope: true)
+    #expect(await countCalls(unknown).isEmpty)
+    #expect(other.errorCountQuery == nil)
+}
+
+@MainActor @Test func errorCountDestinationMapsToLogsRoute() {
+    #expect(AlertScopeDestination.logs(kind: .request, groupID: 12, groupName: "标准组").pushedRoute
+        == .logs(LogsRoute(scope: .errors, group: RouteObject(id: 12, name: "标准组"))))
+    #expect(AlertScopeDestination.logs(kind: .upstream, groupID: 12, groupName: nil).pushedRoute
+        == .logs(LogsRoute(scope: .upstream, group: RouteObject(id: 12, name: nil))))
+    #expect(AlertScopeDestination.logs(kind: .request, groupID: nil, groupName: nil).pushedRoute == .logs(LogsRoute(scope: .errors)))
+    #expect(AlertScopeDestination.group(id: 12).pushedRoute == .group(id: 12))
+    #expect(AlertScopeDestination.monitorChannels.pushedRoute == nil && AlertScopeDestination.monitorOverview.pushedRoute == nil)
+}

@@ -1,16 +1,18 @@
 import Foundation
 
 // S1-12, 10 §3: the alert detail's rows. Numbers, times and words come from AlertPresentation, DisplayFormat and
-// ChannelPresentation (R10, D21); this file only puts the detail together. S1-17 adds the error-count row at the end.
+// ChannelPresentation (R10, D21); this file only puts the detail together. S1-17's error-count row is at the end.
 
 /// 10 §3.3 范围: the event's dimension, in AlertPresentation.scopeText's order.
 public enum AlertScopeKind: Equatable, Sendable {
     case group(id: Int), platform(String), server, siteWide
 }
 
-/// Where a 范围 row leads; the App maps it to `.group(id:)` or 监控 · 渠道 / 概况 (10 §3.1).
+/// Where a 范围 row leads; the App maps it to `.group(id:)`, `.logs` or 监控 · 渠道 / 概况 (10 §3.1). `logs` without a group is a
+/// site-wide rule's: the log page opens unfiltered.
 public enum AlertScopeDestination: Equatable, Sendable {
     case group(id: Int), monitorChannels, monitorOverview
+    case logs(kind: ErrorLogKind, groupID: Int?, groupName: String?)
 }
 
 /// A group-scoped event's group: the session's availability, `status-summary?group_id`, or without that capability the D02 count
@@ -210,4 +212,63 @@ public enum AlertScopePresentation {
         calendar.timeZone = timeZone
         return calendar
     }
+}
+
+// MARK: - 错误请求计数（S1-17）
+
+/// 10 §3.2 错误请求条数: one error kind over the last 24 hours, by the event's group or (a site-wide rule) the whole site. Only
+/// 40 §6.7's errorCount sends it (R19).
+public struct AlertErrorCountQuery: Equatable, Sendable {
+    public let kind: ErrorLogKind
+    /// nil: a site-wide rule, no group filter.
+    public let groupID: Int?
+
+    public init(kind: ErrorLogKind, groupID: Int?) { self.kind = kind; self.groupID = groupID }
+    /// Only the window and the group; errorCount asks for page 1 of one row and reads `total`.
+    public var filter: RequestLogFilter {
+        RequestLogFilter(time: .rolling(AlertScopePresentation.errorCountWindow), groupID: groupID, pageSize: 1)
+    }
+}
+
+extension AlertScopePresentation {
+    public static let errorCountWindow = RollingWindow.h24
+
+    /// error_rate and success_rate count the failed requests, upstream_error_rate the upstream errors; the server compares the
+    /// trimmed type exactly, so case matters.
+    public static func errorLogKind(metricType: String?) -> ErrorLogKind? {
+        switch trimmed(metricType ?? "") {
+        case "error_rate", "success_rate": .request
+        case "upstream_error_rate": .upstream
+        default: nil
+        }
+    }
+
+    /// The row under a group's or a site-wide error rule's row; none for a platform or the server, or before the rule is known (an
+    /// old server's event waits for `alert-rules`).
+    public static func errorCountQuery(_ event: AlertEvent) -> AlertErrorCountQuery? {
+        guard let logKind = errorLogKind(metricType: event.rule?.metricType) else { return nil }
+        switch kind(event) {
+        case .group(let id): return AlertErrorCountQuery(kind: logKind, groupID: id)
+        case .siteWide: return AlertErrorCountQuery(kind: logKind, groupID: nil)
+        case .platform, .server: return nil
+        }
+    }
+
+    /// 错误请求 / 上游错误 with “近 24 小时 N 条”; before the first count only the title, and it still opens the logs. A count kept after a
+    /// failed refresh says 更新失败 under it (10 §0.5). The logs take the event's group name, or the one 分组行 found.
+    public static func errorCountRow(_ query: AlertErrorCountQuery, event: AlertEvent, groupScope: AlertGroupScope?, count: Int?,
+                                     refreshFailed: Bool = false) -> AlertScopeRow {
+        let own = trimmed(event.groupName ?? "")
+        let groupName = query.groupID == nil ? nil : own.isEmpty ? foundName(groupScope) : own
+        return AlertScopeRow(title: errorCountTitle(query.kind), trailing: count.map { "近 24 小时 \(DisplayFormat.grouped($0)) 条" },
+                             detail: refreshFailed && count != nil ? BlockStatusPresentation.updateFailed : nil,
+                             destination: .logs(kind: query.kind, groupID: query.groupID, groupName: groupName))
+    }
+
+    /// The row's own 加载失败, followed by 「重试」 (10 §3.5).
+    public static func errorCountFailureTitle(_ kind: ErrorLogKind) -> String {
+        errorCountTitle(kind) + " · " + BlockStatusPresentation.loadFailed
+    }
+
+    private static func errorCountTitle(_ kind: ErrorLogKind) -> String { kind == .upstream ? "上游错误" : "错误请求" }
 }

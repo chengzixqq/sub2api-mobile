@@ -6,7 +6,8 @@ import Sub2Core
 /// session's copy shows at once (the card's skeleton without one); the event is read on entry, after a write, back in the foreground
 /// and every 60 seconds while the page shows; a pull also reads 范围 again. AlertDetailModel decides what to send.
 /// Identifiers alert.detail (the list), alert.detail.skeleton, alert.detail.notFound, alert.detail.back, alert.detail.scope.<row>,
-/// alert.detail.rule.<key>; the card's are in AlertStatusCard.swift.
+/// alert.detail.rule.<key>; the card's are in AlertStatusCard.swift. The error-count row's failure is alert.detail.scope.errors.failure
+/// with alert.detail.scope.errors.retry.
 struct AlertDetailView: View {
     let id: Int
     @Environment(AppModel.self) private var model
@@ -157,18 +158,19 @@ private struct AlertDetailScreen: View {
     }
 
     private func reload() { Task { await detail.load(refreshScope: false) } }
-    /// 10 §3.1: the channel row opens 监控 · 渠道, the server and site-wide rows 监控 · 概况 (the group row is a NavigationLink).
+    /// 10 §3.1: the channel row opens 监控 · 渠道, the server and site-wide rows 监控 · 概况 (the group and error-count rows are
+    /// NavigationLinks).
     private func open(_ destination: AlertScopeDestination) {
         switch destination {
-        case .group(let id): router.push(.group(id: id))
+        case .group, .logs: if let route = destination.pushedRoute { router.push(route) }
         case .monitorChannels: router.select(.monitor(segment: .channels))
         case .monitorOverview: router.select(.monitor(segment: .overview))
         }
     }
 }
 
-/// 壹 范围: the one row the event's dimension calls for, with its own 加载失败 · 重试 below it (10 §3.5). S1-17 adds the
-/// error-count row here.
+/// 壹 范围: the one row the event's dimension calls for, with its own 加载失败 · 重试 below it (10 §3.5), then a group's or a
+/// site-wide error rule's 错误请求 / 上游错误 row (S1-17).
 private struct AlertScopeSection: View {
     let event: AlertEvent
     let detail: AlertDetailModel
@@ -194,23 +196,37 @@ private struct AlertScopeSection: View {
                     row(monitor, id: kind == .server ? "server" : "site", systemImage: kind == .server ? "server.rack" : "globe")
                 }
             }
+            if let query = detail.errorCountQuery { errorCountRow(query) }
         } header: {
             NumberedSectionHeader(title: "范围", ordinal: "壹")
         }
     }
 
-    /// The group row pushes onto this tab's stack as a value (X39); the monitor rows switch tabs; a deleted group opens nothing.
+    /// Without a count yet, a failure is the row's own 加载失败 · 重试; a kept count says 更新失败 and still opens the logs.
+    @ViewBuilder private func errorCountRow(_ query: AlertErrorCountQuery) -> some View {
+        let load = detail.errorCountLoad
+        if load.value == nil, load.error != nil {
+            BlockFailureRow(title: AlertScopePresentation.errorCountFailureTitle(query.kind), error: load.lastError, occurredAt: load.lastErrorAt,
+                            refresh: load.refresh, id: "alert.detail.scope.errors") { Task { await detail.retryErrorCount() } }
+        } else {
+            row(AlertScopePresentation.errorCountRow(query, event: event, groupScope: detail.groupLoad.value, count: load.value,
+                                                     refreshFailed: load.error != nil),
+                id: "errors", systemImage: "exclamationmark.octagon")
+        }
+    }
+
+    /// The group and error-count rows push onto this tab's stack as values (X39); the monitor rows switch tabs; a deleted group
+    /// opens nothing.
     @ViewBuilder private func row(_ row: AlertScopeRow, id: String, systemImage: String) -> some View {
         let identifier = "alert.detail.scope." + id
-        switch row.destination {
-        case .group(let groupID)?:
-            NavigationLink(value: AppRoute.group(id: groupID)) { AlertScopeRowLabel(row: row, systemImage: systemImage) }
+        if let route = row.destination?.pushedRoute {
+            NavigationLink(value: route) { AlertScopeRowLabel(row: row, systemImage: systemImage) }
                 .accessibilityIdentifier(identifier)
-        case let destination?:
+        } else if let destination = row.destination {
             Button { open(destination) } label: { AlertScopeRowLabel(row: row, systemImage: systemImage, showsChevron: true) }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(identifier)
-        case nil:
+        } else {
             AlertScopeRowLabel(row: row, systemImage: systemImage).accessibilityIdentifier(identifier)
         }
     }
