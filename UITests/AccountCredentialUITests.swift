@@ -13,6 +13,10 @@ final class AccountCredentialUITests: XCTestCase {
         static let refreshFail = "-ui-account-refresh-fail"
         static let legacyServer = "-ui-account-legacy-server"
         static let without = "-ui-without-capabilities"
+        static let tokenError = "-ui-account-token-error"
+        static let tokenInactive = "-ui-account-token-inactive"
+        static let reauthPersistFail = "-ui-account-reauth-persist-fail"
+        static let reauthUnsupported = "-ui-account-reauth-unsupported"
         static let keyFooter = "已保存的密钥不可查看，只能更换。更换立即生效、不能撤销；站点不再保存旧密钥，但它在上游仍然有效，泄露时请到上游控制台吊销。"
         static let tokenFooter = "令牌到期前自动刷新。刷新令牌、重新授权都立即生效，不能撤销；重新授权会同时清除错误、限流状态（停用的账号会被重新启用），调度开关不变。"
     }
@@ -253,9 +257,9 @@ final class AccountCredentialUITests: XCTestCase {
         let reauthorize = app.buttons["account.cred.reauthorize"]
         reveal(reauthorize)
         reauthorize.tap()
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["sheet.close"].tap()
-        XCTAssertTrue(element("route.placeholder").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("account.reauth.sheet").waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["account.reauth.cancel"].tap()
+        XCTAssertTrue(element("account.reauth.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
     }
 
     /// S2D1-09: a server older than credential redaction takes no credential PUT; the sheet points to the Web.
@@ -394,5 +398,218 @@ final class AccountCredentialUITests: XCTestCase {
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
+    }
+
+    // MARK: - 重新授权（S2-17）
+
+    /// 20 §6.3: the 凭据 row opens the sheet; the link, the pasted code, 替换令牌, and the receipt's 测试. The UI tests paste: the
+    /// App's own callback listener needs a real device and Safari.
+    @MainActor func testReauthorizeFromCredentialRowReplacesTokenAndOffersTest() {
+        openDetail(1)
+        defer { diagnostics("account-reauth-row-final") }
+        openReauthorizeFromRow()
+        let target = element("account.reauth.target")
+        XCTAssertTrue(target.label.contains("授权走已保存的代理 hk-02；分组、并发和代理设置不变"), target.label)
+        let submit = app.buttons["account.reauth.submit"]
+        XCTAssertFalse(submit.isEnabled, app.debugDescription)
+        XCTAssertEqual(element("oauth.scope").label, "完整权限")
+        generateLink()
+        waitForLabel(element("oauth.countdown"), matching: #"^已生成 · [0-9]+:[0-9]{2} 内有效$"#)
+        XCTAssertTrue(element("oauth.proxyHint").label.contains("出口打开"), app.debugDescription)
+        XCTAssertFalse(submit.isEnabled, app.debugDescription)
+        typeCode("demo-code#demo-state")
+        let note = element("account.reauth.note")
+        reveal(note)
+        XCTAssertTrue(note.label.hasPrefix("点按后立即保存新令牌") && !note.label.contains("Face ID"), note.label)
+        diagnostics("account-reauth-row-ready")
+        replaceToken()
+        waitForReceipt("已重新授权 · 令牌已替换")
+        XCTAssertEqual(app.buttons["receipt.action"].label, "测试")
+        XCTAssertTrue(element("account.reauth.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        app.buttons["receipt.action"].tap()
+        XCTAssertTrue(element("account.test.sheet").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// Another method drops the link and the code; the receipt names the new type.
+    @MainActor func testReauthorizeSwitchingToSetupTokenDropsLinkAndConvertsType() {
+        openDetail(1)
+        defer { diagnostics("account-reauth-setup-final") }
+        chooseReauthorizeFromMenu()
+        XCTAssertTrue(element("account.reauth.sheet").waitForExistence(timeout: 10), app.debugDescription)
+        generateLink()
+        typeCode("demo-code#demo-state")
+        let method = app.segmentedControls["oauth.method"]
+        reveal(method, towardBottom: false)
+        method.buttons["Setup Token"].tap()
+        XCTAssertTrue(element("oauth.link").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(element("oauth.scope").label, "只授予推理权限 · 授权后账号类型改为 Setup Token")
+        XCTAssertTrue(app.buttons["oauth.generate"].exists && !app.buttons["account.reauth.submit"].isEnabled, app.debugDescription)
+        generateLink()
+        typeCode("demo-setup#demo-state")
+        replaceToken()
+        waitForReceipt(matching: "^已重新授权 · 账号类型改为 Setup.Token · 令牌已替换$")
+    }
+
+    /// 20 §6.4-1: a stopped account asks before the sheet; cancelling sends nothing, going on enables it.
+    @MainActor func testReauthorizeInactiveAccountAsksBeforeOpening() {
+        openDetail(2, arguments: [Fixture.tokenInactive])
+        defer { diagnostics("account-reauth-inactive-final") }
+        let alert = app.alerts["重新授权「Claude-官方-02」？"]
+        chooseReauthorizeFromMenu()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(alert.staticTexts["这个账号现在是停用状态。授权后账号会被重新启用并参与调度。"].exists, app.debugDescription)
+        alert.buttons["取消"].tap()
+        XCTAssertFalse(element("account.reauth.sheet").waitForExistence(timeout: 2), app.debugDescription)
+        chooseReauthorizeFromMenu()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), app.debugDescription)
+        alert.buttons["继续授权"].tap()
+        XCTAssertTrue(element("account.reauth.sheet").waitForExistence(timeout: 10), app.debugDescription)
+        generateLink()
+        typeCode("demo-code#demo-state")
+        replaceToken()
+        waitForReceipt("已重新授权 · 已启用账号 · 参与调度")
+        XCTAssertEqual(app.buttons["receipt.action"].label, "测试")
+    }
+
+    /// 20 §2.3: a refused token leads with 重新授权…; the error is cleared, the switch stays off, and 启用调度 turns it on.
+    @MainActor func testCredentialErrorTokenAccountLeadsWithReauthorizeAndOffersEnableScheduling() {
+        openDetail(2, arguments: [Fixture.tokenError])
+        defer { diagnostics("account-reauth-error-final") }
+        let fix = app.buttons["account.action.reauthorize"], recover = app.buttons["account.action.recover"]
+        XCTAssertTrue(fix.waitForExistence(timeout: 10) && recover.exists && app.buttons["account.action.test"].exists, app.debugDescription)
+        XCTAssertLessThan(fix.frame.minX, recover.frame.minX)
+        reveal(fix, towardBottom: false)
+        fix.tap()
+        XCTAssertTrue(element("account.reauth.sheet").waitForExistence(timeout: 10), app.debugDescription)
+        let note = element("account.reauth.note")
+        reveal(note)
+        XCTAssertTrue(note.label.contains("出错时已停止调度，之后仍暂停。"), note.label)
+        generateLink()
+        typeCode("demo-code#demo-state")
+        replaceToken()
+        waitForReceipt("已重新授权 · 已清除错误 · 仍暂停调度")
+        XCTAssertEqual(app.buttons["receipt.action"].label, "启用调度")
+        app.buttons["receipt.action"].tap()
+        waitForReceipt("已启用调度")
+        XCTAssertTrue(app.buttons["account.action.stop"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 20 §0.5 REAUTH_PERSIST_FAILED: the read-back shows nothing saved, so the sheet offers 重试保存 with the same session.
+    @MainActor func testReauthorizePersistFailureOffersRetrySave() {
+        openDetail(1, arguments: [Fixture.reauthPersistFail])
+        defer { diagnostics("account-reauth-persist-final") }
+        openReauthorizeFromRow()
+        generateLink()
+        typeCode("demo-code#demo-state")
+        replaceToken()
+        let failed = element("account.reauth.persistFailed")
+        XCTAssertTrue(failed.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(failed.label, "令牌已换到，但没保存成功")
+        XCTAssertFalse(app.staticTexts["receipt.text"].exists, app.debugDescription)
+        diagnostics("account-reauth-persist-failed")
+        let retry = app.buttons["account.reauth.retrySave"]
+        reveal(retry)
+        retry.tap()
+        waitForReceipt("已重新授权 · 令牌已替换")
+        XCTAssertTrue(element("account.reauth.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    /// 60 §3.4: with Face ID on the note says so; a refused check sends nothing and keeps the code.
+    @MainActor func testReauthorizeFaceIDDeniedKeepsSheetAndSendsNothing() {
+        openDetail(1, arguments: ["-ui-faceid-on", "-ui-biometric-deny"])
+        defer { diagnostics("account-reauth-faceid-final") }
+        openReauthorizeFromRow()
+        generateLink()
+        typeCode("demo-code#demo-state")
+        let note = element("account.reauth.note")
+        reveal(note)
+        XCTAssertTrue(note.label.hasSuffix("；之后验证 Face ID"), note.label)
+        replaceToken()
+        XCTAssertFalse(app.staticTexts["receipt.text"].waitForExistence(timeout: 3), app.debugDescription)
+        let submit = app.buttons["account.reauth.submit"]
+        XCTAssertTrue(element("account.reauth.sheet").exists && waitUntil(submit, "isEnabled == true"), app.debugDescription)
+        XCTAssertEqual(element("oauth.code").value as? String, "demo-code#demo-state")
+        app.buttons["account.reauth.cancel"].tap()
+        XCTAssertTrue(element("account.reauth.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    /// 20 §0.5 REAUTH_UNSUPPORTED (a shadow account): the reason and 在 Web 中编辑, no receipt.
+    @MainActor func testReauthorizeUnsupportedAccountOffersEditInWeb() {
+        openDetail(1, arguments: [Fixture.reauthUnsupported])
+        defer { diagnostics("account-reauth-unsupported-final") }
+        openReauthorizeFromRow()
+        generateLink()
+        typeCode("demo-code#demo-state")
+        replaceToken()
+        let unsupported = element("account.reauth.unsupported")
+        XCTAssertTrue(unsupported.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(unsupported.label, "影子账号的凭据跟随母账号，请重新授权母账号")
+        XCTAssertTrue(app.buttons["account.reauth.editInWeb"].isEnabled, app.debugDescription)
+        XCTAssertFalse(app.staticTexts["receipt.text"].exists, app.debugDescription)
+    }
+
+    /// C-1: a read-only token greys every 重新授权… entry.
+    @MainActor func testReadOnlyTokenGreysReauthorizeEntries() {
+        launchAndLogin(arguments: ["-ui-readonly-token", Fixture.tokenError], readOnly: true)
+        defer { diagnostics("account-reauth-readonly-final") }
+        open(2)
+        let fix = app.buttons["account.action.reauthorize"]
+        XCTAssertTrue(fix.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(fix.isEnabled, app.debugDescription)
+        goBack()
+        open(1)
+        let row = app.buttons["account.cred.reauthorize"]
+        reveal(row)
+        XCTAssertFalse(row.isEnabled, app.debugDescription)
+        app.buttons["account.detail.more"].tap()
+        let item = menuItem("重新授权…")
+        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(item.isEnabled, app.debugDescription)
+        XCTAssertFalse(element("account.reauth.sheet").exists, app.debugDescription)
+    }
+
+    /// 20 §6.2 退路: without accounts.reauthorize the code is exchanged and the token applied.
+    @MainActor func testReauthorizeWithoutEndpointFallsBackToExchangeAndApply() {
+        openDetail(1, arguments: [Fixture.without, "accounts.reauthorize"])
+        defer { diagnostics("account-reauth-fallback-final") }
+        openReauthorizeFromRow()
+        generateLink()
+        typeCode("demo-code#demo-state")
+        replaceToken()
+        waitForReceipt("已重新授权 · 令牌已替换")
+        XCTAssertTrue(element("account.reauth.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor private func openReauthorizeFromRow() {
+        let row = app.buttons["account.cred.reauthorize"]
+        reveal(row)
+        row.tap()
+        XCTAssertTrue(element("account.reauth.sheet").waitForExistence(timeout: 10), app.debugDescription)
+    }
+    @MainActor private func chooseReauthorizeFromMenu() {
+        app.buttons["account.detail.more"].tap()
+        let item = menuItem("重新授权…")
+        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
+        item.tap()
+    }
+    @MainActor private func generateLink() {
+        let generate = app.buttons["oauth.generate"]
+        XCTAssertTrue(generate.waitForExistence(timeout: 5), app.debugDescription)
+        reveal(generate, towardBottom: false)
+        generate.tap()
+        XCTAssertTrue(element("oauth.link").waitForExistence(timeout: 10), app.debugDescription)
+    }
+    /// PasteButton asks the system; the tests type instead, and Return closes the keyboard.
+    @MainActor private func typeCode(_ code: String) {
+        let field = element("oauth.code")
+        reveal(field)
+        field.tap()
+        field.typeText(code + "\n")
+    }
+    @MainActor private func replaceToken() {
+        let submit = app.buttons["account.reauth.submit"]
+        reveal(submit)
+        XCTAssertTrue(waitUntil(submit, "isEnabled == true"), app.debugDescription)
+        submit.tap()
     }
 }

@@ -25,11 +25,11 @@ public enum AccountCredentialKind: Sendable, Equatable {
         return .key(BaseURLRule.requiresValue(platform: account.platform, type: account.type) ? .required : .optional)
     }
 
-    /// ⋯'s credential items, first in the menu (20 §3.4); S2-17 adds 重新授权….
+    /// ⋯'s credential items, first in the menu (20 §3.4).
     public var menuActions: [AccountCredentialMenuAction] {
         switch self {
         case .key: [.replaceKey]
-        case .token: [.refresh]
+        case .token: [.refresh, .reauthorize]
         case .webOnly: []
         }
     }
@@ -45,10 +45,16 @@ public enum AccountCredentialKind: Sendable, Equatable {
 
 /// ⋯'s credential items; the raw value names them (`account.detail.more.<raw>`).
 public enum AccountCredentialMenuAction: String, Sendable, CaseIterable, Identifiable {
-    case replaceKey, refresh
+    case replaceKey, refresh, reauthorize
     public var id: String { rawValue }
-    public var title: String { self == .replaceKey ? "更换 API Key…" : AccountRefreshCopy.title }
-    public var systemImage: String { self == .replaceKey ? "key" : "arrow.clockwise" }
+    public var title: String {
+        switch self {
+        case .replaceKey: "更换 API Key…"
+        case .refresh: AccountRefreshCopy.title
+        case .reauthorize: AccountDetailAction.reauthorize.title
+        }
+    }
+    public var systemImage: String { self == .refresh ? "arrow.clockwise" : "key" }
 }
 
 /// The API Key row: what is stored (never the key) and what it needs.
