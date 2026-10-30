@@ -265,6 +265,8 @@
 | 监控分段计数的读屏 | 系统分段控件没有角标，S1-13 把计数写进段标题（“告警 2”），读屏会读“告警 2”；如果要读成“告警，2 条进行中”，需要自绘分段控件 |
 | 监控 Tab 的 vendor 分支不可达 | 首版不允许 vendor 登录（U01），“代运营工作区没有运维监控权限”只是防御分支，没有 UI 夹具和用例；开放 vendor 登录时再补 |
 | 首页与监控的健康分行合并 | 监控概况的健康分行（MonitorOverviewSection 私有 MonitorHealthRow）和首页 HomeRunSection 的私有健康分行版式一致、各写一份，由 S1-18 收口时合成一个行组件 |
+| S2-09 的 CapacityBar 合入后统一监控 CPU / 内存条 | S1-14 在 MonitorServerSection.swift 里用的是私有 MeterBar；S2-09 的通用 CapacityBar（C-7）合入后，评估改用它，避免两套容量条 |
+| S1-18 的标识静态核查要接受插值后缀 | S1-14 的读数标识带色调后缀（monitor.server.cpu.<normal\|caution\|critical>），任务行标识带任务名后缀（monitor.server.job.<job_name>）；按字面量 grep 的核查要能识别这类前缀 |
 
 ### App 与设计 · 阶段 2
 
@@ -472,3 +474,5 @@
 | 全部恢复是否要 Face ID | 60 §13.4 没写；S6-13 按 §3.4“批量操作”在全部恢复确认后验证，单个滑动只确认。若不需要，删掉 ProxyFallbackAccountsModel.revert 里 .all 的 authorize 分支和对应测试 |
 | 被改走账号逐项失败的文案 | failed 是 200 响应里的逐项结果，没有 HTTP 状态可以兜底；S6-13 按 code 给固定文案，空码写“服务器没能恢复这个账号”，重读后已不在列表的写“已不在被改走列表，可能已恢复，请到账号详情核对”。是否细化由用户定 |
 | ProxiesUITests 拆文件 | ProxiesUITests.swift 已 659 行，S6-13 的用例放在 UITests/ProxiesUITests+Fallback.swift（extension）；S6-14 追加 UI 测试时宜同样新建扩展文件，items.json 的 files 需相应补上（S6-13 的 files 也应把 ProxiesUITests.swift 换成这个新文件） |
+| 补偿“被其他用户用了 / 无法确认”页面文案 | 60 §19.3 没有写这两种待核对页。S6-09 自拟了“这次没有发给 …”+“重新发放”和“无法确认这次发放”+“我已在 Web 核对”，需要用户确认文案和流程 |
+| 待核对页重试的 Face ID 覆盖层 | 补偿待核对页上点“用同一编号重试”时，系统 Face ID 照常弹出，但 sheet 不叠加“Face ID · 验证后发放”覆盖层（向导里的首次发放有）。可在 S6-26 统一 |

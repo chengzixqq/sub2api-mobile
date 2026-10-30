@@ -21,6 +21,8 @@ struct UserDetailView: View {
     @State private var reconcileFlow = BalanceReconcileFlow()
     /// R03's first confirmation before the keypad (S3-08).
     @State private var balanceEntry: BalanceKeypadEntry?
+    /// X38: “上一次补偿的发放结果未确认” before the compensation sheet (S6-09).
+    @State private var grantBlock: GrantBlockPrompt?
 
     private var shouldPoll: Bool { visible && scenePhase == .active && detail != nil }
     /// `.userEdit` of this user, any segment, on the stack in front: the key summary's push and ⋯ 编辑用户 (S3-11).
@@ -35,6 +37,7 @@ struct UserDetailView: View {
             .balanceKeypadEntry($balanceEntry) { [reconcileFlow, model, detail] op in
                 Task { await reconcileFlow.reconcile(op, model: model, balance: detail?.user?.balance) }
             }
+            .redeemGrantBlockAlert($grantBlock, userID: userID, router: router)
             .navigationTitle(detail?.user?.displayName ?? UserDetailPresentation.loadingTitle)
             .navigationSubtitle(detail?.user?.email ?? "")
             .navigationBarTitleDisplayMode(.inline)
@@ -105,8 +108,9 @@ struct UserDetailView: View {
         case .setStatus(let enable):
             Task { await detail.setStatus(enable: enable) }
         case .compensation:
-            // 60 §19.1; the sheet bumps `userChanges` when it grants, which reloads this page.
-            router.present(.redeemGrant(userID: userID, pendingID: nil))
+            // 60 §19.1, X38: a compensation of this user awaiting its check asks first; the sheet bumps `userChanges` when it
+            // grants, which reloads this page.
+            grantBlock = RedeemGrantEntry.open(userID: userID, model: model, router: router, timeZone: (session?.site.serverTimeZone ?? .device).timeZone)
         case .delete:
             deleteRequest = detail.deleteRequest(siteName: model.activeProfile?.name ?? "")
         }

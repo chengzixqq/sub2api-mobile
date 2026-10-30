@@ -68,9 +68,11 @@ final class UserDetailUITests: XCTestCase {
         }
         XCTAssertFalse(labelled("管理员不能禁用或删除。").exists)
         app.buttons["发放兑换码（补偿）…"].tap()
-        XCTAssertTrue(app.navigationBars["发放兑换码（补偿）"].waitForExistence(timeout: 5), app.debugDescription)
+        // S6-09: the compensation sheet's first step.
+        XCTAssertTrue(element("grant.sheet").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["发放兑换码"].exists, app.debugDescription)
         app.buttons["sheet.close"].tap()
-        XCTAssertTrue(app.navigationBars["发放兑换码（补偿）"].waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("grant.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
         goBack()
         openUser(8, name: "陈思远")
         openMenu()

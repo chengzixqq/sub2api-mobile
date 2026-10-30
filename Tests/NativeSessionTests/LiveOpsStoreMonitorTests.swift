@@ -21,10 +21,19 @@ private func snapshot(start: Date, end: Date) -> OpsSnapshotV2 {
                          windowStart: start, windowEnd: end)
 }
 private let overview = OpsOverview(healthScore: 92, errorRate: 0.0086, upstream429Count: 3, upstream529Count: 0)
-/// Every monitor read answers; nothing fires.
+/// Every monitor read answers, the server section's too (S1-14); nothing fires. The site has none of the server capabilities,
+/// so 服务器 reads 并发, 日志采集 and 入口拒绝 (paged): five timers in all.
 private func monitorSource() -> StubLiveOpsSource {
     StubLiveOpsSource(.init(overview: { _, _ in overview }, alertEvents: { _, _ in [] }, alertCounts: { AlertCounts(firing: 0) },
-                            snapshot: { snapshot(start: $0, end: $1) }))
+                            snapshot: { snapshot(start: $0, end: $1) }, concurrency: { OpsConcurrency() }, logsHealth: { SystemLogHealth() },
+                            ingress: { _, _ in IngressRejectList() }))
+}
+private let timerCount = 5
+private func isServerRead(_ call: StubLiveOpsSource.Call) -> Bool {
+    switch call {
+    case .concurrency, .logsHealth, .ingress: true
+    default: false
+    }
 }
 
 @MainActor @Test func segmentStartsOnOverviewForEachStore() {
@@ -79,7 +88,8 @@ private func isUpdated(_ status: HomeRefreshStatus?) -> Bool { if case .updated?
     let source = StubLiveOpsSource(.init(overview: { _, _ in throw opsDisabledError }, alertEvents: { _, _ in throw opsDisabledError },
                                          monitoringStatus: { OpsMonitoringStatus(configEnabled: true, monitoringEnabled: false, effective: false,
                                                                                  disabledReason: "setting_off") },
-                                         snapshot: { _, _ in throw opsDisabledError }))
+                                         snapshot: { _, _ in throw opsDisabledError }, concurrency: { throw opsDisabledError },
+                                         logsHealth: { throw opsDisabledError }, ingress: { _, _ in throw opsDisabledError }))
     let harness = LiveOpsHarness(source, site: liveOpsSite(liveOpsCapabilities + [.opsMonitoringStatus]))
     let store = harness.store
     await store.monitorOverviewPolling()
@@ -115,11 +125,11 @@ private func isUpdated(_ status: HomeRefreshStatus?) -> Bool { if case .updated?
     let harness = LiveOpsHarness(source, sleeper: PollSleeper(parks: true))
     let store = harness.store
     let polling = Task { await store.monitorOverviewPolling() }
-    await waitUntil { await harness.sleeper.parkedCount == 2 }
-    #expect(await harness.sleeper.seconds.sorted() == [60, 120])
+    await waitUntil { await harness.sleeper.parkedCount == timerCount }
+    #expect(await harness.sleeper.seconds.sorted() == Array(repeating: 60, count: timerCount - 1) + [120])
     await harness.sleeper.releaseAll()
-    await waitUntil { await harness.sleeper.parkedCount == 2 }
-    #expect(await harness.sleeper.seconds.sorted() == [60, 60, 120, 240])
+    await waitUntil { await harness.sleeper.parkedCount == timerCount }
+    #expect(await harness.sleeper.seconds.sorted() == Array(repeating: 60, count: 2 * (timerCount - 1)) + [120, 240])
     #expect(await source.count(isOverviewRange) == 2)
     #expect(await source.count(isSnapshot) == 2)
     await harness.sleeper.stop()
@@ -136,8 +146,8 @@ private func isUpdated(_ status: HomeRefreshStatus?) -> Bool { if case .updated?
     await harness.store.refreshMonitorOverview(force: false)
     harness.advance(by: 4)
     let polling = Task { await harness.store.monitorOverviewPolling() }
-    await waitUntil { await harness.sleeper.parkedCount == 2 }
-    #expect(await harness.sleeper.seconds == [6, 6])
+    await waitUntil { await harness.sleeper.parkedCount == timerCount }
+    #expect(await harness.sleeper.seconds == Array(repeating: 6, count: timerCount))
     #expect(await source.count(isOverviewRange) == 1)
     #expect(await source.count(isSnapshot) == 1)
     await harness.sleeper.stop()
@@ -148,8 +158,8 @@ private func isUpdated(_ status: HomeRefreshStatus?) -> Bool { if case .updated?
     await other.store.refreshMonitorOverview(force: false)
     other.advance(by: 11)
     let next = Task { await other.store.monitorOverviewPolling() }
-    await waitUntil { await other.sleeper.parkedCount == 2 }
-    #expect(await other.sleeper.seconds == [60, 60])
+    await waitUntil { await other.sleeper.parkedCount == timerCount }
+    #expect(await other.sleeper.seconds == Array(repeating: 60, count: timerCount))
     #expect(await later.count(isOverviewRange) == 2)
     #expect(await later.count(isSnapshot) == 2)
     await other.sleeper.stop()
@@ -217,4 +227,129 @@ private func isUpdated(_ status: HomeRefreshStatus?) -> Bool { if case .updated?
     await pull.value
     #expect(store.monitor.overview.value == nil)
     #expect(store.opsDisabled)
+}
+
+// MARK: 计时器重启与开启后的读取（审查修正）
+
+private let switchedOn = OpsMonitoringStatus(configEnabled: true, monitoringEnabled: true, effective: true)
+private let switchedOff = OpsMonitoringStatus(configEnabled: true, monitoringEnabled: false, effective: false, disabledReason: "setting_off")
+
+/// A read the timers' task stopped half way (leaving 概况, the App going inactive) showed nothing: the next timers read at once.
+@MainActor @Test func cancelledReadsDoNotDeferRestartedTimers() async {
+    let gate = SessionGate()
+    let source = monitorSource()
+    await source.update {
+        $0.overview = { _, _ in await gate.wait(); return overview }
+        $0.snapshot = { start, end in await gate.wait(); return snapshot(start: start, end: end) }
+        $0.concurrency = { await gate.wait(); return OpsConcurrency() }
+        $0.logsHealth = { await gate.wait(); return SystemLogHealth() }
+        $0.ingress = { _, _ in await gate.wait(); return IngressRejectList() }
+    }
+    let harness = LiveOpsHarness(source, sleeper: PollSleeper(parks: true))
+    let store = harness.store
+    let first = Task { await store.monitorOverviewPolling() }
+    await waitUntil {
+        let overviews = await source.count(isOverviewRange), snapshots = await source.count(isSnapshot), server = await source.count(isServerRead)
+        return overviews == 1 && snapshots == 1 && server == timerCount - 2
+    }
+    first.cancel()
+    await harness.sleeper.stop()
+    await gate.open()
+    await first.value
+    #expect(store.monitor.overview.value == nil && store.monitor.errorTrend.value == nil)
+
+    let before = await harness.sleeper.seconds.count
+    await store.monitorOverviewPolling()
+    #expect(await source.count(isOverviewRange) == 2)
+    #expect(await source.count(isSnapshot) == 2)
+    let waits = await harness.sleeper.seconds
+    #expect(Array(waits.dropFirst(before)) == Array(repeating: 60, count: timerCount))
+    #expect(store.monitor.overview.value == overview)
+}
+
+/// SwiftUI starts the new timers before the stopped ones' reads come back: those reads, the firing list's included, are replaced
+/// instead of leaving the block empty for a minute; their late answers change nothing.
+@MainActor @Test func restartedTimersReplaceReadsLeftInFlight() async {
+    let gate = SessionGate(), overviews = Tally(), lists = Tally()
+    let source = monitorSource()
+    await source.update {
+        $0.overview = { _, _ in if overviews.next() == 1 { await gate.wait() }; return overview }
+        $0.alertEvents = { _, _ in if lists.next() == 1 { await gate.wait() }; return [] }
+    }
+    let harness = LiveOpsHarness(source, sleeper: PollSleeper(parks: true))
+    let store = harness.store
+    let first = Task { await store.monitorOverviewPolling() }
+    // All but the run answer at once and wait; the new timers read the run again and wait out the rest of ten seconds for the others.
+    await waitUntil {
+        let parked = await harness.sleeper.parkedCount, reads = await source.count(isOverviewRange), listReads = await source.count(isAlertList)
+        return parked == timerCount - 1 && reads == 1 && listReads == 1
+    }
+    first.cancel()
+    let second = Task { await store.monitorOverviewPolling() }
+    await waitUntil { await harness.sleeper.parkedCount == 2 * timerCount - 1 }
+    #expect(await source.count(isOverviewRange) == 2)
+    #expect(await source.count(isAlertList) == 2)
+    #expect(store.monitor.overview.value == overview)
+    #expect(store.firing.value == [])
+
+    await gate.open()
+    await harness.sleeper.stop()
+    await first.value
+    await second.value
+    #expect(store.monitor.overview.value == overview && store.firing.value == [])
+}
+
+/// 10 §7.2 step 3: off answers just before 开启运维监控 do not hold the blocks back once it is on; they are read at once.
+@MainActor @Test func enablingReadsBlocksAtOnceAfterOffAnswers() async {
+    let source = StubLiveOpsSource(.init(home: { _ in homeReply() }, overview: { _, _ in throw opsDisabledError },
+                                         alertEvents: { _, _ in throw opsDisabledError }, alertCounts: { throw opsDisabledError },
+                                         monitoringStatus: { switchedOff }, setOpsMonitoring: { _ in switchedOn },
+                                         snapshot: { _, _ in throw opsDisabledError }, concurrency: { throw opsDisabledError },
+                                         logsHealth: { throw opsDisabledError }, ingress: { _, _ in throw opsDisabledError }))
+    let harness = LiveOpsHarness(source, site: liveOpsSite(liveOpsCapabilities + [.opsMonitoringStatus]), sleeper: PollSleeper(parks: true))
+    let store = harness.store
+    await store.refreshMonitorOverview(force: true)
+    #expect(store.opsDisabled)
+    await source.update {
+        $0.overview = { _, _ in overview }
+        $0.alertEvents = { _, _ in [] }
+        $0.alertCounts = { AlertCounts(firing: 0) }
+        $0.snapshot = { snapshot(start: $0, end: $1) }
+        $0.concurrency = { OpsConcurrency() }
+        $0.logsHealth = { SystemLogHealth() }
+        $0.ingress = { _, _ in IngressRejectList() }
+    }
+    #expect(await store.enableOpsMonitoring() == .enabled)
+    #expect(!store.opsDisabled)
+
+    let polling = Task { await store.monitorOverviewPolling() }
+    await waitUntil { await harness.sleeper.parkedCount == timerCount }
+    #expect(await harness.sleeper.seconds == Array(repeating: 60, count: timerCount))
+    #expect(await source.count(isOverviewRange) == 2)
+    #expect(await source.count(isSnapshot) == 2)
+    #expect(store.monitor.overview.value == overview && store.monitor.errorTrend.value?.count == 9)
+    await harness.sleeper.stop()
+    await polling.value
+}
+
+/// 10 §7.2 step 3: for 30 seconds after the App turned it on, an instance that has not switched yet may still answer 404
+/// OPS_DISABLED; the switch stays on and the block asks again after 30 seconds instead of backing off.
+@MainActor @Test func offAnswerRightAfterEnablingIsAskedAgainWithinThirtySeconds() async {
+    let source = StubLiveOpsSource(.init(home: { _ in homeReply() }, overview: { _, _ in overview }, alertEvents: { _, _ in [] },
+                                         alertCounts: { AlertCounts(firing: 0) }, setOpsMonitoring: { _ in switchedOn },
+                                         snapshot: { snapshot(start: $0, end: $1) }, concurrency: { OpsConcurrency() },
+                                         logsHealth: { SystemLogHealth() }, ingress: { _, _ in IngressRejectList() }))
+    let harness = LiveOpsHarness(source, site: liveOpsSite(liveOpsCapabilities + [.opsMonitoringStatus], opsEnabled: false),
+                                 sleeper: PollSleeper(parks: true))
+    let store = harness.store
+    #expect(await store.enableOpsMonitoring() == .enabled)
+    await source.update { $0.overview = { _, _ in throw opsDisabledError } }
+
+    let polling = Task { await store.monitorOverviewPolling() }
+    await waitUntil { await harness.sleeper.parkedCount == timerCount }
+    #expect(!store.opsDisabled)
+    #expect(store.monitor.overview.error != nil)
+    #expect(await harness.sleeper.seconds.sorted() == [30] + Array(repeating: 60, count: timerCount - 1))
+    await harness.sleeper.stop()
+    await polling.value
 }

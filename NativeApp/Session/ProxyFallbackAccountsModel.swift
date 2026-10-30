@@ -35,7 +35,8 @@ enum ProxyFallbackOutcome: Sendable, Equatable {
 /// 60 §13.4 被改走的账号: the accounts the proxy's expiry moved off it and the proxy itself, read side by side on entry, on pull
 /// and back in the foreground. 全部恢复 (after Face ID for a batch, 60 §3.4) or one row's 恢复 is sent once without a key: the
 /// server skips what is no longer moved off, so a lost reply is read back rather than resent (00 §2.4, H03). Afterwards the
-/// page, the session's catalog row (the list and the detail) and, when something was restored, the account list are refreshed.
+/// page and the session's catalog row are read again, the detail is told to read the proxy and 贰 (`afterRevert`) and, when
+/// something was restored, the account list is refreshed.
 @MainActor @Observable
 final class ProxyFallbackAccountsModel {
     let proxyID: Int
@@ -56,13 +57,16 @@ final class ProxyFallbackAccountsModel {
     @ObservationIgnored private let authorize: @MainActor (GatedAction) async -> Bool
     @ObservationIgnored private let isCurrent: @MainActor () -> Bool
     @ObservationIgnored private let now: @MainActor () -> Date
+    /// A revert was answered or read back: the view tells the proxy's detail (ProxyFallbackSignal).
+    @ObservationIgnored private let afterRevert: @MainActor () -> Void
     @ObservationIgnored private var ticket = UUID()
 
     init(proxyID: Int, seed: AdminProxy?, isSupported: Bool, endpoints: ProxyFallbackEndpoints, store: ProxyStore?, accountSignal: AccountListSignal?,
          receipts: ReceiptCenter, authorize: @escaping @MainActor (GatedAction) async -> Bool, isCurrent: @escaping @MainActor () -> Bool,
-         now: @escaping @MainActor () -> Date) {
+         now: @escaping @MainActor () -> Date, afterRevert: @escaping @MainActor () -> Void = {}) {
         self.proxyID = proxyID; proxy = seed; self.isSupported = isSupported; self.endpoints = endpoints; self.store = store
         self.accountSignal = accountSignal; self.receipts = receipts; self.authorize = authorize; self.isCurrent = isCurrent; self.now = now
+        self.afterRevert = afterRevert
         isUnsupported = !isSupported
     }
 
@@ -145,6 +149,7 @@ final class ProxyFallbackAccountsModel {
     private func finish(_ result: ProxyFallbackRevertResult, names: [Int: String], proxyName: String) async -> ProxyFallbackOutcome {
         show(ProxyFallbackPresentation.receipt(result, proxyName: proxyName))
         if !result.revertedIDs.isEmpty { accountSignal?.bump() }
+        afterRevert()
         let listed = await refresh()
         guard isCurrent() else { return .ignored }
         let known = names.merging(Self.names(listed ?? [])) { old, _ in old }
@@ -175,6 +180,7 @@ final class ProxyFallbackAccountsModel {
         let remaining = await refresh()
         guard isCurrent() else { return .ignored }
         if isGone { return .proxyGone }
+        afterRevert()
         guard let remaining else {
             show(ProxyFallbackNotice(text: ProxyDetailCopy.unconfirmed, tone: .caution), retry: scope)
             return .unconfirmed
@@ -204,6 +210,29 @@ final class ProxyFallbackAccountsModel {
     private nonisolated static func capture<Value: Sendable>(_ work: @Sendable () async throws -> Value) async -> Result<Value, any Error> {
         do { return .success(try await work()) } catch { return .failure(error) }
     }
+}
+
+/// 60 §13.4 “之后重拉本页、详情与列表”: a revert on a proxy's 被改走的账号 page was answered or read back, so the detail of that proxy
+/// in that session reads the proxy and 贰 again. ProxyStore's row reaches only a detail whose proxy the catalog holds (not one
+/// pushed from an account or from search) and never 贰.
+enum ProxyFallbackSignal {
+    private static let proxyIDKey = "proxyID"
+    private static let generationKey = "generation"
+
+    @MainActor static func post(proxyID: Int, generation: UUID) {
+        NotificationCenter.default.post(notification(proxyID: proxyID, generation: generation))
+    }
+    static func notification(proxyID: Int, generation: UUID) -> Notification {
+        Notification(name: .proxyFallbackDidRevert, userInfo: [proxyIDKey: proxyID, generationKey: generation])
+    }
+    static func matches(_ notification: Notification, proxyID: Int, generation: UUID) -> Bool {
+        notification.name == .proxyFallbackDidRevert && notification.userInfo?[proxyIDKey] as? Int == proxyID
+            && notification.userInfo?[generationKey] as? UUID == generation
+    }
+}
+
+extension Notification.Name {
+    static let proxyFallbackDidRevert = Notification.Name("Sub2Mobile.proxyFallbackDidRevert")
 }
 
 extension ProxyAccess {

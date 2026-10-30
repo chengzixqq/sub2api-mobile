@@ -311,4 +311,88 @@ final class MonitorUITests: XCTestCase {
         XCTAssertFalse(disable.isEnabled, app.debugDescription)
         menuButton("刷新").tap()
     }
+
+    // MARK: S1-14 概况 · 服务器
+
+    /// LiveOpsFixtures+Server.swift as VoiceOver reads it (the UI tests cannot import the App, so change both together).
+    private enum ServerExpected {
+        static let figures = [("concurrency", "8/50"), ("queue", "1"), ("qps", "0.8"), ("sla", "99.2%")]
+        static let jobs = [("ops_metrics_collector", ["指标采集", "最近成功", "最近一次失败：redis: connection pool timeout"]),
+                           ("ops_preaggregation_hourly", ["预聚合（小时）", "没有成功，需要看一下"]), ("ops_cleanup", ["清理", "按计划应在"]),
+                           ("ops_scheduled_reports", ["定时报告", "已关闭"]), ("ops_custom_sync", ["ops_custom_sync"])]
+        /// LiveOpsFixtures.serverLegacyWithheldCapabilities.
+        static let legacyCapabilities = "ops.system_metrics_history,ops.ingress_reject_totals"
+    }
+
+    /// The section's title, scrolled into view.
+    @discardableResult @MainActor private func revealServerSection(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let header = element("monitor.server.header")
+        reveal(header, file: file, line: line)
+        return header
+    }
+
+    /// 10 §4.3: CPU / 内存 with their tones and lines, the four figures, a row per job (none of them a button) and 日志采集 with
+    /// the rejections and the jobs that need attention.
+    @MainActor func testServerSectionShowsMetersFiguresJobsAndIngest() {
+        launchAndLogin()
+        defer { diagnostics("monitor-server-final") }
+        openMonitor()
+        let header = revealServerSection()
+        XCTAssertTrue(header.label.hasPrefix("服务器"), header.debugDescription)
+        XCTAssertEqual(header.value as? String, "仅管理员可见")
+        assertValue(element("monitor.server.cpu.critical"), "92.0%")
+        assertValue(element("monitor.server.memory.caution"), "78.0%")
+        XCTAssertTrue(element("monitor.server.cpu.trend").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("monitor.server.memory.trend").exists, app.debugDescription)
+        for (kind, value) in ServerExpected.figures { assertValue(element("monitor.server." + kind), value) }
+        diagnostics("monitor-server")
+        for (job, parts) in ServerExpected.jobs {
+            let row = element("monitor.server.job." + job)
+            reveal(row)
+            for part in parts { XCTAssertTrue(row.label.contains(part), "\(job): \(row.label)") }
+        }
+        XCTAssertTrue(element("monitor.server.job.ops_custom_sync").label.hasPrefix("ops_custom_sync"), app.debugDescription)
+        XCTAssertFalse(app.buttons["monitor.server.job.ops_cleanup"].exists, app.debugDescription)
+        let ingest = element("monitor.server.ingest")
+        reveal(ingest)
+        for part in ["日志采集", "延迟 850ms", "入口拒绝 3 次（1 小时）· 3 个任务需留意"] {
+            XCTAssertTrue(ingest.label.contains(part), ingest.label)
+        }
+        XCTAssertFalse(app.buttons["monitor.server.ingest"].exists, app.debugDescription)
+        XCTAssertFalse(element("monitor.server.load.failure").exists, app.debugDescription)
+    }
+
+    /// Appendix A S7: realtime monitoring off is “—” with 实时监控未开启 beside it, the queue from the overview; ops monitoring stays on.
+    @MainActor func testServerSectionRealtimeOffShowsDashAndHint() {
+        launchAndLogin(arguments: ["-ui-monitor-realtime-off"])
+        defer { diagnostics("monitor-server-realtime-off-final") }
+        openMonitor()
+        assertValue(element("monitor.run.health"), Expected.health)
+        revealServerSection()
+        assertValue(element("monitor.server.concurrency"), Expected.missing)
+        let note = element("monitor.server.realtimeOff")
+        XCTAssertTrue(note.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(note.label, "实时监控未开启")
+        assertValue(element("monitor.server.queue"), "4")
+        XCTAssertTrue(element("monitor.server.cpu.critical").exists, app.debugDescription)
+        XCTAssertFalse(element("ops.disabled.empty").exists, app.debugDescription)
+        XCTAssertFalse(text(containing: "运维监控未开启").exists, app.debugDescription)
+        diagnostics("monitor-server-realtime-off")
+    }
+
+    /// 10 §0.2: without the history the lines wait for points of their own (one so far); without the totals up to three pages are
+    /// added up (“≥ 600”).
+    @MainActor func testServerSectionWithoutHistoryAndIngressTotals() {
+        launchAndLogin(arguments: ["-ui-without-capabilities", ServerExpected.legacyCapabilities])
+        defer { diagnostics("monitor-server-legacy-final") }
+        openMonitor()
+        revealServerSection()
+        assertValue(element("monitor.server.cpu.critical"), "92.0%")
+        XCTAssertFalse(element("monitor.server.cpu.trend").exists, app.debugDescription)
+        XCTAssertFalse(element("monitor.server.memory.trend").exists, app.debugDescription)
+        let ingest = element("monitor.server.ingest")
+        reveal(ingest)
+        XCTAssertTrue(waitFor(ingest, "label CONTAINS %@", "入口拒绝 ≥ 600 次（1 小时）· 3 个任务需留意"), ingest.label)
+        XCTAssertFalse(element("monitor.server.load.failure").exists, app.debugDescription)
+    }
 }

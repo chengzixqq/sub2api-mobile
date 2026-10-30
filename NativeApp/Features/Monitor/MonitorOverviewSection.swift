@@ -15,7 +15,7 @@ struct MonitorOverviewSection: View {
                 .listRowBackground(Color.clear)
         } else {
             runSection
-            // S1-14：服务器区 MonitorServerSection(store:) 接在这里。
+            if store.showsMonitorServer { MonitorServerSection(store: store) }
         }
     }
 
