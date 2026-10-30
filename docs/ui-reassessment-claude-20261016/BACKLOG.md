@@ -378,6 +378,7 @@
 | 编辑用户自定义属性的本地校验 | 属性定义里的 validation（正则、长度）App 没做本地校验，只靠服务端拒绝后提示“资料已保存，自定义属性没保存成功” |
 | 编辑页侧滑返回 | 有未保存改动或正在保存时隐藏系统返回，侧滑返回随之不可用（与新建页一致），防止绕过离开确认；是否要用 UIKit 拦截侧滑以保留手势，待定 |
 | RPM 状态块刷新失败的提示 | 已显示数据后，某次 15 秒刷新失败时保留旧值、不提示；是否标“数据可能已过时”待定 |
+| 编辑用户 RPM 块可见性在 iOS 26 上的回调顺序 | 审查（S3-11）认为 UserRPMStatusView 的 onAppear/onDisappear 挂在随状态换行的内容上，可能停掉 15 秒轮询。iOS 27 模拟器上 testRPMStatusKeepsRefreshingWhileShown 在原代码上通过，所以没改。如果 iOS 26 真机上发现轮询停止，把可见性改挂到固定容器（或改用 onScrollVisibilityChange） |
 
 ### App 与设计 · 阶段 4
 
@@ -464,3 +465,6 @@
 | 后端订阅分组错误码 | 订阅类缺 group_id 或分组不是订阅类型时，后端用 errors.New 返回 500 且没有 reason（service/admin_user.go:1710-1720），App 按结果不明转待核对。建议后端改为 400 GROUP_NOT_SUBSCRIPTION_TYPE（subscription_service.go:37 已有该错误）。App 只提供订阅类型且启用的分组，正常不会触发 |
 | 生成向导订阅分组读取中 / 读取失败的显示 | 现在分组目录未读完或读取失败时，第 2 步也显示“站点还没有订阅类型的分组”，下一步置灰；规格只定义了没有分组的情况。是否改成“正在读取分组”/“读取失败 · 重试”待定 |
 | 生成向导自定义过期天数非法时的收据 | 自定义天数为空或不在 1–3650 时，第 3 步隐藏收据、提交按钮置灰；是否改为保留收据、过期行显示“—”待定 |
+| 全部恢复是否要 Face ID | 60 §13.4 没写；S6-13 按 §3.4“批量操作”在全部恢复确认后验证，单个滑动只确认。若不需要，删掉 ProxyFallbackAccountsModel.revert 里 .all 的 authorize 分支和对应测试 |
+| 被改走账号逐项失败的文案 | failed 是 200 响应里的逐项结果，没有 HTTP 状态可以兜底；S6-13 按 code 给固定文案，空码写“服务器没能恢复这个账号”，重读后已不在列表的写“已不在被改走列表，可能已恢复，请到账号详情核对”。是否细化由用户定 |
+| ProxiesUITests 拆文件 | ProxiesUITests.swift 已 659 行，S6-13 的用例放在 UITests/ProxiesUITests+Fallback.swift（extension）；S6-14 追加 UI 测试时宜同样新建扩展文件，items.json 的 files 需相应补上（S6-13 的 files 也应把 ProxiesUITests.swift 换成这个新文件） |
