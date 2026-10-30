@@ -271,6 +271,7 @@
 | 渠道四格计数为 0 时的色调 | S1-15 按规格四档各用色调，但计数为 0 时不着色；设计稿只给性能下降 / 不可用的数字上色。要改只改 ChannelSectionPresentation.countCells 的 tone |
 | 渠道行状态图标与账号状态图标统一 | S1-15 的 ChannelGlyph（ChannelsSection.swift 私有）与账号行 AccountStateGlyph、代理行 ProxyGlyphView 写法相同但各自一份；S1-18 或阶段 2 收口时评估是否抽成共用组件 |
 | 渠道行点进旧分组详情 | S5-06 之前 .group(id:) 落到旧 GroupDestination，-ui-testing 下旧分组夹具只有 id 10 / 11，渠道夹具按 DEMO.groups 取 id 1–10，点其他行会进入“加载失败”的旧详情；S5-06 换页后自然解决，S1-15 的 UI 用例只点 id 10 |
+| 渠道监控“站点不支持”文案统一 | 旧站点没有 channel-monitor-v2 路由时（非 JSON 404），首页退路（S1-07，HomeFallback.outcome(unsupportedAsDisabled: true)）显示“渠道监控未开启”，告警详情平台行只认 403 CHANNEL_MONITOR_DISABLED；监控 · 渠道段（S1-15 审查修正）按 00 §3.3 显示“站点版本较旧，暂不支持此功能”并本会话停读。是否让首页渠道行、告警详情平台行共用同一个不支持态与文案，由用户决定。 |
 
 ### App 与设计 · 阶段 2
 
