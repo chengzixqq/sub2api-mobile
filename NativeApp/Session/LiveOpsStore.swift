@@ -264,7 +264,7 @@ final class LiveOpsStore {
         guard isCurrent(), let site = site() else { return }
         guard !opsDisabled else { firing.reset(); return }
         if firing.value != nil, let fetched = firingFetchedAt, Self.isWithin(maxAge, since: fetched, now: localNow()) { return }
-        if maxAge > 0, firing.isLoading { return }
+        if maxAge > 0, firing.isAwaitingAnswer { return }
         let exact = site.has(.opsAlertEventCounts)
         async let list: Void = loadFiring(limit: exact ? Self.firingListLimit : Self.firingCountingLimit, countsFromList: !exact)
         async let counts: Void = loadAlertCounts(skipped: !exact)

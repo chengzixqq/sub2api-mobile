@@ -23,30 +23,51 @@ final class MonitorState {
     let overview = LoadState<OpsOverview>()
     /// Nine five-minute error rates, oldest first; nil where nothing counted, which breaks the line.
     let errorTrend = LoadState<[Double?]>()
-    /// When each block's last read ended, on the store's device clock.
-    @ObservationIgnored private var settled: [MonitorOverviewBlock: Date] = [:]
+    /// Each block's last answer, success or failure, on the store's device clock.
+    @ObservationIgnored private var settled: [MonitorOverviewBlock: MonitorSettle] = [:]
 
-    func isLoading(_ block: MonitorOverviewBlock) -> Bool {
+    /// What the timers ask of a block's LoadState; S1-14 adds its blocks to this one switch.
+    func load(_ block: MonitorOverviewBlock) -> MonitorBlockLoad {
         switch block {
-        case .run: overview.isLoading
-        case .errorTrend: errorTrend.isLoading
+        case .run: MonitorBlockLoad(overview)
+        case .errorTrend: MonitorBlockLoad(errorTrend)
         }
     }
     /// The wait after this block's read: the rest of a 429 wait, otherwise `base` backed off by its failures.
     func nextDelay(for block: MonitorOverviewBlock, base: TimeInterval) -> TimeInterval {
-        switch block {
-        case .run: overview.nextDelay(base: base)
-        case .errorTrend: errorTrend.nextDelay(base: base)
-        }
+        load(block).refresh.nextDelay(base: base, at: Date())
     }
-    func settledAt(_ block: MonitorOverviewBlock) -> Date? { settled[block] }
-    func markSettled(_ block: MonitorOverviewBlock, at date: Date) { settled[block] = date }
+    func settledAt(_ block: MonitorOverviewBlock) -> MonitorSettle? { settled[block] }
+    func markSettled(_ block: MonitorOverviewBlock, _ settle: MonitorSettle) { settled[block] = settle }
     /// For the subtitle's freshness.
     var blockSnapshots: [MonitorBlockSnapshot] { [MonitorBlockSnapshot(overview.state), MonitorBlockSnapshot(errorTrend.state)] }
 }
 
+/// One block's LoadState as the timers see it.
+struct MonitorBlockLoad: Sendable {
+    /// A request whose answer can still land; one left by cancelled timers does not count, and is replaced.
+    let isAwaitingAnswer: Bool
+    /// max(updatedAt, lastErrorAt), on LoadState's clock; a read cancelled, replaced or held back by a 429 wait leaves it.
+    let answeredAt: Date?
+    let lastError: APIError?
+    let refresh: BlockRefresh
+
+    @MainActor init<Value: Sendable>(_ load: LoadState<Value>) {
+        isAwaitingAnswer = load.isAwaitingAnswer
+        answeredAt = [load.updatedAt, load.lastErrorAt].compactMap { $0 }.max()
+        lastError = load.lastError
+        refresh = load.refresh
+    }
+}
+
+/// When a block's last answer came in, and whether ops monitoring was on after it.
+struct MonitorSettle: Sendable, Equatable {
+    let at: Date
+    let opsOn: Bool
+}
+
 extension LiveOpsStore {
-    /// Coming back to 概况 within this many seconds of a block's last read waits out the rest before reading it again.
+    /// Coming back to 概况 within this many seconds of a block's last answer waits out the rest before reading it again.
     nonisolated static let monitorReentryGap: TimeInterval = 10
 
     // MARK: - 读取与轮询（10 §4.6）
@@ -60,8 +81,8 @@ extension LiveOpsStore {
             }
         }
     }
-    /// While the caller's task lives: each block on its own timer, counted from the end of its read. A block read under ten seconds
-    /// ago waits out the rest first; the timers end once ops monitoring is off or the session ended.
+    /// While the caller's task lives: each block on its own timer, counted from the end of its read. A block answered under ten
+    /// seconds ago while monitoring was on waits out the rest first; the timers end once ops monitoring is off or the session ended.
     func monitorOverviewPolling() async {
         await withDiscardingTaskGroup { group in
             for block in MonitorOverviewBlock.allCases {
@@ -69,9 +90,11 @@ extension LiveOpsStore {
             }
         }
     }
-    /// One block; without `force` a block already in flight is left to finish, and nothing is read while the switch says off.
+    /// One block; without `force` a block whose answer can still land is left to finish, and nothing is read while the switch
+    /// says off. Only an answer counts as the block's last read; a cancelled one does not.
     func refreshMonitorBlock(_ block: MonitorOverviewBlock, force: Bool) async {
-        guard isCurrent(), site() != nil, force || (!opsDisabled && !monitor.isLoading(block)) else { return }
+        guard isCurrent(), site() != nil, force || (!opsDisabled && !monitor.load(block).isAwaitingAnswer) else { return }
+        let answered = monitor.load(block).answeredAt
         switch block {
         case .run:
             async let overview: Void = loadMonitorOverview()
@@ -80,7 +103,8 @@ extension LiveOpsStore {
         case .errorTrend:
             await loadErrorTrend()
         }
-        if isCurrent() { monitor.markSettled(block, at: localNow()) }
+        guard isCurrent(), monitor.load(block).answeredAt != answered else { return }
+        monitor.markSettled(block, MonitorSettle(at: localNow(), opsOn: !opsDisabled))
     }
 
     private func pollMonitorBlock(_ block: MonitorOverviewBlock) async {
@@ -91,13 +115,21 @@ extension LiveOpsStore {
         while !Task.isCancelled, isCurrent(), !opsDisabled {
             await refreshMonitorBlock(block, force: false)
             guard !opsDisabled else { return }
-            do { try await sleep(.seconds(monitor.nextDelay(for: block, base: Self.pollInterval))) } catch { return }
+            do { try await sleep(.seconds(monitorPollDelay(block))) } catch { return }
         }
     }
-    /// The rest of `monitorReentryGap` since the block's last read ended; nil once it passed.
+    /// 10 §7.2 step 3: an off answer the switch did not believe (it was turned on under 30 seconds ago) is asked again within 30
+    /// seconds instead of backing off.
+    private func monitorPollDelay(_ block: MonitorOverviewBlock) -> TimeInterval {
+        let delay = monitor.nextDelay(for: block, base: Self.pollInterval)
+        guard let error = monitor.load(block).lastError, error.statusCode == 404, error.reason == Self.opsDisabledReason else { return delay }
+        return min(delay, OpsSwitchState.recheckDelay)
+    }
+    /// The rest of `monitorReentryGap` since the block's last answer; nil once it passed, or when that answer left monitoring off
+    /// (10 §7.2 step 3: once it is on again every block is read at once).
     private func monitorReentryWait(_ block: MonitorOverviewBlock) -> TimeInterval? {
-        guard let settled = monitor.settledAt(block) else { return nil }
-        let elapsed = localNow().timeIntervalSince(settled)
+        guard let settled = monitor.settledAt(block), settled.opsOn else { return nil }
+        let elapsed = localNow().timeIntervalSince(settled.at)
         guard elapsed >= 0, elapsed < Self.monitorReentryGap else { return nil }
         return Self.monitorReentryGap - elapsed
     }
