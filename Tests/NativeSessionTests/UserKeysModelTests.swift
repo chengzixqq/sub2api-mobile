@@ -53,6 +53,8 @@ private func body(_ request: AdminAPIKeyUpdateRequest) -> String { String(decodi
     var profile = AdminUser(id: 10, email: "ops@studio-k.example", username: "Studio-K 团队")
     var userWriteError: (any Error)?
     var hold: Gate?
+    /// Holds today's spend and the subscriptions; like URLSession, a caller cancelled meanwhile gets CancellationError.
+    var readHold: Gate?
     private(set) var listCalls = 0, usageCalls = 0, subscriptionCalls = 0, userReads = 0
     private(set) var reads: [Int] = []
     private(set) var writes: [String] = []
@@ -72,11 +74,13 @@ private func body(_ request: AdminAPIKeyUpdateRequest) -> String { String(decodi
     }
     func apiKeysTodayUsage(ids: [Int]) async throws -> [Int: Decimal] {
         usageCalls += 1
+        if let readHold { await readHold.wait(); try Task.checkCancellation() }
         if let usageError { throw usageError }
         return usage.filter { ids.contains($0.key) }
     }
     func userSubscriptions(userID: Int) async throws -> [AdminUserSubscription] {
         subscriptionCalls += 1
+        if let readHold { await readHold.wait(); try Task.checkCancellation() }
         if let subscriptionsError { throw subscriptionsError }
         return subscriptionList
     }
@@ -410,4 +414,44 @@ private func body(_ request: AdminAPIKeyUpdateRequest) -> String { String(decodi
     await model.setStatus(model.keys[1], to: .inactive)
     await model.resetRateLimit(model.keys[1])
     #expect((hooks.begins, hooks.ends) == (3, 2))
+}
+
+@MainActor @Test func enterSegmentFinishesItsReadsWhenTheViewGoes() async {
+    let stub = StubKeys(), gate = Gate()
+    stub.subscriptionList = [AdminUserSubscription(id: 1, groupID: 4, status: "active")]
+    stub.readHold = gate
+    let model = makeModel(stub)
+    // Another segment rebuilds the form: the notice's .task is cancelled while the spend and the subscriptions are out.
+    let entry = Task { await model.enterSegment() }
+    while await gate.waiting < 2 { await Task.yield() }
+    entry.cancel()
+    await gate.open()
+    await entry.value
+    await model.enterSegment()
+    #expect(model.todayCost(for: 7) == .value(2) && model.subscriptions.count == 1)
+    #expect((stub.listCalls, stub.usageCalls, stub.subscriptionCalls) == (1, 1, 1))
+    // A pull cancelled the same way keeps what was read.
+    let pullGate = Gate()
+    stub.readHold = pullGate
+    let pull = Task { await model.refreshAll() }
+    while await pullGate.waiting < 2 { await Task.yield() }
+    pull.cancel()
+    await pullGate.open()
+    await pull.value
+    #expect(model.todayCost(for: 7) == .value(2) && model.subscriptions.count == 1)
+}
+
+@MainActor @Test func groupChangeOutOfAWithdrawnExclusiveGroupOffersNoUndo() async {
+    let stub = StubKeys(), hooks = Hooks(), receipts = quietReceipts()
+    // S3-11 took 5 away and left the key bound to it; binding it again would grant it again (admin_group.go).
+    stub.listed = [key(7, group: 5), key(8, name: "默认", group: 5)]
+    let model = await loaded(stub, hooks: hooks, receipts: receipts)
+    await model.changeGroup(model.keys[0], to: 1)
+    #expect(stub.writes == [#"{"group_id":1}"#] && model.keys[0].groupID == 1)
+    #expect(receipts.current?.text == "「脚本」已改到「高级组」" && receipts.current?.action == nil)
+    #expect(hooks.events == [.applied(name: "Key「脚本」换分组", grantedGroupID: nil)] && hooks.userChanges == 0)
+    // The user still has 5: going back grants nothing, so 撤销 stays.
+    hooks.access = UserKeyAccess(allowedGroups: [1, 2, 5])
+    await model.changeGroup(model.keys[1], to: 1)
+    #expect(receipts.current?.text == "「默认」已改到「高级组」" && receipts.current?.action != nil)
 }
