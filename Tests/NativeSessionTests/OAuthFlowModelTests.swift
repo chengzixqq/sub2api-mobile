@@ -253,3 +253,17 @@ private func redirect(_ address: String, state: String? = nil) -> String {
         #expect(!text.contains("secret-code") && !text.contains("sess-1") && text.contains("anthropic"), "\(text)")
     }
 }
+
+/// S2-19: a new Gemini account's tier follows the type it picks (google_one_free → gcp_standard), as the Web's geminiSelectedTier.
+@MainActor @Test func createVariantTierFollowsGeminiType() async throws {
+    let source = FakeOAuthLinkSource()
+    let flow = OAuthFlowModel(request: OAuthLinkRequest(platform: .gemini, geminiOAuthType: .googleOne, tierID: GeminiOAuthType.googleOne.defaultTierID),
+                              variant: .create, choosesGeminiType: true, source: source, now: { source.now })
+    flow.selectGeminiType(.codeAssist)
+    flow.setProjectID("demo-project")
+    await flow.generate()
+    #expect(source.requests.last?.tierID == "gcp_standard")
+    flow.selectGeminiType(.googleOne)
+    await flow.generate()
+    #expect(source.requests.last?.tierID == "google_one_free" && source.requests.last?.geminiOAuthType == .googleOne)
+}

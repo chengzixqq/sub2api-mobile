@@ -59,12 +59,14 @@ extension AccountDemoStore {
         return savingToken(account, kind: request.authKind, now: now)
     }
 
-    /// The fallback without accounts.reauthorize: a made-up token for the session's platform and method.
+    /// The fallback without accounts.reauthorize, and a new account's 完成授权 (S2-19): a made-up token for the session's platform
+    /// and method, with the e-mail every platform but Gemini reports.
     func exchange(_ link: OAuthLink, code: OAuthCode) throws -> OAuthTokenInfo {
         try checkSession(link.sessionID, platform: link.platform.rawValue)
-        return try OAuthTokenInfo.fixture(platform: link.platform, kind: link.request.kind,
-                                          fields: ["access_token": .string("demo-access-token"), "refresh_token": .string("demo-refresh-token"),
-                                                   "token_type": .string("Bearer")])
+        var fields: [String: JSONValue] = ["access_token": .string("demo-access-token"), "refresh_token": .string("demo-refresh-token"),
+                                           "token_type": .string("Bearer")]
+        if link.platform != .gemini { fields[link.platform == .anthropic ? "email_address" : "email"] = .string(DemoData.AccountFixture.oauthEmail) }
+        return try OAuthTokenInfo.fixture(platform: link.platform, kind: link.request.kind, fields: fields)
     }
     /// `POST :id/apply-oauth-credentials`: a missing account is a 404 without reason, as the server sends it.
     func applyOAuth(id: Int, type: OAuthAuthKind, now: Date) throws -> UpstreamAccount {

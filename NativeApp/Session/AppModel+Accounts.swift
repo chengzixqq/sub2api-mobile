@@ -29,7 +29,9 @@ extension AppModel {
     /// X25, S2D1-23: the one way to the platform catalog. Without `meta.catalog` nothing is sent and the built-in list is used;
     /// a failed read also falls back, with `failed` set so a page can offer “读取失败 · 重试”.
     func metaCatalogResult() async -> (catalog: MetaCatalog, failed: Bool) {
-        guard !isUITesting, let session = sessionContext, session.has(.metaCatalog) else { return (.builtin, false) }
+        // S2-19: `-ui-account-new-catalog-error` is the failed read.
+        if isUITesting { return (.builtin, ProcessInfo.processInfo.arguments.contains(DemoData.AccountFixture.newCatalogError)) }
+        guard let session = sessionContext, session.has(.metaCatalog) else { return (.builtin, false) }
         do { return (try await session.client.metaCatalog(), false) }
         catch { return (.builtin, !(error is CancellationError)) }
     }
@@ -325,6 +327,33 @@ extension AppModel: AccountReauthorizeSource {
                                generation: UUID) async throws -> UpstreamAccount {
         if isUITesting { return try accountDemoWrite(generation) { try $0.applyOAuth(id: accountID, type: type, now: accountFixtureNow()) } }
         return try await accountWriteClient(generation).applyOAuthCredentials(accountID: accountID, type: type, credentials: credentials, extra: extra)
+    }
+}
+
+// MARK: - S2-19 新建账号
+
+/// 20 §7.4: the create is a write and carries the generation of the session the admin tapped in (S2D1-05); serverNow,
+/// checkMixedChannel and setAccountSchedulable are the ones above. `-ui-testing` creates in the session's AccountDemoStore
+/// (DemoData+AccountNew.swift), which `writeFail` leaves alone.
+extension AppModel: AccountCreateSource {
+    var accountCreateSession: AccountCreateSession? {
+        guard let session = sessionContext else { return nil }
+        return AccountCreateSession(generation: session.generation, idempotentWrites: session.has(.adminIdempotentWrites),
+                                    mixedChannelDetails: session.has(.accountsMixedChannelDetails), isReadOnlyToken: session.isReadOnlyToken)
+    }
+    func createAccount(_ request: AccountCreateRequest, idempotencyKey: UUID?, onEvent: KeyedWriteEventHandler?,
+                       generation: UUID) async throws -> WriteOutcome<UpstreamAccount> {
+        if isUITesting {
+            guard generation == sessionGeneration else { throw CancellationError() }
+            let arguments = ProcessInfo.processInfo.arguments
+            return WriteOutcome(value: try accountDemo.create(request, key: idempotencyKey, now: accountFixtureNow(), arguments: arguments))
+        }
+        return try await accountWriteClient(generation).createAccount(request, idempotencyKey: idempotencyKey, onEvent: onEvent)
+    }
+    /// A read: no generation (S2D1-05).
+    func findCreatedAccount(name: String, platform: String, notBefore: Date) async throws -> UpstreamAccount? {
+        let page = try await managedAccounts(page: 1, query: AccountCreateReconciliation.query(name: name, platform: platform))
+        return AccountCreateReconciliation.match(page.items, name: name, platform: platform, notBefore: notBefore)
     }
 }
 

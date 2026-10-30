@@ -23,7 +23,7 @@ struct AccountSheetDestination: View {
     var body: some View {
         switch sheet {
         // .accountNew：S2-19
-        case .accountNew: ComingSoonSheet(title: sheet.placeholderTitle)
+        case .accountNew: AccountNewView()
         // .accountTest：S2-14
         case .accountTest(let id): AccountTestSheet(accountID: id)
         // 其他区域：SheetDestination 不会分派到这里

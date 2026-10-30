@@ -247,6 +247,8 @@ final class AccountDemoStore {
     private var todayThrottleServed = false
     /// S2-17: the authorization sessions this session's links opened (DemoData+AccountReauth).
     var oauthSessions = AccountOAuthFixtureState()
+    /// S2-19: creates this session has received (DemoData+AccountNew).
+    var createAttempts = 0
     private static var latest: (generation: UUID, store: AccountDemoStore)?
     private static let failure = APIError.server(status: 502, reason: nil)
 
@@ -329,6 +331,7 @@ final class AccountDemoStore {
     func account(id: Int) -> UpstreamAccount? { accounts.first { $0.id == id } }
     func replace(_ account: UpstreamAccount) { accounts = accounts.map { $0.id == account.id ? account : $0 } }
     func remove(id: Int) { accounts = accounts.filter { $0.id != id } }
+    func insert(_ account: UpstreamAccount) { accounts.append(account) }
 
     // MARK: 写（S2-06）
 
@@ -527,16 +530,20 @@ extension AccountDemoStore {
         return MixedChannelCheck(hasRisk: true, details: .init(groupID: risky, groupName: name, currentPlatform: mine, otherPlatform: other))
     }
 
-    /// 409 MIXED_CHANNEL_WARNING for changed groups not yet confirmed; without accounts.mixed_channel_details it has no metadata,
-    /// as an older server's.
+    /// 409 MIXED_CHANNEL_WARNING for changed groups not yet confirmed.
     fileprivate func refuseMixedChannel(_ request: AccountPatchRequest, account: UpstreamAccount, arguments: [String]) throws {
         guard let groups = request.groupIDs, request.confirmMixedChannelRisk != true else { return }
-        let check = mixedChannelCheck(platform: account.platform, groupIDs: groups, accountID: account.id, arguments: arguments)
-        guard check.hasRisk, let details = check.details else { return }
+        if let conflict = mixedChannelConflict(platform: account.platform, groupIDs: groups, accountID: account.id, arguments: arguments) { throw conflict }
+    }
+    /// The 409 these groups get (PATCH, PUT and S2-19's create); without accounts.mixed_channel_details it has no metadata, as an
+    /// older server's.
+    func mixedChannelConflict(platform: String, groupIDs: [Int], accountID: Int?, arguments: [String]) -> APIError? {
+        let check = mixedChannelCheck(platform: platform, groupIDs: groupIDs, accountID: accountID, arguments: arguments)
+        guard check.hasRisk, let details = check.details else { return nil }
         let detailed = !DemoData.withheldCapabilities(arguments: arguments).contains(Capability.accountsMixedChannelDetails.rawValue)
         let metadata = ["group_id": String(details.groupID ?? 0), "group_name": details.groupName,
                         "current_platform": details.currentPlatform, "other_platform": details.otherPlatform]
-        throw APIError.server(status: 409, envelope: ErrorEnvelope(reason: AccountWriteReason.mixedChannelWarning, metadata: detailed ? metadata : nil))
+        return APIError.server(status: 409, envelope: ErrorEnvelope(reason: AccountWriteReason.mixedChannelWarning, metadata: detailed ? metadata : nil))
     }
 
     /// Every key of 20 §3.2 the edit sheets send: ≤ 0 clears the load factor and the expiry, "" the notes; groups take their
