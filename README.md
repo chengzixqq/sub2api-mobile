@@ -35,7 +35,7 @@
 
 ## 工具链与构建
 
-要求 **Xcode 27.1 正式版（`27A9275`，由同号 RC 转正）、自带 Swift 6.4 编译器、Swift 6 语言模式**。Bundle ID 为 `com.chengzixqq.sub2mobile`，最低 iOS 26。工具链守卫核对正式版构建号，拒绝其他版本及 Beta、RC、seed 标记，不自动降级。
+要求 **Xcode 27.2 正式版（`27B52`，App Store 发布）、自带 Swift 6.4 编译器、Swift 6 语言模式**。Bundle ID 为 `com.chengzixqq.sub2mobile`，最低 iOS 26。工具链守卫核对正式版构建号，拒绝其他版本及 Beta、RC、seed 标记，不自动降级。
 
 在已安装正式工具链和 iOS 模拟器 runtime 的 Mac 上，进入已同步到所需提交且工作区干净的原生源码目录：
 

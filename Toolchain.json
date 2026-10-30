@@ -1,6 +1,6 @@
 {
-  "xcode": "27.1",
-  "xcodeBuild": "27A9275",
+  "xcode": "27.2",
+  "xcodeBuild": "27B52",
   "releaseSource": "https://developer.apple.com/news/releases/",
   "swiftCompiler": "6.4",
   "swiftLanguageMode": "6",
