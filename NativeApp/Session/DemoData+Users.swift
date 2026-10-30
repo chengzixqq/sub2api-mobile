@@ -74,7 +74,8 @@ extension DemoData {
         return QuickTopupReply(recent: [3, 10, 1, 4].compactMap(item), lowBalance: [4, 7, 11, 12].compactMap(item), lowBalanceEnabled: true)
     }
     /// 阶段 3 唯一夹具表（S3D1-04），只增不改: the key table, only masks and never a plaintext; a user without a row has no keys.
-    /// Alice's 开发密钥 is S3-03's; 脚本, 备用 and 王小明's 301 are S3-05's. Later items add keys, never change these.
+    /// Alice's 开发密钥 is S3-03's; 脚本, 备用 and 王小明's 301 are S3-05's; Studio-K 团队's (10) status matrix is S3-12's. Later
+    /// items add keys, never change these.
     static func apiKeys(userID: Int, now: Date = Date()) -> [AdminAPIKey] {
         switch userID {
         case 1: [AdminAPIKey(id: 1, userID: 1, keyMasked: "sk-…cret", name: "开发密钥", groupID: 2, status: "active", effectiveStatus: "active",
@@ -84,6 +85,7 @@ extension DemoData {
                              quota: 10, quotaUsed: 10)]
         case 3: [AdminAPIKey(id: 301, userID: 3, keyMasked: "sk-…x301", name: "脚本", groupID: 5, status: "active", effectiveStatus: "active",
                              lastUsedAt: now.addingTimeInterval(-7_200))]
+        case 10: studioKeys(now: now)
         default: []
         }
     }
@@ -506,5 +508,146 @@ extension DemoData {
             return current.map { abs(NSDecimalNumber(decimal: $0).doubleValue - number.doubleValue) < 1e-9 } ?? false
         }
         return scalars || groups || rates
+    }
+}
+
+/// S3-12's `-ui-testing` launch arguments for the key segment (30 §7.5); only this chapter's fixtures read them (X05).
+enum UserKeyFixtureArgument {
+    /// An older server without E01 / E04: the dashed placeholders and the two-step undo (30 §0.1, §0.6).
+    static let legacy = "-ui-legacy-keys"
+    /// api-keys-usage fails with 500.
+    static let usageError = "-ui-key-usage-error"
+    /// Every key list read fails with 500.
+    static let listError = "-ui-key-list-error"
+    /// Every change to a group answers 400 GROUP_NOT_ACTIVE.
+    static let groupInactive = "-ui-key-group-inactive"
+    /// Every change to a group answers 404 GROUP_NOT_FOUND.
+    static let groupMissing = "-ui-key-group-missing"
+    /// Every key write answers 404 API_KEY_NOT_FOUND.
+    static let keyGone = "-ui-key-gone"
+    /// An exact undo answers 409 GROUP_STILL_IN_USE.
+    static let stillInUse = "-ui-key-still-in-use"
+    /// The two-step undo's user PUT fails with 500.
+    static let revokeFails = "-ui-key-revoke-fails"
+    /// run_mode simple for this chapter only (S3D1-21; `-ui-simple-mode` is S5-13's).
+    static let simpleMode = "-ui-user-keys-simple"
+}
+
+// S3-12 (S3D1-04): Studio-K 团队's key matrix and subscription, today's spend per key, and what a key write does to the user.
+extension DemoData {
+    /// 4031 企业网关 (企业专线, a subscription group), 4087 默认 (高级组; 5h $2.10 of $5, 1d $9.40 of $20), 4099 脚本 (标准组;
+    /// $18.40 of $20, until 2030-12-31, IP rules), 4100 停用的 (no group), 4117 预发 (used up), 4118 过期, 4119 deleted.
+    static func studioKeys(now: Date) -> [AdminAPIKey] {
+        func ago(_ seconds: TimeInterval) -> Date { now.addingTimeInterval(-seconds) }
+        func amount(_ text: String) -> Decimal { Decimal(string: text)! }
+        return [
+            AdminAPIKey(id: 4031, userID: 10, keyMasked: "sk-…4031", name: "企业网关", groupID: 4, status: "active", effectiveStatus: "active",
+                        lastUsedAt: ago(720), lastUsedIP: "198.51.100.7", currentConcurrency: 2),
+            AdminAPIKey(id: 4087, userID: 10, keyMasked: "sk-…4087", name: "默认", groupID: 1, status: "active", effectiveStatus: "active",
+                        lastUsedAt: ago(180), lastUsedIP: "203.0.113.24", currentConcurrency: 1, rateLimit5h: 5, rateLimit1d: 20,
+                        usage5h: amount("2.10"), usage1d: amount("9.40"), reset5hAt: now.addingTimeInterval(7_200), reset1dAt: now.addingTimeInterval(64_800)),
+            AdminAPIKey(id: 4099, userID: 10, keyMasked: "sk-…4099", name: "脚本", groupID: 2, status: "active", effectiveStatus: "active",
+                        ipWhitelist: ["198.51.100.0/24"], ipBlacklist: ["203.0.113.9"], lastUsedAt: ago(3_600), quota: 20, quotaUsed: amount("18.40"),
+                        expiresAt: ServerTime.parseTimestamp("2030-12-31T04:00:00Z"), currentConcurrency: 0),
+            AdminAPIKey(id: 4100, userID: 10, keyMasked: "sk-…4100", name: "停用的", status: "inactive", effectiveStatus: "inactive"),
+            AdminAPIKey(id: 4117, userID: 10, keyMasked: "sk-…4117", name: "预发", groupID: 1, status: "active", effectiveStatus: "quota_exhausted",
+                        lastUsedAt: ago(172_800), quota: 10, quotaUsed: 10),
+            AdminAPIKey(id: 4118, userID: 10, keyMasked: "sk-…4118", name: "过期", groupID: 2, status: "active", effectiveStatus: "expired",
+                        expiresAt: ago(259_200)),
+            AdminAPIKey(id: 4119, userID: 10, keyMasked: "", name: "已删除", groupID: 1, status: "active"),
+        ]
+    }
+    /// 阶段 3 唯一夹具表（S3D1-04）: Studio-K 团队 has one active subscription of 企业专线 (4); nobody else has any.
+    static func userSubscriptions(userID: Int, now: Date = Date()) -> [AdminUserSubscription] {
+        guard userID == 10 else { return [] }
+        return [AdminUserSubscription(id: 701, userID: 10, groupID: 4, startsAt: now.addingTimeInterval(-864_000),
+                                      expiresAt: now.addingTimeInterval(1_728_000), status: "active")]
+    }
+    /// api-keys-usage: keys without spend today are left out of the reply, as the server does.
+    static let keyTodayCosts: [Int: Decimal] = ([1: "0.42", 301: "0.36", 4031: "1.20", 4087: "2.80"] as [Int: String]).mapValues { Decimal(string: $0)! }
+    /// The grant and the withdrawal a key write made, on the session's user (the server writes both in the key's transaction).
+    static func userAfterKeyWrite(_ user: AdminUser, _ result: AdminAPIKeyWriteResult) -> AdminUser {
+        guard result.autoGrantedGroupAccess || result.revokedGroupAccess else { return user }
+        var allowed = Set(user.allowedGroups ?? [])
+        if result.autoGrantedGroupAccess, let id = result.grantedGroupID { allowed.insert(id) }
+        if result.revokedGroupAccess, let id = result.revokedGroupID { allowed.remove(id) }
+        var next = user
+        next.allowedGroups = allowed.sorted()
+        return next
+    }
+}
+
+/// S3-12: the session's copy of the key table (S3D1-04). Writes change it as admin_group.go does: fields, then the reset, then
+/// the group; an exclusive standard target is always reported granted; an exact undo is refused while another key uses the group.
+@MainActor final class UserKeyDemoStore {
+    private static var stores: [UUID: UserKeyDemoStore] = [:]
+    private var rows: [Int: [AdminAPIKey]]
+
+    /// One per session; the first use copies the table.
+    static func current(for generation: UUID) -> UserKeyDemoStore {
+        if let store = stores[generation] { return store }
+        let store = UserKeyDemoStore(now: Date())
+        stores[generation] = store
+        return store
+    }
+    private init(now: Date) { rows = Dictionary(uniqueKeysWithValues: [1, 3, 10].map { ($0, DemoData.apiKeys(userID: $0, now: now)) }) }
+
+    /// Tombstones included, as an older server lists them.
+    func keys(userID: Int) -> [AdminAPIKey] { rows[userID] ?? [] }
+    /// A deleted or unknown key answers 404 API_KEY_NOT_FOUND.
+    func key(id: Int) throws -> AdminAPIKey {
+        guard let key = rows.values.joined().first(where: { $0.id == id }), !key.isTombstone else { throw Self.keyGone }
+        return key
+    }
+    func update(id: Int, _ change: AdminAPIKeyUpdateRequest, arguments: [String], now: Date = Date()) throws -> AdminAPIKeyWriteResult {
+        guard !arguments.contains(UserKeyFixtureArgument.keyGone), let userID = rows.first(where: { $0.value.contains { $0.id == id } })?.key else {
+            throw Self.keyGone
+        }
+        let key = try self.key(id: id)
+        var granted: AdminGroup?, revoked: Int?
+        if let groupID = change.groupID {
+            if let revoke = change.revokeGroupAccessID {
+                let inUse = keys(userID: userID).contains { $0.id != id && $0.groupID == revoke && !$0.isTombstone }
+                if inUse || arguments.contains(UserKeyFixtureArgument.stillInUse) { throw APIError.server(status: 409, reason: "GROUP_STILL_IN_USE") }
+                revoked = revoke
+            }
+            if groupID > 0 {
+                let group = try target(groupID, userID: userID, arguments: arguments, now: now)
+                granted = group.isExclusive == true && group.subscriptionType != "subscription" ? group : nil
+            }
+        }
+        let groupID = change.groupID.map { $0 > 0 ? $0 : nil } ?? key.groupID
+        let stored = Self.rebuilt(key, groupID: groupID, status: change.status?.rawValue ?? key.status, resets: change.resetRateLimitUsage,
+                                  concurrency: key.currentConcurrency, now: now)
+        rows[userID] = keys(userID: userID).map { $0.id == id ? stored : $0 }
+        // The reply does not read the concurrency (apikey_handler.go): 0.
+        return AdminAPIKeyWriteResult(apiKey: Self.rebuilt(stored, groupID: groupID, status: stored.status, resets: false, concurrency: 0, now: now),
+                                      autoGrantedGroupAccess: granted != nil, grantedGroupID: granted?.id, grantedGroupName: granted?.name,
+                                      revokedGroupAccess: revoked != nil, revokedGroupID: revoked,
+                                      previous: change.status.map { _ in AdminAPIKeyPrevious(status: key.status) })
+    }
+
+    private static let keyGone = APIError.server(status: 404, reason: "API_KEY_NOT_FOUND")
+    private func target(_ id: Int, userID: Int, arguments: [String], now: Date) throws -> AdminGroup {
+        if arguments.contains(UserKeyFixtureArgument.groupMissing) { throw APIError.server(status: 404, reason: "GROUP_NOT_FOUND") }
+        if arguments.contains(UserKeyFixtureArgument.groupInactive) { throw APIError.server(status: 400, reason: "GROUP_NOT_ACTIVE") }
+        guard let group = DemoData.accountGroups.first(where: { $0.id == id }) else { throw APIError.server(status: 404, reason: "GROUP_NOT_FOUND") }
+        guard group.status == "active" else { throw APIError.server(status: 400, reason: "GROUP_NOT_ACTIVE") }
+        if group.subscriptionType == "subscription",
+           !UserKeyPresentation.hasActiveSubscription(DemoData.userSubscriptions(userID: userID, now: now), groupID: id, now: now) {
+            throw APIError.server(status: 400, reason: "SUBSCRIPTION_REQUIRED")
+        }
+        return group
+    }
+    /// The key after a write; effective_status as EffectiveStatusAt derives it.
+    private static func rebuilt(_ key: AdminAPIKey, groupID: Int?, status: String, resets: Bool, concurrency: Int?, now: Date) -> AdminAPIKey {
+        let effective = AdminAPIKeyStatus.derive(status: status, expiresAt: key.expiresAt, quota: key.quota, quotaUsed: key.quotaUsed, now: now)
+        return AdminAPIKey(id: key.id, userID: key.userID, keyMasked: key.keyMasked, name: key.name, groupID: groupID, status: status,
+                           effectiveStatus: effective.rawValue, ipWhitelist: key.ipWhitelist, ipBlacklist: key.ipBlacklist, lastUsedAt: key.lastUsedAt,
+                           lastUsedIP: key.lastUsedIP, quota: key.quota, quotaUsed: key.quotaUsed, expiresAt: key.expiresAt, currentConcurrency: concurrency,
+                           rateLimit5h: key.rateLimit5h, rateLimit1d: key.rateLimit1d, rateLimit7d: key.rateLimit7d,
+                           usage5h: resets ? 0 : key.usage5h, usage1d: resets ? 0 : key.usage1d, usage7d: resets ? 0 : key.usage7d,
+                           reset5hAt: resets ? nil : key.reset5hAt, reset1dAt: resets ? nil : key.reset1dAt, reset7dAt: resets ? nil : key.reset7dAt,
+                           createdAt: key.createdAt, updatedAt: now, user: key.user)
     }
 }

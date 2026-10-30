@@ -494,7 +494,8 @@ final class AccountCredentialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["account.action.stop"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    /// 20 §0.5 REAUTH_PERSIST_FAILED: the read-back shows nothing saved, so the sheet offers 重试保存 with the same session.
+    /// 20 §0.5 REAUTH_PERSIST_FAILED: the read-back shows nothing saved, so the sheet offers 重试保存 with the same session and
+    /// greys 替换令牌 until then.
     @MainActor func testReauthorizePersistFailureOffersRetrySave() {
         openDetail(1, arguments: [Fixture.reauthPersistFail])
         defer { diagnostics("account-reauth-persist-final") }
@@ -506,6 +507,7 @@ final class AccountCredentialUITests: XCTestCase {
         XCTAssertTrue(failed.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(failed.label, "令牌已换到，但没保存成功")
         XCTAssertFalse(app.staticTexts["receipt.text"].exists, app.debugDescription)
+        XCTAssertFalse(app.buttons["account.reauth.submit"].isEnabled, app.debugDescription)
         diagnostics("account-reauth-persist-failed")
         let retry = app.buttons["account.reauth.retrySave"]
         reveal(retry)

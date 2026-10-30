@@ -57,8 +57,8 @@ final class UserEditorModel {
     var isSelf = false
     /// What took effect since the page opened (30 §6.4 离开).
     private(set) var applied: [String] = []
-    /// The user's keys, for “绑定 N 个 Key” and the third segment's count; S3-12 replaces it with its UserKeysModel.
-    private(set) var boundKeys: [AdminAPIKey]?
+    /// S3-12 (S3D1-13): the third segment's keys, made once the base is in; “绑定 N 个 Key” and the segment's count read it.
+    private(set) var keys: UserKeysModel?
     var saveProgress: UserSaveProgress?
     /// S3D1-11: immediate writes out now; “保存” waits for them, they wait for “保存”.
     private(set) var immediateWritesInFlight = 0
@@ -322,14 +322,30 @@ final class UserEditorModel {
         return true
     }
     func endImmediateWrite() { immediateWritesInFlight = max(immediateWritesInFlight - 1, 0) }
-    /// 30 §6.2: “绑定 N 个 Key” and the count on the third segment; a failure leaves them unknown.
-    func loadBoundKeys(model: AppModel) async {
-        guard case .edit(let id) = mode else { return }
-        let generation = model.sessionGeneration
-        guard let keys = try? await model.userAPIKeys(userID: id), generation == model.sessionGeneration else { return }
-        boundKeys = keys
+    /// The key segment's model, once per page after the base (S3D1-13). Its writes come back as applied / undone immediate
+    /// writes; a grant moving waits for “保存” through the gate, which turns open once the page has gone.
+    func attachKeys(model: AppModel) {
+        guard keys == nil, case .edit(let id) = mode, baseline != nil else { return }
+        let hooks = UserKeysHooks(
+            access: { [weak self] in self?.keyAccess ?? UserKeyAccess() },
+            groups: { [weak model] in model?.groupDirectory?.groups ?? [] },
+            onImmediate: { [weak self] in self?.applyKeyEvent($0) },
+            onUserChanged: { [weak model] in model?.userChanges?.bump(userID: id) },
+            onGroupsStale: { [weak model] in
+                guard let model else { return }
+                Task { await model.groupDirectory?.refresh() }
+            })
+        let gate = UserKeysWriteGate(begin: { [weak self] in self?.beginImmediateWrite() ?? true }, end: { [weak self] in self?.endImmediateWrite() })
+        keys = UserKeysModel(userID: id, source: model, receipts: model.receipts, hooks: hooks, writeGate: gate)
     }
 
+    /// S3D1-13: a granted group joins the base and the draft; its undo takes it out again.
+    private func applyKeyEvent(_ event: UserKeyImmediateEvent) {
+        switch event {
+        case .applied(let name, let granted): applyImmediate(name, groupsChange: granted.map { UserGroupsChange(granted: [$0]) })
+        case .withdrawn(let name, let revoked): undoImmediate(name, groupsChange: revoked.map { UserGroupsChange(granted: [$0]) })
+        }
+    }
     private func rebase(_ change: UserGroupsChange?) {
         guard let change, !change.isEmpty, let baseline else { return }
         (self.baseline, draft) = UserEditRebase.apply(change, baseline: baseline, draft: draft, catalog: catalog)

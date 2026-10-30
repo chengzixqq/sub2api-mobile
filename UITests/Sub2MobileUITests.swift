@@ -246,4 +246,21 @@ final class Sub2MobileUITests: XCTestCase {
         let lower = origin.withOffset(CGVector(dx: 0, dy: top - frame.minY + height * 0.85))
         (towardBottom ? lower : upper).press(forDuration: 0.05, thenDragTo: towardBottom ? upper : lower)
     }
+
+    /// S3-12 (30 §7.7): the key cards show only `key_masked`; the fixture's plaintext never reaches the screen.
+    @MainActor func testUserKeySegmentShowsMaskOnly() {
+        launch()
+        login(name: "站点 A", url: "https://a.example.com")
+        app.tabBars.buttons["用户"].tap()
+        XCTAssertTrue(app.buttons["user.1"].waitForExistence(timeout: 10))
+        app.buttons["user.1"].tap()
+        XCTAssertTrue(app.navigationBars["Alice"].waitForExistence(timeout: 10))
+        let keys = app.buttons["user.keys"]
+        reveal(keys)
+        keys.tap()
+        let card = app.buttons["keys.card.1.toggle"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(card.label.contains("sk-…cret"), card.label)
+        XCTAssertEqual(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "sk-fixture")).count, 0)
+    }
 }

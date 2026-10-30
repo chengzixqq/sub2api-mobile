@@ -333,7 +333,8 @@ final class HomeUITests: XCTestCase {
                               ("successRate", "99.2%")]
         static let health = "94，良好"
         static let rates = [("errorRate", "0.8%"), ("upstream429", "12"), ("upstream529", "3")]
-        static let channels = "可用 7 · 性能下降 1 · 不可用 1 · 未知 1"
+        /// S1-15: the counts of LiveOpsFixtures+Channels.swift's channel list.
+        static let channels = "可用 3 · 性能下降 1 · 不可用 1 · 未知 4"
         static let missing = "无数据"
     }
 
@@ -412,7 +413,7 @@ final class HomeUITests: XCTestCase {
         diagnostics("home-run")
     }
 
-    /// 10 §1.1: the channel row switches to 监控 · 渠道 (the stage-0 placeholder segment until S1-15).
+    /// 10 §1.1: the channel row switches to 监控 · 渠道.
     @MainActor func testHomeChannelRowSelectsMonitorChannelsSegment() {
         launchAndLogin()
         defer { diagnostics("home-channels-final") }
@@ -695,5 +696,19 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
         reveal(header, towardBottom: false)
         waitForValue(header, "3 项")
+    }
+
+    // MARK: S1-15 渠道监控关闭
+
+    /// 10 §1.3.5: with the channel monitor off (/admin/me and the fixture site alike) the row reads 渠道监控未开启 and opens nothing.
+    @MainActor func testChannelMonitorOffShowsDisabledChannelRow() {
+        launchAndLogin(arguments: ["-ui-channel-monitor-off"])
+        defer { diagnostics("home-channels-off-final") }
+        _ = loadedCell("actualCost")
+        let channels = element("home.run.channels")
+        assertValue(channels, "渠道监控未开启")
+        channels.tap()
+        XCTAssertTrue(app.tabBars.buttons["概览"].isSelected, app.debugDescription)
+        XCTAssertFalse(app.segmentedControls["monitor.segment"].exists, app.debugDescription)
     }
 }

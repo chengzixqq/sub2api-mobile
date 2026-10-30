@@ -267,6 +267,10 @@
 | 首页与监控的健康分行合并 | 监控概况的健康分行（MonitorOverviewSection 私有 MonitorHealthRow）和首页 HomeRunSection 的私有健康分行版式一致、各写一份，由 S1-18 收口时合成一个行组件 |
 | S2-09 的 CapacityBar 合入后统一监控 CPU / 内存条 | S1-14 在 MonitorServerSection.swift 里用的是私有 MeterBar；S2-09 的通用 CapacityBar（C-7）合入后，评估改用它，避免两套容量条 |
 | S1-18 的标识静态核查要接受插值后缀 | S1-14 的读数标识带色调后缀（monitor.server.cpu.<normal\|caution\|critical>），任务行标识带任务名后缀（monitor.server.job.<job_name>）；按字面量 grep 的核查要能识别这类前缀 |
+| 后端：/admin/me 布尔功能开关读不到时省略字段 | me_handler.go 在读设置失败时把 features.channel_monitor_enabled 写成 Go 零值 false（无 omitempty），App 按规格直接显示“渠道监控未开启”且不发请求，出现假阴性（回前台重新探测后恢复）。建议后端改为 *bool + omitempty，App 已按 nil = 未知处理（照常请求、靠 403 判定） |
+| 渠道四格计数为 0 时的色调 | S1-15 按规格四档各用色调，但计数为 0 时不着色；设计稿只给性能下降 / 不可用的数字上色。要改只改 ChannelSectionPresentation.countCells 的 tone |
+| 渠道行状态图标与账号状态图标统一 | S1-15 的 ChannelGlyph（ChannelsSection.swift 私有）与账号行 AccountStateGlyph、代理行 ProxyGlyphView 写法相同但各自一份；S1-18 或阶段 2 收口时评估是否抽成共用组件 |
+| 渠道行点进旧分组详情 | S5-06 之前 .group(id:) 落到旧 GroupDestination，-ui-testing 下旧分组夹具只有 id 10 / 11，渠道夹具按 DEMO.groups 取 id 1–10，点其他行会进入“加载失败”的旧详情；S5-06 换页后自然解决，S1-15 的 UI 用例只点 id 10 |
 
 ### App 与设计 · 阶段 2
 

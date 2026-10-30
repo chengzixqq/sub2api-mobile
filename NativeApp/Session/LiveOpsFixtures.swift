@@ -101,6 +101,8 @@ enum LiveOpsFixtures {
         var withholdsAlertDetails = false
         // S1-13 (LiveOpsFixtures+Monitor.swift): goes with any variant.
         var monitor = MonitorFixtureOptions()
+        // S1-15 (LiveOpsFixtures+Channels.swift): goes with any variant.
+        var channels = ChannelFixtureOptions()
         var opsDisabled: Bool { ops != .on }
         init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
@@ -128,6 +130,7 @@ enum LiveOpsFixtures {
             alertDetailOpsOff = arguments.contains(Argument.alertDetailOpsDisabled)
             withholdsAlertDetails = UITestArguments.withheldCapabilities(arguments: arguments).contains(Capability.opsAlertEventDetails.rawValue)
             monitor = MonitorFixtureOptions(arguments: arguments)
+            channels = ChannelFixtureOptions(arguments: arguments)
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -153,7 +156,7 @@ enum LiveOpsFixtures {
             ops: options.opsDisabled ? opsOff() : .ok(ops), alerts: options.opsDisabled ? opsOff() : .ok(alerts),
             availability: options.variant == .availabilityError ? HomeSection(status: .error, reason: "INTERNAL_ERROR")
                 : .ok(calmError(attentionAvailability(availability(options.variant, base: base), options), options)),
-            channels: .ok(channels(options.variant)))
+            channels: homeChannels(options, base: base))
     }
     /// The design's DEMO.today; `profitLoss` raises today's account cost to $1,400.00 (BACKLOG 利润亏损的固定演示状态).
     static func stats(_ base: Date, profitLoss: Bool = false) -> HomeStats {
@@ -243,17 +246,6 @@ enum LiveOpsFixtures {
          AlertEventRule(id: 12, name: "Anthropic 上游错误率", metricType: "upstream_error_rate", comparison: ">", threshold: 5, windowMinutes: 10),
          AlertEventRule(id: 13, name: "内存使用率", metricType: "memory_usage_percent", comparison: ">", threshold: 85, windowMinutes: 5),
          AlertEventRule(id: 14, name: "高级组可用比例", metricType: "group_available_ratio", comparison: "<", threshold: 60)]
-    }
-    /// One channel per DEMO.groups group (ids 1–10): 7 healthy, Gemini warning, Kimi critical, Antigravity without samples.
-    static func channelOverview(base: Date) -> ChannelOverview {
-        let rows: [(id: Int, name: String, platform: String, state: String)] = [
-            (1, "高级组", "anthropic", "healthy"), (2, "标准组", "openai", "healthy"), (3, "默认组", "deepseek", "healthy"),
-            (4, "企业专线", "openai", "healthy"), (5, "Claude Code 组", "anthropic", "healthy"), (6, "测试组", "gemini", "warning"),
-            (7, "GLM 组", "zhipu", "healthy"), (8, "Kimi 组", "kimi", "critical"), (9, "MiniMax 组", "minimax", "healthy"),
-            (10, "Antigravity 组", "antigravity", "unknown")]
-        return ChannelOverview(refreshIntervalSeconds: 60, coverage: ChannelCoverage(state: "complete", collectorState: "healthy"),
-                               items: rows.map { ChannelItem(platform: $0.platform, groupID: $0.id, groupName: $0.name,
-                                                             currentStatus: ChannelCurrentStatus(state: $0.state, updatedAt: base)) })
     }
     /// DEMO.server and DEMO.run for any window; today's SLA is 99.2%.
     static func opsOverview(start: Date, end: Date) -> OpsOverview {
@@ -390,7 +382,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         try requireOps()
         return LiveOpsFixtures.alertRules()
     }
-    func channelOverview(range: String, refresh: Bool) -> ChannelOverview { LiveOpsFixtures.channelOverview(base: base) }
+    func channelOverview(range: String, refresh: Bool) throws -> ChannelOverview { try LiveOpsFixtures.channelReply(options, base: base) }
     func opsMonitoringStatus() -> OpsMonitoringStatus { LiveOpsFixtures.monitoringStatus(options.ops) }
     /// The server's configuration switch answers 409 and stays off.
     func setOpsMonitoring(enabled: Bool) throws -> OpsMonitoringStatus {
@@ -426,14 +418,6 @@ actor FixtureLiveOpsSource: LiveOpsSource {
 // MARK: - S1-11 平静布局
 
 extension LiveOpsFixtures {
-    /// The calm variants: 8 channels, 7 healthy and 1 unknown (S1-15 derives them from its channel list later, same numbers);
-    /// the others one per DEMO.groups group, as `channelOverview`.
-    static func channels(_ variant: HomeVariant) -> HomeChannels {
-        guard [.calm, .calmLimited].contains(variant) else {
-            return HomeChannels(total: 10, healthy: 7, warning: 1, critical: 1, unknown: 1, coverageState: "complete", collectorState: "healthy")
-        }
-        return HomeChannels(total: 8, healthy: 7, unknown: 1, coverageState: "complete", collectorState: "healthy")
-    }
     /// `-ui-home-calm-then-error` once it switched: error account #7, as in the default fixture, joins the calm accounts.
     static func calmError(_ summary: AccountStatusSummary, _ options: Options) -> AccountStatusSummary {
         guard options.calmErrorAppeared else { return summary }

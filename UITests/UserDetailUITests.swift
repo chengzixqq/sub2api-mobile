@@ -208,8 +208,9 @@ final class UserDetailUITests: XCTestCase {
         XCTAssertTrue(keys.waitForExistence(timeout: 10), app.debugDescription)
         keys.tap()
         XCTAssertTrue(app.navigationBars["编辑用户"].waitForExistence(timeout: 10), app.debugDescription)
-        // S3-11: the edit page opens on “Key 与限额”, whose cards are S3-12's.
-        XCTAssertTrue(element("user-edit.keys.placeholder").waitForExistence(timeout: 10), app.debugDescription)
+        // S3-11: the edit page opens on “Key 与限额”; S3-12's cards are there.
+        XCTAssertTrue(element("keys.notice").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("keys.card.1").waitForExistence(timeout: 10), app.debugDescription)
         goBack()
         let logs = app.buttons["user.logs"]
         XCTAssertTrue(app.scrollUntilExists(logs))

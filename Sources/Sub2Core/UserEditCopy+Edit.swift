@@ -12,7 +12,6 @@ extension UserEditCopy {
     public static let deleteUser = "删除用户…"
     public static let adminCannotDelete = "管理员不能删除"
     public static let loadFailed = "加载用户失败"
-    public static let keysPlaceholder = "Key 卡片与平台限额即将在这里管理，目前请在 Web 端操作。"
     /// The step-up sheet's “设为管理员前，输入…”.
     public static let promotePurpose = "设为管理员"
     /// “Key 与限额（2）”, or without the count while the keys are unknown.
