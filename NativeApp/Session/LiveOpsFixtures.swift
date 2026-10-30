@@ -103,6 +103,8 @@ enum LiveOpsFixtures {
         var monitor = MonitorFixtureOptions()
         // S1-15 (LiveOpsFixtures+Channels.swift): goes with any variant.
         var channels = ChannelFixtureOptions()
+        // S1-16 (LiveOpsFixtures+Alerts.swift): goes with any variant.
+        var alerts = AlertsFixtureOptions()
         var opsDisabled: Bool { ops != .on }
         init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
@@ -131,6 +133,7 @@ enum LiveOpsFixtures {
             withholdsAlertDetails = UITestArguments.withheldCapabilities(arguments: arguments).contains(Capability.opsAlertEventDetails.rawValue)
             monitor = MonitorFixtureOptions(arguments: arguments)
             channels = ChannelFixtureOptions(arguments: arguments)
+            alerts = AlertsFixtureOptions(arguments: arguments)
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -318,8 +321,9 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     init(options: LiveOpsFixtures.Options, base: Date = Date()) {
         self.options = options; self.base = base
         let overflow = options.alertsOverflow ? LiveOpsFixtures.overflowAlerts(base: base) : []
-        book = FixtureAlertBook(events: LiveOpsFixtures.alertEvents(options.variant, base: base) + overflow, legacy: options.alertsWithoutSilenceKey,
-                                writesFail: options.alertWritesFail)
+        let history = options.alerts.history ? LiveOpsFixtures.endedHistory(base: base) : []
+        book = FixtureAlertBook(events: LiveOpsFixtures.alertEvents(options.variant, base: base) + overflow + history,
+                                legacy: options.alertsWithoutSilenceKey, writesFail: options.alertWritesFail)
     }
 
     func dashboardHome(timezone: ServerTimeZone, include: [HomeSectionKey]?, noCache: Bool) async throws -> DashboardHome {
@@ -360,6 +364,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     func alertEvents(status: String?, timeRange: String?, limit: Int, before: AlertEventCursor?, groupID: Int?,
                      platform: String?) throws -> [AlertEvent] {
         try requireOps()
+        if options.alerts.listFails { throw Self.unreachableError }
         return book.events(status: status, timeRange: timeRange, limit: limit, before: before, groupID: groupID, platform: platform, now: base)
             .map { LiveOpsFixtures.served($0, options) }
     }

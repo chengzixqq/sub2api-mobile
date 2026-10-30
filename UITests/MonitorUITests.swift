@@ -108,7 +108,6 @@ final class MonitorUITests: XCTestCase {
         XCTAssertEqual(element("monitor.run.upstream529").label, "上游 529")
         XCTAssertTrue(text(containing: "运行与服务器", in: app.navigationBars.firstMatch).waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(element("monitor.run.header").exists, app.debugDescription)
-        XCTAssertFalse(element("monitor.placeholder").exists, app.debugDescription)
         diagnostics("monitor-overview")
     }
 
@@ -134,7 +133,7 @@ final class MonitorUITests: XCTestCase {
         reveal(row)
         row.tap()
         assertSelected(segments.segment("告警"))
-        XCTAssertTrue(element("monitor.placeholder").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("monitor.alerts.firing").waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.tabBars.buttons["监控"].isSelected, app.debugDescription)
         XCTAssertTrue(segments.exists, app.debugDescription)
     }
@@ -186,7 +185,7 @@ final class MonitorUITests: XCTestCase {
         let segments = app.segmentedControls["monitor.segment"]
         XCTAssertTrue(segments.waitForExistence(timeout: 10), app.debugDescription)
         assertSelected(segments.segment("渠道"))
-        XCTAssertTrue(element("monitor.channels.header").waitForExistence(timeout: 10) && !element("monitor.placeholder").exists, app.debugDescription)
+        XCTAssertTrue(element("monitor.channels.header").waitForExistence(timeout: 10), app.debugDescription)
     }
 
     /// 10 §4.5, §7.2: monitoring off makes the whole segment the empty state with the data-gap line; 开启 asks, then the run returns.
@@ -437,7 +436,7 @@ final class MonitorUITests: XCTestCase {
         XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(header.label.hasPrefix("渠道"), header.debugDescription)
         XCTAssertEqual(header.value as? String, "可用率 · 首字")
-        XCTAssertFalse(element("monitor.channels.coverage").exists || element("monitor.placeholder").exists, app.debugDescription)
+        XCTAssertFalse(element("monitor.channels.coverage").exists, app.debugDescription)
         XCTAssertTrue(channelRow(8).waitForExistence(timeout: 10), app.debugDescription)
         // A List row may report its identifier on the cell and the link alike: each identifier once, in list order.
         let shown = channelElements(["monitor.channels.row."]).allElementsBoundByIndex.map(\.identifier)
@@ -550,5 +549,192 @@ final class MonitorUITests: XCTestCase {
         XCTAssertFalse(element("monitor.channels.retry").exists || element("monitor.channels.failure").exists, app.debugDescription)
         XCTAssertTrue(waitFor(segments.segment("渠道"), "label == %@", "渠道"), segments.debugDescription)
         diagnostics("monitor-channels-unsupported")
+    }
+
+    // MARK: S1-16 告警
+
+    /// LiveOpsFixtureIDs (来源 LiveOpsFixtureIDs; the UI tests cannot import the App, so change both together): #41 P1 标准组, not
+    /// silenced; #40 P2 Anthropic, silenced; #37 resolved; `-ui-alerts-history` ends with #3160.
+    private enum AlertFixture {
+        static let alertA = 41
+        static let anthropic = 40
+        static let endedResolved = 37
+        static let oldestHistory = 3160
+        static let history = "-ui-alerts-history"
+        static let listFails = "-ui-alerts-list-fails"
+        static let writeFails = "-ui-alert-write-fails"
+    }
+
+    /// The 告警 segment, opened from 概况.
+    @discardableResult @MainActor private func openAlerts(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let segments = openMonitor(file: file, line: line)
+        segments.segment("告警").tap()
+        assertSelected(segments.segment("告警"), file: file, line: line)
+        return segments
+    }
+    @MainActor private func alertRow(_ id: Int) -> XCUIElement { app.buttons["monitor.alerts.row.\(id)"].firstMatch }
+    /// `kind` is resolve or silence.
+    @MainActor private func alertButton(_ kind: String, _ id: Int) -> XCUIElement { app.buttons["monitor.alerts.\(kind).\(id)"].firstMatch }
+    /// 加载更早 sits under some fifty rows of a lazy list: swipe until `item` is on screen.
+    @MainActor private func scrollTo(_ item: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0..<25 {
+            if item.exists && item.isHittable { return }
+            app.swipeUp()
+        }
+        XCTAssertTrue(item.exists && item.isHittable, app.debugDescription, file: file, line: line)
+    }
+    /// 手动解决 on the row, then the alert's own 手动解决.
+    @MainActor private func resolveInline(_ id: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let resolve = alertButton("resolve", id)
+        XCTAssertTrue(resolve.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        resolve.tap()
+        let confirm = app.alerts["手动解决这条告警？"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        confirm.buttons["手动解决"].firstMatch.tap()
+    }
+
+    /// 10 §6.3: 告警中 (2 条) with each firing row's buttons; 最近结束 with its ended rows, which have none.
+    @MainActor func testAlertsSegmentShowsFiringAndEndedSections() {
+        launchAndLogin()
+        defer { diagnostics("monitor-alerts-final") }
+        openAlerts()
+        assertValue(element("monitor.alerts.firing"), "2 条")
+        for id in [AlertFixture.alertA, AlertFixture.anthropic] {
+            XCTAssertTrue(waitFor(alertRow(id), "label CONTAINS %@", "告警中"), alertRow(id).debugDescription)
+        }
+        XCTAssertTrue(alertButton("resolve", AlertFixture.alertA).exists, app.debugDescription)
+        XCTAssertTrue(alertButton("silence", AlertFixture.alertA).label.hasPrefix("静默"), alertButton("silence", AlertFixture.alertA).label)
+        XCTAssertTrue(alertButton("silence", AlertFixture.anthropic).label.hasPrefix("改静默"), alertButton("silence", AlertFixture.anthropic).label)
+        XCTAssertTrue(alertRow(AlertFixture.anthropic).label.contains("已静默至"), alertRow(AlertFixture.anthropic).label)
+        XCTAssertTrue(text(containing: "告警 · 2 条进行中", in: app.navigationBars.firstMatch).exists, app.debugDescription)
+        diagnostics("monitor-alerts")
+        let ended = element("monitor.alerts.ended")
+        reveal(ended)
+        XCTAssertTrue(waitFor(ended, "value ENDSWITH %@", " 条"), ended.debugDescription)
+        let resolved = alertRow(AlertFixture.endedResolved)
+        reveal(resolved)
+        XCTAssertTrue(resolved.label.contains("已恢复"), resolved.label)
+        XCTAssertFalse(alertButton("resolve", AlertFixture.endedResolved).exists, app.debugDescription)
+    }
+
+    /// 10 §7.1: 手动解决 on the row asks first; the receipt has no undo, the row moves to 最近结束, the counts drop, and the
+    /// overview's row is gone too.
+    @MainActor func testInlineResolveMovesRowToEndedAndUpdatesHome() {
+        launchAndLogin()
+        defer { diagnostics("monitor-alerts-resolve-final") }
+        let segments = openAlerts()
+        resolveInline(AlertFixture.alertA)
+        let receipt = element("receipt.text")
+        XCTAssertTrue(receipt.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(receipt.label, "已手动解决")
+        XCTAssertFalse(app.buttons["receipt.action"].exists, app.debugDescription)
+        XCTAssertTrue(alertButton("resolve", AlertFixture.alertA).waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitFor(segments.segment("告警"), "label == %@", "告警 1"), segments.debugDescription)
+        assertValue(element("monitor.alerts.firing"), "1 条")
+        let row = alertRow(AlertFixture.alertA)
+        reveal(row)
+        XCTAssertTrue(waitFor(row, "label CONTAINS %@", "已手动解决"), row.debugDescription)
+        app.tabBars.buttons["概览"].tap()
+        XCTAssertTrue(element("home.attention.alert-\(AlertFixture.anthropic)").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("home.attention.alert-\(AlertFixture.alertA)").exists, app.debugDescription)
+    }
+
+    /// 10 §7.1: 静默… offers the three durations; the receipt has 撤销, the row says until when and its button becomes 改静默….
+    @MainActor func testInlineSilenceShowsDurationsAndReceipt() {
+        launchAndLogin()
+        defer { diagnostics("monitor-alerts-silence-final") }
+        openAlerts()
+        let silence = alertButton("silence", AlertFixture.alertA)
+        XCTAssertTrue(silence.waitForExistence(timeout: 10), app.debugDescription)
+        silence.tap()
+        let hour = menuButton("静默 1 小时")
+        XCTAssertTrue(hour.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(text(containing: "静默这条规则多久？").exists, app.debugDescription)
+        for title in ["静默 24 小时", "静默 7 天"] { XCTAssertTrue(menuButton(title).exists, title) }
+        hour.tap()
+        let undo = app.buttons["receipt.action"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(element("receipt.text").label, "已静默 1 小时")
+        XCTAssertEqual(undo.label, "撤销")
+        XCTAssertTrue(waitFor(alertRow(AlertFixture.alertA), "label CONTAINS %@", "已静默至"), alertRow(AlertFixture.alertA).debugDescription)
+        XCTAssertTrue(waitFor(silence, "label BEGINSWITH %@", "改静默"), silence.debugDescription)
+    }
+
+    /// 10 §7.1 step 4: a failed write says why and changes nothing.
+    @MainActor func testInlineWriteFailureShowsReceiptAndKeepsRow() {
+        launchAndLogin(arguments: [AlertFixture.writeFails])
+        defer { diagnostics("monitor-alerts-write-fails-final") }
+        openAlerts()
+        resolveInline(AlertFixture.alertA)
+        let receipt = element("receipt.text")
+        XCTAssertTrue(receipt.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(receipt.label, "站点暂时不可用")
+        XCTAssertTrue(alertButton("resolve", AlertFixture.alertA).exists, app.debugDescription)
+        XCTAssertTrue(alertRow(AlertFixture.alertA).label.contains("告警中"), alertRow(AlertFixture.alertA).label)
+    }
+
+    /// 10 §6.2 更早: a full 最近结束 ends with 加载更早, which adds the older rows; at the end it goes away.
+    @MainActor func testLoadEarlierAppendsOlderEndedRows() {
+        launchAndLogin(arguments: [AlertFixture.history])
+        defer { diagnostics("monitor-alerts-earlier-final") }
+        openAlerts()
+        XCTAssertTrue(alertRow(AlertFixture.alertA).waitForExistence(timeout: 10), app.debugDescription)
+        let loadEarlier = app.buttons["monitor.alerts.loadEarlier"].firstMatch
+        scrollTo(loadEarlier)
+        XCTAssertFalse(alertRow(AlertFixture.oldestHistory).exists, app.debugDescription)
+        loadEarlier.tap()
+        scrollTo(alertRow(AlertFixture.oldestHistory))
+        XCTAssertTrue(alertRow(AlertFixture.oldestHistory).label.contains("全站错误率"), alertRow(AlertFixture.oldestHistory).label)
+        XCTAssertFalse(app.buttons["monitor.alerts.loadEarlier"].exists, app.debugDescription)
+    }
+
+    /// 10 §6.5: no list read yet and the reads fail: one 告警加载失败 · 重试 instead of the sections.
+    @MainActor func testAlertListFailureShowsRetry() {
+        launchAndLogin(arguments: [AlertFixture.listFails])
+        defer { diagnostics("monitor-alerts-failure-final") }
+        openAlerts()
+        let failure = element("monitor.alerts.failure")
+        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(text(containing: "告警加载失败", in: failure).exists, app.debugDescription)
+        XCTAssertFalse(element("monitor.alerts.firing").exists || element("monitor.alerts.ended").exists, app.debugDescription)
+        let retry = element("monitor.alerts.retry")
+        XCTAssertTrue(retry.exists, app.debugDescription)
+        retry.tap()
+        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 10 §6.5, §7.2: monitoring off makes the segment the empty state.
+    @MainActor func testAlertsSegmentOpsDisabledShowsNotice() {
+        launchAndLogin(arguments: ["-ui-ops-disabled"])
+        defer { diagnostics("monitor-alerts-ops-off-final") }
+        openAlerts()
+        let empty = element("ops.disabled.empty")
+        XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(text(containing: "运维监控未开启", in: empty).exists, app.debugDescription)
+        XCTAssertFalse(element("monitor.alerts.firing").exists, app.debugDescription)
+    }
+
+    /// 10 §6.3: nothing firing says 没有告警 under “0 条”; 最近结束 still lists what ended.
+    @MainActor func testAlertsSegmentEmptyFiringSaysNoAlerts() {
+        launchAndLogin(arguments: ["-ui-home-calm"])
+        defer { diagnostics("monitor-alerts-calm-final") }
+        openAlerts()
+        let empty = element("monitor.alerts.firing.empty")
+        XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(empty.label, "没有告警")
+        assertValue(element("monitor.alerts.firing"), "0 条")
+        XCTAssertTrue(alertRow(AlertFixture.endedResolved).waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// C-1, X10: a read-only `sat_` token sees the row's buttons greyed, with 只读令牌 under them.
+    @MainActor func testReadOnlyTokenGreysOutInlineActions() {
+        launchAndLogin(arguments: ["-ui-readonly-token"], accessToken: "sat_fixture-monitor")
+        defer { diagnostics("monitor-alerts-readonly-final") }
+        openAlerts()
+        let resolve = alertButton("resolve", AlertFixture.alertA)
+        XCTAssertTrue(resolve.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(resolve.isEnabled, app.debugDescription)
+        XCTAssertFalse(alertButton("silence", AlertFixture.alertA).isEnabled, app.debugDescription)
+        XCTAssertTrue(element("readonly.caption").exists, app.debugDescription)
     }
 }

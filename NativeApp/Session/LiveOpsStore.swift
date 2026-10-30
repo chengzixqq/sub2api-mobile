@@ -465,9 +465,12 @@ extension LiveOpsStore: AlertActionsHost {
         alertDetails[eventID] = nil
         alertRevisions[eventID, default: 0] += 1
     }
-    /// BACKLOG D06: the firing list and the counts at once, and the next home read bypasses the cache (10 §1.4).
+    /// BACKLOG D06: the firing list and the counts at once, 最近结束 too once it was read (10 §6.6, S1-16), and the next home read
+    /// bypasses the cache (10 §1.4).
     func refreshAlertsAfterWrite() async {
-        await refreshFiringAlerts(maxAge: 0)
+        async let firing: Void = refreshFiringAlerts(maxAge: 0)
+        async let ended: Void = refreshLoadedRecentAlerts()
+        _ = await (firing, ended)
         noteExternalWrite()
     }
 }

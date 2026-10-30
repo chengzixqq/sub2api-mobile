@@ -4,7 +4,9 @@ import Sub2Core
 /// C-6, 10 §1.3.3 and §6.3: one alert event as a row on the status rail, for the overview's 待处理 (home) and the monitor's alerts
 /// segment (S1-16). Home: a bell, the level as the badge and “阈值 5.0% · 12 分钟前触发 · 已静默”. Monitor: “P1 · 告警中”, the scope
 /// and rule unclipped, the silence and the time; an event no longer firing has no capsule, a check mark and a grey title. With
-/// `onOpen` the row is one button. The actions under the text (`showsActions`, `onAction`) are S1-16's.
+/// `onOpen` the row is one button. A firing monitor row with `showsActions` and `onAction` also has 静默… / 改静默… and 手动解决 beside
+/// its time: their own buttons over the row's corner, not inside its button (a button in a button would fire both); a hidden copy
+/// keeps the time clear of them. Monitor rows are named monitor.alerts.row.<id>.
 struct AlertRow: View {
     enum Context: Sendable, Equatable { case home, monitor }
 
@@ -25,7 +27,7 @@ struct AlertRow: View {
     var body: some View {
         Group {
             if let onOpen {
-                Button(action: onOpen) { content }.buttonStyle(.plain)
+                openButton(onOpen)
             } else {
                 content
             }
@@ -36,6 +38,27 @@ struct AlertRow: View {
     private var tone: Tone? { AlertPresentation.tone(event) }
     private var now: Date { session?.client.serverClock.now() ?? Date() }
     private var timeZone: TimeZone { session?.site.serverTimeZone.timeZone ?? .current }
+    /// Only a firing event offers actions (10 §6.3 底行右).
+    private var actionHandler: ((AlertActionRequest.Kind) -> Void)? { showsActions && event.isFiring ? onAction : nil }
+
+    @ViewBuilder private func openButton(_ onOpen: @escaping () -> Void) -> some View {
+        let button = Button(action: onOpen) { content }.buttonStyle(.plain)
+        if context == .monitor {
+            button
+                .accessibilityIdentifier("monitor.alerts.row.\(event.id)")
+                .overlay(alignment: .bottomTrailing) {
+                    if let onAction = actionHandler {
+                        AlertActionBar(event: event, identifierPrefix: Self.monitorPrefix, onAction: onAction)
+                            .padding(.trailing, 4)
+                            .padding(.bottom, AttentionMetrics.verticalPadding - AlertActionBar.touchInset)
+                    }
+                }
+        } else {
+            button
+        }
+    }
+
+    private static let monitorPrefix = "monitor.alerts"
 
     private var content: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -50,14 +73,26 @@ struct AlertRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if !badge.isEmpty { ToneBadge(text: badge, tone: tone ?? .neutral) }
                 }
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line).font(.footnote).foregroundStyle(Palette.ink2).lineLimit(context == .home ? 2 : nil)
+                let lines = self.lines
+                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                    if index == lines.count - 1, let onAction = actionHandler {
+                        HStack(spacing: 8) {
+                            lineText(line).frame(maxWidth: .infinity, alignment: .leading)
+                            AlertActionBar(event: event, identifierPrefix: Self.monitorPrefix, isPlaceholder: true, onAction: onAction)
+                        }
+                    } else {
+                        lineText(line)
+                    }
                 }
             }
             if onOpen != nil { AttentionChevron() }
         }
         .railRowContent()
         .accessibilityElement(children: .combine)
+    }
+
+    private func lineText(_ line: String) -> some View {
+        Text(line).font(.footnote).foregroundStyle(Palette.ink2).lineLimit(context == .home ? 2 : nil)
     }
 
     private var badge: String {
@@ -77,6 +112,73 @@ struct AlertRow: View {
              AlertPresentation.silenceLine(event, now: now, timeZone: timeZone),
              AlertPresentation.sinceText(event, now: now, timeZone: timeZone)].compactMap { $0 }.filter { !$0.isEmpty }
         }
+    }
+}
+
+/// 10 §6.3 底行右 (S1-16, C-6): 静默… or 改静默… and 手动解决 (primary), as AlertActions offers them; 30pt to see, 44pt to touch.
+/// Greyed while this event's write is on its way and for a read-only token (C-1, X10). `isPlaceholder` is the hidden copy a row
+/// keeps beside its time. S2-22's alert sheet can use it with `compact: false` (改静默时长…). Identifiers `<prefix>.resolve.<id>`
+/// and `<prefix>.silence.<id>`.
+struct AlertActionBar: View {
+    static let height: CGFloat = 30
+    /// What the 44pt touch area adds above and below the button.
+    static let touchInset: CGFloat = (44 - height) / 2
+
+    let event: AlertEvent
+    let compact: Bool
+    let identifierPrefix: String
+    let isPlaceholder: Bool
+    let onAction: (AlertActionRequest.Kind) -> Void
+    @Environment(AppModel.self) private var model
+
+    init(event: AlertEvent, compact: Bool = true, identifierPrefix: String, isPlaceholder: Bool = false,
+         onAction: @escaping (AlertActionRequest.Kind) -> Void) {
+        self.event = event; self.compact = compact; self.identifierPrefix = identifierPrefix; self.isPlaceholder = isPlaceholder
+        self.onAction = onAction
+    }
+
+    var body: some View {
+        if let actions = model.liveOps?.alertActions {
+            let kinds = MonitorAlertsPresentation.orderedActions(actions.availableActions(for: event))
+            if !kinds.isEmpty {
+                let bar = HStack(spacing: 8) { ForEach(kinds, id: \.self) { button($0) } }
+                    .disabled(actions.isRunning(event.id))
+                    .readOnlyGate()
+                if isPlaceholder {
+                    bar.hidden().accessibilityHidden(true)
+                } else {
+                    bar
+                }
+            }
+        }
+    }
+
+    private func button(_ kind: AlertActionKind) -> some View {
+        Button { onAction(kind) } label: {
+            Text(MonitorAlertsPresentation.actionTitle(kind, compact: compact)).lineLimit(1)
+        }
+        .buttonStyle(AlertActionButtonStyle(isPrimary: kind == .resolve, expandsTouchArea: !isPlaceholder))
+        .accessibilityLabel(MonitorAlertsPresentation.spokenAction(kind, title: AlertPresentation.title(event)))
+        .accessibilityIdentifier("\(identifierPrefix).\(kind == .resolve ? "resolve" : "silence").\(event.id)")
+    }
+}
+
+/// A small capsule with its pressed and disabled looks; in a List row it answers only its own area.
+private struct AlertActionButtonStyle: ButtonStyle {
+    let isPrimary: Bool
+    let expandsTouchArea: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(isPrimary ? Palette.onAccent : Palette.ink1)
+            .padding(.horizontal, 10)
+            .frame(minHeight: AlertActionBar.height)
+            .background(isPrimary ? Palette.accentFill : Palette.sunken, in: Capsule())
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.45)
+            .frame(minWidth: 44, minHeight: expandsTouchArea ? 44 : nil)
+            .contentShape(Rectangle())
     }
 }
 

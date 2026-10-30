@@ -50,6 +50,11 @@ final class MonitorState {
     @ObservationIgnored private(set) var channelsSettledAt: Date?
     /// The overview answered a non-JSON 404 (no channel-monitor-v2): not asked again this session (00 §3.3).
     private(set) var channelsUnsupported = false
+    // S1-16 · 告警段（LiveOpsStore+MonitorAlerts.swift）
+    /// 加载更早 itself: its wait, backoff and failure; its value is the last older page read.
+    let alertsEarlier = LoadState<[AlertEvent]>()
+    /// When the alert lists last answered, on the store's device clock.
+    @ObservationIgnored private(set) var alertsSettledAt: MonitorSettle?
 
     /// What the timers ask of a block's LoadState; S1-14 adds its blocks to this one switch.
     func load(_ block: MonitorOverviewBlock) -> MonitorBlockLoad {
@@ -89,6 +94,8 @@ final class MonitorState {
     }
     func markChannelsSettled(at date: Date) { channelsSettledAt = date }
     func markChannelsUnsupported() { channelsUnsupported = true }
+    /// Only LiveOpsStore+MonitorAlerts.swift calls it, once an answer landed.
+    func markAlertsSettled(_ settle: MonitorSettle) { alertsSettledAt = settle }
 }
 
 /// One block's LoadState as the timers see it.

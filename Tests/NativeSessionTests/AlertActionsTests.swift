@@ -387,10 +387,10 @@ func writeFailureLeavesLocalStateAndShowsReason(index: Int) async {
 
 @MainActor @Test func storeRefreshAfterWriteRereadsListAndCountsAndBypassesHomeCache() async {
     let (store, source) = await storeWithTwoFiring()
-    let lists = await source.count { if case .alertEvents = $0 { true } else { false } }
+    let lists = await source.count { if case .alertEvents(status: "firing"?, _) = $0 { true } else { false } }
     let counts = await source.count { $0 == .alertCounts }
     await store.refreshAlertsAfterWrite()
-    #expect(await source.count { if case .alertEvents = $0 { true } else { false } } == lists + 1)
+    #expect(await source.count { if case .alertEvents(status: "firing"?, _) = $0 { true } else { false } } == lists + 1)
     #expect(await source.count { $0 == .alertCounts } == counts + 1)
     await store.refreshHome(noCache: false)
     #expect(await source.homeCalls.last == true)
