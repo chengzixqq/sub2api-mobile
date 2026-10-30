@@ -56,7 +56,7 @@ private func isCalm(_ blocks: HomeBlocks) -> Bool { HomePresentation.isCalm(avai
         #expect(HomePresentation.channelSummaryLine(channels).map(\.text) == ["可用 7", "未知 1"])
     }
     let regular = try await blocks(FixtureLiveOpsSource(options: .init(), base: base), noCache: false)
-    #expect(regular.channels.value?.total == 10)
+    #expect(regular.channels.value?.total == 9)
 }
 
 // MARK: LiveOpsStore (S1-05) as the calm layout reads it

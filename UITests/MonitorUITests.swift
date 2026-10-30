@@ -172,7 +172,7 @@ final class MonitorUITests: XCTestCase {
         XCTAssertTrue(element("monitor.run.health").waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    /// 10 §1.1: the overview's 渠道 row opens 监控 · 渠道 (a placeholder until S1-15).
+    /// 10 §1.1: the overview's 渠道 row opens 监控 · 渠道.
     @MainActor func testHomeChannelRowOpensChannelsSegment() {
         launchAndLogin()
         defer { diagnostics("monitor-from-home-channels-final") }
@@ -186,7 +186,7 @@ final class MonitorUITests: XCTestCase {
         let segments = app.segmentedControls["monitor.segment"]
         XCTAssertTrue(segments.waitForExistence(timeout: 10), app.debugDescription)
         assertSelected(segments.segment("渠道"))
-        XCTAssertTrue(element("monitor.placeholder").exists, app.debugDescription)
+        XCTAssertTrue(element("monitor.channels.header").waitForExistence(timeout: 10) && !element("monitor.placeholder").exists, app.debugDescription)
     }
 
     /// 10 §4.5, §7.2: monitoring off makes the whole segment the empty state with the data-gap line; 开启 asks, then the run returns.
@@ -394,5 +394,145 @@ final class MonitorUITests: XCTestCase {
         reveal(ingest)
         XCTAssertTrue(waitFor(ingest, "label CONTAINS %@", "入口拒绝 ≥ 600 次（1 小时）· 3 个任务需留意"), ingest.label)
         XCTAssertFalse(element("monitor.server.load.failure").exists, app.debugDescription)
+    }
+
+    // MARK: S1-15 渠道
+
+    /// LiveOpsFixtures+Channels.swift as VoiceOver reads it (group ids 来源 LiveOpsFixtureIDs / DEMO.groups; the UI tests cannot
+    /// import the App, so change both together).
+    private enum ChannelExpected {
+        static let counts = [("available", "3"), ("degraded", "1"), ("unavailable", "1"), ("unknown", "4")]
+        static let firstRows = ["monitor.channels.row.8", "monitor.channels.row.5", "monitor.channels.row.10"]
+        static let notes = [(8, "不可用，错误率 31.0% · 首字 —"), (5, "性能下降，可用率 97.5% · 首字 8.6s"), (10, "未知，采集不可用"),
+                            (7, "未知，样本不足"), (9, "未知，数据已过期"), (3, "未知，无样本"), (2, "可用，可用率 99.9% · 首字 900ms")]
+        static let coverage = "渠道数据采集延迟，显示的可能不是最新状态"
+        static let monitorOff = "-ui-channel-monitor-off"
+    }
+
+    /// The 渠道 segment, opened from 概况.
+    @discardableResult @MainActor private func openChannels(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let segments = openMonitor(file: file, line: line)
+        segments.segment("渠道").tap()
+        assertSelected(segments.segment("渠道"), file: file, line: line)
+        return segments
+    }
+    @MainActor private func channelRow(_ groupID: Int) -> XCUIElement { element("monitor.channels.row.\(groupID)") }
+    @MainActor private func channelElements(_ prefixes: [String]) -> XCUIElementQuery {
+        let format = prefixes.map { _ in "identifier BEGINSWITH %@" }.joined(separator: " OR ")
+        return app.descendants(matching: .any).matching(NSPredicate(format: format, argumentArray: prefixes))
+    }
+    @MainActor private func assertChannelCounts(_ expected: [(String, String)], file: StaticString = #filePath, line: UInt = #line) {
+        for (key, value) in expected { assertValue(element("monitor.channels.count." + key), value, file: file, line: line) }
+    }
+
+    /// 10 §5.3: the four counts, the title, rows worst first; the segment carries unavailable + degraded (S1-13).
+    @MainActor func testChannelsSegmentShowsCountsAndSortedRows() {
+        launchAndLogin()
+        defer { diagnostics("monitor-channels-final") }
+        let segments = openMonitor()
+        XCTAssertTrue(waitFor(segments.segment("渠道"), "label == %@", "渠道 2"), segments.debugDescription)
+        openChannels()
+        assertChannelCounts(ChannelExpected.counts)
+        let header = element("monitor.channels.header")
+        XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(header.label.hasPrefix("渠道"), header.debugDescription)
+        XCTAssertEqual(header.value as? String, "可用率 · 首字")
+        XCTAssertFalse(element("monitor.channels.coverage").exists || element("monitor.placeholder").exists, app.debugDescription)
+        XCTAssertTrue(channelRow(8).waitForExistence(timeout: 10), app.debugDescription)
+        // A List row may report its identifier on the cell and the link alike: each identifier once, in list order.
+        let shown = channelElements(["monitor.channels.row."]).allElementsBoundByIndex.map(\.identifier)
+            .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        XCTAssertEqual(Array(shown.prefix(3)), ChannelExpected.firstRows)
+        XCTAssertTrue(text(containing: "渠道 · 近 90 分钟", in: app.navigationBars.firstMatch).exists, app.debugDescription)
+        diagnostics("monitor-channels")
+    }
+
+    /// 10 §5.3: each note's branch, the first token as R10's millisecond reading; the title with the platform.
+    @MainActor func testChannelRowNotesCoverEveryState() {
+        launchAndLogin()
+        defer { diagnostics("monitor-channel-notes-final") }
+        openChannels()
+        XCTAssertTrue(channelRow(8).waitForExistence(timeout: 10), app.debugDescription)
+        for (groupID, value) in ChannelExpected.notes {
+            let row = channelRow(groupID)
+            reveal(row)
+            XCTAssertEqual(row.value as? String, value, row.debugDescription)
+        }
+        XCTAssertEqual(channelRow(2).label, "标准组，OpenAI")
+    }
+
+    /// U07: a row opens its group on this tab's stack; back returns to 渠道.
+    @MainActor func testChannelRowOpensGroupDetail() {
+        launchAndLogin()
+        defer { diagnostics("monitor-channel-group-final") }
+        openChannels()
+        let row = channelRow(10)
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        reveal(row)
+        row.tap()
+        XCTAssertTrue(app.segmentedControls["monitor.segment"].waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.tabBars.buttons["监控"].isSelected, app.debugDescription)
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(back.waitForExistence(timeout: 5), app.debugDescription)
+        back.tap()
+        let segments = app.segmentedControls["monitor.segment"]
+        XCTAssertTrue(segments.waitForExistence(timeout: 10), app.debugDescription)
+        assertSelected(segments.segment("渠道"))
+        XCTAssertTrue(channelRow(10).waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 10 §5.2, §5.5: the channel monitor off is one empty state with no switch; the segment carries no count.
+    @MainActor func testChannelMonitorOffShowsDisabledState() {
+        launchAndLogin(arguments: [ChannelExpected.monitorOff])
+        defer { diagnostics("monitor-channels-off-final") }
+        let segments = openMonitor()
+        XCTAssertEqual(segments.segment("渠道").label, "渠道")
+        openChannels()
+        let off = element("monitor.channels.disabled")
+        XCTAssertTrue(off.waitForExistence(timeout: 10), app.debugDescription)
+        for part in ["渠道监控未开启", "可在 Web 后台的渠道监控设置中开启"] {
+            XCTAssertTrue(off.label.contains(part) || text(containing: part, in: off).exists, off.debugDescription)
+        }
+        XCTAssertEqual(channelElements(["monitor.channels.row.", "monitor.channels.count."]).count, 0, app.debugDescription)
+        XCTAssertFalse(element("monitor.channels.retry").exists, app.debugDescription)
+        diagnostics("monitor-channels-off")
+    }
+
+    /// 10 §5.3: collection lagging adds one neutral line above the list; the counts stay.
+    @MainActor func testChannelCoverageHintAppears() {
+        launchAndLogin(arguments: ["-ui-channel-coverage-stale"])
+        defer { diagnostics("monitor-channels-coverage-final") }
+        openChannels()
+        let coverage = element("monitor.channels.coverage")
+        XCTAssertTrue(coverage.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(coverage.label, ChannelExpected.coverage)
+        assertChannelCounts(ChannelExpected.counts)
+    }
+
+    /// 10 §5.5: a failure before any list: the counts “—”, 渠道加载失败 · 重试 and no rows; 重试 asks again.
+    @MainActor func testChannelLoadFailureShowsRetry() {
+        launchAndLogin(arguments: ["-ui-channel-overview-fails"])
+        defer { diagnostics("monitor-channels-failure-final") }
+        openChannels()
+        let failure = element("monitor.channels.failure")
+        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(text(containing: "渠道加载失败", in: failure).exists, app.debugDescription)
+        assertChannelCounts(ChannelExpected.counts.map { ($0.0, Expected.missing) })
+        XCTAssertEqual(channelElements(["monitor.channels.row."]).count, 0, app.debugDescription)
+        let retry = element("monitor.channels.retry")
+        XCTAssertTrue(retry.exists, app.debugDescription)
+        retry.tap()
+        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 10 §5.2: ops monitoring off leaves the channel monitor alone.
+    @MainActor func testChannelsSegmentIgnoresOpsSwitch() {
+        launchAndLogin(arguments: ["-ui-ops-disabled"])
+        defer { diagnostics("monitor-channels-ops-off-final") }
+        openMonitor()
+        XCTAssertTrue(element("ops.disabled.empty").waitForExistence(timeout: 10), app.debugDescription)
+        openChannels()
+        assertValue(element("monitor.channels.count.available"), "3")
+        XCTAssertFalse(element("ops.disabled.empty").exists, app.debugDescription)
     }
 }

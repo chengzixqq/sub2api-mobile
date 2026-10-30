@@ -43,6 +43,11 @@ final class MonitorState {
     private(set) var unsupportedBlocks: Set<MonitorOverviewBlock> = []
     /// Each block's last answer, success or failure, on the store's device clock.
     @ObservationIgnored private var settled: [MonitorOverviewBlock: MonitorSettle] = [:]
+    // S1-15 · 渠道段（LiveOpsStore+Channels.swift）
+    /// The last channel answer's 403 CHANNEL_MONITOR_DISABLED; a success clears it, another failure leaves it.
+    private(set) var channelsDisabledReason: String?
+    /// When the last channel answer came in, on the store's device clock.
+    @ObservationIgnored private(set) var channelsSettledAt: Date?
 
     /// What the timers ask of a block's LoadState; S1-14 adds its blocks to this one switch.
     func load(_ block: MonitorOverviewBlock) -> MonitorBlockLoad {
@@ -76,6 +81,11 @@ final class MonitorState {
         localSamples = MonitorPresentation.appendingLocalSample(localSamples, from: metrics)
     }
     func markUnsupported(_ block: MonitorOverviewBlock) { unsupportedBlocks.insert(block) }
+    /// Only LiveOpsStore+Channels.swift calls these, once an answer landed; an unchanged reason is not written again.
+    func recordChannelsReply(disabledReason: String?) {
+        if channelsDisabledReason != disabledReason { channelsDisabledReason = disabledReason }
+    }
+    func markChannelsSettled(at date: Date) { channelsSettledAt = date }
 }
 
 /// One block's LoadState as the timers see it.
@@ -200,8 +210,10 @@ extension LiveOpsStore {
     var monitorAlertsRow: MonitorAlertsRow {
         MonitorTabPresentation.alertsRow(firingCount: monitorFiringCount, titles: firingAlerts.map(AlertPresentation.title))
     }
+    /// nil while the channel monitor is off (S1-15), rather than the overview's older count.
     var monitorChannelsAttentionCount: Int? {
-        MonitorTabPresentation.channelsAttentionCount(items: channels.value?.items, home: home.channels.value)
+        guard !channelsUnavailable else { return nil }
+        return MonitorTabPresentation.channelsAttentionCount(items: channels.value?.items, home: home.channels.value)
     }
     func monitorSegmentCount(_ segment: MonitorSegment) -> Int? {
         switch segment {
