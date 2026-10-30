@@ -14,6 +14,7 @@ final class AccountNewUITests: XCTestCase {
         static let createLegacy = "-ui-account-create-legacy"
         static let createUnconfirmed = "-ui-account-create-unconfirmed"
         static let createLost = "-ui-account-create-lost"
+        static let createCheckFail = "-ui-account-create-check-fail"
         static let catalogError = "-ui-account-new-catalog-error"
         static let groupsError = "-ui-account-groups-error"
         static let proxiesError = "-ui-account-proxies-error"
@@ -252,6 +253,7 @@ final class AccountNewUITests: XCTestCase {
         pickPlatform("Anthropic")
         pickMethod("bedrock")
         for id in ["account-new.bedrock.akid", "account-new.bedrock.secret", "account-new.bedrock.session"] { reveal(element(id)) }
+        XCTAssertTrue(app.secureTextFields["account-new.bedrock.session"].exists, app.debugDescription)
         let region = element("account-new.bedrock.region")
         reveal(region)
         XCTAssertTrue(readout(region).contains("us-east-1"), region.debugDescription)
@@ -321,6 +323,25 @@ final class AccountNewUITests: XCTestCase {
         XCTAssertTrue(proxies.exists, app.debugDescription)
         submit()
         waitForReceipt("已创建「\(Fixture.claudeName)」· 暂停调度")
+    }
+
+    /// 00 §2.5.4, 20 §7.5: the answer and the check by name are both lost, so the account may exist; 取消 says so rather than
+    /// 放弃新建账号, and 仍然关闭 leaves a receipt to check the list (the fixture did store the account).
+    @MainActor func testCancelWhileResultUnconfirmedWarnsAccountMayExist() {
+        launchAndLogin(arguments: [Fixture.createUnconfirmed, Fixture.createCheckFail])
+        defer { diagnostics("account-new-result-unconfirmed-final") }
+        fillClaudeConsole()
+        submit()
+        waitForLabel(element("account-new.dock.text"), containing: "结果未确认")
+        XCTAssertEqual(app.buttons["account-new.submit"].label, "用同一编号重试")
+        app.buttons["account-new.cancel"].tap()
+        XCTAssertTrue(text(containing: "账号「\(Fixture.claudeName)」可能已经创建").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.alerts["放弃新建账号？"].exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["仍然关闭"].exists, app.debugDescription)
+        app.buttons["仍然关闭"].tap()
+        XCTAssertTrue(app.buttons["account-new.cancel"].waitForNonExistence(timeout: 5), app.debugDescription)
+        waitForReceipt("「\(Fixture.claudeName)」创建结果未确认 · 请到账号列表核对")
+        XCTAssertTrue(app.buttons["account.\(Fixture.newID)"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     // MARK: - Helpers

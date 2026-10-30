@@ -45,6 +45,8 @@ public enum AccountNewCancelAction: Sendable, Equatable {
     case resolvePauseFailed
     /// “账号「{name}」已创建，怎么处理？”.
     case resolveCreated
+    /// The create's result is still unknown (00 §2.5.4: the sheet stays): “账号「{name}」可能已经创建”.
+    case resolveUnconfirmed
 }
 
 /// The new-account flow's shared rules (S2D1-13): plain functions and copy. The create and stop-scheduling stages are S2-19's,
@@ -60,11 +62,13 @@ public enum AccountNewFlow {
         guard isCreated else { return "创建并测试" }
         return hasChanges ? "保存并重新测试" : "重新测试"
     }
+    /// `resultUnconfirmed`: the create's result and the check by name are both unknown, so the account may exist.
     public static func cancelAction(hasPlatform: Bool, isCreated: Bool, isBusy: Bool, isTesting: Bool, isPassed: Bool,
-                                    pauseUnconfirmed: Bool) -> AccountNewCancelAction {
-        if !hasPlatform, !isCreated { return .close }
+                                    pauseUnconfirmed: Bool, resultUnconfirmed: Bool = false) -> AccountNewCancelAction {
+        if !hasPlatform, !isCreated, !resultUnconfirmed { return .close }
         if isTesting { return .continueInBackground }
         if isBusy { return .blocked }
+        if resultUnconfirmed { return .resolveUnconfirmed }
         if isPassed { return .finish }
         if pauseUnconfirmed { return .resolvePauseFailed }
         return isCreated ? .resolveCreated : .confirmDiscard

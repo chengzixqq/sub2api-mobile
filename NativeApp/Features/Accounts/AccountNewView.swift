@@ -110,7 +110,7 @@ private extension View {
         }
     }
 
-    /// S2-18's questions (放弃 / 换平台 / 换方式 / 切换授权方式) and the stop that was not confirmed.
+    /// S2-18's questions (放弃 / 换平台 / 换方式 / 切换授权方式), and the stop or the create that was not confirmed.
     func accountNewPrompts(_ model: AccountNewModel, dismiss: @escaping () -> Void) -> some View {
         let question = model.prompt?.confirmation
         return alert(question?.title ?? "", isPresented: Binding(get: { model.prompt?.confirmation != nil },
@@ -121,15 +121,21 @@ private extension View {
         } message: { question in
             Text(question.message)
         }
-        .confirmationDialog(AccountNewCopy.pauseUnconfirmedTitle(name: model.accountName),
-                            isPresented: Binding(get: { model.prompt == .pauseUnconfirmed },
-                                                 set: { if !$0, model.prompt == .pauseUnconfirmed { model.prompt = nil } }),
-                            titleVisibility: .visible) {
-            Button(AccountNewCopy.pauseRetry) { model.prompt = nil; model.perform(.retryPause) }
+        .confirmationDialog(model.prompt == .createUnconfirmed ? AccountNewCopy.createUnconfirmedTitle(name: model.accountName)
+                                : AccountNewCopy.pauseUnconfirmedTitle(name: model.accountName),
+                            isPresented: Binding(get: { model.prompt?.isResolution == true },
+                                                 set: { if !$0, model.prompt?.isResolution == true { model.prompt = nil } }),
+                            titleVisibility: .visible, presenting: model.prompt) { prompt in
+            if prompt == .createUnconfirmed {
+                Button(AccountNewDockContent.Action.reconcile.title) { model.prompt = nil; model.perform(.reconcile) }
+            } else {
+                Button(AccountNewCopy.pauseRetry) { model.prompt = nil; model.perform(.retryPause) }
+            }
             Button(AccountNewCopy.closeAnyway, role: .destructive) { model.prompt = nil; model.closeAnyway() }
             Button(AccountNewCopy.keepHandling, role: .cancel) { model.prompt = nil }
-        } message: {
-            Text(AccountNewCopy.pauseUnconfirmedMessage(id: model.submission.createdAccountID ?? 0))
+        } message: { prompt in
+            Text(prompt == .createUnconfirmed ? AccountNewCopy.createUnconfirmedMessage
+                 : AccountNewCopy.pauseUnconfirmedMessage(id: model.submission.createdAccountID ?? 0))
         }
     }
 }

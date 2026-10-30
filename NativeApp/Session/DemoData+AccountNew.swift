@@ -11,6 +11,8 @@ extension DemoData.AccountFixture {
     static let createUnconfirmed = "-ui-account-create-unconfirmed"
     /// The first create is lost before it is stored; the same number again goes through.
     static let createLost = "-ui-account-create-lost"
+    /// The check by name after an unknown result fails too: the form stays at 结果未确认.
+    static let createCheckFail = "-ui-account-create-check-fail"
     /// `meta/catalog` fails: the form falls back to the built-in list and offers 重试.
     static let newCatalogError = "-ui-account-new-catalog-error"
     /// The e-mail exchange-code reports (Gemini reports none).

@@ -20,6 +20,8 @@ final class AccountNewModel {
         case switchGeminiType(GeminiOAuthType, AccountNewConfirmation)
         /// “账号「{name}」可能还在参与调度”: 重试停止调度 / 仍然关闭 / 继续处理.
         case pauseUnconfirmed
+        /// “账号「{name}」可能已经创建”: 核对 / 仍然关闭 / 继续处理 (00 §2.5.4: the create's result is still unknown).
+        case createUnconfirmed
         var id: String {
             switch self {
             case .discard: "discard"
@@ -28,15 +30,18 @@ final class AccountNewModel {
             case .switchClaudeKind(let kind, _): "kind." + kind.rawValue
             case .switchGeminiType(let type, _): "gemini." + type.rawValue
             case .pauseUnconfirmed: "pause"
+            case .createUnconfirmed: "unconfirmed"
             }
         }
         var confirmation: AccountNewConfirmation? {
             switch self {
             case .discard(let question), .switchPlatform(_, let question), .switchMethod(_, let question), .switchClaudeKind(_, let question),
                  .switchGeminiType(_, let question): question
-            case .pauseUnconfirmed: nil
+            case .pauseUnconfirmed, .createUnconfirmed: nil
             }
         }
+        /// The three-answer questions about a result that is not confirmed.
+        var isResolution: Bool { self == .pauseUnconfirmed || self == .createUnconfirmed }
     }
 
     var draft: AccountNewDraft
@@ -96,6 +101,8 @@ final class AccountNewModel {
     var riskyGroups: [AdminGroup] { eligibleGroups.filter { draft.groupIDs.contains($0.id) && mixedRisks[$0.id] != nil } }
     var oauthInProgress: Bool { oauthFlow?.link != nil && draft.oauthGrant == nil }
     var isPauseUnconfirmed: Bool { if case .pauseUnconfirmed = submission.stage { true } else { false } }
+    /// The create and the check by name both came back unknown: the account may exist.
+    var isResultUnconfirmed: Bool { if case .unconfirmed = submission.stage { true } else { false } }
     var mixedChannelWarning: MixedChannelWarning? {
         guard !answeredMixedChannel, case .confirmingMixedChannel(let warning) = submission.stage else { return nil }
         return warning
@@ -175,7 +182,7 @@ final class AccountNewModel {
         case .switchMethod(let method, _): switchMethod(to: method)
         case .switchClaudeKind(let kind, _): applyClaudeKind(kind)
         case .switchGeminiType(let type, _): applyGeminiType(type)
-        case .pauseUnconfirmed: break
+        case .pauseUnconfirmed, .createUnconfirmed: break
         }
         return false
     }
@@ -363,22 +370,29 @@ extension AccountNewModel {
     /// true: close now (nothing picked). Otherwise a question is set, or nothing happens while a request is out.
     func cancelRequested() -> Bool {
         let action = AccountNewFlow.cancelAction(hasPlatform: draft.platform != nil, isCreated: submission.createdAccountID != nil,
-                                                 isBusy: submission.isBusy, isTesting: false, isPassed: false, pauseUnconfirmed: isPauseUnconfirmed)
+                                                 isBusy: submission.isBusy, isTesting: false, isPassed: false, pauseUnconfirmed: isPauseUnconfirmed,
+                                                 resultUnconfirmed: isResultUnconfirmed)
         switch action {
         case .close, .finish, .resolveCreated: return true
         case .confirmDiscard:
             guard let question = draft.discardConfirmation(oauthInProgress: oauthInProgress) else { return true }
             prompt = .discard(question)
         case .resolvePauseFailed: prompt = .pauseUnconfirmed
+        case .resolveUnconfirmed: prompt = .createUnconfirmed
         case .blocked, .continueInBackground: break
         }
         return false
     }
-    /// 仍然关闭 while the stop is not confirmed: a receipt that leads to the account, where it can be stopped by hand.
+    /// 仍然关闭 while the stop is not confirmed: a receipt that leads to the account, where it can be stopped by hand. While the
+    /// create itself is not confirmed there is no account to lead to: the receipt says to check the list (the key goes with the form).
     func closeAnyway() {
-        guard let account = submission.account else { isFinished = true; return }
-        app.receipts.show(Receipt(text: AccountNewCopy.leftUnconfirmedReceipt(name: account.name), systemImage: "exclamationmark.triangle",
-                                  tone: .caution, action: viewAction(account)))
+        if let account = submission.account {
+            app.receipts.show(Receipt(text: AccountNewCopy.leftUnconfirmedReceipt(name: account.name), systemImage: "exclamationmark.triangle",
+                                      tone: .caution, action: viewAction(account)))
+        } else if isResultUnconfirmed {
+            app.receipts.show(Receipt(text: AccountNewCopy.leftCreateUnconfirmedReceipt(name: draft.name), systemImage: "questionmark.circle",
+                                      tone: .caution))
+        }
         isFinished = true
     }
 

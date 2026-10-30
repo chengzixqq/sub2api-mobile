@@ -147,14 +147,13 @@ extension AccountNewDraft {
         }
         return credentials
     }
-    /// account_mode and api_protocol; adaptive sends every native endpoint with base_url its chat one, a concrete protocol its
-    /// own endpoint. protocol_rules are left to the backend's catalog defaults.
+    /// account_mode and api_protocol; adaptive sends every native endpoint with base_url its chat one, a concrete protocol the
+    /// endpoint picked (catalog, preset or custom). protocol_rules are left to the backend's catalog defaults.
     private func modeCredentials(_ mode: MetaCatalog.Mode, method: AccountNewMethod) -> [String: JSONValue] {
         let apiProtocol = effectiveProtocol ?? AccountProtocolEndpoints.adaptive
         var credentials: [String: JSONValue] = ["api_key": .string(Self.trim(apiKey)), "account_mode": .string(mode.mode), "api_protocol": .string(apiProtocol)]
         guard apiProtocol == AccountProtocolEndpoints.adaptive else {
-            let endpoint = customEndpointInUse ? Self.trim(customEndpoint) : method.officialEndpoint(for: apiProtocol)
-            if let endpoint { credentials["base_url"] = .string(endpoint) }
+            if let endpoint = concreteEndpoint(method, apiProtocol: apiProtocol) { credentials["base_url"] = .string(endpoint) }
             return credentials
         }
         let endpoints = AccountProtocolEndpoints.nativeProtocolOrder.compactMap { name in method.officialEndpoint(for: name).map { (name, $0) } }
