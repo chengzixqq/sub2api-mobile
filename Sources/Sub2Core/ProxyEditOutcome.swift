@@ -5,14 +5,33 @@ import Foundation
 /// R05: the add's Idempotency-Key is made when 添加 is tapped. The same form again (a retry) keeps the key and the very bytes,
 /// expires_at included; a changed form gets a new key.
 public struct ProxyAddAttempt: Sendable, Equatable {
+    /// How much earlier than `madeAt` the server's `created_at` may read: its clock against the corrected one.
+    public static let clockSlack: TimeInterval = 15
+
     public let key: UUID
     public let draft: ProxyEditDraft
     public let request: ProxyCreateRequest
+    /// When 添加 made the key, on the server-corrected clock.
+    public let madeAt: Date
+    /// The proxies listed then: none of them is this add.
+    public let existing: Set<Int>
 
     /// Throws the form's own error before anything is sent.
-    public static func next(previous: ProxyAddAttempt?, draft: ProxyEditDraft, now: Date, makeKey: () -> UUID = { UUID() }) throws -> ProxyAddAttempt {
+    public static func next(previous: ProxyAddAttempt?, draft: ProxyEditDraft, now: Date, existing: Set<Int> = [],
+                            makeKey: () -> UUID = { UUID() }) throws -> ProxyAddAttempt {
         if let previous, previous.draft == draft { return previous }
-        return ProxyAddAttempt(key: makeKey(), draft: draft, request: try draft.createRequest(now: now))
+        return ProxyAddAttempt(key: makeKey(), draft: draft, request: try draft.createRequest(now: now), madeAt: now, existing: existing)
+    }
+
+    /// 00 §2.5.4 核对: the row this add made. Names are not unique, so a row listed before 添加 or created before it is someone
+    /// else's; the rest must carry what was sent, as the server trims it (the password is not compared).
+    public func matches(_ proxy: AdminProxy) -> Bool {
+        guard !existing.contains(proxy.id), let created = proxy.createdAt, created >= madeAt.addingTimeInterval(-Self.clockSlack) else { return false }
+        let trim = ProxyWriteCheck.trimmed
+        return trim(proxy.name) == trim(request.name) && trim(proxy.scheme).lowercased() == trim(request.scheme)
+            && trim(proxy.host) == trim(request.host) && proxy.port == request.port && trim(proxy.username ?? "") == trim(request.username)
+            && (proxy.fallbackMode ?? ProxyFallbackMode.none.rawValue) == request.fallbackMode.rawValue
+            && proxy.backupProxyID == request.backupProxyID && (proxy.expiryWarnDays ?? request.expiryWarnDays) == request.expiryWarnDays
     }
 }
 
@@ -80,6 +99,7 @@ public enum ProxyEditCopy {
     public static let saving = "正在保存…", confirming = "正在确认结果…", checking = "正在核对…"
     public static let reconcile = "核对", recheck = "再次核对", retrySame = "用同一编号重试"
     public static let discardTitle = "放弃修改？", discardConfirm = "放弃修改", keepEditing = "继续编辑"
+    public static let unconfirmedCloseTitle = "结果未确认", keepChecking = "继续核对", checkLater = "稍后核对"
     public static let loading = "正在读取代理…", gone = "代理已删除"
     /// The fallback segments in the design's order.
     public static let fallbackOrder: [ProxyFallbackMode] = [.none, .direct, .proxy]
@@ -117,6 +137,11 @@ public enum ProxyEditCopy {
         case .waitingForServer(let seconds)?: "服务器仍在处理 · 已等待 \(seconds) 秒"
         case .actionID?, nil: saving
         }
+    }
+    /// 00 §2.5.4: closing with the result open lets go of the add's key; the catalog reads again.
+    public static func unconfirmedCloseMessage(adding: Bool) -> String {
+        adding ? "服务器可能已经添加了这个代理。关闭后不再保留这次的编号，代理列表会重新读取；再次添加前先在列表里核对，避免重复。"
+            : "服务器可能已经保存了这次修改。关闭后代理列表会重新读取，再次修改前先在详情里核对。"
     }
     public static func undoFailed(inUse: Bool) -> String { undoFailed(reason: inUse ? "已有账号在用这个代理" : "请稍后再试") }
     public static func undoFailed(reason: String) -> String { "撤销没有成功：" + reason }

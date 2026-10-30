@@ -15,10 +15,11 @@ extension ClientProxySource: ProxyEditSource {
 }
 
 /// 60 §14.4: 添加 / 保存 / 续期 of the proxy sheet. The add carries the key made when 添加 was tapped and keeps it for the same
-/// form (R05); an unknown result stays on the sheet with 核对 (by name) and 用同一编号重试. An edit is sent once without a key
-/// (R06) and a lost reply is read back. Done, it closes the sheet with its receipt: the add's with 撤销 (DELETE, nothing uses it
-/// yet), then the catalog reads again and the new proxy once more 3 seconds later for its first probe; an edit of the address
-/// tells the detail to wait for the server's new probe (H04, C-34). Answers for an older session are dropped.
+/// form (R05); an unknown result stays on the sheet with 核对 (by name) and 用同一编号重试, and closing it then (稍后核对) reads
+/// the catalog again. An edit is sent once without a key (R06) and a lost reply is read back. Done, it closes the sheet with its
+/// receipt: the add's with 撤销 (DELETE, nothing uses it yet), then the catalog reads again and the new proxy once more 3 seconds
+/// later for its first probe; an edit of the address tells the detail to wait for the server's new probe (H04, C-34). Answers
+/// for an older session are dropped.
 @MainActor @Observable
 final class ProxyEditFlow {
     enum Phase: Equatable {
@@ -69,6 +70,13 @@ final class ProxyEditFlow {
         default: false
         }
     }
+    /// 00 §2.5.4: the server may have run the write; closing now asks first (稍后核对).
+    var isUnconfirmed: Bool {
+        switch phase {
+        case .addUnconfirmed, .updateUnconfirmed: true
+        default: false
+        }
+    }
     /// The form waits while a write runs or its result is open.
     var locksForm: Bool {
         switch phase {
@@ -86,7 +94,8 @@ final class ProxyEditFlow {
 
     private func add(_ draft: ProxyEditDraft) async {
         do {
-            attempt = try ProxyAddAttempt.next(previous: attempt, draft: draft, now: now(), makeKey: makeKey)
+            attempt = try ProxyAddAttempt.next(previous: attempt, draft: draft, now: now(), existing: Set(store?.proxies.map(\.id) ?? []),
+                                               makeKey: makeKey)
         } catch {
             phase = .failed(Self.message(ProxyWriteFailure.classify(error, sentBackup: false)), section: nil)
             return
@@ -136,34 +145,39 @@ final class ProxyEditFlow {
         }
         await sendAdd()
     }
-    /// 00 §2.5.4 核对: a proxy of the same name, protocol, host and port is this add.
+    /// 00 §2.5.4 核对: looked for by name; only a row this add made counts (ProxyAddAttempt.matches).
     func reconcileAdd() async {
         guard case .addUnconfirmed(let notBefore, _) = phase, let attempt, !isFinished, isCurrent() else { return }
         phase = .checking
-        let request = attempt.request, query = ProxyListQuery(search: request.name, pageSize: Self.reconcilePageSize)
+        let query = ProxyListQuery(search: attempt.request.name, pageSize: Self.reconcilePageSize)
         let result = await Self.capture { [source] in try await source.proxies(page: 1, query: query) }
         guard isCurrent() else { return }
-        if case .success(let page) = result, let found = page.items.first(where: { Self.isSame($0, as: request) }) {
-            return finishAdd(found, draft: attempt.draft)
-        }
+        if case .success(let page) = result, let found = page.items.first(where: attempt.matches) { return finishAdd(found, draft: attempt.draft) }
         phase = .addUnconfirmed(retryNotBefore: notBefore, searched: true)
+    }
+    /// 稍后核对: the sheet closes without the key or the edit; the catalog reads again so what the server did shows.
+    func checkLater() {
+        guard isUnconfirmed, !isFinished, isCurrent() else { return }
+        reloadCatalog()
     }
 
     private func finishAdd(_ row: AdminProxy, draft: ProxyEditDraft) {
         attempt = nil
         phase = .editing
-        receipts.show(Receipt(text: draft.successReceipt(saved: row), undo: undoAction(id: row.id, name: ProxyPresentation.displayName(row))))
-        isFinished = true
         let id = row.id, source = source, store = store, isCurrent = isCurrent, pause = pause
+        let reload = Task { @MainActor in if let store { await store.reload() } }
+        receipts.show(Receipt(text: draft.successReceipt(saved: row), undo: undoAction(id: id, name: ProxyPresentation.displayName(row), reload: reload)))
+        isFinished = true
         followUp = Task { @MainActor in
-            await store?.reload()
+            await reload.value
             do { try await pause(Self.probeDelay) } catch { return }
             guard isCurrent(), let fresh = try? await source.proxy(id: id), isCurrent() else { return }
             store?.replace(fresh)
         }
     }
-    /// 撤销: only Sendable parts, so it still works after the sheet is gone.
-    private func undoAction(id: Int, name: String) -> @MainActor @Sendable () -> Void {
+    /// 撤销: only Sendable parts, so it still works after the sheet is gone. The add's catalog read may still be out and bring the
+    /// row back, so it goes again once that read is in.
+    private func undoAction(id: Int, name: String, reload: Task<Void, Never>) -> @MainActor @Sendable () -> Void {
         let source = source, store = store, receipts = receipts, isCurrent = isCurrent
         return {
             Task { @MainActor in
@@ -174,6 +188,8 @@ final class ProxyEditFlow {
                     store?.remove(id: id)
                     receipts.show(Receipt(text: DeleteConfirmationCopy.deletedReceipt(objectNoun: ProxyDetailCopy.objectNoun, displayName: name),
                                           systemImage: "trash"))
+                    await reload.value
+                    if isCurrent() { store?.remove(id: id) }
                 } catch {
                     guard isCurrent(), !(error is CancellationError) else { return }
                     let inUse = (error as? APIError).map(ProxyDeleteBlock.isInUseConflict) ?? false
@@ -282,11 +298,6 @@ final class ProxyEditFlow {
     private nonisolated static func sendsBackup(_ request: ProxyUpdateRequest) -> Bool {
         if case .set? = request.backupProxyID { return true }
         return false
-    }
-    private nonisolated static func isSame(_ proxy: AdminProxy, as request: ProxyCreateRequest) -> Bool {
-        let trim = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return trim(proxy.name) == trim(request.name) && trim(proxy.scheme).lowercased() == request.scheme && trim(proxy.host) == trim(request.host)
-            && proxy.port == request.port
     }
     private nonisolated static func capture<Value: Sendable>(_ work: @Sendable () async throws -> Value) async -> Result<Value, any Error> {
         do { return .success(try await work()) } catch { return .failure(error) }

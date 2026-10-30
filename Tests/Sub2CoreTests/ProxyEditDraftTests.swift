@@ -357,6 +357,30 @@ private func filled() -> ProxyEditDraft {
     #expect(throws: APIError.self) { try ProxyAddAttempt.next(previous: third, draft: broken, now: noon) { UUID() } }
 }
 
+/// 00 §2.5.4 核对: a row of the same name is this add only when it was not listed at 添加, was created after it (15 seconds for
+/// the clocks) and carries what was sent; the key's retries keep the time and the list of the first 添加.
+@Test func proxyEditAddAttemptMatchesOnlyItsOwnRow() throws {
+    let attempt = try ProxyAddAttempt.next(previous: nil, draft: filled(), now: noon, existing: [5]) { UUID() }
+    let again = try ProxyAddAttempt.next(previous: attempt, draft: filled(), now: noon.addingTimeInterval(40), existing: [5, 9]) { UUID() }
+    #expect(again == attempt && again.madeAt == noon && again.existing == [5])
+    func made(id: Int = 9, created: Date? = noon.addingTimeInterval(2), username: String? = nil, fallback: String? = "none",
+              warnDays: Int? = 7) -> AdminProxy {
+        AdminProxy(id: id, name: "fr-par-1", scheme: "socks5", host: "198.51.100.9", port: 1080, username: username, status: "active",
+                   createdAt: created, fallbackMode: fallback, expiryWarnDays: warnDays)
+    }
+    #expect(attempt.matches(made()))
+    #expect(attempt.matches(made(created: noon.addingTimeInterval(-15))))
+    #expect(attempt.matches(made(username: "", fallback: nil, warnDays: nil)))
+    #expect(!attempt.matches(made(id: 5)))
+    #expect(!attempt.matches(made(created: noon.addingTimeInterval(-16))))
+    #expect(!attempt.matches(made(created: nil)))
+    #expect(!attempt.matches(made(username: "user-b")))
+    #expect(!attempt.matches(made(fallback: "direct")))
+    #expect(!attempt.matches(made(warnDays: 3)))
+    #expect(!attempt.matches(AdminProxy(id: 9, name: "fr-par-1", scheme: "socks5h", host: "198.51.100.9", port: 1080, createdAt: noon)))
+    #expect(!attempt.matches(AdminProxy(id: 9, name: "fr-par-1", scheme: "socks5", host: "198.51.100.9", port: 1081, createdAt: noon)))
+}
+
 @Test func proxyEditFailureClassification() {
     func failure(_ status: Int, _ reason: String?, backup: Bool = false) -> ProxyWriteFailure {
         ProxyWriteFailure.classify(APIError.server(status: status, reason: reason), sentBackup: backup)
