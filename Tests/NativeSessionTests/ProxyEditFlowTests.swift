@@ -41,19 +41,26 @@ private actor StubEditSource: ProxyEditSource {
     private(set) var reads: [Int] = []
     private(set) var searches: [String] = []
     private(set) var deletes: [Int] = []
+    /// Catalog reads (no search), and the gate they wait at once taken: the reply is the rows as they were when asked.
+    private(set) var lists = 0
+    private var listGate: Gate?
 
     init(rows: [AdminProxy] = [hk02, sg01, jpTokyo], create: @escaping Create = { request, _ in StubEditSource.created(request) },
          update: @escaping Update = { request, _ in applied(request, to: hk02) }, read: Read? = nil, deleteError: (any Error)? = nil) {
         self.rows = rows; onCreate = create; onUpdate = update; onRead = read; self.deleteError = deleteError
     }
-    static func created(_ request: ProxyCreateRequest) -> AdminProxy {
-        AdminProxy(id: 9, name: request.name, scheme: request.scheme, host: request.host, port: request.port, status: "active",
+    static func created(_ request: ProxyCreateRequest, id: Int = 9, at created: Date = noon) -> AdminProxy {
+        AdminProxy(id: id, name: request.name, scheme: request.scheme, host: request.host, port: request.port, status: "active", createdAt: created,
                    fallbackMode: request.fallbackMode.rawValue, expiryWarnDays: request.expiryWarnDays)
     }
+    /// A row the server made while its reply was lost.
+    func insert(_ row: AdminProxy) { rows.insert(row, at: 0) }
+    func hold(_ gate: Gate) { listGate = gate }
 
     func proxies(page: Int, query: ProxyListQuery) async throws -> Page<AdminProxy> {
-        if !query.search.isEmpty { searches.append(query.search) }
+        if !query.search.isEmpty { searches.append(query.search) } else { lists += 1 }
         let matched = rows.filter { query.search.isEmpty || $0.name == query.search }
+        if query.search.isEmpty, let listGate { await listGate.wait() }
         return Page(items: matched, total: matched.count, page: page, pageSize: query.pageSize, pages: 1)
     }
     func testProxy(id: Int) async throws -> ProxyTestResult { ProxyTestResult(success: true, latencyMs: 158) }
@@ -81,6 +88,21 @@ private actor StubEditSource: ProxyEditSource {
         let row = try await onCreate(request, keys.count)
         rows.insert(row, at: 0)
         return WriteOutcome(value: row)
+    }
+}
+
+/// Holds the catalog reads that reach it until opened.
+private actor Gate {
+    private var isOpen = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func open() {
+        isOpen = true
+        waiting.forEach { $0.resume() }
+        waiting = []
     }
 }
 
@@ -125,6 +147,11 @@ private func newProxy() -> ProxyEditDraft {
     draft.portText = "1080"
     return draft
 }
+/// The same name and address as `newProxy()`, as another row of the site.
+private func twin(id: Int, created: Date?, username: String? = nil) -> AdminProxy {
+    AdminProxy(id: id, name: "fr-par-1", scheme: "socks5", host: "198.51.100.9", port: 1080, username: username, status: "active", createdAt: created,
+               fallbackMode: "none", expiryWarnDays: 7)
+}
 
 @MainActor @Test func proxyEditAddShowsUndoReloadsAndReadsTheProbe() async {
     let h = await harness()
@@ -166,11 +193,15 @@ private func newProxy() -> ProxyEditDraft {
 }
 
 @MainActor @Test func proxyEditAddCheckFindsItByName() async {
-    let h = await harness(StubEditSource(rows: [hk02, sg01, StubEditSource.created(try! newProxy().createRequest(now: noon))], create: { _, _ in throw unconfirmed }))
+    // An older proxy of the same name and address is listed; the server made the new one (9) and the reply was lost.
+    let h = await harness(StubEditSource(rows: [hk02, sg01, twin(id: 5, created: noon)], create: { _, _ in throw unconfirmed }))
     await h.flow.submit(newProxy())
+    await h.stub.insert(twin(id: 9, created: noon.addingTimeInterval(1)))
     await h.flow.reconcileAdd()
     #expect(await h.stub.searches == ["fr-par-1"])
     #expect(h.flow.isFinished && h.receipts.current?.text == "代理添加成功")
+    h.receipts.performAction(id: h.receipts.current!.id)
+    #expect(await eventually { await h.stub.deletes == [9] })
 
     let missing = await harness(StubEditSource(create: { _, _ in throw unconfirmed }))
     await missing.flow.submit(newProxy())
@@ -271,4 +302,52 @@ private func newProxy() -> ProxyEditDraft {
     await plain.flow.submit(renamed)
     #expect(plain.flow.isFinished)
     #expect(await plain.stub.reads.isEmpty)
+}
+
+/// 00 §2.5.4 核对: the name is not unique, so a row listed before 添加, one made before it or one with another username is not this
+/// add: the sheet stays unconfirmed and nothing gets a receipt or an undo.
+@MainActor @Test func proxyEditAddCheckSkipsOtherRowsOfTheSameName() async {
+    let h = await harness(StubEditSource(rows: [hk02, sg01, twin(id: 5, created: noon)], create: { _, _ in throw unconfirmed }))
+    await h.flow.submit(newProxy())
+    await h.stub.insert(twin(id: 6, created: noon.addingTimeInterval(-86_400)))
+    await h.stub.insert(twin(id: 7, created: noon, username: "user-b"))
+    await h.flow.reconcileAdd()
+    #expect(h.flow.phase == .addUnconfirmed(retryNotBefore: nil, searched: true))
+    #expect(!h.flow.isFinished && h.receipts.current == nil)
+}
+
+/// 撤销 while the add's catalog read is still out: the reply that still lists the proxy does not bring it back.
+@MainActor @Test func proxyEditUndoDuringTheCatalogReadStaysDeleted() async {
+    let h = await harness()
+    let gate = Gate()
+    await h.stub.hold(gate)
+    await h.flow.submit(newProxy())
+    #expect(await eventually { await h.stub.lists == 2 })
+    h.receipts.performAction(id: h.receipts.current!.id)
+    #expect(await eventually { await MainActor.run { h.receipts.current?.text == "已删除代理「fr-par-1」" } })
+    await gate.open()
+    await h.flow.followUp?.value
+    #expect(await eventually { await MainActor.run { h.store.proxy(id: 9) == nil } })
+    #expect(await h.stub.deletes == [9])
+}
+
+/// 00 §2.5.4: an open result asks before the sheet closes; 稍后核对 reads the catalog again, so a proxy the server did make shows.
+@MainActor @Test func proxyEditCheckLaterReadsTheCatalogAgain() async {
+    let h = await harness(StubEditSource(create: { _, _ in throw unconfirmed }))
+    #expect(!h.flow.isUnconfirmed)
+    await h.flow.submit(newProxy())
+    #expect(h.flow.isUnconfirmed)
+    await h.stub.insert(twin(id: 9, created: noon))
+    h.flow.checkLater()
+    #expect(await eventually { await MainActor.run { h.store.proxy(id: 9) != nil } })
+    #expect(!h.flow.isFinished && h.receipts.current == nil)
+
+    var draft = ProxyEditDraft(editing: hk02, now: noon)
+    draft.name = "hk-02b"
+    let edit = await harness(StubEditSource(update: { _, _ in throw lost }, read: { _, _ in throw APIError.server(status: 502, reason: nil) }),
+                             original: hk02)
+    await edit.flow.submit(draft)
+    #expect(edit.flow.phase == .updateUnconfirmed && edit.flow.isUnconfirmed)
+    edit.flow.checkLater()
+    #expect(await eventually { await edit.stub.lists == 2 })
 }

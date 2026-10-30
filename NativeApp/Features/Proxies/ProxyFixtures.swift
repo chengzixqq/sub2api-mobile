@@ -123,6 +123,8 @@ actor FixtureProxySource: ProxySource {
     private var restored: [Int: [ProxyAccountRef]] = [:]
     /// S6-14: the add answered for each key (the same key answers the same proxy).
     private var createdByKey: [UUID: AdminProxy] = [:]
+    /// S6-14: `-ui-proxy-add-lost` lost the session's first add reply.
+    private var addReplyLost = false
 
     init(proxies: [AdminProxy], options: DemoData.ProxyFixtureOptions, now: @escaping @Sendable () -> Date = { Date() }) {
         rows = proxies; self.options = options; self.now = now
@@ -400,6 +402,8 @@ extension DemoData {
     enum ProxyEditFixtureArgument {
         /// An add or an edit that sends a backup answers 404 PROXY_NOT_FOUND: the backup was deleted meanwhile.
         static let backupGone = "-ui-proxy-backup-gone"
+        /// The session's first add is made, but its reply is lost (the key's retries included): the result stays unconfirmed.
+        static let addLost = "-ui-proxy-add-lost"
     }
     /// The server's probe of a new address lands this long after the write (the add reads it 3 seconds later, the detail 5).
     static let proxyEditProbeDelay: Duration = .seconds(2)
@@ -420,6 +424,11 @@ extension FixtureProxySource: ProxyEditSource {
         createdByKey[idempotencyKey] = reply
         replace(reply.fixtureCounting(accounts: 0))
         probeLater(id)
+        if !addReplyLost, ProcessInfo.processInfo.arguments.contains(DemoData.ProxyEditFixtureArgument.addLost) {
+            addReplyLost = true
+            throw KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: idempotencyKey.uuidString.lowercased(),
+                                    actionID: nil, lastError: APIError(kind: .transport, message: "无法连接站点"))
+        }
         return WriteOutcome(value: reply)
     }
 

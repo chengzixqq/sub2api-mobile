@@ -1,11 +1,13 @@
 import XCTest
 
 /// 60 §14 添加 / 编辑 / 续期代理 (S6-14) on ProxyFixtures: an add answers id 9 and its first probe (158ms) about 2 seconds later;
-/// an address edit probes again the same way; `-ui-proxy-backup-gone` refuses any write that sends a backup with 404.
+/// an address edit probes again the same way; `-ui-proxy-backup-gone` refuses any write that sends a backup with 404 and
+/// `-ui-proxy-add-lost` makes the first add but loses its reply.
 extension ProxiesUITests {
-    /// ProxyFixtures' editor argument.
+    /// ProxyFixtures' editor arguments.
     enum EditArgument {
         static let backupGone = "-ui-proxy-backup-gone"
+        static let addLost = "-ui-proxy-add-lost"
     }
 
     /// 14.4: added, then 撤销 deletes it; added again, its first probe shows about 3 seconds later.
@@ -192,6 +194,32 @@ extension ProxiesUITests {
         reveal(gone)
         XCTAssertEqual(gone.label, "备用代理已不存在，请重新选择")
         XCTAssertTrue(app.navigationBars["编辑代理"].exists, app.debugDescription)
+    }
+
+    /// 00 §2.5.4: the add went through but its reply was lost, so the sheet stays with 核对 and 用同一编号重试. A swipe and 取消
+    /// ask “结果未确认” rather than “放弃修改？”; 继续核对 keeps the sheet, 稍后核对 closes it and the list reads the new proxy.
+    @MainActor func testUnconfirmedAddAsksBeforeClosing() {
+        launchProxies([EditArgument.addLost])
+        defer { diagnostics("proxy-edit-unconfirmed-final") }
+        XCTAssertTrue(row(8).waitForExistence(timeout: 10), app.debugDescription)
+        openAdd()
+        fillNewProxy("fr-par-1")
+        app.buttons["proxyEdit.submit"].tap()
+        XCTAssertTrue(app.buttons["proxyEdit.reconcile"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["proxyEdit.retrySame"].exists, app.debugDescription)
+        dragSheetDown("添加代理")
+        let later = app.alerts["结果未确认"]
+        XCTAssertTrue(later.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.alerts["放弃修改？"].exists, app.debugDescription)
+        later.buttons["继续核对"].tap()
+        XCTAssertTrue(later.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["添加代理"].exists, app.debugDescription)
+        XCTAssertFalse(row(9).exists, app.debugDescription)
+        app.buttons["proxyEdit.cancel"].tap()
+        XCTAssertTrue(later.waitForExistence(timeout: 5), app.debugDescription)
+        later.buttons["稍后核对"].tap()
+        XCTAssertTrue(app.navigationBars["添加代理"].waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(row(9).waitForExistence(timeout: 10), app.debugDescription)
     }
 
     // MARK: - S6-14 helpers

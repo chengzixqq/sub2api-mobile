@@ -73,8 +73,8 @@ struct ProxyEditDestination: View {
 }
 
 /// The form of 60 §14.3 in the mode's order, 取消 on the left and 添加 / 保存 / 续期 on the right (greyed while the form does not
-/// pass). While a write runs the button spins and the form waits; with unsaved changes 取消 and a downward swipe ask “放弃修改？”.
-/// ProxyEditFlow sends and closes the sheet when done.
+/// pass). While a write runs the button spins and the form waits; with unsaved changes 取消 and a downward swipe ask “放弃修改？”,
+/// with the result open (00 §2.5.4) “结果未确认” instead. ProxyEditFlow sends and closes the sheet when done.
 struct ProxyEditSheet: View {
     let proxy: AdminProxy?
     @Environment(AppModel.self) private var model
@@ -85,6 +85,7 @@ struct ProxyEditSheet: View {
     @State private var flow: ProxyEditFlow?
     @State private var flowGeneration: UUID?
     @State private var confirmingDiscard = false
+    @State private var confirmingLater = false
 
     init(proxy: AdminProxy?, now: Date) {
         self.proxy = proxy
@@ -94,6 +95,7 @@ struct ProxyEditSheet: View {
     private var clock: Date { session?.client.serverClock.now() ?? Date() }
     private var zone: ServerTimeZone { session?.site.serverTimeZone ?? .device }
     private var isBusy: Bool { flow?.isBusy ?? false }
+    private var isUnconfirmed: Bool { flow?.isUnconfirmed ?? false }
     private var store: ProxyStore? { model.proxyStore.flatMap { $0.generation == session?.generation ? $0 : nil } }
     private var backups: [ProxyBackupCandidate] { ProxyBackupCandidate.make(from: store?.proxies ?? [], excluding: proxy?.id, now: clock) }
     private var canSubmit: Bool { flow.map { !$0.locksForm } == true && draft.isSubmittable(backups: backups, now: clock) }
@@ -103,11 +105,17 @@ struct ProxyEditSheet: View {
             .navigationTitle(draft.mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
-            .interactiveDismissDisabled(isBusy || draft.hasUnsavedChanges)
-            .background(ProxyDismissAttemptBridge { if draft.hasUnsavedChanges, !isBusy { confirmingDiscard = true } })
+            .interactiveDismissDisabled(isBusy || isUnconfirmed || draft.hasUnsavedChanges)
+            .background(ProxyDismissAttemptBridge { if !isBusy { cancel() } })
             .alert(ProxyEditCopy.discardTitle, isPresented: $confirmingDiscard) {
                 Button(ProxyEditCopy.discardConfirm, role: .destructive) { dismiss() }
                 Button(ProxyEditCopy.keepEditing, role: .cancel) {}
+            }
+            .alert(ProxyEditCopy.unconfirmedCloseTitle, isPresented: $confirmingLater) {
+                Button(ProxyEditCopy.checkLater, role: .destructive) { checkLater() }
+                Button(ProxyEditCopy.keepChecking, role: .cancel) {}
+            } message: {
+                Text(ProxyEditCopy.unconfirmedCloseMessage(adding: proxy == nil))
             }
             .task(id: session?.generation) {
                 prepare()
@@ -133,7 +141,12 @@ struct ProxyEditSheet: View {
     }
 
     private func cancel() {
-        if draft.hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        if isUnconfirmed { confirmingLater = true } else if draft.hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+    }
+    /// 稍后核对 (00 §2.5.4): closes without the key; the catalog reads again.
+    private func checkLater() {
+        flow?.checkLater()
+        dismiss()
     }
     /// Not tied to the view: the sheet cannot be closed while the write runs, and it closes itself when done.
     private func submit() {
