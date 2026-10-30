@@ -347,6 +347,11 @@
 | OAuthCallbackListener 真机验证 | NWListener 加 SFSafariViewController 跳本机端口只能在真机上验证：localhost 先连 ::1 的双栈情况、端口被其他 App 占用时退回粘贴、是否需要 NSLocalNetworkUsageDescription。重新授权不开监听，首个开启方是 S2-19 |
 | 复制授权链接不限本机 | 为了能复制到走同一代理的电脑上打开，“复制链接”不加 .localOnly（会经通用剪贴板同步到其他设备），只把到期设为链接剩余时间；链接里没有 code_verifier，风险可接受。以后需要收紧时再定 |
 | REAUTH_PERSIST_FAILED 缺 retry_within_seconds | S2-15 的口径是缺省时只给“重新授权”（不给“重试保存”）；后端目前总是带 300。若后端改了，再决定是否按 300 秒兜底 |
+| 新建账号 UI 测试补跑 | S2-19 的 AccountNewUITests（13 个）是在 UI_UNAVAILABLE 下写的，从未在模拟器跑过；Mac 修好后（Xcode 27.2 需 runFirstLaunch，Toolchain.json 仍固定 27.1）补跑 check AccountNewUITests,AccountListUITests,AccountCredentialUITests,AccountEditUITests,AppNavigationUITests 并修正 |
+| 新建账号停调度没有确认时“仍然关闭” | S2-19 的取消确认框给“重试停止调度 / 仍然关闭 / 继续处理”；“仍然关闭”关闭表单并回执“「{name}」停止调度没有确认 · 结果待核对”+“查看”。规格只写了重试与删除，文案待用户确认；“删除账号…”随 S2-20 加入 |
+| 新建账号多协议端点预设 | 新建表单的“端点”只有目录官方端点与“自定义”。Web 的 CN_BASE_URL_PRESETS（kimi / zhipu / deepseek / minimax）不在 S2-18 的数据里，是否补齐待用户决定 |
+| 跨 Tab 跳转关闭新建表单 | AppRouter.select 会无确认地关闭新建表单，已填内容和内存里的令牌一并丢弃；已发出的创建与停调度仍会做完并照常发回执。是否在 select 前询问，留给 S2-23 或用户决定 |
+| 新建账号遇到 503 IDEMPOTENCY_STORE_UNAVAILABLE | 创建遇到 store-unavailable 时按结果不明核对，找不到就给“用同一编号重试”，没有按 retryNotBefore 延后；S2-20 / S2-23 可统一处理 |
 
 ### App 与设计 · 阶段 3
 
@@ -397,6 +402,8 @@
 | Key 名称按反转义显示 | S3D1-12：App 卡片、回执和分组 sheet 标题显示反转义后的名称（“A&B”），Web 显示实体原文（“A&amp;B”）。如要与 Web 一致，只改 AdminAPIKey.displayName 一处。 |
 | 老服务端忽略 Key 的 status | 方案补充的保险：停用 / 启用后响应里 status 没变，就回执“这个站点还不支持停用 Key”，不记已立即生效、不给撤销；审查可以决定是否删掉。 |
 | Key 列表下拉刷新失败的提示 | 规格没写；目前保留已读的卡片，并给回执“Key 刷新失败，显示的是上次读取的内容”。 |
+| 换分组撤销遇到原分组已收回授权 | Key 从基线里已没有的专属标准分组换出时，回执不给撤销（后端把 Key 绑回专属分组会重新授予）；回执没有说明为什么没有撤销，以后可以考虑加一句提示，或把撤销改成一次显式授予（走闸门、同步基线、回执写明会重新授予）。 |
+| 工具链守卫与 Mac Xcode 版本 | Mac 已是 Xcode 27.2（27B52），scripts/check_toolchain.py 仍要求 27.1，所有线的 check 都报 TOOLCHAIN_EXIT=3；需要决定是更新守卫还是退回 Xcode。CoreSimulator 也需要执行 sudo xcodebuild -runFirstLaunch，UI 测试才能恢复。 |
 
 ### App 与设计 · 阶段 4
 
