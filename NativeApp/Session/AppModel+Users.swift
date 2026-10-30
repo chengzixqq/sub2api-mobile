@@ -171,13 +171,16 @@ extension AppModel {
         let admins = (demoUsersBySession[sessionGeneration] ?? DemoData.allUsers).filter { $0.role == AdminUserRole.admin.rawValue }.count
         return admins + (currentAdminUserID == nil ? 1 : 0)
     }
-    /// 30 §6.3 RPM 状态; `-ui-user-rpm-unavailable` answers as a site without the RPM cache, `-ui-user-rpm-failed` fails with 500.
+    /// 30 §6.3 RPM 状态; `-ui-user-rpm-unavailable` answers as a site without the RPM cache, `-ui-user-rpm-failed` fails with 500,
+    /// `-ui-user-rpm-ticking` counts one more request at every read.
     func userRPMStatus(id: Int) async throws -> UserRPMStatusReply {
         guard isUITesting else { return try await requireClient().userRPMStatus(id: id) }
         let arguments = ProcessInfo.processInfo.arguments
         if arguments.contains(UserEditFixtureArgument.rpmFailed) { throw APIError.server(status: 500, reason: nil) }
         if arguments.contains(UserEditFixtureArgument.rpmUnavailable) { return .unavailable }
-        return .status(DemoData.rpmStatus(userID: id))
+        let earlier = DemoData.userRPMReads
+        DemoData.userRPMReads += 1
+        return .status(DemoData.rpmStatus(userID: id, extraUsed: arguments.contains(UserEditFixtureArgument.rpmTicking) ? earlier : 0))
     }
     /// The edit page's save (UserUpdateSubmission); `isPageAlive` turns false when the page goes away.
     func userEditEffects(isPageAlive: @escaping @MainActor @Sendable () -> Bool) -> UserUpdateSubmission.Effects {

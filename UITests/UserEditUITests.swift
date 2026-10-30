@@ -325,6 +325,38 @@ final class UserEditUITests: XCTestCase {
         XCTAssertFalse(app.buttons["user-edit.save"].isEnabled)
     }
 
+    /// 30 §6.6: the block reads again every 15 seconds while it stays on screen, also after its first value replaced the spinner.
+    @MainActor func testRPMStatusKeepsRefreshingWhileShown() {
+        launchAndLogin(arguments: ["-ui-user-rpm-ticking"])
+        defer { diagnostics("user-edit-rpm-refresh-final") }
+        openEditor(3, name: "王小明")
+        app.buttons["user-edit.segment.access"].tap()
+        let total = element("user-edit.rpm.total")
+        reveal(total)
+        waitForLabel(total, contains: "/ 60")
+        let first = total.label
+        let next = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", first), object: total)
+        XCTAssertEqual(XCTWaiter().wait(for: [next], timeout: 25), .completed, "15 秒后应再读一次：\(first)\n\(app.debugDescription)")
+    }
+
+    /// 30 §6.4 step 7: the profile PUT took Claude Code 组 (and its ×1.3) away and the attributes failed. The page stays, and the
+    /// saved removal no longer counts as a change, so the next “保存” sends nothing more for the group.
+    @MainActor func testAttributeFailureSettlesARemovedGroup() {
+        launchAndLogin(arguments: ["-ui-user-attr-fail"])
+        defer { diagnostics("user-edit-attr-fail-removed-final") }
+        openEditor(3, name: "王小明")
+        XCTAssertTrue(waitUntil(element("user-edit.attr.11"), "value == 'Studio-K'"), app.debugDescription)
+        type("Studio-Q", into: "user-edit.attr.11")
+        let access = app.buttons["user-edit.segment.access"]
+        access.tap()
+        removeGroup5()
+        waitForLabel(access, contains: "已改 1 项")
+        app.buttons["user-edit.save"].tap()
+        waitForReceipt("资料已保存，自定义属性没保存成功")
+        waitForLabel(app.buttons["user-edit.segment.basic"], contains: "已改 1 项")
+        XCTAssertFalse(access.label.contains("已改"), access.label)
+    }
+
     // MARK: - Helpers
 
     /// Password sign-in, or the access-token method for `accessToken` (a `sat_` key selects it on its own).

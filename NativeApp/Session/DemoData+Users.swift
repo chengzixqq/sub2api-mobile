@@ -452,14 +452,19 @@ enum UserEditFixtureArgument {
     static let rpmUnavailable = "-ui-user-rpm-unavailable"
     /// rpm-status fails with 500.
     static let rpmFailed = "-ui-user-rpm-failed"
+    /// Each rpm-status read counts one more request this minute: 2 / 60, then 3 / 60 …
+    static let rpmTicking = "-ui-user-rpm-ticking"
 }
 
 // S3-11: `PUT admin/users/:id` as strict as the server (S3D1-10), so a page that sends what it did not change fails.
 extension DemoData {
-    /// 王小明 (3) used 2 of 60 this minute, 2 of them on Claude Code 组 under his own RPM; everyone else nothing, unlimited.
-    static func rpmStatus(userID: Int) -> UserRPMStatus {
+    /// The rpm-status reads so far, for `-ui-user-rpm-ticking`.
+    @MainActor static var userRPMReads = 0
+    /// 王小明 (3) used 2 of 60 this minute (plus `extraUsed`), 2 of them on Claude Code 组 under his own RPM; everyone else
+    /// nothing, unlimited.
+    static func rpmStatus(userID: Int, extraUsed: Int = 0) -> UserRPMStatus {
         guard userID == 3 else { return UserRPMStatus(userUsed: 0, userLimit: 0, userTracked: true) }
-        return UserRPMStatus(userUsed: 2, userLimit: 60, userTracked: true,
+        return UserRPMStatus(userUsed: 2 + extraUsed, userLimit: 60, userTracked: true,
                              perGroup: [UserRPMStatus.Group(groupID: 5, groupName: "Claude Code 组", used: 2, limit: 30, source: "override", tracked: true)])
     }
     /// Refusals first (balance, an unchanged key, a taken email, disabling an administrator, a rate ≤ 0), then the merge:

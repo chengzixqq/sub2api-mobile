@@ -311,9 +311,7 @@ final class UserEditorModel {
     /// The user PUT went through and only the attributes failed (30 §6.4 step 7): what was saved stops counting as changed.
     func settleSaved(_ request: UserUpdateRequest?) {
         guard let request, let baseline else { return }
-        self.baseline = baseline.applying(request)
-        draft.password = ""
-        draft.adjustmentNotes = ""
+        (self.baseline, draft) = UserEditSettle.apply(request, baseline: baseline, draft: draft, catalog: catalog)
     }
     var isApplyingImmediate: Bool { immediateWritesInFlight > 0 }
     var canStartImmediateWrite: Bool { saveProgress == nil }

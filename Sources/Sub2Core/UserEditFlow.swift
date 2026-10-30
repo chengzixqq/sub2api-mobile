@@ -177,6 +177,22 @@ public enum UserEditRebase {
     }
 }
 
+/// 30 §6.4 step 7: the user PUT went through and its attributes did not, so the page stays and what was saved stops counting
+/// as changed. The password and adjustment notes were spent. An exclusive group the save took away takes its rate out of the
+/// draft as well: it was held only for “撤回”, and left there it would read as a new rate for a group the user no longer has.
+public enum UserEditSettle {
+    public static func apply(_ request: UserUpdateRequest, baseline: UserBaseline, draft: UserAccessDraft,
+                             catalog: UserGroupCatalog) -> (UserBaseline, UserAccessDraft) {
+        var next = draft
+        next.password = ""
+        next.adjustmentNotes = ""
+        if let allowed = request.allowedGroups {
+            for id in baseline.allowedGroups.intersection(catalog.exclusiveIDs).subtracting(allowed) { next.groupRates.removeValue(forKey: id) }
+        }
+        return (baseline.applying(request), next)
+    }
+}
+
 /// 30 §6.4 / §6.6 and S3D1-11.
 public enum UserEditPolicy {
     /// The RPM block reads again this often while it is on screen.
