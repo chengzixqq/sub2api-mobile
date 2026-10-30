@@ -484,3 +484,7 @@
 | ProxiesUITests 拆文件 | ProxiesUITests.swift 已 659 行，S6-13 的用例放在 UITests/ProxiesUITests+Fallback.swift（extension）；S6-14 追加 UI 测试时宜同样新建扩展文件，items.json 的 files 需相应补上（S6-13 的 files 也应把 ProxiesUITests.swift 换成这个新文件） |
 | 补偿“被其他用户用了 / 无法确认”页面文案 | 60 §19.3 没有写这两种待核对页。S6-09 自拟了“这次没有发给 …”+“重新发放”和“无法确认这次发放”+“我已在 Web 核对”，需要用户确认文案和流程 |
 | 待核对页重试的 Face ID 覆盖层 | 补偿待核对页上点“用同一编号重试”时，系统 Face ID 照常弹出，但 sheet 不叠加“Face ID · 验证后发放”覆盖层（向导里的首次发放有）。可在 S6-26 统一 |
+| 合并下滑先确认的 UIKit 桥 | S6-14 的 ProxyEditSheet.swift 里又加了一份 fileprivate 的 ProxyDismissAttemptBridge（和 AnnouncementEditSheet、AccountSectionSheet 的写法相同）；S6-26 收口时并成 NativeApp/Views/DismissAttemptBridge.swift 并登记进 contracts.md（S6D1-16） |
+| 代理有效期日期改用 monthDayClock | ProxyEditDraft 的“保持 yyyy-MM-dd”用 ServerTimeZone.dayString，续期脚注里的“MM/DD”用 ProxyExpiry.monthDay；S6-26 收口时看是否改为转调 S3-04 的 DisplayFormat.monthDayClock（S3D1-28） |
+| 编辑超时读回缺 UI 用例 | 代理编辑超时后的读回（一致 / 不一致 / 读不到）只有 ProxyEditFlowTests 覆盖；要不要加夹具参数（如 -ui-proxy-update-timeout）补 UI 用例，以后再定 |
+| 代理编辑对象条地址的写法 | 续期对象条用 ProxyPresentation.addressLine（“SOCKS5H · host:port”），和详情副标题一致；规格示例里的地址是演示数据，夹具实际显示 198.51.100.30 |
