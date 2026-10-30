@@ -22,7 +22,7 @@ struct RedeemSheetDestination: View {
         // .redeemEdit：S6-05
         case .redeemEdit(let id): RedeemEditLoader(id: id)
         // .redeemGenerate：S6-07
-        case .redeemGenerate: ComingSoonSheet(title: sheet.placeholderTitle)
+        case .redeemGenerate: RedeemGenerateSheet()
         // .redeemReconcile：S6-06
         case .redeemReconcile(let batchID): RedeemReconcileView(batchID: batchID)
         // .redeemGrant：S6-09

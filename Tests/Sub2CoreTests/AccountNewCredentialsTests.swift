@@ -8,13 +8,13 @@ private let privateKey = "PRIVATE-KEY-FIXTURE"
 private let vertexJSON = #"{"type":"service_account","project_id":"demo-project","client_email":"sa@demo-project.example.invalid","private_key":"PRIVATE-KEY-FIXTURE"}"#
 
 private func methods(_ platform: String) -> [AccountNewMethod] { AccountNewCatalog.methods(for: platform, in: catalog) }
-private func picked(_ platform: String, _ methodID: String) throws -> AccountNewDraft {
-    let draft = AccountNewDraft().switchingPlatform(to: platform, methods: methods(platform),
-                                                    suggestedName: AccountNewNaming.suggestedName(platform: platform, existingCount: 0))
+private func picked(_ platform: String, _ methodID: String, legacy: Bool = false) throws -> AccountNewDraft {
+    let draft = AccountNewDraft(isLegacyServer: legacy).switchingPlatform(to: platform, methods: methods(platform),
+                                                                          suggestedName: AccountNewNaming.suggestedName(platform: platform, existingCount: 0))
     return draft.switchingMethod(to: try #require(methods(platform).first { $0.id == methodID }))
 }
-private func keyed(_ platform: String, _ methodID: String = "apikey", base: String = "") throws -> AccountNewDraft {
-    var draft = try picked(platform, methodID)
+private func keyed(_ platform: String, _ methodID: String = "apikey", base: String = "", legacy: Bool = false) throws -> AccountNewDraft {
+    var draft = try picked(platform, methodID, legacy: legacy)
     draft.apiKey = " \(secret) "; draft.baseURL = base
     return draft
 }
@@ -130,6 +130,25 @@ private func printed<T>(_ value: T) -> [String] {
     #expect(throws: APIError.self) { _ = try AccountNewDraft().createRequest() }
 }
 
+/// f3a3d8684 (2026-07-26) let every API Key platform turn the probe on; the servers from d2585097f before it answer 400
+/// UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID for any but OpenAI, and a server without /admin/me may be one of them.
+@Test func legacyServerSendsTheProbeOnlyForOpenAIKeys() throws {
+    var upstream = try picked("antigravity", "upstream", legacy: true)
+    upstream.upstreamBaseURL = "https://upstream.example.invalid"; upstream.upstreamAPIKey = secret
+    for draft in [try keyed("anthropic", legacy: true), try keyed("gemini", legacy: true), try keyed("grok", legacy: true),
+                  try keyed("cline", "mode.payg", legacy: true), upstream] {
+        let request = try draft.createRequest()
+        #expect(request.upstreamBillingProbeEnabled == nil, "\(draft)")
+        #expect(try !String(decoding: request.requestBody(), as: UTF8.self).contains("upstream_billing_probe_enabled"))
+    }
+    #expect(try keyed("openai", legacy: true).createRequest().upstreamBillingProbeEnabled == true)
+    #expect(try keyed("gemini").createRequest().upstreamBillingProbeEnabled == true)
+    let saved = try keyed("anthropic", legacy: true)
+    var edited = saved
+    edited.apiKey = "sk-new-fixture"
+    #expect(try edited.patch(since: saved) == AccountPatchRequest(credentialsPatch: ["api_key": .set("sk-new-fixture")]))
+}
+
 @Test func vertexFileRequiresProjectEmailAndKey() throws {
     let file = try vertexFile()
     #expect(file.fileName == "sa.json" && file.projectID == "demo-project" && file.clientEmail == "sa@demo-project.example.invalid" && file.rawText == vertexJSON)
@@ -184,7 +203,8 @@ private func printed<T>(_ value: T) -> [String] {
         (edited { $0.apiKey = "sk-new-fixture" }, AccountPatchRequest(credentialsPatch: ["api_key": .set("sk-new-fixture")])),
         (edited { $0.baseURL = "" }, AccountPatchRequest(credentialsPatch: ["base_url": .set("https://api.anthropic.com")])),
         (toOAuth, AccountPatchRequest(type: "oauth", upstreamBillingProbeEnabled: false,
-                                      credentialsPatch: ["access_token": .set("at-fixture"), "expires_at": .set(1_893_456_000), "base_url": .delete]))
+                                      credentialsPatch: ["access_token": .set("at-fixture"), "expires_at": .set(1_893_456_000), "base_url": .delete,
+                                                         "api_key": .set("")]))
     ]
     for (draft, expected) in edits {
         let patch = try draft.patch(since: saved)
@@ -202,6 +222,31 @@ private func printed<T>(_ value: T) -> [String] {
     var incomplete = saved
     incomplete.apiKey = ""
     #expect(incomplete.hasChanges(since: saved))
+}
+
+/// A secret cannot be deleted (CREDENTIAL_KEY_NOT_DELETABLE), but the server reads "" as unset (GetCredential, has_<key>), so a
+/// secret the form no longer holds is blanked rather than left in use.
+@Test func patchBlanksSecretsTheFormNoLongerHolds() throws {
+    var saved = try picked("anthropic", "bedrock")
+    saved.awsAccessKeyID = "AKIAFIXTURE"; saved.awsSecretAccessKey = secret; saved.awsSessionToken = "session-fixture"
+    var longTerm = saved
+    longTerm.awsAccessKeyID = "AKIALONGTERM"; longTerm.awsSecretAccessKey = "long-term-secret-fixture"; longTerm.awsSessionToken = " "
+    let rotated = try longTerm.patch(since: saved)
+    #expect(rotated.credentialsPatch == ["aws_access_key_id": .set("AKIALONGTERM"), "aws_secret_access_key": .set("long-term-secret-fixture"),
+                                         "aws_session_token": .set("")])
+    try rotated.validate()
+    var cleared = saved
+    cleared.awsSessionToken = ""
+    #expect(cleared.hasChanges(since: saved))
+    #expect(try cleared.patch(since: saved) == AccountPatchRequest(credentialsPatch: ["aws_session_token": .set("")]))
+    var oauth = try picked("anthropic", "oauth")
+    oauth.oauthGrant = try anthropicGrant(.oauth, ["refresh_token": "rt-fixture", "expires_at": 1_893_456_000])
+    var setup = oauth.switchingClaudeAuthKind(.setupToken)
+    setup.oauthGrant = try anthropicGrant(.setupToken, ["access_token": "at-setup-fixture", "expires_at": 1_924_992_000])
+    let switched = try setup.patch(since: oauth)
+    #expect(switched == AccountPatchRequest(type: "setup-token", credentialsPatch: ["access_token": .set("at-setup-fixture"),
+                                                                                   "expires_at": .set(1_924_992_000), "refresh_token": .set("")]))
+    try switched.validate()
 }
 
 @Test func secretsNeverAppearInDescriptions() throws {

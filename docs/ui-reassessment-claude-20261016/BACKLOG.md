@@ -323,6 +323,12 @@
 | 多协议端点预设表（MiniMax Intl 等） | meta/catalog 每个模式的每个协议只有一个官方端点；新建表单目前只提供目录端点和自定义端点。预设表需要后端在目录里提供，或由用户决定是否在 App 内置 |
 | Gemini OAuth 档位选择 | 新建时只用默认档位（Google One → google_one_free、Code Assist → gcp_standard），App 不提供档位选择 |
 | 新建 apikey 账号默认开启上游倍率探测 | 按 Web 默认发 upstream_billing_probe_enabled: true；如果不想默认开启，只需改 createRequest 一行和一条测试 |
+| 无刷新令牌时的“刷新令牌”行 | token_status.auto_refresh == false（没有 refresh_token）时，Claude 刷新会得到不带 reason 的 500。目前照规格保留该行，失败按 500 兜底。待用户决定是否置灰并注“没有刷新令牌，只能重新授权”（S2-16） |
+| 后端补 SPARK_SHADOW_NO_REFRESH 文档 | 刷新影子账号返回 400 SPARK_SHADOW_NO_REFRESH，但 docs/API_ERROR_CODES.md 和 20 §0.5 都没有。App 已用“影子账号的凭据跟随母账号，请刷新母账号的令牌”（S2-16） |
+| 真机确认更换 API Key 输入框 | SecureField 已加 textContentType(nil)、autocorrectionDisabled、privacySensitive。模拟器测不出真机会不会弹“存储密码”或钥匙串自动填充；若会弹，改用 .oneTimeCode 抑制（S2-16） |
+| bedrock / service_account 凭据区文案 | 规格只定了这两类账号的主按钮去 Web（U17）。凭据区目前是“凭据 · 已设置 · 不可查看”加“在 Web 中更换凭据”，脚注“已保存的凭据不可查看；这类凭据请在 Web 中更换。”为自拟，请用户看效果图后确认（S2-16） |
+| Base URL 回执的按钮 | 按设计稿给“测试”。按 20 §0.4-1，可逆的内联编辑应给“撤销”；若要撤销，可用 AccountBaseURLDraft.original 发 PATCH 写回旧值（S2-16） |
+| 访问令牌剩余比例刻度 | 已定设计稿没有刻度，本条不画。以后要加时用 token_status.lifetime_seconds 作分母，只在它有值时画（S2-16） |
 
 ### App 与设计 · 阶段 3
 
@@ -452,3 +458,6 @@
 | 老服务端“无法判断这一批是否已生成”的文案 | 60 §11.4 没写最近 100 条都在时间窗内、分不出这一批时怎么显示。现在是自拟的：“无法判断这一批是否已生成 / 最近生成的兑换码太多，分不出这一批。请到 Web 的兑换码列表核对。”，待设计确认 |
 | 批次重发时间不跨重启保存 | RedeemBatchSendLog 只在内存里记本次运行的最近一次重发。App 重启后，老服务端退路的时间窗上界退回发起时刻 + 2 分钟，重启前那次重发生成的码可能落在窗外。需要时可以把最近重发时间写进待核对记录 |
 | 代理详情：停用后才到期的代理没有专门提示 | 这种代理（status=inactive 且 expires_at 已到，后端到期扫描不处理）现在 ··· 菜单给“续期…”（S6-12 审查修正 5193d28），但按钮行仍是“测试连接 / 编辑”，状态卡仍是“停用”，“壹 有效期”只写到期日，没有说明句。规格 60 §13.3 没有这种状态的文案，要不要像已过期一样把“续期”放进按钮行、加一句说明，待定。 |
+| 后端订阅分组错误码 | 订阅类缺 group_id 或分组不是订阅类型时，后端用 errors.New 返回 500 且没有 reason（service/admin_user.go:1710-1720），App 按结果不明转待核对。建议后端改为 400 GROUP_NOT_SUBSCRIPTION_TYPE（subscription_service.go:37 已有该错误）。App 只提供订阅类型且启用的分组，正常不会触发 |
+| 生成向导订阅分组读取中 / 读取失败的显示 | 现在分组目录未读完或读取失败时，第 2 步也显示“站点还没有订阅类型的分组”，下一步置灰；规格只定义了没有分组的情况。是否改成“正在读取分组”/“读取失败 · 重试”待定 |
+| 生成向导自定义过期天数非法时的收据 | 自定义天数为空或不在 1–3650 时，第 3 步隐藏收据、提交按钮置灰；是否改为保留收据、过期行显示“—”待定 |
