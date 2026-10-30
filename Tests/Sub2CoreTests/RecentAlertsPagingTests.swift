@@ -70,6 +70,36 @@ func mergingFirstPageKeepsLoadedEarlierPages(oldHasMore: Bool, newIsFull: Bool) 
     #expect(merged.cursor == (oldHasMore && newIsFull ? loaded.cursor : nil))
 }
 
+/// A full first page that stops short of the rows loaded leaves a gap: it starts over from that page, so 加载更早 reads the gap.
+/// A row placed here since (a manual resolve, a detail read) is not what the server sent and does not close it.
+@Test(arguments: [false, true])
+func mergingFirstPageStartsOverAcrossGap(oldHasMore: Bool) {
+    let loaded = RecentAlerts.firstPage(page(from: 300, count: oldHasMore ? 50 : 20, minutesAgo: 600), limit: 50)
+    let fresh = page(from: 400, count: 50, minutesAgo: 1)
+    let restart = RecentAlerts.firstPage(fresh, limit: 50)
+    #expect(loaded.mergingFirstPage(fresh) == restart && restart.hasMore)
+    #expect(loaded.upserting(event(390, AlertEvent.manualResolved, minutesAgo: 11)).mergingFirstPage(fresh) == restart)
+}
+
+/// Nothing ended loaded yet (no page, an empty one, one of only firing events): a full page keeps its cursor.
+@Test func mergingFullFirstPageIntoNothingKeepsItsCursor() {
+    let fresh = page(from: 400, count: 50, minutesAgo: 1)
+    let restart = RecentAlerts.firstPage(fresh, limit: 50)
+    #expect(RecentAlerts().mergingFirstPage(fresh) == restart)
+    #expect(RecentAlerts.firstPage([], limit: 50).mergingFirstPage(fresh) == restart)
+    let onlyFiring = RecentAlerts.firstPage(page(from: 300, count: 3, minutesAgo: 600, status: "firing"), limit: 50)
+    #expect(onlyFiring.mergingFirstPage(fresh) == restart)
+}
+
+/// Rows placed, removed or changed here keep the older pages reachable for a page that meets them.
+@Test func localEditsKeepLoadedPagesForOverlappingPage() throws {
+    let first = RecentAlerts.firstPage(page(from: 300, count: 50, minutesAgo: 10), limit: 50)
+    let loaded = first.appendingEarlier(page(from: 250, count: 50, minutesAgo: 60), expectedCursor: try #require(first.cursor))
+        .upserting(event(305, AlertEvent.manualResolved, minutesAgo: 2)).removing(eventID: 299).mapEvents { $0 }
+    let merged = loaded.mergingFirstPage(page(from: 305, count: 50, minutesAgo: 2))
+    #expect(merged.cursor == loaded.cursor && merged.hasMore && merged.events.last?.id == 201)
+}
+
 /// 10 §6.5 last row: the handler's reasonless 400 (a cursor sent without its pair or unreadable); nothing else.
 @Test(arguments: zip([APIError.server(status: 400, reason: nil), .server(status: 400, reason: "INVALID_UNTIL"),
                       .server(status: 404, reason: "OPS_DISABLED"), .server(status: 503, reason: "SERVICE_UNAVAILABLE"), .invalidServer],

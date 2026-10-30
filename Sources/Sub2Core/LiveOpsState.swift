@@ -107,26 +107,31 @@ extension HomeAlerts {
 }
 
 /// 10 §6.2 最近结束 (S1D1-17): ended events only, newest first (`fired_at DESC, id DESC`), each id once. `cursor` is the last
-/// event of the last page as the server sent it; nil means there is nothing older.
+/// event of the last page as the server sent it; nil means there is nothing older. `head` is the newest event of the first page
+/// as the server sent it, firing ones included: the server's events run unbroken from it down to `cursor`.
 public struct RecentAlerts: Sendable, Equatable {
     public let events: [AlertEvent]
     public let cursor: AlertEventCursor?
+    public let head: AlertEventCursor?
 
-    public init(events: [AlertEvent] = [], cursor: AlertEventCursor? = nil) {
+    public init(events: [AlertEvent] = [], cursor: AlertEventCursor? = nil, head: AlertEventCursor? = nil) {
         var seen = Set<Int>()
         self.events = events.filter { !$0.isFiring && seen.insert($0.id).inserted }.sorted(by: Self.isNewer)
         self.cursor = cursor
+        self.head = head
     }
     /// `raw` is one `alert-events?time_range=24h` page; a full page may have older events after it.
     public static func firstPage(_ raw: [AlertEvent], limit: Int) -> RecentAlerts {
-        RecentAlerts(events: raw, cursor: raw.count >= limit ? raw.last?.cursor : nil)
+        RecentAlerts(events: raw, cursor: raw.count >= limit ? raw.last?.cursor : nil, head: raw.compactMap(\.cursor).max())
     }
     /// Inserts or replaces in order; an event that is firing again leaves the list.
     public func upserting(_ event: AlertEvent) -> RecentAlerts {
-        RecentAlerts(events: [event] + events.filter { $0.id != event.id }, cursor: cursor)
+        RecentAlerts(events: [event] + events.filter { $0.id != event.id }, cursor: cursor, head: head)
     }
-    public func removing(eventID: Int) -> RecentAlerts { RecentAlerts(events: events.filter { $0.id != eventID }, cursor: cursor) }
-    public func mapEvents(_ transform: (AlertEvent) -> AlertEvent) -> RecentAlerts { RecentAlerts(events: events.map(transform), cursor: cursor) }
+    public func removing(eventID: Int) -> RecentAlerts { RecentAlerts(events: events.filter { $0.id != eventID }, cursor: cursor, head: head) }
+    public func mapEvents(_ transform: (AlertEvent) -> AlertEvent) -> RecentAlerts {
+        RecentAlerts(events: events.map(transform), cursor: cursor, head: head)
+    }
 
     /// Events without a fire time go last.
     private static func isNewer(_ a: AlertEvent, _ b: AlertEvent) -> Bool {

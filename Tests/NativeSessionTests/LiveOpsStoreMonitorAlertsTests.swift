@@ -146,6 +146,25 @@ private actor Gate {
     #expect(store.recentAlerts.map(\.id) == first.map(\.id) && store.recent.value?.cursor == first.last?.cursor)
 }
 
+/// More than a page fired and ended while the segment was away: the poll starts over from its page and 加载更早 reads the gap.
+@MainActor @Test func pollAfterGapStartsOverFromItsPage() async {
+    let old = ended(from: 300, count: 20, minutesAgo: 600)
+    let fresh = ended(from: 400, count: 50, minutesAgo: 1)
+    let reads = Tally()
+    let harness = alertsHarness { request in
+        guard request.before == nil else { return ended(from: 350, count: 10, minutesAgo: 51) }
+        return reads.next() == 1 ? old : fresh
+    }
+    let store = harness.store
+    await store.refreshMonitorAlerts(force: true)
+    #expect(store.monitorEndedFooter == .none)
+    await store.refreshMonitorAlerts(force: false)
+    #expect(store.recentAlerts.map(\.id) == fresh.map(\.id) && store.monitorEndedFooter == .loadEarlier)
+    await store.loadEarlierAlerts()
+    #expect(await endedRequests(harness).last?.before == fresh.last?.cursor)
+    #expect(store.recentAlerts.map(\.id) == Array((341...400).reversed()))
+}
+
 /// A pull while 加载更早 is on its way: that page never lands.
 @MainActor @Test func pullDropsEarlierPageStillOnItsWay() async {
     let gate = Gate()
