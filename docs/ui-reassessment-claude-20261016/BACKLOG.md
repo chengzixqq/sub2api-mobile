@@ -332,6 +332,10 @@
 | bedrock / service_account 凭据区文案 | 规格只定了这两类账号的主按钮去 Web（U17）。凭据区目前是“凭据 · 已设置 · 不可查看”加“在 Web 中更换凭据”，脚注“已保存的凭据不可查看；这类凭据请在 Web 中更换。”为自拟，请用户看效果图后确认（S2-16） |
 | Base URL 回执的按钮 | 按设计稿给“测试”。按 20 §0.4-1，可逆的内联编辑应给“撤销”；若要撤销，可用 AccountBaseURLDraft.original 发 PATCH 写回旧值（S2-16） |
 | 访问令牌剩余比例刻度 | 已定设计稿没有刻度，本条不画。以后要加时用 token_status.lifetime_seconds 作分母，只在它有值时画（S2-16） |
+| 重新授权 / 换码 / apply 的超时 | 按 S2D1-03 沿用不带 key 的写 30 秒；服务端换码最长 2 分钟、保存最长 30 秒，客户端断开后仍会继续，所以上游慢时 App 会落到“不能确认是否已替换 + 重试”。建议在真实站点实测后再定是否放宽（例如 150 秒） |
+| OAuthCallbackListener 真机验证 | NWListener 加 SFSafariViewController 跳本机端口只能在真机上验证：localhost 先连 ::1 的双栈情况、端口被其他 App 占用时退回粘贴、是否需要 NSLocalNetworkUsageDescription。重新授权不开监听，首个开启方是 S2-19 |
+| 复制授权链接不限本机 | 为了能复制到走同一代理的电脑上打开，“复制链接”不加 .localOnly（会经通用剪贴板同步到其他设备），只把到期设为链接剩余时间；链接里没有 code_verifier，风险可接受。以后需要收紧时再定 |
+| REAUTH_PERSIST_FAILED 缺 retry_within_seconds | S2-15 的口径是缺省时只给“重新授权”（不给“重试保存”）；后端目前总是带 300。若后端改了，再决定是否按 300 秒兜底 |
 
 ### App 与设计 · 阶段 3
 

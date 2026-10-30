@@ -1,7 +1,7 @@
 import SwiftUI
 import Sub2Core
 
-/// What the 凭据 rows and ⋯'s credential items do; the detail wires them (S2-17 replaces `reauthorize`).
+/// What the 凭据 rows and ⋯'s credential items do; the detail wires them (`reauthorize` opens S2-17's sheet).
 struct AccountCredentialHandlers {
     let replaceKey: () -> Void
     let editBaseURL: () -> Void
@@ -224,8 +224,8 @@ private struct AccountCredentialAction: View {
     }
 }
 
-/// 20 §3.4 ⋯'s credential items, first in the menu: 更换 API Key… for a key account, 刷新令牌 for a token account (S2-17 adds
-/// 重新授权…); none for Bedrock and Vertex, whose 在 Web 中编辑 follows anyway.
+/// 20 §3.4 ⋯'s credential items, first in the menu: 更换 API Key… for a key account, 刷新令牌 and 重新授权… for a token account; none
+/// for Bedrock and Vertex, whose 在 Web 中编辑 follows anyway.
 struct AccountCredentialMenuItems: View {
     let kind: AccountCredentialKind
     let isRefreshing: Bool
@@ -237,6 +237,7 @@ struct AccountCredentialMenuItems: View {
                 switch action {
                 case .replaceKey: handlers.replaceKey()
                 case .refresh: handlers.refresh()
+                case .reauthorize: handlers.reauthorize()
                 }
             }
             .disabled(action == .refresh && isRefreshing)

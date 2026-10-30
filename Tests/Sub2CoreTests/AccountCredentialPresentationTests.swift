@@ -41,7 +41,8 @@ private func body(_ change: AccountEditChange?) throws -> String {
 @Test func credentialMenuActionsAndFooters() {
     #expect(AccountCredentialKind.key(.optional).menuActions == [.replaceKey])
     #expect(AccountCredentialKind.key(.inWeb).menuActions == [.replaceKey])
-    #expect(AccountCredentialKind.token.menuActions == [.refresh])
+    #expect(AccountCredentialKind.token.menuActions == [.refresh, .reauthorize])
+    #expect(AccountCredentialMenuAction.reauthorize.title == "重新授权…" && AccountCredentialMenuAction.reauthorize.systemImage == "key")
     #expect(AccountCredentialKind.webOnly.menuActions.isEmpty)
     #expect(AccountCredentialMenuAction.replaceKey.title == "更换 API Key…")
     #expect(AccountCredentialMenuAction.refresh.title == "刷新令牌")

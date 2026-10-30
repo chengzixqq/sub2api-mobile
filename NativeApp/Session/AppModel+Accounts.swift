@@ -295,6 +295,39 @@ extension AppModel: AccountRefreshSource {
     }
 }
 
+// MARK: - S2-17 重新授权
+
+/// R19, S2D1-03: the App's one set of OAuth wrappers (S2-19 reuses them). Each is a write: it carries the generation of the
+/// session the user tapped in and goes nowhere once that session has ended. `-ui-testing` authorizes against the session's
+/// AccountDemoStore (DemoData+AccountReauth.swift).
+extension AppModel: AccountReauthorizeSource {
+    var oauthSession: AccountOAuthSession? {
+        guard let session = sessionContext else { return nil }
+        return AccountOAuthSession(generation: session.generation, reauthorizeEndpoint: session.has(.accountsReauthorize),
+                                   errorReasons: session.has(.accountsOAuthErrorReasons), isReadOnlyToken: session.isReadOnlyToken)
+    }
+    func generateOAuthLink(_ request: OAuthLinkRequest, generation: UUID) async throws -> OAuthLink {
+        if isUITesting { return try accountDemoWrite(generation) { $0.authLink(request) } }
+        return try await accountWriteClient(generation).generateAuthURL(request)
+    }
+    func exchangeOAuthCode(_ link: OAuthLink, code: OAuthCode, proxyID: Int?, generation: UUID) async throws -> OAuthTokenInfo {
+        if isUITesting { return try accountDemoWrite(generation) { try $0.exchange(link, code: code) } }
+        return try await accountWriteClient(generation).exchangeCode(link, code: code, proxyID: proxyID)
+    }
+    func reauthorizeAccount(id: Int, request: AccountReauthorizeRequest, generation: UUID) async throws -> UpstreamAccount {
+        if isUITesting {
+            let arguments = ProcessInfo.processInfo.arguments
+            return try accountDemoWrite(generation) { try $0.reauthorize(id: id, request: request, now: accountFixtureNow(), arguments: arguments) }
+        }
+        return try await accountWriteClient(generation).reauthorize(accountID: id, request: request)
+    }
+    func applyOAuthCredentials(accountID: Int, type: OAuthAuthKind, credentials: [String: JSONValue], extra: [String: JSONValue]?,
+                               generation: UUID) async throws -> UpstreamAccount {
+        if isUITesting { return try accountDemoWrite(generation) { try $0.applyOAuth(id: accountID, type: type, now: accountFixtureNow()) } }
+        return try await accountWriteClient(generation).applyOAuthCredentials(accountID: accountID, type: type, credentials: credentials, extra: extra)
+    }
+}
+
 extension AccountTestBackgroundActivity {
     /// 20 §4.4: the stream asks for background time, so a test keeps running for a while after the App leaves the screen.
     static let application = AccountTestBackgroundActivity(begin: { onExpire in

@@ -19,6 +19,9 @@ final class LoadState<Value: Sendable> {
     var error: String? { state.failureReason }
     var updatedAt: Date? { state.updatedAt }
     var isLoading: Bool { state.isLoading }
+    /// A request is on its way and its answer can still land; one whose caller was cancelled is not, though it shows as
+    /// loading until it unwinds.
+    var isAwaitingAnswer: Bool { task.map { !$0.isCancelled } ?? false }
 
     func cancel() {
         requestID = nil
