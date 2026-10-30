@@ -297,4 +297,98 @@ final class AlertDetailUITests: XCTestCase {
         XCTAssertTrue(segments.segment("告警").isSelected, app.debugDescription)
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
     }
+
+    // MARK: S1-17 错误请求计数
+
+    /// 来源 LiveOpsFixtureIDs / LiveOpsFixtures+AlertDetail.swift: 标准组 is group 2; its 近 24 小时 counts 37 failed requests,
+    /// the whole site 128.
+    private enum ErrorCount {
+        static let standardGroup = 2
+        static let siteWide = "-ui-alert-site-wide"
+        static let fails = "-ui-alert-error-count-fails"
+    }
+
+    /// 10 §3.3: under 标准组 the 错误请求 row counts the last 24 hours and opens the group's failed requests.
+    @MainActor func testErrorCountRowShowsCountAndOpensErrorLogs() {
+        launchAndLogin()
+        defer { diagnostics("alert-detail-error-count-final") }
+        openAlert(Fixture.alertA)
+        let group = element("alert.detail.scope.group"), errors = element("alert.detail.scope.errors")
+        XCTAssertTrue(errors.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitForLabel(errors, containing: "近 24 小时 37 条"), errors.label)
+        XCTAssertTrue(errors.label.contains("错误请求"), errors.label)
+        XCTAssertGreaterThan(errors.frame.minY, group.frame.minY, app.debugDescription)
+        reveal(errors)
+        errors.tap()
+        assertErrorLogsOpened(groupID: ErrorCount.standardGroup)
+        goBack()
+        XCTAssertTrue(element("alert.detail.status").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 10 §3.3: a site-wide error rule counts the whole site under 全站, and its logs carry no group.
+    @MainActor func testSiteWideErrorAlertCountsWithoutGroupFilter() {
+        launchAndLogin(arguments: [ErrorCount.siteWide])
+        defer { diagnostics("alert-detail-error-count-site-final") }
+        openAlert(Fixture.alertA)
+        let site = element("alert.detail.scope.site")
+        XCTAssertTrue(site.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(site.label.contains("全站") && site.label.contains("监控 · 概况"), site.label)
+        XCTAssertFalse(element("alert.detail.scope.group").exists, app.debugDescription)
+        let errors = element("alert.detail.scope.errors")
+        XCTAssertTrue(errors.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitForLabel(errors, containing: "近 24 小时 128 条"), errors.label)
+        XCTAssertTrue(errors.label.contains("错误请求"), errors.label)
+        reveal(errors)
+        errors.tap()
+        assertErrorLogsOpened(groupID: nil)
+    }
+
+    /// 10 §3.5: a failed count fails only its row; 「重试」 reads just the count.
+    @MainActor func testErrorCountFailureRetriesOnlyThatRow() {
+        launchAndLogin(arguments: [ErrorCount.fails])
+        defer { diagnostics("alert-detail-error-count-failure-final") }
+        openAlert(Fixture.alertA)
+        let failure = element("alert.detail.scope.errors.failure")
+        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(text(containing: "错误请求 · 加载失败").exists, app.debugDescription)
+        XCTAssertFalse(element("alert.detail.scope.errors").exists, app.debugDescription)
+        XCTAssertTrue(element("alert.detail.status").exists, app.debugDescription)
+        XCTAssertTrue(waitForLabel(element("alert.detail.scope.group"), containing: "1/2 可用"), app.debugDescription)
+        let retry = element("alert.detail.scope.errors.retry")
+        reveal(retry)
+        retry.tap()
+        let errors = element("alert.detail.scope.errors")
+        XCTAssertTrue(errors.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitForLabel(errors, containing: "近 24 小时 37 条"), errors.label)
+        XCTAssertFalse(failure.exists, app.debugDescription)
+        let condition = element("alert.detail.rule.condition")
+        reveal(condition)
+        XCTAssertTrue(condition.label.contains("错误率 > 5.0%"), condition.label)
+    }
+
+    /// 10 §3.3: a platform alert has its channel row and no error count.
+    @MainActor func testPlatformAlertHasNoErrorCountRow() {
+        launchAndLogin()
+        defer { diagnostics("alert-detail-error-count-platform-final") }
+        openAlert(Fixture.alertB)
+        XCTAssertTrue(waitForLabel(element("alert.detail.scope.channel"), containing: "Anthropic 渠道"), app.debugDescription)
+        XCTAssertFalse(element("alert.detail.scope.errors").exists, app.debugDescription)
+        XCTAssertFalse(element("alert.detail.scope.errors.failure").exists, app.debugDescription)
+    }
+
+    /// The log page the row opened. Until S4-05 it is the old 请求与错误日志 with 失败请求 selected and the group as “分组 #<id>”;
+    /// S4-05's 使用记录 replaces this check.
+    @MainActor private func assertErrorLogsOpened(groupID: Int?, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(element("alert.detail.badge").waitForNonExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        let old = app.navigationBars["请求与错误日志"]
+        XCTAssertTrue(old.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        let mode = app.segmentedControls["logs.mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        XCTAssertTrue(mode.buttons["失败请求"].isSelected, app.debugDescription, file: file, line: line)
+        if let groupID {
+            XCTAssertTrue(text(containing: "分组 #\(groupID)").waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        } else {
+            XCTAssertFalse(text(containing: "分组 #").exists, app.debugDescription, file: file, line: line)
+        }
+    }
 }

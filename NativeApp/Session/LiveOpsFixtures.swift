@@ -99,6 +99,11 @@ enum LiveOpsFixtures {
         var alertDetailOpsOff = false
         var alertDetailTurnedOpsOff = false
         var withholdsAlertDetails = false
+        // S1-17 (LiveOpsFixtures+AlertDetail.swift): these go with any variant; `errorCountFailed` is set by FixtureLiveOpsSource,
+        // never by an argument.
+        var alertSiteWide = false
+        var errorCountFails = false
+        var errorCountFailed = false
         // S1-13 (LiveOpsFixtures+Monitor.swift): goes with any variant.
         var monitor = MonitorFixtureOptions()
         // S1-15 (LiveOpsFixtures+Channels.swift): goes with any variant.
@@ -131,6 +136,8 @@ enum LiveOpsFixtures {
             alertGone = arguments.contains(Argument.alertGone)
             alertDetailOpsOff = arguments.contains(Argument.alertDetailOpsDisabled)
             withholdsAlertDetails = UITestArguments.withheldCapabilities(arguments: arguments).contains(Capability.opsAlertEventDetails.rawValue)
+            alertSiteWide = arguments.contains(Argument.alertSiteWide)
+            errorCountFails = arguments.contains(Argument.errorCountFails)
             monitor = MonitorFixtureOptions(arguments: arguments)
             channels = ChannelFixtureOptions(arguments: arguments)
             alerts = AlertsFixtureOptions(arguments: arguments)
@@ -322,8 +329,8 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         self.options = options; self.base = base
         let overflow = options.alertsOverflow ? LiveOpsFixtures.overflowAlerts(base: base) : []
         let history = options.alerts.history ? LiveOpsFixtures.endedHistory(base: base) : []
-        book = FixtureAlertBook(events: LiveOpsFixtures.alertEvents(options.variant, base: base) + overflow + history,
-                                legacy: options.alertsWithoutSilenceKey, writesFail: options.alertWritesFail)
+        let events = LiveOpsFixtures.detailVariant(LiveOpsFixtures.alertEvents(options.variant, base: base), options)
+        book = FixtureAlertBook(events: events + overflow + history, legacy: options.alertsWithoutSilenceKey, writesFail: options.alertWritesFail)
     }
 
     func dashboardHome(timezone: ServerTimeZone, include: [HomeSectionKey]?, noCache: Bool) async throws -> DashboardHome {
@@ -386,6 +393,15 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     func alertRules() throws -> [AlertEventRule] {
         try requireOps()
         return LiveOpsFixtures.alertRules()
+    }
+    /// S1-17: `-ui-alert-error-count-fails` answers the first count 500 INTERNAL_ERROR, then counts as usual.
+    func errorCount(filter: RequestLogFilter, kind: ErrorLogKind) throws -> Int {
+        try requireOps()
+        if options.errorCountFails, !options.errorCountFailed {
+            options.errorCountFailed = true
+            throw LiveOpsFixtures.errorCountError
+        }
+        return LiveOpsFixtures.errorCount(groupID: filter.groupID, kind: kind)
     }
     func channelOverview(range: String, refresh: Bool) throws -> ChannelOverview { try LiveOpsFixtures.channelReply(options, base: base) }
     func opsMonitoringStatus() -> OpsMonitoringStatus { LiveOpsFixtures.monitoringStatus(options.ops) }

@@ -25,6 +25,8 @@ actor StubLiveOpsSource: LiveOpsSource {
         case snapshot(start: Date, end: Date)
         // S1-14
         case concurrency, metricsHistory(timeRange: String, maxPoints: Int), logsHealth, ingress(timeRange: String, page: Int, pageSize: Int)
+        // S1-17
+        case errorCount(RequestLogFilter, ErrorLogKind)
     }
     struct Handlers: Sendable {
         var home: (@Sendable (_ noCache: Bool) async throws -> DashboardHome)?
@@ -58,6 +60,7 @@ actor StubLiveOpsSource: LiveOpsSource {
         var ingress: (@Sendable (_ page: Int, _ pageSize: Int) async throws -> IngressRejectList)?
         /// S1-16: answers alertEvents with every parameter in view; `alertEvents` answers when it is not set.
         var alertEventPages: (@Sendable (AlertEventsRequest) async throws -> [AlertEvent])?
+        var errorCount: (@Sendable (RequestLogFilter, ErrorLogKind) async throws -> Int)?
     }
     /// S1-16: one alertEvents call as sent, for 最近结束's pages.
     struct AlertEventsRequest: Equatable, Sendable {
@@ -229,6 +232,11 @@ actor StubLiveOpsSource: LiveOpsSource {
         calls.append(.ingress(timeRange: timeRange, page: page, pageSize: pageSize))
         guard let handler = handlers.ingress else { throw StubMissing() }
         return try await handler(page, pageSize)
+    }
+    func errorCount(filter: RequestLogFilter, kind: ErrorLogKind) async throws -> Int {
+        calls.append(.errorCount(filter, kind))
+        guard let handler = handlers.errorCount else { throw StubMissing() }
+        return try await handler(filter, kind)
     }
 }
 

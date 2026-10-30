@@ -17,6 +17,8 @@ final class AlertDetailModel {
     let eventLoad = LoadState<AlertEvent>()
     let groupLoad = LoadState<AlertGroupScope>()
     let channelLoad = LoadState<ChannelOverview>()
+    /// S1-17: 错误请求 / 上游错误 · 近 24 小时 N 条, read with 范围 and never polled.
+    let errorCountLoad = LoadState<Int>()
     @ObservationIgnored private let store: LiveOpsStore
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     /// The latest event read; an older one that ends later changes nothing.
@@ -44,9 +46,12 @@ final class AlertDetailModel {
     }
     /// 403 CHANNEL_MONITOR_DISABLED: the channel row says 渠道监控未开启 rather than 加载失败.
     var channelMonitorDisabled: Bool { AlertScopePresentation.isChannelMonitorDisabled(channelLoad.lastError) }
+    /// The error-count row of a group's or a site-wide error rule (10 §3.3); nil for every other event.
+    var errorCountQuery: AlertErrorCountQuery? { event.flatMap(AlertScopePresentation.errorCountQuery) }
 
     /// Entry, a pull (which also reads an old server's rules and group names again), a write, the foreground, compliance passed
-    /// or ops monitoring back on. Polling passes `refreshScope: false` and reads only the event.
+    /// or ops monitoring back on. Polling passes `refreshScope: false` and reads only the event. The error count waits for the
+    /// event, so a gone event or ops monitoring found off sends none and an old server's rule is filled in first.
     func load(refreshScope: Bool, pullToRefresh: Bool = false) async {
         guard store.isCurrent() else { return }
         if pullToRefresh { store.invalidateLegacyAlertLookups() }
@@ -54,7 +59,10 @@ final class AlertDetailModel {
         async let read: Void = readEvent()
         if refreshScope, let shown { await readScope(of: shown, bypassChannelCache: pullToRefresh) }
         await read
-        if refreshScope, shown == nil, let fresh = event { await readScope(of: fresh, bypassChannelCache: pullToRefresh) }
+        guard refreshScope else { return }
+        async let count: Void = readErrorCount()
+        if shown == nil, let fresh = event { await readScope(of: fresh, bypassChannelCache: pullToRefresh) }
+        await count
     }
     /// The group row's 重试.
     func retryGroup() async {
@@ -66,6 +74,8 @@ final class AlertDetailModel {
         guard case .platform? = scopeKind else { return }
         await readChannels(bypassCache: true)
     }
+    /// The error-count row's 重试: only the count.
+    func retryErrorCount() async { await readErrorCount() }
     /// 10 §3.6 while the page shows and the App is active: the event every 60 seconds from the end of the last read (longer after
     /// failures, or the rest of a 429 wait, S1D1-20), until the task is cancelled or the event is gone.
     func polling() async {
@@ -116,6 +126,25 @@ final class AlertDetailModel {
     private func readChannels(bypassCache: Bool) async {
         let store = store
         await channelLoad.load(isCurrent: store.isCurrent) { try await store.alertChannelScope(bypassCache: bypassCache) }
+    }
+    /// Only while ops monitoring is on (10 §3.2) and the page stays.
+    private func readErrorCount() async {
+        guard let query = errorCountQuery, !dismissRequested, !store.opsDisabled else { return }
+        let store = store
+        await errorCountLoad.load(isCurrent: store.isCurrent) { try await store.alertErrorCount(query) }
+    }
+}
+
+extension AlertScopeDestination {
+    /// The rows that push onto this tab's stack (X39): the group, and the error logs by the event's group (10 §3.1); the monitor
+    /// rows switch tabs instead.
+    var pushedRoute: AppRoute? {
+        switch self {
+        case .group(let id): .group(id: id)
+        case .logs(let kind, let groupID, let groupName):
+            .logs(LogsRoute(scope: kind == .upstream ? .upstream : .errors, group: groupID.map { RouteObject(id: $0, name: groupName) }))
+        case .monitorChannels, .monitorOverview: nil
+        }
     }
 }
 
