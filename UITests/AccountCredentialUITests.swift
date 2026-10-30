@@ -285,7 +285,7 @@ final class AccountCredentialUITests: XCTestCase {
 
     @MainActor private func launchAndLogin(arguments: [String] = [], readOnly: Bool = false) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing", Fixture.longWindows] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", Fixture.longWindows] + arguments; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://account-credentials.example.invalid", in: "login.url")

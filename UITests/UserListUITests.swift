@@ -213,7 +213,7 @@ final class UserListUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing"] + arguments
-        app.launch()
+        app.launchQuietly()
         let submit = app.buttons["login.submit"]
         XCTAssertTrue(submit.waitForExistence(timeout: 10), app.debugDescription)
         enter("https://users-list.example.invalid", in: app.textFields["login.url"])

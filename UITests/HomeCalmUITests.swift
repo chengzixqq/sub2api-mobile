@@ -24,7 +24,7 @@ final class HomeCalmUITests: XCTestCase {
 
     @MainActor private func launchAndLogin(arguments: [String]) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         for (value, identifier) in [("平静站点", "login.name"), ("https://calm.example.invalid", "login.url"), ("admin@example.com", "login.email"),
                                     ("fixture-password", "login.password")] {

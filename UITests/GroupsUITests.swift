@@ -61,7 +61,7 @@ final class GroupsUITests: XCTestCase {
 
     @MainActor private func launchAndOpenGroups() {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launchQuietly()
         set("分组管理验收", field: "login.name", towardBottom: false)
         set("https://groups-ui.example.invalid", field: "login.url")
         set("admin@example.com", field: "login.email")

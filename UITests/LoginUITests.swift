@@ -217,7 +217,7 @@ final class LoginUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing"] + arguments
-        app.launch()
+        app.launchQuietly()
         XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 10), app.debugDescription)
     }
     @MainActor private func fillSite(name: String?, url: String = "https://login-ui.example.invalid") {

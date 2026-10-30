@@ -63,7 +63,7 @@ final class SecurityPromptUITests: XCTestCase {
 
     @MainActor private func launchAndLogin(_ argument: String) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing", argument]; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", argument]; app.launchQuietly()
         type("安全验收", into: "login.name")
         type("https://security-ui.example.invalid", into: "login.url")
         type("admin@example.com", into: "login.email")

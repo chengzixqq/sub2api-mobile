@@ -259,7 +259,7 @@ final class AccountDetailMenuUITests: XCTestCase {
     /// C-1: a read-only token greys 编辑, 恢复原代理 and 删除账号…; 在 Web 中编辑 is no server write and stays.
     @MainActor func testReadOnlyTokenGreysProxyRevertAndDelete() {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://account-menu.example.invalid", in: "login.url")
@@ -334,7 +334,7 @@ final class AccountDetailMenuUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing", Fixture.longWindows] + arguments
-        app.launch()
+        app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://account-menu.example.invalid", in: "login.url")

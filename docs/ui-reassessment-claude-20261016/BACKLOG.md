@@ -409,6 +409,10 @@
 | Key 列表下拉刷新失败的提示 | 规格没写；目前保留已读的卡片，并给回执“Key 刷新失败，显示的是上次读取的内容”。 |
 | 换分组撤销遇到原分组已收回授权 | Key 从基线里已没有的专属标准分组换出时，回执不给撤销（后端把 Key 绑回专属分组会重新授予）；回执没有说明为什么没有撤销，以后可以考虑加一句提示，或把撤销改成一次显式授予（走闸门、同步基线、回执写明会重新授予）。 |
 | 工具链守卫与 Mac Xcode 版本 | Mac 已是 Xcode 27.2（27B52），scripts/check_toolchain.py 仍要求 27.1，所有线的 check 都报 TOOLCHAIN_EXIT=3；需要决定是更新守卫还是退回 Xcode。CoreSimulator 也需要执行 sudo xcodebuild -runFirstLaunch，UI 测试才能恢复。 |
+| Key 新建 / 编辑表单与显示完整 Key 入口无设计稿（U24、U25） | 最小表单与 ⋯ 第三项按规格实现，上线前请用户看模拟器截图（ui.xcresult 的 user-keys-created-sheet、user-keys-reveal-sheet、user-keys-create-final 等） |
+| 完整 Key 不可选中 | 30 §7.4 写“等宽、可选择”；为了不让系统拷贝绕过 localOnly 与 60 秒过期，只给“复制”按钮，待用户看截图确认 |
+| Key 名称超长后端返回 500 无 reason | ent MaxLen(100) 在 Save 时校验转义后的名称；App 已在本地拦截（转义后 ≤ 100 字节），请后端补 reason |
+| AccountOAuthTests.authURLReplyKeepsStateAndRejectsUnsafeLinks 计时断言偶发失败 | remaining 只留 1 秒窗口，Mac 高负载下在 S3-13 check 中失败一次、重跑通过；建议放宽窗口或改用可注入时钟 |
 
 ### App 与设计 · 阶段 4
 

@@ -49,7 +49,7 @@ final class RequestLogsUITests: XCTestCase {
     }
     @MainActor private func launchLogs() {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launchQuietly()
         enter("日志验收", field: app.textFields["login.name"])
         enter("https://logs-ui.example.invalid", field: app.textFields["login.url"])
         enter("admin@example.invalid", field: app.textFields["login.email"])

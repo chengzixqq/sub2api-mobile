@@ -18,6 +18,11 @@ struct UserKeyCard: View {
     let onReset: () -> Void
     let onSetStatus: (AdminAPIKeyUpdateRequest.Status) -> Void
     let onGap: (String) -> Void
+    /// S3-13: 编辑 Key…, 显示完整 Key… (by its availability) and 删除 Key… in ⋯.
+    let reveal: UserKeyReveal.Availability
+    let onEdit: () -> Void
+    let onReveal: () -> Void
+    let onDelete: () -> Void
 
     private var now: Date { context.now() }
     private var status: AdminAPIKeyStatus { key.status(now: now) }
@@ -123,11 +128,24 @@ struct UserKeyCard: View {
         }
     }
 
-    /// S3-13 adds 编辑 Key…, 显示完整 Key… and 删除 Key… to this menu.
+    /// 30 §7.3: 编辑 Key…, 停用 / 启用, 显示完整 Key…, then 删除 Key… in red. System menu items carry no identifier; tests find
+    /// them by their words.
     private var menu: some View {
         Menu {
+            Button(UserKeyFormCopy.editAction, systemImage: "pencil", action: onEdit)
             let target = UserKeyPresentation.statusTarget(key)
             Button(UserKeyPresentation.statusMenuTitle(key), systemImage: target == .active ? "play.circle" : "pause.circle") { onSetStatus(target) }
+            switch reveal {
+            case .hidden: EmptyView()
+            case .available: Button(UserKeyFormCopy.revealAction, systemImage: "eye", action: onReveal)
+            case .disabled(let reason):
+                Button(action: onReveal) {
+                    Label(UserKeyFormCopy.revealAction, systemImage: "eye.slash")
+                    Text(reason)
+                }
+                .disabled(true)
+            }
+            Button(UserKeyFormCopy.deleteAction, systemImage: "trash", role: .destructive, action: onDelete)
         } label: {
             Image(systemName: "ellipsis.circle").frame(minWidth: 44, minHeight: 44)
         }

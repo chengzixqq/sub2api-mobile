@@ -364,7 +364,7 @@ final class AccountDetailUITests: XCTestCase {
     /// C-1: a read-only admin access token greys 编辑 with “只读令牌” under it.
     @MainActor func testReadOnlyTokenGreysEditButtons() {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://account-detail.example.invalid", in: "login.url")
@@ -390,7 +390,7 @@ final class AccountDetailUITests: XCTestCase {
 
     @MainActor private func launchAndLogin(arguments: [String] = []) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing", Fixture.longWindows] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", Fixture.longWindows] + arguments; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://account-detail.example.invalid", in: "login.url")

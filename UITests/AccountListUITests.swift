@@ -217,7 +217,7 @@ final class AccountListUITests: XCTestCase {
 
     @MainActor private func launchAndLogin(arguments: [String] = []) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://accounts-list.example.invalid", in: "login.url")
@@ -354,7 +354,7 @@ final class AccountListUITests: XCTestCase {
     /// The access-token method with a `sat_` key; `-ui-readonly-token` makes it read-only.
     @MainActor private func launchWithReadOnlyToken() {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://accounts-list.example.invalid", in: "login.url")

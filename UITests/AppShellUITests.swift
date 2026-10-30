@@ -56,7 +56,7 @@ final class AppShellUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing"] + arguments
-        app.launch()
+        app.launchQuietly()
     }
     /// The root login page or the 添加站点 sheet; a `sat_` key switches the method to 管理访问令牌 on its own (60 §4.3).
     @MainActor private func signIn(site name: String, url: String, key: String) {

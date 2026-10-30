@@ -275,6 +275,49 @@ extension AppModel {
         }
         return try await requireClient().userAPIKeys(userID: userID, maskedView: siteSession?.has(.apiKeysMaskedView) == true)
     }
+    /// S3-13 新建 Key: `idempotencyKey` is made when 创建 is pressed (R05). The fixture writes the session's key table and the
+    /// grant together; a number seen before answers its first result.
+    func createUserAPIKey(userID: Int, _ request: AdminAPIKeyCreateRequest, idempotencyKey: UUID,
+                          onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<CreatedAPIKey> {
+        guard isUITesting else {
+            return try await requireClient().createUserAPIKey(userID: userID, request, idempotencyKey: idempotencyKey, onEvent: onEvent)
+        }
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        let generation = sessionGeneration, arguments = ProcessInfo.processInfo.arguments, store = UserKeyDemoStore.current(for: generation)
+        let lostReply = KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: idempotencyKey.uuidString.lowercased(),
+                                          actionID: nil, lastError: nil)
+        if store.dropsCreate(key: idempotencyKey, arguments: arguments) { throw lostReply }
+        let (created, replayed) = try store.create(userID: userID, request, key: idempotencyKey, arguments: arguments)
+        var users = demoUsersBySession[generation] ?? DemoData.allUsers
+        if let index = users.firstIndex(where: { $0.id == userID }) {
+            users[index] = DemoData.userAfterKeyWrite(users[index], AdminAPIKeyWriteResult(autoGrantedGroupAccess: created.autoGrantedGroupAccess,
+                                                                                            grantedGroupID: created.grantedGroupID))
+            demoUsersBySession[generation] = users
+        }
+        if arguments.contains(UserKeyFixtureArgument.createUncertain) { throw lostReply }
+        return WriteOutcome(value: created, replayed: replayed)
+    }
+    /// S3-13 删除 Key: 404 API_KEY_NOT_FOUND is thrown as the server answers it, and the page treats it as deleted.
+    func deleteAPIKey(id: Int) async throws -> Bool {
+        guard isUITesting else { return try await requireClient().deleteAPIKey(id: id) }
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        try UserKeyDemoStore.current(for: sessionGeneration).delete(id: id)
+        return true
+    }
+    /// S3-13 显示完整 Key, after Face ID and `ensureStepUp`. With `-ui-step-up-required` still unverified the fixture refuses it
+    /// through the same interception as a real STEP_UP_REQUIRED, which sends a read again once verified.
+    func revealAPIKey(id: Int) async throws -> APIKeyReveal {
+        guard isUITesting else { return try await requireClient().revealAPIKey(id: id) }
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-ui-step-up-required"), stepUpRequirement() == .verify {
+            let refusal = APIError.server(status: 403, reason: "STEP_UP_REQUIRED")
+            let outcome = await interceptSecurity(refusal, isRead: true, generation: sessionGeneration)
+            guard outcome == .passed else { throw refusal.withSecurityOutcome(outcome) }
+        }
+        if arguments.contains(UserKeyFixtureArgument.revealGone) { throw APIError.server(status: 404, reason: "API_KEY_NOT_FOUND") }
+        return try UserKeyDemoStore.current(for: sessionGeneration).reveal(id: id)
+    }
 
     // MARK: - 限额
 

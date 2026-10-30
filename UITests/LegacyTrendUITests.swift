@@ -8,7 +8,7 @@ final class LegacyTrendUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing"] + arguments
-        app.launch()
+        app.launchQuietly()
     }
 
     /// From the RPM cell the page opens on 性能指标; the usage chart is one tap away (S1-09).

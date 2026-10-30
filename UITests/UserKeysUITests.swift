@@ -291,7 +291,7 @@ final class UserKeysUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing"] + arguments
-        app.launch()
+        app.launchQuietly()
         let submit = app.buttons["login.submit"]
         XCTAssertTrue(submit.waitForExistence(timeout: 10), app.debugDescription)
         enter("https://user-keys.example.invalid", in: app.textFields["login.url"])
@@ -431,5 +431,335 @@ final class UserKeysUITests: XCTestCase {
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
+    }
+
+    // MARK: - S3-13 新建 / 编辑 / 删除 Key 与显示完整 Key（Alice 1 号：开发密钥、脚本、备用；新建的 Key 从 9001 起）
+
+    @MainActor func testCreateKeyShowsPlaintextOnceThenMaskOnly() {
+        launchAndLogin()
+        defer { diagnostics("user-keys-create-final") }
+        openKeys(1, name: "Alice")
+        openNewKeyForm()
+        XCTAssertTrue(app.navigationBars["新建 Key"].exists, app.debugDescription)
+        XCTAssertFalse(app.buttons["keys.form.submit"].isEnabled, app.debugDescription)
+        fill("keys.form.name", with: "新脚本")
+        app.buttons["keys.form.submit"].tap()
+        let key = element("keys.reveal.key")
+        XCTAssertTrue(key.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["Key 已创建"].exists, app.debugDescription)
+        XCTAssertTrue(key.label.contains("sk-ui-created-9001"), key.label)
+        XCTAssertEqual(element("keys.reveal.notice").label, "完整 Key 只在这里显示一次；之后查看需要二次验证。")
+        diagnostics("user-keys-created-sheet")
+        app.buttons["keys.reveal.copy"].tap()
+        waitForLabel(element("keys.reveal.notice"), contains: "已复制")
+        app.buttons["keys.reveal.done"].tap()
+        waitForReceipt("已创建「新脚本」")
+        XCTAssertFalse(app.buttons["receipt.action"].exists, app.debugDescription)
+        reveal(toggle(9001))
+        XCTAssertTrue(toggle(9001).label.contains("sk-…9001"), toggle(9001).label)
+        XCTAssertEqual(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "sk-ui-created")).count, 0)
+    }
+
+    @MainActor func testCreateKeyWithExclusiveGroupGrantsIt() {
+        launchAndLogin()
+        defer { diagnostics("user-keys-create-group-final") }
+        openKeys(1, name: "Alice")
+        openNewKeyForm()
+        fill("keys.form.name", with: "专属 Key")
+        app.buttons["keys.form.group"].tap()
+        let option = app.buttons["keys.group.option.5"]
+        XCTAssertTrue(option.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(option.label.contains("会同时授予这个分组"), option.label)
+        option.tap()
+        // LabeledContent may read its value as the label's tail or as the element's value.
+        let picked = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Claude Code 组", "Claude Code 组")
+        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: picked, object: app.buttons["keys.form.group"])], timeout: 5),
+                       .completed, app.debugDescription)
+        app.buttons["keys.form.submit"].tap()
+        XCTAssertTrue(app.buttons["keys.reveal.done"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["keys.reveal.done"].tap()
+        waitForReceipt("已创建「专属 Key」")
+        app.buttons["user-edit.segment.access"].tap()
+        XCTAssertTrue(app.buttons["user-edit.exclusive.5"].waitForExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testCreateKeyCountExceededStaysInForm() {
+        launchAndLogin(arguments: ["-ui-key-count-exceeded"])
+        defer { diagnostics("user-keys-create-limit-final") }
+        openKeys(1, name: "Alice")
+        openNewKeyForm()
+        fill("keys.form.name", with: "第四个")
+        app.buttons["keys.form.submit"].tap()
+        waitForLabel(formElement("keys.form.formError"), contains: "这个用户的 Key 数量已达上限，请先删除不用的 Key")
+        XCTAssertTrue(element("keys.form.sheet").exists, app.debugDescription)
+        XCTAssertFalse(element("keys.reveal.sheet").exists, app.debugDescription)
+    }
+
+    @MainActor func testCreateKeyUncertainFindsCreatedKey() {
+        launchAndLogin(arguments: ["-ui-key-create-uncertain"])
+        defer { diagnostics("user-keys-create-uncertain-final") }
+        openKeys(1, name: "Alice")
+        openNewKeyForm()
+        fill("keys.form.name", with: "找回的 Key")
+        app.buttons["keys.form.submit"].tap()
+        waitForReceipt("已创建「找回的 Key」；完整 Key 只能通过“显示完整 Key”查看")
+        XCTAssertFalse(element("keys.reveal.sheet").exists, app.debugDescription)
+        reveal(toggle(9001))
+        XCTAssertTrue(toggle(9001).label.contains("找回的 Key"), toggle(9001).label)
+        app.terminate()
+        // Nothing made and no answer: the same number goes out again, and only that one is taken.
+        launchAndLogin(arguments: ["-ui-key-create-lost"])
+        openKeys(1, name: "Alice")
+        openNewKeyForm()
+        fill("keys.form.name", with: "重试的 Key")
+        app.buttons["keys.form.submit"].tap()
+        waitForLabel(formElement("keys.form.formError"), contains: "结果未确认，请刷新后检查")
+        app.buttons["keys.form.submit"].tap()
+        let key = element("keys.reveal.key")
+        XCTAssertTrue(key.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(key.label.contains("sk-ui-created-9001"), key.label)
+    }
+
+    @MainActor func testEditKeySavesAndUndo() {
+        launchAndLogin()
+        defer { diagnostics("user-keys-edit-final") }
+        openKeys()
+        expand(4099)
+        chooseFromCardMenu(4099, "编辑 Key…")
+        XCTAssertTrue(element("keys.form.sheet").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["编辑 Key"].exists, app.debugDescription)
+        XCTAssertFalse(app.buttons["keys.form.submit"].isEnabled, app.debugDescription)
+        XCTAssertEqual(element("keys.form.name").value as? String, "脚本")
+        fill("keys.form.name", with: "脚本 B")
+        fill("keys.form.ipWhitelist", with: "")
+        XCTAssertTrue(waitUntil(app.buttons["keys.form.submit"], "isEnabled == true"), app.debugDescription)
+        app.buttons["keys.form.submit"].tap()
+        waitForReceipt("已保存「脚本 B」")
+        waitForLabel(toggle(4099), contains: "脚本 B")
+        waitForLabel(element("keys.card.4099.iprule"), contains: "黑名单 203.0.113.9")
+        XCTAssertFalse(element("keys.card.4099.iprule").label.contains("白名单"), element("keys.card.4099.iprule").label)
+        app.buttons["receipt.action"].tap()
+        XCTAssertTrue(waitUntil(toggle(4099), "NOT (label CONTAINS '脚本 B')"), toggle(4099).label)
+        waitForLabel(element("keys.card.4099.iprule"), contains: "白名单 198.51.100.0/24")
+    }
+
+    @MainActor func testEditKeyResetQuotaAndServerError() {
+        launchAndLogin()
+        defer { diagnostics("user-keys-edit-reset-final") }
+        openKeys()
+        expand(4087)
+        chooseFromCardMenu(4087, "编辑 Key…")
+        XCTAssertTrue(element("keys.form.sheet").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.switches["keys.form.resetQuota"].exists, app.debugDescription)
+        app.buttons["keys.form.cancel"].tap()
+        XCTAssertTrue(element("keys.form.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        expand(4099)
+        chooseFromCardMenu(4099, "编辑 Key…")
+        let reset = formElement("keys.form.resetQuota")
+        reset.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5)).withOffset(CGVector(dx: -36, dy: 0)).tap()
+        XCTAssertTrue(waitUntil(reset, "value == '1'"), app.debugDescription)
+        app.buttons["keys.form.submit"].tap()
+        waitForReceipt("已保存「脚本」，已用额度的重置不能撤销")
+        XCTAssertFalse(app.buttons["receipt.action"].exists, app.debugDescription)
+        waitForLabel(element("keys.card.4099.usage"), contains: "$0.00 / $20.00")
+        app.terminate()
+        launchAndLogin(arguments: ["-ui-key-name-required"])
+        openKeys()
+        expand(4087)
+        chooseFromCardMenu(4087, "编辑 Key…")
+        fill("keys.form.name", with: "默认 2")
+        app.buttons["keys.form.submit"].tap()
+        waitForLabel(formElement("keys.form.error.name"), contains: "名称不能为空")
+        XCTAssertTrue(element("keys.form.sheet").exists, app.debugDescription)
+    }
+
+    @MainActor func testDeleteKeyByTypingName() {
+        launchAndLogin()
+        defer { diagnostics("user-keys-delete-final") }
+        openKeys(1, name: "Alice")
+        expand(1)
+        chooseFromCardMenu(1, "删除 Key…")
+        XCTAssertTrue(element("delete.sheet").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(element("delete.title").label, "删除 Key「开发密钥」？")
+        let message = element("delete.message").label
+        XCTAssertTrue(message.contains("站点 Key 验收 · 用户 Alice"), message)
+        XCTAssertTrue(message.contains("删除后这个 Key 立即不能调用，不能撤销。"), message)
+        let confirm = app.buttons["delete.confirm"]
+        XCTAssertEqual(confirm.label, "删除 Key")
+        XCTAssertFalse(confirm.isEnabled, app.debugDescription)
+        let input = element("delete.input")
+        input.tap()
+        input.typeText("开发")
+        XCTAssertFalse(confirm.isEnabled, app.debugDescription)
+        input.typeText("密钥")
+        XCTAssertTrue(waitUntil(confirm, "isEnabled == true"), app.debugDescription)
+        confirm.tap()
+        waitForReceipt("已删除 Key「开发密钥」")
+        XCTAssertFalse(app.buttons["receipt.action"].exists, app.debugDescription)
+        XCTAssertTrue(toggle(1).waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testDeleteKeyWithFaceID() {
+        launchAndLogin(arguments: ["-ui-faceid-on", "-ui-biometric-deny"])
+        openKeys(1, name: "Alice")
+        expand(1)
+        chooseFromCardMenu(1, "删除 Key…")
+        let confirm = app.buttons["delete.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(confirm.label, "用 Face ID 删除")
+        XCTAssertFalse(element("delete.input").exists, app.debugDescription)
+        confirm.tap()
+        XCTAssertTrue(waitUntil(confirm, "isEnabled == true"), app.debugDescription)
+        app.buttons["delete.cancel"].tap()
+        XCTAssertTrue(element("delete.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(toggle(1).exists, app.debugDescription)
+        XCTAssertFalse(app.staticTexts["receipt.text"].exists, app.debugDescription)
+        app.terminate()
+        launchAndLogin(arguments: ["-ui-faceid-on"])
+        defer { diagnostics("user-keys-delete-faceid-final") }
+        openKeys(1, name: "Alice")
+        expand(1)
+        chooseFromCardMenu(1, "删除 Key…")
+        XCTAssertTrue(app.buttons["delete.confirm"].waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["delete.confirm"].tap()
+        waitForReceipt("已删除 Key「开发密钥」")
+        XCTAssertTrue(toggle(1).waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testRevealNeedsLocalAuthentication() {
+        launchAndLogin()
+        openKeys()
+        expand(4087)
+        chooseFromCardMenu(4087, "显示完整 Key…")
+        let key = element("keys.reveal.key")
+        XCTAssertTrue(key.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["完整 Key"].exists, app.debugDescription)
+        XCTAssertTrue(key.label.contains("sk-ui-full-4087"), key.label)
+        XCTAssertEqual(element("keys.reveal.notice").label, "完整 Key 只在这里显示，关闭后不保留")
+        diagnostics("user-keys-reveal-sheet")
+        app.buttons["keys.reveal.done"].tap()
+        XCTAssertTrue(key.waitForNonExistence(timeout: 5), app.debugDescription)
+        app.terminate()
+        // A refused check asks for nothing more and says nothing.
+        launchAndLogin(arguments: ["-ui-biometric-deny"])
+        openKeys()
+        expand(4087)
+        chooseFromCardMenu(4087, "显示完整 Key…")
+        XCTAssertFalse(element("keys.reveal.sheet").waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertFalse(element("stepup.code").exists, app.debugDescription)
+        XCTAssertFalse(app.staticTexts["receipt.text"].exists, app.debugDescription)
+        app.terminate()
+        launchAndLogin(arguments: ["-ui-biometric-unavailable"])
+        defer { diagnostics("user-keys-reveal-local-final") }
+        openKeys()
+        expand(4087)
+        chooseFromCardMenu(4087, "显示完整 Key…")
+        waitForReceipt("这台设备没有设置 Face ID / 触控 ID，不能显示完整 Key")
+        XCTAssertFalse(element("keys.reveal.sheet").exists, app.debugDescription)
+    }
+
+    @MainActor func testRevealAsksStepUpThenShowsKey() {
+        launchAndLogin(arguments: ["-ui-step-up-required"])
+        openKeys()
+        expand(4087)
+        chooseFromCardMenu(4087, "显示完整 Key…")
+        let code = element("stepup.code")
+        XCTAssertTrue(code.waitForExistence(timeout: 10), app.debugDescription)
+        code.tap()
+        code.typeText("123456")
+        let key = element("keys.reveal.key")
+        XCTAssertTrue(key.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(key.label.contains("sk-ui-full-4087"), key.label)
+        app.buttons["keys.reveal.done"].tap()
+        XCTAssertTrue(key.waitForNonExistence(timeout: 5), app.debugDescription)
+        // Verified once: the grant covers the next reveal.
+        chooseFromCardMenu(4087, "显示完整 Key…")
+        XCTAssertTrue(key.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(code.exists, app.debugDescription)
+        app.buttons["keys.reveal.done"].tap()
+        app.terminate()
+        launchAndLogin(arguments: ["-ui-key-reveal-gone"])
+        defer { diagnostics("user-keys-reveal-gone-final") }
+        openKeys()
+        expand(4087)
+        chooseFromCardMenu(4087, "显示完整 Key…")
+        waitForReceipt("这个 Key 已删除，没有可显示的内容")
+        XCTAssertTrue(toggle(4087).waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testRevealDisabledForAdminKeyLogin() {
+        launchAndLogin(arguments: ["-ui-step-up-required"], accessToken: "ui-admin-key")
+        defer { diagnostics("user-keys-reveal-disabled-final") }
+        openKeys()
+        expand(4087)
+        assertRevealDisabled(4087, reason: "Admin Key 登录不能查看完整 Key")
+        app.terminate()
+        launchAndLogin(arguments: ["-ui-step-up-no-totp"])
+        openKeys()
+        expand(4087)
+        assertRevealDisabled(4087, reason: "需要先在 Web 端开启二次验证")
+        app.terminate()
+        launchAndLogin(arguments: ["-ui-without-capabilities", "api_keys.masked_view"])
+        openKeys()
+        expand(4087)
+        let more = app.buttons["keys.card.4087.more"]
+        reveal(more)
+        more.tap()
+        XCTAssertTrue(app.buttons["编辑 Key…"].waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertTrue(app.buttons["删除 Key…"].exists, app.debugDescription)
+        XCTAssertFalse(revealItem().exists, app.debugDescription)
+    }
+
+    @MainActor func testReadOnlyTokenGreysKeyManagement() {
+        launchAndLogin(arguments: ["-ui-readonly-token"], accessToken: "sat_fixture-readonly")
+        defer { diagnostics("user-keys-read-only-manage-final") }
+        openKeys()
+        let more = app.buttons["keys.card.4031.more"]
+        reveal(more)
+        XCTAssertFalse(more.isEnabled, app.debugDescription)
+        let new = app.buttons["keys.new"]
+        reveal(new)
+        XCTAssertFalse(new.isEnabled, app.debugDescription)
+    }
+
+    // MARK: - S3-13 helpers
+
+    @MainActor private func openNewKeyForm() {
+        let new = app.buttons["keys.new"]
+        reveal(new)
+        new.tap()
+        XCTAssertTrue(element("keys.form.sheet").waitForExistence(timeout: 5), app.debugDescription)
+    }
+    /// The sheet's form renders rows as they scroll in: swipes up until the row is there.
+    @MainActor private func formElement(_ identifier: String) -> XCUIElement {
+        let item = element(identifier)
+        for _ in 0..<6 where !(item.waitForExistence(timeout: 1) && item.isHittable) { element("keys.form.sheet").swipeUp() }
+        XCTAssertTrue(item.exists, "\(identifier)\n\(app.debugDescription)")
+        return item
+    }
+    /// Replaces a form field's text; "" clears it.
+    @MainActor private func fill(_ identifier: String, with value: String) {
+        let field = formElement(identifier)
+        field.tap()
+        let current = field.value as? String ?? ""
+        if !current.isEmpty && current != field.placeholderValue {
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        if !value.isEmpty { field.typeText(value) }
+    }
+    @MainActor private func revealItem() -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "显示完整 Key…")).firstMatch
+    }
+    /// The item stays in ⋯, greyed, with the reason as its second line.
+    @MainActor private func assertRevealDisabled(_ id: Int, reason: String, file: StaticString = #filePath, line: UInt = #line) {
+        let more = app.buttons["keys.card.\(id).more"]
+        reveal(more)
+        more.tap()
+        let item = revealItem()
+        XCTAssertTrue(item.waitForExistence(timeout: 3), app.debugDescription, file: file, line: line)
+        XCTAssertFalse(item.isEnabled, app.debugDescription, file: file, line: line)
+        let why = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", reason)).firstMatch
+        XCTAssertTrue(why.exists, "\(reason)\n\(app.debugDescription)", file: file, line: line)
     }
 }
