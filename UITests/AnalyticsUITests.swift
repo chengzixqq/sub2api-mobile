@@ -5,7 +5,7 @@ final class AnalyticsUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing"]
-        app.launch()
+        app.launchQuietly()
         XCTAssertTrue(app.textFields["login.name"].waitForExistence(timeout: 10))
         func reveal(_ element: XCUIElement, down: Bool = true) {
             for _ in 0..<10 {

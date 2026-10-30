@@ -151,7 +151,7 @@ final class SessionsUITests: XCTestCase {
 
     @MainActor private func launchAndLogin(arguments: [String] = []) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter("登录设备站点", in: "login.name")
         enter("https://sessions.example.invalid", in: "login.url")

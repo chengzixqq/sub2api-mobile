@@ -19,7 +19,7 @@ final class MonitorUITests: XCTestCase {
     /// Email and password sign-in, or the access-token method with a `sat_` key (`-ui-readonly-token` makes it read-only).
     @MainActor private func launchAndLogin(arguments: [String] = [], accessToken: String? = nil) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter("监控站点", in: "login.name")
         enter("https://monitor.example.invalid", in: "login.url")

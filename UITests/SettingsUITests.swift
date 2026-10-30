@@ -257,7 +257,7 @@ final class SettingsUITests: XCTestCase {
 
     @MainActor private func launchAndLogin(arguments: [String] = [], name: String = "设置站点", url: String = "https://settings.example.invalid") {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launchQuietly()
         fillLogin(name: name, url: url)
     }
     @MainActor private func fillLogin(name: String, url: String) {

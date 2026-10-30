@@ -6,7 +6,7 @@ final class Sub2MobileUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing"] + arguments
-        app.launch()
+        app.launchQuietly()
     }
 
     @MainActor func testLoginRequiresHTTPSAndCredentials() {

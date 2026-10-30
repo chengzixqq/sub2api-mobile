@@ -348,7 +348,7 @@ final class AccountNewUITests: XCTestCase {
 
     @MainActor private func launchAndLogin(arguments: [String] = []) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-accounts-long-windows"] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-accounts-long-windows"] + arguments; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://account-new.example.invalid", in: "login.url")

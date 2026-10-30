@@ -139,7 +139,7 @@ final class AccessTokensUITests: XCTestCase {
     /// Password sign-in, or the access-token method for `accessToken` (a `sat_` key selects it on its own, 60 §4.3).
     @MainActor private func launchAndLogin(arguments: [String] = [], accessToken: String? = nil) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(siteURL, in: "login.url")
         enter(siteName, in: "login.name")

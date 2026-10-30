@@ -38,7 +38,7 @@ final class AlertDetailUITests: XCTestCase {
     }
     @MainActor private func launch(_ arguments: [String]) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
     }
     @MainActor private func submit() {

@@ -364,7 +364,7 @@ final class UserEditUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing"] + arguments
-        app.launch()
+        app.launchQuietly()
         let submit = app.buttons["login.submit"]
         XCTAssertTrue(submit.waitForExistence(timeout: 10), app.debugDescription)
         enter("https://user-edit.example.invalid", in: app.textFields["login.url"])

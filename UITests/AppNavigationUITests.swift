@@ -209,7 +209,7 @@ final class AppNavigationUITests: XCTestCase {
 
     @MainActor private func launchAndLogin(name: String, url: String, arguments: [String] = []) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launchQuietly()
         fillLogin(name: name, url: url)
     }
     @MainActor private func launchNavigationSite() { launchAndLogin(name: "导航站点", url: "https://navigation.example.invalid") }

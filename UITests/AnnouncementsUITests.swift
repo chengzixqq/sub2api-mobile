@@ -180,7 +180,7 @@ final class AnnouncementsUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing"] + arguments + (readOnlyToken ? ["-ui-readonly-token"] : [])
-        app.launch()
+        app.launchQuietly()
         let submit = app.buttons["login.submit"]
         XCTAssertTrue(submit.waitForExistence(timeout: 10), app.debugDescription)
         enter("https://announcements.example.invalid", in: app.textFields["login.url"])

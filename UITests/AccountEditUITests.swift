@@ -279,7 +279,7 @@ final class AccountEditUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing", Fixture.longWindows] + arguments
         for (key, value) in environment { app.launchEnvironment[key] = value }
-        app.launch()
+        app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://account-edit.example.invalid", in: "login.url")
@@ -576,7 +576,7 @@ final class AccountEditUITests: XCTestCase {
     /// C-1: a read-only token greys both “编辑”; 在 Web 中编辑 writes nothing and stays.
     @MainActor func testReadOnlyTokenGreysModelsAndAdvancedEdit() {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launch()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-readonly-token", Fixture.longWindows]; app.launchQuietly()
         XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         enter(Fixture.site, in: "login.name")
         enter("https://account-edit.example.invalid", in: "login.url")
