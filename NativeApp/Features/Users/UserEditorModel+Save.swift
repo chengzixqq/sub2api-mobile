@@ -115,7 +115,7 @@ extension UserEditorModel {
             return
         }
         let request = sent.updateRequest(from: base, catalog: catalog)
-        let lost = UserEditSaveReceipt.lost(removedGroups: sent.removedExclusiveGroups(from: base, catalog: catalog), keys: boundKeys ?? []) { [catalog] id in
+        let lost = UserEditSaveReceipt.lost(removedGroups: sent.removedExclusiveGroups(from: base, catalog: catalog), keys: keys?.keys ?? []) { [catalog] id in
             catalog.exclusive.first { $0.id == id }?.name ?? "分组 #\(id)"
         }
         let edit = SentEdit(draft: sent, baseline: base, request: request, changedCount: changedFields.count, lost: lost)

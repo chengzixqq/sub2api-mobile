@@ -279,7 +279,7 @@ final class UserEditUITests: XCTestCase {
         XCTAssertTrue(segment.waitForExistence(timeout: 10), app.debugDescription)
         waitForLabel(segment, contains: "Key 与限额（1）")
         XCTAssertTrue(segment.isSelected, app.debugDescription)
-        XCTAssertTrue(element("user-edit.keys.placeholder").exists, app.debugDescription)
+        XCTAssertTrue(element("keys.card.301").waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["user-edit.segment.basic"].tap()
         XCTAssertTrue(element("user-edit.email").waitForExistence(timeout: 5), app.debugDescription)
     }
