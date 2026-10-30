@@ -266,7 +266,7 @@
 | 监控 Tab 的 vendor 分支不可达 | 首版不允许 vendor 登录（U01），“代运营工作区没有运维监控权限”只是防御分支，没有 UI 夹具和用例；开放 vendor 登录时再补 |
 | 首页与监控的健康分行合并 | 监控概况的健康分行（MonitorOverviewSection 私有 MonitorHealthRow）和首页 HomeRunSection 的私有健康分行版式一致、各写一份，由 S1-18 收口时合成一个行组件 |
 | S2-09 的 CapacityBar 合入后统一监控 CPU / 内存条 | S1-14 在 MonitorServerSection.swift 里用的是私有 MeterBar；S2-09 的通用 CapacityBar（C-7）合入后，评估改用它，避免两套容量条 |
-| S1-18 的标识静态核查要接受插值后缀 | S1-14 的读数标识带色调后缀（monitor.server.cpu.<normal|caution|critical>），任务行标识带任务名后缀（monitor.server.job.<job_name>）；按字面量 grep 的核查要能识别这类前缀 |
+| S1-18 的标识静态核查要接受插值后缀 | S1-14 的读数标识带色调后缀（monitor.server.cpu.<normal\|caution\|critical>），任务行标识带任务名后缀（monitor.server.job.<job_name>）；按字面量 grep 的核查要能识别这类前缀 |
 
 ### App 与设计 · 阶段 2
 
