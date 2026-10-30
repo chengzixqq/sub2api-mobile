@@ -535,4 +535,20 @@ final class MonitorUITests: XCTestCase {
         assertValue(element("monitor.channels.count.available"), "3")
         XCTAssertFalse(element("ops.disabled.empty").exists, app.debugDescription)
     }
+
+    /// 00 §3.3: a site without the channel monitor's route (a non-JSON 404) is greyed out as 站点版本较旧, with no counts, no
+    /// 重试 and no count on the segment.
+    @MainActor func testChannelRouteMissingShowsUnsupportedState() {
+        launchAndLogin(arguments: ["-ui-channel-overview-unsupported"])
+        defer { diagnostics("monitor-channels-unsupported-final") }
+        let segments = openChannels()
+        let unsupported = element("monitor.channels.unsupported")
+        XCTAssertTrue(unsupported.waitForExistence(timeout: 10), app.debugDescription)
+        let title = "站点版本较旧，暂不支持此功能"
+        XCTAssertTrue(unsupported.label.contains(title) || text(containing: title, in: unsupported).exists, unsupported.debugDescription)
+        XCTAssertEqual(channelElements(["monitor.channels.row.", "monitor.channels.count."]).count, 0, app.debugDescription)
+        XCTAssertFalse(element("monitor.channels.retry").exists || element("monitor.channels.failure").exists, app.debugDescription)
+        XCTAssertTrue(waitFor(segments.segment("渠道"), "label == %@", "渠道"), segments.debugDescription)
+        diagnostics("monitor-channels-unsupported")
+    }
 }

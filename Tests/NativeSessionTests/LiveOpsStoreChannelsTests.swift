@@ -114,6 +114,23 @@ private func channelSite(_ enabled: Bool?) -> SiteSession {
     #expect(harness.store.channelSectionState == .forbidden)
 }
 
+/// 00 §3.3: a site without channel-monitor-v2 (a non-JSON 404) shows 站点版本较旧 and is not asked again this session, a pull included.
+@MainActor @Test func unsupportedRouteStopsChannelReadsForSession() async {
+    let harness = channelHarness({ throw APIError.server(status: 404, envelope: nil) }, enabled: nil, sleeper: PollSleeper(stopAfter: 3))
+    let store = harness.store
+    await store.channelsPolling()
+    #expect(await harness.source.count(isChannelRead) == 1)
+    #expect(await harness.sleeper.seconds.isEmpty)
+    #expect(store.monitor.channelsUnsupported && store.channelsUnavailable)
+    #expect(store.channelSectionState == .unsupported && store.channels.error == nil && store.channels.value == nil)
+    #expect(store.monitorSegmentCount(.channels) == nil && store.monitor.channelsDisabledReason == nil)
+    await store.refreshChannels(bypassCache: true)
+    await store.refreshChannels(bypassCache: false)
+    await store.channelsPolling()
+    #expect(await harness.source.count(isChannelRead) == 1)
+    #expect(await harness.sleeper.seconds.isEmpty)
+}
+
 struct ChannelIntervalCase: Sendable, CustomTestStringConvertible {
     let seconds: Int?
     let wait: TimeInterval

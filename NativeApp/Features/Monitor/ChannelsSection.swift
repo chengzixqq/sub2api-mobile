@@ -2,8 +2,8 @@ import SwiftUI
 import Sub2Core
 
 /// 10 §5 监控 · 渠道: the four counts, the collection-delay note and one row per group's channel, worst first; a row opens the
-/// group (U07). The segment polls, so its status views leave a 429's end to the timer (S1D1-20). Off, empty and a vendor's 403
-/// are empty states; the App has no switch for the channel monitor. Identifiers monitor.channels.*.
+/// group (U07). The segment polls, so its status views leave a 429's end to the timer (S1D1-20). Off, empty, a site without the
+/// route and a vendor's 403 are empty states; the App has no switch for the channel monitor. Identifiers monitor.channels.*.
 struct ChannelsSection: View {
     let store: LiveOpsStore
 
@@ -18,6 +18,8 @@ struct ChannelsSection: View {
                    systemImage: "antenna.radiowaves.left.and.right.slash", id: "monitor.channels.disabled")
         case .forbidden:
             notice(MonitorTabPresentation.vendorPlaceholder, systemImage: "building.2", id: "monitor.channels.forbidden")
+        case .unsupported:
+            notice(ChannelSectionPresentation.unsupportedTitle, systemImage: "clock.arrow.circlepath", id: "monitor.channels.unsupported")
         case .empty:
             notice(ChannelSectionPresentation.emptyTitle, systemImage: "antenna.radiowaves.left.and.right", id: "monitor.channels.empty")
         case .failed:
