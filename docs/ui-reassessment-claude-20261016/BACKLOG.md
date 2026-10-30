@@ -355,6 +355,8 @@
 | 新建账号多协议端点预设 | 新建表单的“端点”只有目录官方端点与“自定义”。Web 的 CN_BASE_URL_PRESETS（kimi / zhipu / deepseek / minimax）不在 S2-18 的数据里，是否补齐待用户决定 |
 | 跨 Tab 跳转关闭新建表单 | AppRouter.select 会无确认地关闭新建表单，已填内容和内存里的令牌一并丢弃；已发出的创建与停调度仍会做完并照常发回执。是否在 select 前询问，留给 S2-23 或用户决定 |
 | 新建账号遇到 503 IDEMPOTENCY_STORE_UNAVAILABLE | 创建遇到 store-unavailable 时按结果不明核对，找不到就给“用同一编号重试”，没有按 retryNotBefore 延后；S2-20 / S2-23 可统一处理 |
+| S2-19 新建账号三个 UI 用例原有失败 | Mac 能跑 UI 后首次跑出，c38ab7e 起就失败，不是这次审查修正带来的：testDockListsMissingItemsAndJumpsToFirst（第 49 行 clear 名称没清掉，坞仍是“还差API Key”）、testTurningOffMixedSchedulingRemovesGroupsWithUndo（第 165 行 sheet 内 ReceiptOverlay 的 receipt.text 找不到）、testCredentialSectionsFollowMethod（第 279 行“更多”里的负载因子行滚不到）。要查是测试辅助方法的问题，还是 sheet 内回执 / 更多分区的实现问题。 |
+| 新建账号坞的“重试”（.resend）分支已经走不到 | 建号现在一律带 key，AccountNewDockContent 里无 key 时的“重试”分支不会再出现；S2-20 动这个文件时可以顺手删掉，或保留作兜底。 |
 
 ### App 与设计 · 阶段 3
 
