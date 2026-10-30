@@ -262,6 +262,9 @@
 | 待核对文件读不出时不阻止平静布局 | pendingPersistenceAvailable == false 时记录列表为空，概览仍可能进入平静布局。资金写入口由 moneyWriteGate 的 unavailable 拦截，设置页有暂停提示。若要保守处理（读不出就不平静），再改 HomeView 的 isCalm 入参。 |
 | 告警详情“分组已删除”的误判 | status-summary 的 groups[] 不含“停用且没有账号”的分组（account_status_summary_repo.go:86-105），告警详情只在 status-summary?group_id 成功且没有该组时判为已删除，这种分组仍会显示“分组已删除”、不可点；待后端在汇总里带回指定 group_id 的分组后改判。 |
 | 告警详情的分组名来源 | 分组名优先用事件的 group_name；旧服务端没有时用 S1-07 收事件处从 groups/all 补的名字，再没有就用 status-summary 汇总的 group_name，都没有写“分组 #id”。详情页不另拉 groups/all。 |
+| 监控分段计数的读屏 | 系统分段控件没有角标，S1-13 把计数写进段标题（“告警 2”），读屏会读“告警 2”；如果要读成“告警，2 条进行中”，需要自绘分段控件 |
+| 监控 Tab 的 vendor 分支不可达 | 首版不允许 vendor 登录（U01），“代运营工作区没有运维监控权限”只是防御分支，没有 UI 夹具和用例；开放 vendor 登录时再补 |
+| 首页与监控的健康分行合并 | 监控概况的健康分行（MonitorOverviewSection 私有 MonitorHealthRow）和首页 HomeRunSection 的私有健康分行版式一致、各写一份，由 S1-18 收口时合成一个行组件 |
 
 ### App 与设计 · 阶段 2
 
