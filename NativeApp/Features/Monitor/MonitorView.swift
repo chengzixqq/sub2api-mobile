@@ -3,8 +3,8 @@ import Sub2Core
 
 /// 10 §4–§6 the monitor tab: 概况 / 渠道 / 告警 under the large title 监控, the subtitle following the segment. The segment chosen
 /// stays for the session (U08, LiveOpsStore.monitor); a cross-tab intent is taken once (10 §0.7-4). The ··· menu refreshes and,
-/// for the owner while monitoring is on, turns ops monitoring off after two confirmations (U10). 概况 polls while it shows and
-/// the App is active (D18: no scene-phase handler; the task restarts on the phase). 渠道 and 告警 are placeholders until S1-15 and
+/// for the owner while monitoring is on, turns ops monitoring off after two confirmations (U10). 概况 and 渠道 (S1-15) poll while
+/// they show and the App is active (D18: no scene-phase handler; the task restarts on the phase). 告警 is a placeholder until
 /// S1-16. Identifiers monitor.*.
 struct MonitorView: View {
     @Environment(AppModel.self) private var model
@@ -33,16 +33,20 @@ private struct MonitorScreen: View {
     @State private var visible = false
     @State private var confirmsDisable = false
 
-    /// What starts and stops 概况's timers.
+    /// What starts and stops the shown segment's timers: the ops switch for 概况, the channel monitor's for 渠道 (10 §5.2).
     private struct PollKey: Hashable {
         let segment: MonitorSegment
         let polls: Bool
         let opsDisabled: Bool
         let opsRevision: Int
+        let channelMonitorEnabled: Bool?
     }
     private var pollKey: PollKey {
-        PollKey(segment: store.monitor.segment, polls: visible && router.selectedTab == .monitor && scenePhase == .active,
-                opsDisabled: store.opsDisabled, opsRevision: store.opsRevision)
+        let segment = store.monitor.segment
+        let overview = segment == .overview
+        return PollKey(segment: segment, polls: visible && router.selectedTab == .monitor && scenePhase == .active,
+                       opsDisabled: overview && store.opsDisabled, opsRevision: overview ? store.opsRevision : 0,
+                       channelMonitorEnabled: segment == .channels ? store.channelMonitorFeatureEnabled : nil)
     }
 
     var body: some View {
@@ -58,8 +62,12 @@ private struct MonitorScreen: View {
         .onDisappear { visible = false }
         .onChange(of: router.pendingIntent) { _, _ in applyIntent() }
         .task(id: key) {
-            guard key.segment == .overview, key.polls, !key.opsDisabled else { return }
-            await store.monitorOverviewPolling()
+            guard key.polls else { return }
+            switch key.segment {
+            case .overview: if !key.opsDisabled { await store.monitorOverviewPolling() }
+            case .channels: await store.channelsPolling()
+            case .alerts: break
+            }
         }
     }
 
@@ -71,8 +79,10 @@ private struct MonitorScreen: View {
             switch store.monitor.segment {
             case .overview:
                 MonitorOverviewSection(store: store) { store.monitor.segment = .alerts }
-            case .channels, .alerts:
-                // S1-15（渠道）与 S1-16（告警）替换这里的占位。
+            case .channels:
+                ChannelsSection(store: store)
+            case .alerts:
+                // S1-16（告警）替换这里的占位。
                 Section { placeholder(store.monitor.segment) }
                     .listRowBackground(Color.clear)
             }
@@ -123,12 +133,13 @@ private struct MonitorScreen: View {
         return OpsDisabledPresentation.offersDisable(isAdministrator: me.isAdministrator, route: store.opsWriteRoute, isOpsDisabled: store.opsDisabled)
     }
 
-    /// A pull or 刷新 reads everything the segment shows; until S1-16 the 告警 segment's count is the firing list's.
+    /// A pull or 刷新 reads everything the segment shows, 渠道 past the server's cache (10 §5.6); until S1-16 the 告警 segment's
+    /// count is the firing list's.
     private func refresh() async {
         switch store.monitor.segment {
         case .overview: await store.refreshMonitorOverview(force: true)
         case .alerts: await store.refreshFiringAlerts(maxAge: 0)
-        case .channels: break   // S1-15
+        case .channels: await store.refreshChannels(bypassCache: true)
         }
     }
 
