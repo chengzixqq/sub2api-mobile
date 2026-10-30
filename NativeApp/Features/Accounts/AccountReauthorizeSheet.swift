@@ -140,13 +140,15 @@ private struct AccountReauthorizeContent: View {
         .accessibilityIdentifier("account.reauth.target")
     }
 
-    /// The notice of the last attempt, 替换令牌 (grey until a link and a code are there), and the note under it (S2-15's sentence).
+    /// The notice of the last attempt, 替换令牌 (grey until a link and a code are there, and while the notice's 重试保存 / 重试 holds
+    /// the body or the token), and the note under it (S2-15's sentence).
     private func submitArea(_ flow: OAuthFlowModel) -> some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             let instant = flow.now
             VStack(alignment: .leading, spacing: 12) {
                 if let notice = reauthorizer.notice { noticeBlock(notice, flow: flow, at: instant) }
-                AccountReauthorizeSubmit(isBusy: reauthorizer.isBusy, isEnabled: !isBusy && Self.isReady(flow.submission(at: instant))) {
+                let isEnabled = !isBusy && !reauthorizer.hasHeldCredentials && Self.isReady(flow.submission(at: instant))
+                AccountReauthorizeSubmit(isBusy: reauthorizer.isBusy, isEnabled: isEnabled) {
                     submit(flow)
                 }
                 Text(AccountCredentialCopy.replaceTokenNote(account, switchedTo: flow.typeSwitchTarget,
@@ -174,8 +176,14 @@ private struct AccountReauthorizeContent: View {
             }
         case .unsupported(let text):
             ReauthNotice(tone: .critical, text: text, id: "account.reauth.unsupported") { editInWebButton }
-        case .failed(let text), .reconfirm(let text):
-            ReauthNotice(tone: notice == .failed(text) ? .critical : .caution, text: text, id: "account.reauth.failure") { EmptyView() }
+        case .failed(let text):
+            ReauthNotice(tone: .critical, text: text, id: "account.reauth.failure") { EmptyView() }
+        case .reconfirm(let text):
+            ReauthNotice(tone: .caution, text: text, id: "account.reauth.failure") {
+                if reauthorizer.canRetry(at: instant) {
+                    noticeButton(AccountOAuthErrorCopy.Remedy.retry.title, id: "account.reauth.retry") { retry(flow) }
+                }
+            }
         }
     }
     private var editInWebButton: some View {
