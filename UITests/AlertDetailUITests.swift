@@ -247,7 +247,7 @@ final class AlertDetailUITests: XCTestCase {
         assertSelected(tab: "监控")
         let segment = app.segmentedControls["monitor.segment"]
         XCTAssertTrue(segment.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(segment.buttons["渠道"].isSelected, app.debugDescription)
+        XCTAssertTrue(segment.segment("渠道").isSelected, app.debugDescription)
     }
 
     /// S1D1-16: a server without `ops.alert_event_details` sends no rule or group name; the detail still reads them.

@@ -220,6 +220,6 @@ final class HomeCalmUITests: XCTestCase {
         assertSelected(tab: "监控")
         let segment = app.segmentedControls["monitor.segment"]
         XCTAssertTrue(segment.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(segment.buttons["渠道"].isSelected, app.debugDescription)
+        XCTAssertTrue(segment.segment("渠道").isSelected, app.debugDescription)
     }
 }

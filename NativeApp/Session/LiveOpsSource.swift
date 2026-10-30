@@ -37,6 +37,8 @@ protocol LiveOpsSource: AlertActionSource {
     // S1-08 · 运维监控开关（10 §7.2）：不带 key 的写，不自动重发
     func setOpsMonitoring(enabled: Bool) async throws -> OpsMonitoringStatus
     func enableOpsMonitoringLegacy() async throws
+    // S1-13 · 监控概况（10 §4.2）
+    func opsSnapshotV2(start: Date, end: Date) async throws -> OpsSnapshotV2
 }
 
 /// The session's own client (D13): LiveOpsStore never makes an APIClient of its own.
@@ -85,4 +87,5 @@ struct ClientLiveOpsSource: LiveOpsSource {
     }
     func setOpsMonitoring(enabled: Bool) async throws -> OpsMonitoringStatus { try await client.setOpsMonitoring(enabled: enabled) }
     func enableOpsMonitoringLegacy() async throws { try await client.enableOpsMonitoringLegacy() }
+    func opsSnapshotV2(start: Date, end: Date) async throws -> OpsSnapshotV2 { try await client.opsSnapshotV2(start: start, end: end) }
 }

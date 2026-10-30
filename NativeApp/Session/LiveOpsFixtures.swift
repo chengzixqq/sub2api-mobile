@@ -99,6 +99,8 @@ enum LiveOpsFixtures {
         var alertDetailOpsOff = false
         var alertDetailTurnedOpsOff = false
         var withholdsAlertDetails = false
+        // S1-13 (LiveOpsFixtures+Monitor.swift): goes with any variant.
+        var monitor = MonitorFixtureOptions()
         var opsDisabled: Bool { ops != .on }
         init(variant: HomeVariant = .allOK, ops: OpsFixtureSwitch = .on, alertWritesFail: Bool = false, alertsWithoutSilenceKey: Bool = false,
              homeLegacy: Bool = false) {
@@ -125,6 +127,7 @@ enum LiveOpsFixtures {
             alertGone = arguments.contains(Argument.alertGone)
             alertDetailOpsOff = arguments.contains(Argument.alertDetailOpsDisabled)
             withholdsAlertDetails = UITestArguments.withheldCapabilities(arguments: arguments).contains(Capability.opsAlertEventDetails.rawValue)
+            monitor = MonitorFixtureOptions(arguments: arguments)
         }
     }
     /// D30: the same zone as DemoData.serverTimeZone.
@@ -344,6 +347,7 @@ actor FixtureLiveOpsSource: LiveOpsSource {
     /// The same figures for every window, except the home's last five minutes (S1-07's fallback reads them).
     func opsOverview(timeRange: String) throws -> OpsOverview {
         try requireOps()
+        if options.monitor.overviewFails { throw Self.unreachableError }
         if timeRange == HomeFallback.opsWindow { return LiveOpsFixtures.fiveMinuteOverview(base: base) }
         return LiveOpsFixtures.opsOverview(start: base.addingTimeInterval(-300), end: base)
     }
@@ -415,7 +419,8 @@ actor FixtureLiveOpsSource: LiveOpsSource {
         try book.deleteSilence(id: id)
     }
 
-    private func requireOps() throws { if options.opsDisabled { throw LiveOpsFixtures.opsDisabledError } }
+    /// Gated reads answer 404 OPS_DISABLED while the switch is off; LiveOpsFixtures+Monitor.swift's reads use it too.
+    func requireOps() throws { if options.opsDisabled { throw LiveOpsFixtures.opsDisabledError } }
 }
 
 // MARK: - S1-11 平静布局

@@ -425,7 +425,7 @@ final class HomeUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [selected], timeout: 10), .completed, app.debugDescription)
         let segment = app.segmentedControls["monitor.segment"]
         XCTAssertTrue(segment.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(segment.buttons["渠道"].isSelected, app.debugDescription)
+        XCTAssertTrue(segment.segment("渠道").isSelected, app.debugDescription)
         app.tabBars.buttons["概览"].tap()
         XCTAssertTrue(element("home.regular").waitForExistence(timeout: 10), app.debugDescription)
     }
@@ -564,7 +564,7 @@ final class HomeUITests: XCTestCase {
         assertSelected(tab: "监控")
         let segment = app.segmentedControls["monitor.segment"]
         XCTAssertTrue(segment.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(segment.buttons["告警"].isSelected, app.debugDescription)
+        XCTAssertTrue(segment.segment("告警").isSelected, app.debugDescription)
     }
 
     /// 10 §1.3.3, R12: an error row reads its reason (“上游返回异常” without structured fields) and “平台 · N 分钟前” beside 「测试」,
