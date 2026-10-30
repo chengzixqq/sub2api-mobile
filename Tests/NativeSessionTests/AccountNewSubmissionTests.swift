@@ -298,20 +298,35 @@ private let unconfirmedFailure = KeyedWriteFailure(disposition: .unconfirmed(.tr
     #expect(flow.stage == .idle)
 }
 
-@MainActor @Test func withoutIdempotentWritesNoKeyIsSent() async throws {
+/// 00 §2.5.1: `POST admin/accounts` takes a key on every site (the backend has deduplicated admin.accounts.create by key since
+/// long before admin.idempotent_writes); only the stop-scheduling follows the capability.
+@MainActor @Test func withoutIdempotentWritesCreateStillCarriesKeyButPauseDoesNot() async throws {
     let source = FakeCreateSource(), keys = KeyMaker()
     source.accountCreateSession = AccountCreateSession(generation: UUID(), idempotentWrites: false, mixedChannelDetails: true, isReadOnlyToken: false)
-    source.creates = [.failure(APIError(kind: .transport, message: "网络中断")), .success(try newAccount(schedulable: true))]
+    source.creates = [.failure(unconfirmedFailure), .success(try newAccount(schedulable: true))]
     source.lookups = [.success(nil)]
     source.pauses = [.success(try newAccount())]
     let flow = submission(source, keys)
     await flow.submit(createRequest())
-    try #require(source.sentCreates.count == 1)
-    #expect(source.sentCreates[0].key == nil && flow.stage == .notCreated && !flow.isKeyed)
-    #expect(AccountNewDockContent.make(stage: flow.stage, missing: [], keyed: flow.isKeyed).primary == .resend)
+    try #require(source.sentCreates.count == 1 && keys.made.count == 1)
+    #expect(source.sentCreates[0].key == keys.made[0] && flow.stage == .notCreated && flow.isKeyed)
+    #expect(AccountNewDockContent.make(stage: flow.stage, missing: [], keyed: flow.isKeyed).primary == .retrySameKey)
     await flow.retrySameKey()
     try #require(source.sentCreates.count == 2 && source.sentPauses.count == 1)
-    #expect(source.sentPauses[0].key == nil && keys.made.isEmpty && flow.stage == .created(accountID: 13))
+    #expect(source.sentCreates[1].key == keys.made[0] && source.sentCreates[1].request == source.sentCreates[0].request)
+    #expect(source.sentPauses[0].key == nil && keys.made.count == 1 && flow.stage == .created(accountID: 13))
+}
+
+@MainActor @Test func withoutIdempotentWritesMixedConfirmationTakesNewKey() async throws {
+    let source = FakeCreateSource(), keys = KeyMaker()
+    source.accountCreateSession = AccountCreateSession(generation: UUID(), idempotentWrites: false, mixedChannelDetails: true, isReadOnlyToken: false)
+    source.creates = [.failure(mixedConflict(metadata: highGroupMetadata)), .success(try newAccount())]
+    let flow = submission(source, keys)
+    await flow.submit(createRequest(groups: [1]))
+    await flow.confirmMixedChannel()
+    try #require(source.sentCreates.count == 2 && keys.made.count == 2)
+    #expect(source.sentCreates[0].key == keys.made[0] && source.sentCreates[1].key == keys.made[1])
+    #expect(source.sentCreates[1].request.confirmMixedChannelRisk && flow.stage == .created(accountID: 13))
 }
 
 @MainActor @Test func serverErrorIsTreatedAsUnconfirmed() async throws {

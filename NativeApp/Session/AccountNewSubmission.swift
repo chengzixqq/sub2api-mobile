@@ -5,7 +5,8 @@ import Sub2Core
 /// What 新建账号 reads of the session when the admin taps “创建并测试” (S2D1-05); its generation goes with every write.
 struct AccountCreateSession: Sendable, Equatable {
     let generation: UUID
-    /// admin.idempotent_writes: the create and the stop-scheduling carry keys made at the tap (R05).
+    /// admin.idempotent_writes: the stop-scheduling carries a key. The create always does (00 §2.5.1): the backend has deduplicated
+    /// admin.accounts.create by key since well before this capability.
     let idempotentWrites: Bool
     /// accounts.mixed_channel_details: sent straight away and asked about on the 409 (20 §7.4-1).
     let mixedChannelDetails: Bool
@@ -26,11 +27,11 @@ struct AccountCreateSession: Sendable, Equatable {
 }
 
 /// 20 §7.4-1 / §7.5 “创建并测试” up to an account that exists outside the scheduler (S2D1-13: the create and stop-scheduling
-/// stages). The key is made at the tap (R05) and the request frozen with it; Anthropic / Antigravity groups are checked first
-/// without accounts.mixed_channel_details, otherwise the 409 asks; “继续创建” sends the confirmation under a new key and the same
-/// groups are not asked about again in this flow. A server that ignores `schedulable: false` gets a separate stop. An unknown
-/// result is looked up by name: found counts as created, not found offers the same number again. A result that arrives after
-/// the session changed is dropped. The request holds the credentials, so nothing here is logged.
+/// stages). The key is made at the tap (R05), on every site (00 §2.5.1), and the request frozen with it; Anthropic / Antigravity
+/// groups are checked first without accounts.mixed_channel_details, otherwise the 409 asks; “继续创建” sends the confirmation under
+/// a new key and the same groups are not asked about again in this flow. A server that ignores `schedulable: false` gets a
+/// separate stop. An unknown result is looked up by name: found counts as created, not found offers the same number again. A
+/// result that arrives after the session changed is dropped. The request holds the credentials, so nothing here is logged.
 @MainActor @Observable
 final class AccountNewSubmission {
     enum Stage: Equatable, Sendable {
@@ -116,7 +117,7 @@ final class AccountNewSubmission {
             return
         }
         session = current
-        frozen = AccountNewFrozenRequest(request: outgoing, key: current.idempotentWrites ? makeKey() : nil, submittedAt: source.serverNow())
+        frozen = AccountNewFrozenRequest(request: outgoing, key: makeKey(), submittedAt: source.serverNow())
         let confirmed = outgoing.confirmMixedChannelRisk
         if AccountNewFlow.needsMixedChannelPrecheck(platform: outgoing.platform, groupIDs: outgoing.groupIDs,
                                                     hasMixedChannelDetails: current.mixedChannelDetails, alreadyConfirmed: confirmed) {
@@ -128,7 +129,7 @@ final class AccountNewSubmission {
     func confirmMixedChannel() async {
         guard case .confirmingMixedChannel = stage, let frozen, let session, isCurrent(session) else { return }
         confirmedGroups = Set(frozen.request.groupIDs)
-        self.frozen = frozen.confirmingMixedChannel(renewingKeyWith: frozen.key == nil ? UUID() : makeKey())
+        self.frozen = frozen.confirmingMixedChannel(renewingKeyWith: makeKey())
         await send()
     }
     /// “返回修改分组”: nothing is sent.

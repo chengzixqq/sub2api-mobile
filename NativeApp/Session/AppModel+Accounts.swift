@@ -352,6 +352,9 @@ extension AppModel: AccountCreateSource {
     }
     /// A read: no generation (S2D1-05).
     func findCreatedAccount(name: String, platform: String, notBefore: Date) async throws -> UpstreamAccount? {
+        if isUITesting, ProcessInfo.processInfo.arguments.contains(DemoData.AccountFixture.createCheckFail) {
+            throw APIError(kind: .transport, message: "网络连接已中断")
+        }
         let page = try await managedAccounts(page: 1, query: AccountCreateReconciliation.query(name: name, platform: platform))
         return AccountCreateReconciliation.match(page.items, name: name, platform: platform, notBefore: notBefore)
     }

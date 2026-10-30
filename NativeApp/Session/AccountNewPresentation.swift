@@ -148,6 +148,8 @@ enum AccountNewCopy {
     static let pauseRetry = "重试停止调度"
     static let closeAnyway = "仍然关闭"
     static let keepHandling = "继续处理"
+    static func createUnconfirmedTitle(name: String) -> String { "账号「\(name)」可能已经创建" }
+    static let createUnconfirmedMessage = "创建结果没有确认。关闭后不能再用同一编号重试，再新建前请先到账号列表核对，避免重复创建。"
     static let pauseBannerTitle = "停止调度没有确认 · 结果待核对"
     static func pauseBannerDetail(id: Int) -> String { "账号 #\(id) 可能正在参与调度。" }
 
@@ -159,4 +161,5 @@ enum AccountNewCopy {
     static let viewAccount = "查看"
     static func groupsRemovedReceipt(count: Int) -> String { "已移除 \(count) 个不再适用的分组" }
     static func leftUnconfirmedReceipt(name: String) -> String { "「\(name)」停止调度没有确认 · 结果待核对" }
+    static func leftCreateUnconfirmedReceipt(name: String) -> String { "「\(name)」创建结果未确认 · 请到账号列表核对" }
 }

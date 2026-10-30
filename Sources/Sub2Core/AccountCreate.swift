@@ -97,10 +97,11 @@ public struct AccountCreateRequest: Encodable, Sendable, Equatable, CustomString
 }
 
 extension APIClient {
-    /// `POST admin/accounts` (20 §7.4, R05). The key is made when the admin taps “创建并测试” and only on a site with
-    /// `admin.idempotent_writes`: then transport failures are retried under it and an unanswered write ends as KeyedWriteFailure
-    /// (00 §2.5.4). Without one it is sent once and never retried, so an unknown result is checked by name instead
-    /// (AccountCreateReconciliation). A 409 MIXED_CHANNEL_WARNING and other business errors are thrown as they come.
+    /// `POST admin/accounts` (20 §7.4, R05). The key is made when the admin taps “创建并测试”, on every site (00 §2.5.1: the
+    /// backend has deduplicated admin.accounts.create by key since well before `admin.idempotent_writes`); transport failures are
+    /// retried under it and an unanswered write ends as KeyedWriteFailure (00 §2.5.4), then is checked by name
+    /// (AccountCreateReconciliation). Without a key it is sent once and never retried. A 409 MIXED_CHANNEL_WARNING and other
+    /// business errors are thrown as they come.
     public func createAccount(_ request: AccountCreateRequest, idempotencyKey: UUID?,
                               onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<UpstreamAccount> {
         try await accountWrite("admin/accounts", method: "POST", body: request.requestBody(), key: idempotencyKey, onEvent: onEvent)

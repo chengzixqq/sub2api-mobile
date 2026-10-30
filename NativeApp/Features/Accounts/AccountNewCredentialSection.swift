@@ -74,13 +74,16 @@ struct AccountNewCredentialSection: View {
                 }
                 .accessibilityIdentifier("account-new.endpoint.official")
             } else {
-                Picker("端点", selection: $model.draft.usesCustomEndpoint) {
-                    Text(Self.host(method.officialEndpoint(for: current))).tag(false)
-                    Text("自定义").tag(true)
+                Picker("端点", selection: $model.draft.endpointChoice) {
+                    Text(Self.host(method.officialEndpoint(for: current))).tag(AccountNewEndpointChoice.official)
+                    ForEach(model.draft.endpointPresets) { preset in
+                        Text("\(preset.label) · \(Self.host(preset.url))").tag(AccountNewEndpointChoice.preset(preset.url))
+                    }
+                    Text("自定义").tag(AccountNewEndpointChoice.custom)
                 }
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("account-new.endpoint")
-                if model.draft.usesCustomEndpoint {
+                if model.draft.endpointChoice == .custom {
                     AccountNewTextRow(title: "自定义端点", text: $model.draft.customEndpoint, prompt: "https://", identifier: "account-new.custom-endpoint",
                                       monospaced: true)
                     issue(.customEndpoint)
@@ -111,14 +114,12 @@ struct AccountNewCredentialSection: View {
                                   monospaced: true)
                 AccountNewSecretField(title: "AWS Secret Access Key", text: $model.draft.awsSecretAccessKey, placeholder: "必填",
                                       identifier: "account-new.bedrock.secret")
-                AccountNewTextRow(title: "AWS Session Token", text: $model.draft.awsSessionToken, prompt: "可选", identifier: "account-new.bedrock.session",
-                                  monospaced: true)
+                AccountNewSecretField(title: "AWS Session Token", text: $model.draft.awsSessionToken, placeholder: "可选",
+                                      identifier: "account-new.bedrock.session")
             } else {
                 AccountNewSecretField(title: "Bedrock API Key", text: $model.draft.bedrockAPIKey, placeholder: "必填", identifier: "account-new.bedrock.apikey")
             }
-            Picker("AWS Region", selection: $model.draft.awsRegion) {
-                ForEach(AccountNewDefaults.bedrockRegions, id: \.self) { Text($0).tag($0) }
-            }
+            Picker("AWS Region", selection: $model.draft.awsRegion) { Self.options(AccountNewDefaults.bedrockRegionGroups) }
             .pickerStyle(.menu)
             .accessibilityIdentifier("account-new.bedrock.region")
         } header: {
@@ -161,9 +162,7 @@ struct AccountNewCredentialSection: View {
             Text("密钥内容不会显示，只在创建账号时提交。")
         }
         Section {
-            Picker("Location", selection: $model.draft.vertexLocation) {
-                ForEach(AccountNewDefaults.vertexLocations, id: \.self) { Text($0).tag($0) }
-            }
+            Picker("Location", selection: $model.draft.vertexLocation) { Self.options(AccountNewDefaults.vertexLocationGroups) }
             .pickerStyle(.menu)
             .accessibilityIdentifier("account-new.vertex.location")
         } header: {
@@ -193,6 +192,14 @@ struct AccountNewCredentialSection: View {
         }
     }
 
+    /// The Web's grouped Region / Location lists.
+    private static func options(_ groups: [AccountNewOptionGroup]) -> some View {
+        ForEach(groups) { group in
+            Section(group.title) {
+                ForEach(group.options) { Text($0.label).tag($0.value) }
+            }
+        }
+    }
     /// Design AN_KEY_HINT.
     private static func keyHint(_ platform: String) -> String {
         switch platform {

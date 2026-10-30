@@ -27,12 +27,13 @@ private func frozenRequest(groupIDs: [Int] = [1], key: UUID? = UUID()) -> Accoun
 }
 
 struct AccountNewCancelCase: Sendable, CustomTestStringConvertible {
-    let hasPlatform, isCreated, isBusy, isTesting, isPassed, pauseUnconfirmed: Bool
+    let hasPlatform, isCreated, isBusy, isTesting, isPassed, pauseUnconfirmed, resultUnconfirmed: Bool
     let expected: AccountNewCancelAction
     var testDescription: String { "\(expected)" }
     init(platform: Bool = true, created: Bool = false, busy: Bool = false, testing: Bool = false, passed: Bool = false, pauseUnconfirmed: Bool = false,
-         _ expected: AccountNewCancelAction) {
+         resultUnconfirmed: Bool = false, _ expected: AccountNewCancelAction) {
         hasPlatform = platform; isCreated = created; isBusy = busy; isTesting = testing; isPassed = passed; self.pauseUnconfirmed = pauseUnconfirmed
+        self.resultUnconfirmed = resultUnconfirmed
         self.expected = expected
     }
 }
@@ -46,11 +47,15 @@ struct AccountNewCancelCase: Sendable, CustomTestStringConvertible {
     AccountNewCancelCase(created: true, passed: true, .finish),
     AccountNewCancelCase(created: true, pauseUnconfirmed: true, .resolvePauseFailed),
     AccountNewCancelCase(created: true, busy: true, pauseUnconfirmed: true, .blocked),
-    AccountNewCancelCase(created: true, .resolveCreated)
+    AccountNewCancelCase(created: true, .resolveCreated),
+    AccountNewCancelCase(resultUnconfirmed: true, .resolveUnconfirmed),
+    AccountNewCancelCase(platform: false, resultUnconfirmed: true, .resolveUnconfirmed),
+    AccountNewCancelCase(busy: true, resultUnconfirmed: true, .blocked)
 ])
 func cancelActionFollowsTheFlow(_ item: AccountNewCancelCase) {
     #expect(AccountNewFlow.cancelAction(hasPlatform: item.hasPlatform, isCreated: item.isCreated, isBusy: item.isBusy, isTesting: item.isTesting,
-                                        isPassed: item.isPassed, pauseUnconfirmed: item.pauseUnconfirmed) == item.expected)
+                                        isPassed: item.isPassed, pauseUnconfirmed: item.pauseUnconfirmed,
+                                        resultUnconfirmed: item.resultUnconfirmed) == item.expected)
 }
 
 @Test func precheckAndTestOutcomeHelpers() {

@@ -74,6 +74,12 @@ private typealias Dock = AccountNewDockContent
     #expect(created.text == "已创建「Claude-04」· 暂停调度" && created.systemImage == "pause.circle" && created.tone == .neutral)
     #expect(AccountNewCopy.groupsRemovedReceipt(count: 2) == "已移除 2 个不再适用的分组")
     #expect(AccountNewCopy.leftUnconfirmedReceipt(name: "Claude-04") == "「Claude-04」停止调度没有确认 · 结果待核对")
+    #expect(AccountNewCopy.leftCreateUnconfirmedReceipt(name: "Claude-04") == "「Claude-04」创建结果未确认 · 请到账号列表核对")
+}
+
+@Test func createUnconfirmedQuestionCopy() {
+    #expect(AccountNewCopy.createUnconfirmedTitle(name: "Claude-04") == "账号「Claude-04」可能已经创建")
+    #expect(AccountNewCopy.createUnconfirmedMessage == "创建结果没有确认。关闭后不能再用同一编号重试，再新建前请先到账号列表核对，避免重复创建。")
 }
 
 @Test func authorizedWithAndWithoutEmail() {

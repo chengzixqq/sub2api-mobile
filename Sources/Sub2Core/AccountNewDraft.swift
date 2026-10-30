@@ -16,7 +16,7 @@ extension GeminiOAuthType {
     }
 }
 
-/// Form defaults and ranges (20 §7.3, Web CreateAccountModal, design AN_BLANK / AN_REGIONS / AN_LOCATIONS).
+/// Form defaults and ranges (20 §7.3, Web CreateAccountModal, design AN_BLANK); the Region and Location lists are in AccountNewOptions.
 public enum AccountNewDefaults {
     public static let concurrency = 10
     public static let concurrencyRange = 1...100
@@ -25,10 +25,8 @@ public enum AccountNewDefaults {
     public static let rateMultiplierText = "1"
     public static let loadFactorRange = 1...10
     public static let bedrockRegion = "us-east-1"
-    public static let bedrockRegions = ["us-east-1", "us-west-2", "eu-west-1", "ap-northeast-1"]
     /// The Web's default; the backend would use us-central1 for an empty one.
     public static let vertexLocation = "global"
-    public static let vertexLocations = ["us-east5", "europe-west1", "asia-east1", "global"]
     /// The new-account form offers these two (S2D1-03).
     public static let geminiOAuthTypes: [GeminiOAuthType] = [.googleOne, .codeAssist]
     static let geminiAIStudioTier = "aistudio_free"
@@ -73,8 +71,9 @@ public struct AccountNewDraft: Sendable, Equatable, CustomStringConvertible, Cus
     public var baseURL = ""
     /// Multi-protocol only; nil (or one the mode does not offer) means the method's default.
     public var apiProtocol: String?
-    /// A concrete protocol's endpoint: the catalog's, or `customEndpoint`.
+    /// A concrete protocol's endpoint: the catalog's, a preset (`presetEndpoint`), or `customEndpoint` (see endpointChoice).
     public var usesCustomEndpoint = false
+    public var presetEndpoint: String?
     public var customEndpoint = ""
     public var bedrockAuth: BedrockAuthMode = .sigv4
     public var awsAccessKeyID = "", awsSecretAccessKey = "", awsSessionToken = "", bedrockAPIKey = ""
@@ -260,7 +259,7 @@ extension AccountNewDraft {
         let blank = AccountNewDraft()
         var next = self
         next.oauthGrant = nil; next.gcpProjectID = ""; next.apiKey = ""; next.baseURL = ""; next.apiProtocol = nil
-        next.usesCustomEndpoint = false; next.customEndpoint = ""; next.bedrockAuth = blank.bedrockAuth
+        next.usesCustomEndpoint = false; next.presetEndpoint = nil; next.customEndpoint = ""; next.bedrockAuth = blank.bedrockAuth
         next.awsAccessKeyID = ""; next.awsSecretAccessKey = ""; next.awsSessionToken = ""; next.bedrockAPIKey = ""; next.awsRegion = blank.awsRegion
         next.vertexFile = nil; next.vertexLocation = blank.vertexLocation; next.upstreamBaseURL = ""; next.upstreamAPIKey = ""
         return next
