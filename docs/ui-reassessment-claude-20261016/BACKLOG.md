@@ -276,6 +276,9 @@
 | 最近结束按结束时间筛选 | 后端 alert-events 的 time_range 按 fired_at 过滤，触发早于 24 小时、最近才结束的事件（例如持续两天、刚被手动解决的告警）不会出现在“最近结束”。需要后端支持按 resolved_at 范围筛选；App 暂按规格用 time_range=24h（S1-16）。 |
 | 最近结束轮询合并的已知限制 | 轮询与写后只合并第一页：触发时间早于第一页、之后才结束的事件，要等下拉刷新才出现；24 小时窗口滑动后，已加载的旧行保留到下次下拉（S1-16）。 |
 | 告警列表游标类 400 没有 reason | before_fired_at / before_id / limit 校验失败都走 response.BadRequest，reason 为空，App 只能把「加载更早」收到的无 reason 400 一律视为游标被拒并重拉第一页。建议后端给这类错误加稳定 reason（S1-16）。 |
+| 告警详情“近 24 小时 N 条”的口径 | 按日志页口径计数：errorCount 沿用 view=all，含业务限制、含 429 / 529 和已恢复的上游错误，条数与点进去的日志页一致。它不是告警指标的分子：error_rate 排除业务限制，upstream_error_rate 排除 429 / 529。界面不解释这个差异（S1-17）。 |
+| 平台告警的错误计数行 | 只有 platform 的错误类告警（如 Anthropic 上游错误率）不显示“近 24 小时 N 条”：规格没有这一行，RequestLogFilter 和 LogsRoute 也没有平台条件。要加的话，先给 40 章的筛选与路由加上平台条件（S1-17）。 |
+| S4-05 同步告警详情的日志页断言 | AlertDetailUITests.assertErrorLogsOpened 现在断言的是旧页“请求与错误日志”、logs.mode 选中“失败请求”和“分组 #<id>”。S4-05 换成 LogsView 时要一并改这个 helper，否则 S1-17 的两个 UI 用例会失败（S1D1-28）。 |
 
 ### App 与设计 · 阶段 2
 
