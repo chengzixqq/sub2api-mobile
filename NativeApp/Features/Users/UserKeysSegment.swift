@@ -19,6 +19,9 @@ struct UserKeysSegment: View {
         noticeSection
         if let context { keysSection(context) }
         // MARK: S3-14 平台限额
+        if let quota = prompts.quota {
+            PlatformQuotaSection(store: quota, hasActiveSubscription: hasActiveSubscription) { prompts.quotaSheet = $0 }
+        }
         // MARK: S3-15 替换分组
     }
 
@@ -28,7 +31,12 @@ struct UserKeysSegment: View {
                 .font(.subheadline).foregroundStyle(Palette.ink1)
                 .accessibilityIdentifier("keys.notice")
                 .task { await model.enterSegment() }
+                .task { await prompts.enterQuota(userID: model.userID, app: app, editor: editor) }
         }
+    }
+    /// 30 §8.2 有效订阅提示, from the subscriptions the key segment reads.
+    private var hasActiveSubscription: Bool {
+        PlatformQuotaPresentation.hasActiveSubscription(model.subscriptions, now: context?.now() ?? Date())
     }
 
     private func keysSection(_ context: UserKeysContext) -> some View {
@@ -132,6 +140,20 @@ final class UserKeyPrompts {
     var gap: String?
     /// S3-13: 新建 / 编辑 Key, the full key and 删除 Key, hung on the page with the rest.
     let manage = UserKeyManageModel()
+    /// S3-14: the platform quota section's store, made on the first visit to the segment and kept for the page, and its sheets.
+    private(set) var quota: PlatformQuotaStore?
+    var quotaSheet: PlatformQuotaSheetRoute?
+
+    /// Writes are named in the page's leave confirmation; USER_NOT_FOUND turns the page into “用户不存在”.
+    func enterQuota(userID: Int, app: AppModel, editor: UserEditorModel) async {
+        if quota == nil {
+            let hooks = PlatformQuotaHooks(onApplied: { [weak editor] in editor?.applyImmediate($0) },
+                                           onUndone: { [weak editor] in editor?.undoImmediate($0) },
+                                           onUserGone: { [weak editor] in editor?.editLoad = .missing })
+            quota = PlatformQuotaStore(userID: userID, source: app, receipts: app.receipts, hooks: hooks)
+        }
+        await quota?.enterSegment()
+    }
 }
 
 extension View {
@@ -168,6 +190,21 @@ private struct UserKeyPromptsModifier: ViewModifier {
             .sheet(item: $manage.form, onDismiss: { manage.formDismissed() }) { formSheet($0) }
             .sheet(item: $manage.revealed, onDismiss: { manage.secretDismissed() }) { UserKeyRevealSheet(secret: $0) }
             .confirmDelete($manage.deleteRequest)
+            // S3-14: 添加平台限额 and the platform's sheet; picking a platform replaces the picker with its sheet.
+            .sheet(item: $prompts.quotaSheet) { quotaSheet($0) }
+    }
+
+    @ViewBuilder private func quotaSheet(_ route: PlatformQuotaSheetRoute) -> some View {
+        if let store = prompts.quota {
+            switch route {
+            case .picker:
+                PlatformQuotaPickerSheet(store: store) { prompts.quotaSheet = .edit($0) }
+            case .edit(let platform):
+                PlatformQuotaEditSheet(store: store, platform: platform, userName: editor.stripUser?.displayName ?? "",
+                                       hasActiveSubscription: PlatformQuotaPresentation.hasActiveSubscription(model?.subscriptions ?? [],
+                                                                                                              now: model?.context?.now() ?? Date()))
+            }
+        }
     }
 
     @ViewBuilder private func formSheet(_ form: UserKeyFormModel) -> some View {

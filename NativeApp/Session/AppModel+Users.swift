@@ -468,3 +468,52 @@ extension AppModel: UserKeysSource {
         return try await updateUser(operation).value
     }
 }
+
+// S3-14: the platform quota section's calls (PlatformQuotaStore) and their -ui-testing branches over PlatformQuotaDemoStore.
+// `metaCatalog()` is S2-03's wrapper (AppModel+Accounts, X25).
+extension AppModel: PlatformQuotaSource {
+    var platformQuotaContext: PlatformQuotaContext? {
+        guard let site = siteSession else { return nil }
+        // The fixtures read the phone's clock (S3D1-06).
+        let clock = isUITesting ? nil : client?.serverClock
+        return PlatformQuotaContext(generation: sessionGeneration, supportsItemWrites: site.has(.usersPlatformQuotaItem), isReadOnlyToken: site.isReadOnlyToken,
+                                    serverTimeZone: site.serverTimeZone, now: { clock?.now() ?? Date() })
+    }
+    private var quotaFixture: PlatformQuotaDemoStore { PlatformQuotaDemoStore.current(for: sessionGeneration) }
+    private var quotaFixtureZone: ServerTimeZone { siteSession?.serverTimeZone ?? DemoData.serverTimeZone }
+    /// The fixture refuses a write as the server does: a read-only token, or a site without the quota service.
+    private func checkFixtureQuotaWrite() throws {
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        if ProcessInfo.processInfo.arguments.contains(PlatformQuotaFixtureArgument.unavailable) { throw APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE") }
+    }
+
+    func platformQuotas(userID: Int) async throws -> [UserPlatformQuota] {
+        guard isUITesting else { return try await requireClient().platformQuotas(userID: userID) }
+        return try quotaFixture.list(userID: userID, arguments: ProcessInfo.processInfo.arguments, now: Date(), zone: quotaFixtureZone)
+    }
+    func upsertPlatformQuota(userID: Int, platform: String, limits: PlatformQuotaLimits) async throws -> PlatformQuotaUpsertResult {
+        guard isUITesting else { return try await requireClient().upsertPlatformQuota(userID: userID, platform: platform, limits: limits) }
+        try checkFixtureQuotaWrite()
+        return quotaFixture.upsert(userID: userID, platform: platform, limits: limits, zone: quotaFixtureZone)
+    }
+    func deletePlatformQuota(userID: Int, platform: String) async throws -> PlatformQuotaDeleteResult {
+        guard isUITesting else { return try await requireClient().deletePlatformQuota(userID: userID, platform: platform) }
+        try checkFixtureQuotaWrite()
+        return try quotaFixture.delete(userID: userID, platform: platform)
+    }
+    func restorePlatformQuota(userID: Int, platform: String) async throws -> PlatformQuotaRestoreResult {
+        guard isUITesting else { return try await requireClient().restorePlatformQuota(userID: userID, platform: platform) }
+        try checkFixtureQuotaWrite()
+        return try quotaFixture.restore(userID: userID, platform: platform, arguments: ProcessInfo.processInfo.arguments, zone: quotaFixtureZone)
+    }
+    func resetPlatformQuotaWindow(userID: Int, platform: String, window: PlatformQuotaWindowKind) async throws -> [UserPlatformQuota] {
+        guard isUITesting else { return try await requireClient().resetPlatformQuotaWindow(userID: userID, platform: platform, window: window) }
+        try checkFixtureQuotaWrite()
+        return try quotaFixture.reset(userID: userID, platform: platform, window: window, now: Date(), zone: quotaFixtureZone)
+    }
+    func replaceUserPlatformQuotas(userID: Int, quotas: [PlatformQuotaEntry]) async throws -> [UserPlatformQuota] {
+        guard isUITesting else { return try await requireClient().replaceUserPlatformQuotas(userID: userID, quotas: quotas) }
+        try checkFixtureQuotaWrite()
+        return quotaFixture.replace(userID: userID, entries: quotas, zone: quotaFixtureZone)
+    }
+}
