@@ -380,6 +380,9 @@
 | 新建账号坞的“重试”（.resend）分支已经走不到 | 建号现在一律带 key，AccountNewDockContent 里无 key 时的“重试”分支不会再出现；S2-20 动这个文件时可以顺手删掉，或保留作兜底。 |
 | PATCH 改 type 时清空旧凭据键 | 新建账号测试失败后改认证方式再保存：PATCH 的 credentials_patch 不能删除敏感键（CREDENTIAL_KEY_NOT_DELETABLE），PUT 退路又会保留没有提供的敏感键，旧方式的 api_key / access_token 会留在服务端（不参与新方式）。请后端评估 PATCH 改 type 时允许清空凭据；现在要彻底清除只能删除后重建。 |
 | 创建失败时是否也打开测试 sheet | 规格 20 §7.5 写“创建失败 → 测试 sheet 第一行标失败”。S2-20 改为账号存在后才打开 sheet，创建失败 / 结果不明 / 混合渠道确认仍在 S2-19 的坞和弹框里处理，避免确认框和 sheet 同时出现。是否按规格改，待用户决定。 |
+| AccountNewUITests 三个用例在主分支上稳定失败 | testCredentialSectionsFollowMethod、testDockListsMissingItemsAndJumpsToFirst（底栏只列“还差API Key”，不列“名称”）、testTurningOffMixedSchedulingRemovesGroupsWithUndo（没有回执）。在 091294f 上用 MAC_REF 复跑同样失败，线 A S2-20 的 check、集成者的 gate 里也一样；不在 app-rules 的基线清单里，需要 S2-19 / S2-20 的线修复或补登基线（S2-22 汇报） |
+| 告警 sheet“只看需处理的账号”是否同时展开或筛到该平台 | 规格与设计稿都只切胶囊（S2-22 照做）。有平台筛选、或该平台分区已收起时，切过去可能看不到本平台需处理的账号；要不要同时展开分区或筛到该平台，待用户决定 |
+| 10 §0.5 补一句“账号 Tab 也会触发 firing 列表刷新” | 20 审查记录第 7 条的建议；规格文件线上不能改，S2-22 已按这个口径实现（AccountListModel 调 LiveOpsStore.refreshFiringAlerts()） |
 
 ### App 与设计 · 阶段 3
 
@@ -436,6 +439,7 @@
 | 完整 Key 不可选中 | 30 §7.4 写“等宽、可选择”；为了不让系统拷贝绕过 localOnly 与 60 秒过期，只给“复制”按钮，待用户看截图确认 |
 | Key 名称超长后端返回 500 无 reason | ent MaxLen(100) 在 Save 时校验转义后的名称；App 已在本地拦截（转义后 ≤ 100 字节），请后端补 reason |
 | AccountOAuthTests.authURLReplyKeepsStateAndRejectsUnsafeLinks 计时断言偶发失败 | remaining 只留 1 秒窗口，Mac 高负载下在 S3-13 check 中失败一次、重跑通过；建议放宽窗口或改用可注入时钟 |
+| UI 测试“先 exists 再读 frame”写法 | 很多 UITests 的 reveal / visibleBand 辅助函数用 `x.exists ? x.frame : …` 读键盘、导航栏、标签栏的位置。元素在两步之间消失时，XCTest 会记失败。UserKeysUITests 已改用 shownFrame()（先 exists 再 try? snapshot()）。其他类目前读的都是不会自己定时消失的元素，暂时没出问题；以后要读回执这类会自动消失的元素时，沿用同样的写法 |
 
 ### App 与设计 · 阶段 4
 
