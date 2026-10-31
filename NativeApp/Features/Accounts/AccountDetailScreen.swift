@@ -92,13 +92,20 @@ private struct AccountDetailContent: View {
                 ToolbarItem(placement: .topBarTrailing) { moreMenu(account) }
             }
         }
-        .refreshable { await detail.refreshAll() }
+        .refreshable { await detail.pullToRefresh() }
         .task { await detail.loadCatalog() }
+        .task { await detail.loadScheduledTestsIfUnread() }
         .task(id: isOpen) { if isOpen { await detail.poll() } }
         .task(id: wait) { await waitForCountdown(wait) }
         .onAppear { visible = true }
         .onDisappear { visible = false }
-        .onChange(of: model.foregroundRevision) { _, _ in Task { await detail.refreshAll() } }
+        .onChange(of: model.foregroundRevision) { _, _ in
+            Task {
+                async let tests: Void = detail.retryScheduledTestsIfFailed()
+                await detail.refreshAll()
+                await tests
+            }
+        }
         // A read that failed while compliance was pending reads again once it is accepted (00 §1.10).
         .onChange(of: model.securityPrompts.complianceRevision) { _, _ in if detail.failure != nil { Task { await detail.load() } } }
         .accountRecoverDialog($recovering, actions: actions)
@@ -161,7 +168,7 @@ private struct AccountDetailContent: View {
         }
         AccountTodaySection(load: detail.today, ordinal: ordinals.today, autoRetry: isRefreshOpen) { await detail.reloadToday() }
         AccountRecordsSection(account: RouteObject(id: account.id, name: account.name), upstream: detail.upstreamErrors.state,
-                              ordinal: ordinals.records)
+                              ordinal: ordinals.records, showsScheduledTests: true, scheduledSummary: detail.scheduledTestsSummary)
     }
 
     /// 基础 · 调度 (S2-10), each with “编辑”; the route's focus scrolls to them.

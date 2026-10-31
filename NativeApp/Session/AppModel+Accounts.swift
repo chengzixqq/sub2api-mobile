@@ -372,3 +372,16 @@ extension AccountTestBackgroundActivity {
         return task == .invalid ? nil : task.rawValue
     }, end: { UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: $0)) })
 }
+
+// MARK: - S2-21 定时测试
+
+extension AppModel {
+    /// 20 §9.2, read only: the account's plans and the primary plan's newest results. `-ui-testing` reads the session's demo
+    /// store (DemoData+ScheduledTests.swift), which fails under `-ui-scheduled-tests-error`.
+    func accountScheduledTests(accountID: Int, resultLimit: Int) async throws -> AccountScheduledTestsSnapshot {
+        if isUITesting {
+            return try accountDemo.scheduledTests(accountID: accountID, resultLimit: resultLimit, arguments: ProcessInfo.processInfo.arguments)
+        }
+        return try await requireClient().accountScheduledTests(accountID: accountID, resultLimit: resultLimit)
+    }
+}

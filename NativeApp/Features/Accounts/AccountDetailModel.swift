@@ -28,6 +28,8 @@ final class AccountDetailModel {
     let today = LoadState<AccountTodayStats>()
     let usageWindow = LoadState<AccountUsageWindow>()
     let upstreamErrors = LoadState<AccountUpstreamErrors>()
+    /// 20 §9 (S2-21): 记录's 定时测试 row, read apart from the 60-second refresh.
+    let scheduledTests = LoadState<AccountScheduledTestsSnapshot>()
 
     @ObservationIgnored private weak var app: AppModel?
     /// Device time before which the light refresh skips a block still backing off after failures (00 §4.6).
@@ -154,7 +156,7 @@ final class AccountDetailModel {
         guard isLive else { return }
         invalidateReads()
         isRemoved = true
-        today.cancel(); usageWindow.cancel(); upstreamErrors.cancel()
+        today.cancel(); usageWindow.cancel(); upstreamErrors.cancel(); scheduledTests.cancel()
     }
     func loadCatalog() async {
         guard let app else { return }
@@ -318,5 +320,41 @@ extension AccountDetailModel {
             await load()
         case .written(let updated): applyWrite(updated)
         }
+    }
+}
+
+// MARK: - 定时测试（S2-21）
+
+extension AccountDetailModel {
+    /// 20 §9.6: read when the detail opens and with pull to refresh; the 60-second refresh leaves it alone. The row needs only
+    /// the newest result.
+    func loadScheduledTests() async {
+        guard let app, isLive, !isRemoved, !scheduledTests.isLoading else { return }
+        let id = accountID
+        await scheduledTests.load(isCurrent: { self.isLive && !self.isRemoved }) {
+            try await app.accountScheduledTests(accountID: id, resultLimit: 1)
+        }
+    }
+    /// The page's appearance reads only what never answered, so coming back from the small page does not read again.
+    func loadScheduledTestsIfUnread() async {
+        guard Self.isUnread(scheduledTests.state) else { return }
+        await loadScheduledTests()
+    }
+    /// The return to the foreground reads again only after a failure.
+    func retryScheduledTestsIfFailed() async {
+        guard case .failed = scheduledTests.state else { return }
+        await loadScheduledTests()
+    }
+    /// Pull to refresh: everything, 定时测试 included (20 §2.6).
+    func pullToRefresh() async {
+        async let tests: Void = loadScheduledTests()
+        await refreshAll()
+        await tests
+    }
+    /// nil until the first read answers; a failed refresh keeps the last summary.
+    var scheduledTestsSummary: ScheduledTestSummary? {
+        if let snapshot = scheduledTests.value { return ScheduledTestsPresentation.summary(snapshot) }
+        if case .failed = scheduledTests.state { return .readFailed }
+        return nil
     }
 }

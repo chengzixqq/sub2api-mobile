@@ -604,6 +604,8 @@ public actor APIClient {
     /// Non-2xx and 2xx with a non-zero code become catalog errors; a success body is parsed exactly once.
     static func decode<T: Decodable & Sendable>(_ response: HTTPResponse, context: ReasonCatalog.Context = .business) throws -> T {
         guard (200..<300).contains(response.statusCode) else { throw APIError.from(response, context: context) }
+        // decode 段 (S2D1-15): a bare success body; one with `code` goes on as an envelope.
+        if let bare = T.self as? any UnenvelopedReply.Type, let value = try bare.unenveloped(response.data) as? T { return value }
         let envelope: Envelope<T>
         do { envelope = try JSONDecoder().decode(Envelope<T>.self, from: response.data) }
         catch let error as APIError { throw error } // Models may reject a payload with their own error (page counters).

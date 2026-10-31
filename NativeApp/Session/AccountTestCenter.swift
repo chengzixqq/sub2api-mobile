@@ -357,11 +357,13 @@ final class AccountTestCenter {
 extension AccountTestCenter {
     func newAccountRun(for accountID: Int?) -> AccountNewTestRun? { accountID.flatMap { newAccountRuns[$0] } }
     /// 20 §7.4-1: the new account's test over the stream, its run made (or restarted, keeping the status the last test left) before
-    /// it starts. nil in another session or while this account's test runs.
+    /// it starts. nil in another session, while this account's test runs, or once it passed: scheduling is then on (or being
+    /// turned on), and another model's failure would leave it on while the sheet read paused.
     @discardableResult
     func startNewAccountTest(_ target: AccountTestTarget, model: String?, status: AccountNewScheduleStatus, writer: any AccountNewScheduleWriter,
                              opener: Opener?, makeKey: @escaping @MainActor () -> UUID = { UUID() }) -> AccountNewTestRun? {
-        guard source.accountTestSession?.generation == generation, !isRunning(target.id) else { return nil }
+        guard source.accountTestSession?.generation == generation, !isRunning(target.id),
+              newAccountRuns[target.id]?.verdict?.passed != true else { return nil }
         let run = newAccountRuns[target.id] ?? AccountNewTestRun(target: target, generation: generation, status: status, writer: writer, receipts: receipts,
                                                                  opener: opener, makeKey: makeKey,
                                                                  onSettled: { [weak self] id in self?.newAccountRuns[id] = nil })

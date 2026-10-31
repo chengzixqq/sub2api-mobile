@@ -109,11 +109,15 @@ private extension View {
     }
 }
 
-/// 上游错误 (“近 24 小时 N 条”, or “运维监控未开启” and still open) and 使用记录, both into the log page filtered by this account.
+/// 上游错误 (“近 24 小时 N 条”, or “运维监控未开启” and still open) and 使用记录, both into the log page filtered by this account;
+/// then S2-21's 定时测试 into its small page.
 struct AccountRecordsSection: View {
     let account: RouteObject
     let upstream: BlockState<AccountUpstreamErrors>
     let ordinal: String
+    var showsScheduledTests = false
+    /// nil while the first read is out.
+    var scheduledSummary: ScheduledTestSummary?
 
     var body: some View {
         AccountDetailSectionBox(title: "记录", ordinal: ordinal, id: "account.records.header") {
@@ -121,6 +125,10 @@ struct AccountRecordsSection: View {
                 trailing: AccountDetailPresentation.upstreamRecordTrailing(upstream), id: "account.records.upstream")
             Divider().overlay(Palette.hairline)
             row(.usage, systemImage: "list.bullet", title: "使用记录", trailing: nil, id: "account.records.usage")
+            if showsScheduledTests {
+                Divider().overlay(Palette.hairline)
+                AccountScheduledTestsRow(accountID: account.id, summary: scheduledSummary)
+            }
         }
     }
 

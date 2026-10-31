@@ -33,7 +33,8 @@ private func row(_ snapshot: Snapshot, _ index: Int) -> AccountNewTestStageRow {
 
 @Test func rowsWhenPassedFailedOrEnabling() {
     let passed = Snapshot(accountID: 13, test: .finished(passedVerdict), enable: .done, model: "m")
-    #expect(row(passed, 2).state == .done && row(passed, 2).offersModelChange)
+    // Scheduling is on once passed: a test with another model could fail without the backend turning it off.
+    #expect(row(passed, 2).state == .done && !row(passed, 2).offersModelChange)
     #expect(row(passed, 3).state == .done && row(passed, 3).meta == "参与调度")
     #expect(row(passed, 1).meta == nil)
 
@@ -46,6 +47,7 @@ private func row(_ snapshot: Snapshot, _ index: Int) -> AccountNewTestStageRow {
     #expect(row(enabling, 3).state == .running && !row(enabling, 2).offersModelChange)
     let enableFailed = Snapshot(accountID: 13, test: .finished(passedVerdict), enable: .failed("网络连接失败"))
     #expect(row(enableFailed, 3).state == .failed && row(enableFailed, 3).meta == "没有成功")
+    #expect(!row(enableFailed, 2).offersModelChange)
     for test in [Snapshot.Test.interrupted, .notStarted("测试没有开始")] {
         #expect(row(Snapshot(accountID: 13, test: test), 3).state == .off)
         #expect(row(Snapshot(accountID: 13, test: test), 2).state == .failed)

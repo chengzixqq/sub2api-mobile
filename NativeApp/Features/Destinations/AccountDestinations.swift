@@ -10,7 +10,7 @@ struct AccountRouteDestination: View {
         // .account：S2-08
         case .account(let id, let focus, let preload): AccountDetailScreen(id: id, focus: focus, preload: preload?.value)
         // .accountScheduledTests：S2-21
-        case .accountScheduledTests: ComingSoonView(title: route.placeholderTitle)
+        case .accountScheduledTests(let accountID): AccountScheduledTestsView(accountID: accountID)
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }

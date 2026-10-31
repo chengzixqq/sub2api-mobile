@@ -24,6 +24,7 @@ let package = Package(
             "DemoData+AccountNew.swift",
             "DemoData+AccountReauth.swift",
             "DemoData+AccountTests.swift",
+            "DemoData+ScheduledTests.swift",
             // 阶段 3
             "AppModel+BalanceReconcile.swift",
             "AppModel+Users.swift",
