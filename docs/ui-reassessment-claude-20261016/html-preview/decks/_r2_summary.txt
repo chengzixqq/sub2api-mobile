@@ -1,0 +1,85 @@
+== v-vis 整体外观 | questions: 1
+   Q 整体外观 | 主模式整体用哪套外观？（一套用于所有页面） | opts: ['仪器风（现在的 A）', 'B 式柔和', '折中']
+      - 仪器风（现在的 A）: {"tab": "today", "v": {"vis": "base"}}
+      - B 式柔和: {"tab": "today", "v": {"vis": "soft"}}
+      - 折中: {"tab": "today", "v": {"vis": "mid"}}
+== v-today 首页（今日） | questions: 4
+   Q 营收区 | 首页的营收区放哪、放多大？ | opts: ['顶部一行（现有）', '营收卡（B 式）', '顶部大数 + 图']
+      - 顶部一行（现有）: {"tab": "today", "v": {"today": "x"}}
+      - 营收卡（B 式）: {"tab": "today", "v": {"today": "x", "homeRev": "card"}}
+      - 顶部大数 + 图: {"tab": "today", "v": {"today": "x", "homeRev": "hero"}}
+   Q 待处理粒度 | 待处理按什么粒度列？ | opts: ['合并（现有）', '逐个列出', '按分组聚合']
+      - 合并（现有）: {"tab": "today", "v": {"today": "x"}}
+      - 逐个列出: {"tab": "today", "v": {"today": "x", "homePend": "each"}}
+      - 按分组聚合: {"tab": "today", "v": {"today": "x", "homePend": "group"}}
+   Q 平静态 | 没有任何异常时，首页要不要换一种布局？ | opts: ['布局不变，只收起待处理', '专门的平静布局']
+      - 布局不变，只收起待处理: {"tab": "today", "v": {"today": "x", "calm": true}}
+      - 专门的平静布局: {"tab": "today", "v": {"today": "x", "calm": true, "homeCalm": "stage"}}
+   Q 收起样式 | （第 3 题选 1 时）没事时待处理收成什么样？ | opts: ['收成一张状态卡', '保留“待处理 0 项”分区']
+      - 收成一张状态卡: {"tab": "today", "v": {"today": "x", "calm": true}}
+      - 保留“待处理 0 项”分区: {"tab": "today", "v": {"today": "x", "calm": true, "homeCalmQueue": "section"}}
+== v-accounts 账号列表 | questions: 2
+   Q 分组方式 | 账号列表按什么分组？ | opts: ['按紧急程度', '按平台', '按分组', '不分组 + 排序']
+      - 按紧急程度: {"tab": "accounts", "acctFilter": "all"}
+      - 按平台: {"tab": "accounts", "acctFilter": "all", "v": {"accounts": "platform"}}
+      - 按分组: {"tab": "accounts", "acctFilter": "all", "v": {"accounts": "group", "acctMultiDemo": true}}
+      - 不分组 + 排序: {"tab": "accounts", "acctFilter": "all", "v": {"accounts": "flat", "acctSort": "amount", "acctSortMenu": true}}
+   Q 行样式 | 账号行长什么样？ | opts: ['三行', '右侧固定列', '两行紧凑']
+      - 三行: {"tab": "accounts", "acctFilter": "all"}
+      - 右侧固定列: {"tab": "accounts", "acctFilter": "all", "v": {"accountRow": "side"}}
+      - 两行紧凑: {"tab": "accounts", "acctFilter": "all", "v": {"accountRow": "compact"}}
+== v-detail 账号详情 | questions: 2
+   Q 操作位置 | 账号详情的操作放哪？ | opts: ['状态卡下一排按钮', '底部玻璃工具栏', '卡内主按钮 + ⋯ 菜单']
+      - 状态卡下一排按钮: {"tab": "accounts", "stack": [{"kind": "account", "id": 3}], "v": {"accountDetail": "vd", "vdAct": "row", "vdInfo": "all"}}
+      - 底部玻璃工具栏: {"tab": "accounts", "stack": [{"kind": "account", "id": 3}], "v": {"accountDetail": "vd", "vdAct": "toolbar", "vdInfo": "all"}}
+      - 卡内主按钮 + ⋯ 菜单: {"tab": "accounts", "stack": [{"kind": "account", "id": 3}], "v": {"accountDetail": "vd", "vdAct": "menu", "vdInfo": "all"}}
+   Q 信息组织 | 账号详情下方的信息怎么组织？ | opts: ['全部展开', '分段切换', '折叠分区']
+      - 全部展开: {"tab": "accounts", "stack": [{"kind": "account", "id": 3}], "v": {"accountDetail": "vd", "vdAct": "row", "vdInfo": "all"}}
+      - 分段切换: {"tab": "accounts", "stack": [{"kind": "account", "id": 3}], "v": {"accountDetail": "vd", "vdAct": "row", "vdInfo": "seg"}}
+      - 折叠分区: {"tab": "accounts", "stack": [{"kind": "account", "id": 3}], "v": {"accountDetail": "vd", "vdAct": "row", "vdInfo": "fold"}}
+   ISSUE v-detail.jsx 加载时会往 DEMO.logs 末尾追加 8 条演示日志（id 9000–8993：Claude-官方-03 5 条、MiniMax-01 3 条，时间都早于 09:25，全站顺序仍按时间）。合并成 main.html 后，全站“使用记录”页会多出这些行（用量明细 +6、错误请求 +1、上游错误 +1）。其他变体如果截的是日志条数，会受影响，主线需要知道。
+   ISSUE base（00-core.jsx 的 AccountDetail）还有同样的问题，需要主线一起改：① 停用账号给的是“启用调度”，点了直接变正常，应改为“启用账号”；② “错误请求 N 条”按 errors24h 计数，却跳到“上游错误”分段，口径对不上；③ 恢复限流账号时没有提示“5 小时窗口已用满”。
+   ISSUE 账号详情里的“最近请求”用的是 v-detail 自己的 VdLogRow（第二行是“用户 · Key 名称”），没有走 logRow 槽。如果之后日志行选了别的变体，这里要手动同步。
+   ISSUE 分段、折叠、滚动位置是按每台手机的 initial.v 对象记住的；点“返回”离开详情时会清掉。但从 Tab 栏再点一次“账号”清空导航栈时不会清，再进入同一个账号会回到上次的位置，这一点和 SwiftUI 略有不同。
+   ISSUE vis-soft / vis-mid 对新部件的覆盖写在 v-detail.css 里。隔离构建不包含 v-vis.css，所以只在临时拼合的页面上看过；主线合成 main.html 后需要再看一眼。
+   ISSUE “上游用量窗口”只为 OAuth 账号（03 / 01 / 02）做了演示。原来容量区里的“5 小时窗口”已经移到这一块。API Key 账号（国产厂商有 cn-providers 额度 / 余额接口）没有做额度块。
+   ISSUE 定时测试结果的那一行显示的是 error_message 文本（例如“429 rate_limit_error”）。后端结果只有 status、latency_ms、error_message 三个字段，没有单独的状态码。
+   ISSUE 停用账号点“启用账号”后，原型假定它的调度开关原本是开着的，所以直接变成“正常”。真实情况下如果调度开关也关着，会变成“暂停”，需要再启用调度。
+   ISSUE 分段模式下，短分段（容量、用量、档案）下半屏是空的，这是这种模式本身的特点。为了分段条能固定、切换时不跳，每个分段至少留了一屏高度。
+== v-users 用户列表与用户详情 | questions: 3
+   Q 用户详情头部 | 用户详情的头部用哪种？ | opts: ['余额大数', '钱包卡', '紧凑头部 + 流水在前']
+      - 余额大数: {"tab": "users", "stack": [{"kind": "user", "id": 1}], "v": {"userDetail": "hero", "users": "rows"}}
+      - 钱包卡: {"tab": "users", "stack": [{"kind": "user", "id": 1}], "v": {"userDetail": "wallet", "users": "rows"}}
+      - 紧凑头部 + 流水在前: {"tab": "users", "stack": [{"kind": "user", "id": 1}], "v": {"userDetail": "compact", "users": "rows"}}
+   Q 用户列表行 | 用户列表的每一行用哪种？ | opts: ['两行列表', '右侧固定列']
+      - 两行列表: {"tab": "users", "v": {"users": "rows", "userDetail": "hero"}}
+      - 右侧固定列: {"tab": "users", "v": {"users": "cols", "userDetail": "hero"}}
+   Q 快捷头像 | 用户列表顶部要不要一排快捷充值头像？ | opts: ['不要', '要']
+      - 不要: {"tab": "users", "v": {"users": "rows", "userDetail": "hero"}}
+      - 要: {"tab": "users", "v": {"users": "quick", "userDetail": "hero"}}
+   ISSUE 00-core 的 base 还没同步，需要主线处理。UserDetail 的流水仍显示“· 余额 $X”（来自演示字段 l.after，后端拿不到）；待核对时“充值”仍是主按钮，不拦截。UsersScreen 仍读写死的 u.low，在 base 列表里给李娜充值后她仍显示“余额低”。对比页的 A 选项暂用我在 v-users 里注册的 hero / rows 代替；主线可以把 base 改成同样的逻辑，或者直接采用这两个变体。
+   ISSUE “余额流水”这个名字有歧义：balance-history 实际是兑换码 / 管理员调整类记录，不含消费扣款。用户可能以为是完整账单。是否改名为“充值与调整记录”，请主线决定。
+   ISSUE 演示流水的备注（“月初预充”“退回未用额度”）是 v-users 里按时间对上的演示值，notes 是后端真实字段。已定的大数字键盘没有备注输入（submitBalanceChange 传的是空串），所以新充值的流水没有备注。键盘要不要加备注，需要另行决定。
+   ISSUE 余额低阈值在演示里统一为 $10。真实环境按每个用户的 balance_notify_threshold 判断，这个字段可能为空或没开启提醒，需要回退到站点默认值。
+   ISSUE 右侧固定列的“今日消费”和快捷头像的“最近调整”在原生端都还没接入：分别要接 POST admin/dashboard/users-usage（批量）和 GET admin/user-adjustments。
+   ISSUE 紧凑头部在大字号下，按钮换行后仍靠右对齐，没有铺满整行。原型只演示能换行，真实效果以 SwiftUI 的 ViewThatFits 为准。
+   ISSUE 充值回执“已充值 $50.00”没写对象姓名（00-core 的 submitBalanceChange），在列表里用快捷充值时看不出是给谁充的。
+   ISSUE 禁用用户（赵磊）的详情里“充值”仍是主按钮。禁用用户该不该能充值是业务规则，本轮没动。
+   ISSUE 钱包卡的白色“充值”胶囊和键盘上青色提交键颜色不一致，按走查建议保留并在要点里说明，由用户在对比时自己判断。
+== v-request 请求详情 | questions: 2
+   Q 成功详情 | 成功请求的详情页用哪种？ | opts: ['分区式', '收据式', '时间线式']
+      - 分区式: {"tab": "search", "stack": [{"kind": "logs", "scope": "usage"}, {"kind": "request", "id": 9018}], "v": {"request": "base"}}
+      - 收据式: {"tab": "search", "stack": [{"kind": "logs", "scope": "usage"}, {"kind": "request", "id": 9018}], "v": {"request": "receipt"}}
+      - 时间线式: {"tab": "search", "stack": [{"kind": "logs", "scope": "usage"}, {"kind": "request", "id": 9018}], "v": {"request": "timeline"}}
+   Q 失败详情 | 失败请求的详情页用哪种？ | opts: ['分区式', '收据式', '时间线式']
+      - 分区式: {"tab": "search", "stack": [{"kind": "logs", "scope": "errors"}, {"kind": "request", "id": 9013}], "v": {"request": "base"}}
+      - 收据式: {"tab": "search", "stack": [{"kind": "logs", "scope": "errors"}, {"kind": "request", "id": 9013}], "v": {"request": "receipt"}}
+      - 时间线式: {"tab": "search", "stack": [{"kind": "logs", "scope": "errors"}, {"kind": "request", "id": 9013}], "v": {"request": "timeline"}}
+   ISSUE 共享数据需要主线改：shared/data.jsx 里 '09:39|504' 第 2 次尝试是 60.0s，所以 base 分区式“上游尝试”写的是 529 · 1.2s + 504 · 60.0s（加起来 61.2s），和它自己的总耗时 60.0s 对不上。收据式和时间线式改成显示“第几秒返回”（+1.2s / +60.0s），已经和 60.0s 一致。建议主线把这次尝试改成 58.8s。
+   ISSUE 共享数据需要主线改：非流式记录（9016、9012、9008）的 ttft 还是演示值，列表和 base 显示 0.4s 这类首字；收据式和时间线式按后端口径显示“—”。在主线把非流式 ttft 改成 null 之前，同一条非流式记录在 base / 列表和新方案里首字不一样（两道题的初始页 9018 和 9013 不受影响）。
+   ISSUE base 分区式的“标记已处理”状态还在组件的 useState 里，点去看账号再返回就丢了；需要主线在 MainPhone 上加一份 resolved 映射挂到 ctx 上。收据式和时间线式现在用每台手机一份的内存表（WeakMap，键是 ctx.v），以后主线有了 ctx 上的映射，可以改成读它。
+   ISSUE “对应用量明细”指向的三条成功记录（u9017 / u9015 / u9007）是 v-request.jsx 里补的演示数据，不在共享的 18 条日志里，用量列表里看不到。成功页选 base 时没法渲染这几条，链接会退回到按最终账号筛选的用量列表，列表里没有那条记录。
+   ISSUE 两题分开选时，main.html 要写成 v: { request: 'mix', requestOk: X, requestFail: Y }。Slot 只在 ctx.v.request 是 receipt / timeline / mix 时才会进入分派组件，只写 requestOk / requestFail、不写 request，会整页都用 base。
+   ISSUE 共享数据 9004（phase=request，客户端 400）还带着 Claude-官方-01 · 400 这次 attempts，所以 base 分区式仍然把它列成“上游尝试”。新方案按 phase 隐藏了，base 的问题需要主线改数据或改 base。
+   ISSUE base 分区式请求 ID 行的“点按复制 · 可在 Web 的系统日志里按此 ID 串联”是界面操作说明，违反 brief 里的 R2，不在本次修改范围内。时间线式里这句已经换成“复制”按钮文字。
+   ISSUE 辅助功能大字号下“标签—值”行和节点标题行怎么换行，只写在了实现备注里（ViewThatFits），HTML 原型没有模拟。

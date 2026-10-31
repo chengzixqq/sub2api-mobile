@@ -1,0 +1,184 @@
+import Foundation
+import Sub2Core
+
+/// Signing out, deleting and switching sites, the scene lifecycle and ended sessions (00 §0 rule 13, §1.1, §1.7.4–§1.7.5,
+/// §4.6; D11, D17–D19). The local erasure itself is `endActiveSession` in AppModel.swift.
+extension AppModel {
+    static let credentialClearedNotice = "此站点凭据已清除，请重新登录。"
+
+    var isSuspended: Bool { lifecycle.isSuspended }
+    /// Pages without their own scene handling reload when this changes (D18).
+    var foregroundRevision: Int { lifecycle.foregroundRevision }
+
+    /// The only scene-phase entry (Sub2MobileApp, all windows together); S0-12 and S0-13 dispatch their foreground work
+    /// from here too.
+    func sceneDidChange(to activity: AppActivity) {
+        // Every activation, including the first after a launch while locked, which is not a resume.
+        if activity == .active { reloadUnreadablePendingRecords() }
+        switch lifecycle.transition(to: activity, now: Date(), lastProbe: siteSession?.probedAt) {
+        case .none: return
+        case .suspend: forwardToClient { await $0.suspend() }
+        case .resume(let reprobe):
+            forwardToClient { await $0.resume() }
+            if reprobe { Task { await reprobeActiveSession() } }
+            // 30 §3.6 once the client is no longer paused (S3D1-19).
+            let resumed = sceneTask
+            Task { await resumed?.value; await reconcilePendingOnForeground() }
+        }
+    }
+    /// Back after more than five minutes (00 §4.6). A failed probe keeps the previous site session; a session the server
+    /// ended is reported by the client instead.
+    func reprobeActiveSession() async {
+        do { try await reloadSiteSession() } catch { return }
+    }
+
+    /// 00 §1.7.5: erased locally first, then push devices and the JWT logout with the erased copies.
+    func logout() async {
+        guard !isSigningOut else { return }
+        isSigningOut = true
+        defer { isSigningOut = false }
+        guard let ended = await endActiveSession(cancelsConnection: true, then: .savedSites) else { return }
+        let pushIDs = pushRecords.teardownCandidates(serverID: ended.profile.id)
+        guard let report = await teardown(ended, of: ended.profile, mode: .signOut, pushDeviceIDs: pushIDs) else { return }
+        pushRecords.apply(report, serverID: ended.profile.id)
+    }
+
+    /// 00 §1.1, 60 §3.4, D19: erased like signing out, the credential and device ID deleted, then the server steps with the
+    /// erased copies (a `sat_` site revokes its token). Returns the report; nil when nothing was due. A site without a
+    /// credential left reports the revocation and push removal it could not send.
+    @discardableResult
+    func remove(_ profile: ServerProfile) async -> TeardownReport? {
+        guard !isSigningOut else { return nil }
+        if hasPendingRecords(serverID: profile.id) { profileArchive[profile.id] = profile }
+        let isActive = activeProfile?.id == profile.id
+        if isActive { isSigningOut = true }
+        defer { if isActive { isSigningOut = false } }
+        let ended = isActive ? await endActiveSession(cancelsConnection: true, then: .savedSites) : await storedSession(of: profile)
+        // The row stays, in progress, until the server steps end (D19).
+        removingSites.append(profile)
+        defer { removingSites.removeAll { $0.id == profile.id } }
+        profiles.removeAll { $0.id == profile.id }
+        if loginPrompt?.profile.id == profile.id { loginPrompt = nil }
+        persistProfiles()
+        let pushIDs = pushRecords.teardownCandidates(serverID: profile.id)
+        pushRecords.removeAll(serverID: profile.id)
+        // An archived site's records are still checked with its request-id flag; otherwise the flag stays with the other
+        // logins of its address, where the proxy still is.
+        if profileArchive[profile.id] == nil {
+            siteFlags.remove(serverID: profile.id, handingOverTo: MoneyRecordOrigin.sameAddressIDs(of: profile, among: profiles + Array(profileArchive.values)))
+        }
+        analyticsMemory.removeAll(serverID: profile.id)
+        do { try await credentials.remove(serverID: profile.id) } catch { report(error) }
+        let result = await teardown(ended, of: profile, mode: .removeSite, pushDeviceIDs: pushIDs)
+        switch SiteRemovalNotice.after(removingCurrent: isActive, hasReceiptHost: activeProfile != nil, notes: result?.notes ?? []) {
+        case .receipt(let notes): receipts.show(.siteRemoved(notes: notes))
+        case .alert(let text): errorMessage = text
+        case .silent: break
+        }
+        return result
+    }
+
+    /// 00 §1.1: the candidate's me() decides first, so a failed switch keeps the connected site. A site without a credential,
+    /// or whose session the server ended, opens its own login page. The connected site is not switched to again: that would
+    /// reconnect and claim a switch that did not happen (every caller relies on this, not only the site menu).
+    func switchTo(_ profile: ServerProfile) async {
+        guard !isSigningOut, profile.id != activeProfile?.id else { return }
+        let attempt = beginConnection()
+        do {
+            guard let credential = try await credentials.load(serverID: profile.id) else {
+                if isCurrent(attempt) { openSiteLogin(profile, notice: Self.credentialClearedNotice) }
+                return
+            }
+            if isUITesting, let refusal = DemoData.switchRefusal { throw refusal }
+            try await connect(profile: profile, credential: credential, attempt: attempt)
+            // The site menu and the settings page both switch here (10 §0.7-5).
+            receipts.show(.switched(to: profile.name))
+        } catch { await connectionFailed(error, profile: profile) }
+    }
+    /// A switch or restore the server refused for good: the connected site ends like any invalidated session, another site
+    /// has its credential erased; both open the site's login page. Any other failure keeps everything and is shown.
+    func connectionFailed(_ error: any Error, profile: ServerProfile) async {
+        guard let invalidation = SessionInvalidation(error: error) else { report((error as? APIError)?.forConnection ?? error); return }
+        if activeProfile?.id == profile.id {
+            await invalidateSession(invalidation, serverID: profile.id, generation: sessionGeneration)
+            return
+        }
+        do { try await credentials.eraseCredential(serverID: profile.id) } catch { report(error) }
+        openSiteLogin(profile, notice: invalidation.message)
+    }
+
+    /// The client reported that the server ended this session (D06): erased locally without any request (the site, its
+    /// device ID and push records stay), then its login page with the reason. Reports for an older session are dropped.
+    func invalidateSession(_ invalidation: SessionInvalidation, serverID: UUID, generation: UUID) async {
+        guard !isSigningOut, generation == sessionGeneration, activeProfile?.id == serverID else { return }
+        _ = await endActiveSession(cancelsConnection: false, then: .siteLogin(notice: invalidation.message))
+    }
+    /// Stage 6: this App's own session or token was just revoked (60 §5.4, §6.4), so nothing is left to sign out of.
+    func forgetActiveSession(notice: String?) async {
+        guard !isSigningOut else { return }
+        _ = await endActiveSession(cancelsConnection: false, then: .siteLogin(notice: notice))
+    }
+    /// 60 §6.4 through AccessTokenRevocation; the push records follow what it did. This App's own token ends the session here
+    /// without a logout request. A request in flight may have ended it first with its own 401: the login page then says why.
+    func revokeAccessToken(_ token: AdminAccessToken, context: SessionContext) async throws -> AccessTokenRevocation.Outcome {
+        guard context.generation == sessionGeneration else { throw CancellationError() }
+        let outcome: AccessTokenRevocation.Outcome
+        if isUITesting {
+            outcome = DemoData.revokeAccessTokenFixture(token, generation: context.generation)
+        } else {
+            guard let credential = await context.client.currentCredential() else { throw CancellationError() }
+            let pushIDs = pushRecords.teardownCandidates(serverID: context.serverID)
+            outcome = try await AccessTokenRevocation(tokenID: token.id, isCurrent: token.current, pushDeviceIDs: pushIDs, credential: credential)
+                .run(using: context.client)
+        }
+        if let report = outcome.pushReport { pushRecords.apply(report, serverID: context.serverID) }
+        guard outcome.kind == .revokedCurrent else { return outcome }
+        if context.generation == sessionGeneration {
+            await forgetActiveSession(notice: AccessTokenRevocation.currentRevokedNotice)
+        } else if let prompt = loginPrompt, prompt.profile.id == context.serverID {
+            openSiteLogin(prompt.profile, notice: AccessTokenRevocation.currentRevokedNotice)
+        }
+        return outcome
+    }
+
+    /// The deletion prompt promises what SiteTeardown does, and that follows the saved credential: a `sat_` site saved
+    /// before access tokens still says Admin Key in its profile until it connects again.
+    func removalAuthentication(of profile: ServerProfile) async -> AuthenticationKind {
+        await credentials.storedAuthentication(serverID: profile.id) ?? profile.authentication
+    }
+
+    func openSiteLogin(_ profile: ServerProfile, notice: String?) {
+        loginPrompt = LoginPrompt(profile: profile, notice: notice, reusesSiteID: !hasPendingRecords(serverID: profile.id))
+    }
+    /// Money records of any kind awaiting reconciliation keep the site id from being reused (D17); so does a records file
+    /// that cannot be read yet, which may hold some.
+    func hasPendingRecords(serverID: UUID) -> Bool { pendingMoney.mayHaveRecords(serverID: serverID) }
+
+    /// Suspend and resume reach the client in the order the scene changed.
+    private func forwardToClient(_ action: @escaping @Sendable (APIClient) async -> Void) {
+        guard let client else { return }
+        let previous = sceneTask
+        sceneTask = Task { await previous?.value; await action(client) }
+    }
+    /// A saved site's credential and device ID, read before they are deleted; nil when there is nothing to send with.
+    private func storedSession(of profile: ServerProfile) async -> EndedSession? {
+        cancelConnection()
+        guard let credential = try? await credentials.load(serverID: profile.id),
+              let deviceID = try? await credentials.deviceID(serverID: profile.id) else { return nil }
+        return EndedSession(profile: profile, credential: credential, deviceID: deviceID)
+    }
+    /// The server half, through a client without store or callback (D13) and within SiteTeardown.deadline. Without a
+    /// credential nothing is sent and a deleted site reports what was not done. Fixture sites are not reachable.
+    private func teardown(_ ended: EndedSession?, of profile: ServerProfile, mode: SiteTeardown.Mode, pushDeviceIDs: [Int]) async -> TeardownReport? {
+        guard !isUITesting else {
+            if let delay = DemoData.teardownDelay { try? await Task.sleep(for: delay) }
+            return nil
+        }
+        guard let ended, let credential = ended.credential else {
+            return SiteTeardown.unsentReport(mode: mode, authentication: profile.authentication, pushDeviceIDs: pushDeviceIDs)
+        }
+        let teardown = SiteTeardown(credential: credential, mode: mode, pushDeviceIDs: pushDeviceIDs)
+        guard teardown.hasNetworkSteps else { return nil }
+        return await teardown.run(using: APIClient(server: ended.profile, credential: credential, deviceID: ended.deviceID))
+    }
+}

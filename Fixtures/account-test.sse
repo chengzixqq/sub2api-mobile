@@ -1,0 +1,8 @@
+: heartbeat
+
+data: {"type":"test_start","model":"fixture-model"}
+
+data: {"type":"content","text":"示例流式响应"}
+
+data: {"type":"test_complete","success":true}
+

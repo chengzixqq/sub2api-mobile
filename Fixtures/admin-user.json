@@ -1,0 +1,1 @@
+{"code":0,"message":"success","data":{"id":7,"email":"admin@example.invalid","username":"Example administrator","balance":"12.34567890","status":"active","role":"admin","concurrency":5}}

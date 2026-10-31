@@ -1,0 +1,129 @@
+/* 主模式补充样式：大数字键盘（来自 B）、日志行右侧固定列、请求详情。所有选择器挂在 .lay-main 下。 */
+
+/* keypad (from B) */
+.lay-main .kp-user { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 14.5px; color: var(--ink2); }
+.lay-main .kp-avatar { width: 30px; height: 30px; border-radius: 15px; background: var(--sunken); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: var(--ink1); }
+.lay-main .kp-amount { text-align: center; font-size: 64px; font-weight: 500; letter-spacing: -.02em; line-height: 1.05; margin-top: 4px; font-family: "SF Pro Display", "Bahnschrift", -apple-system, sans-serif; font-stretch: 75%; }
+.lay-main .kp-amount.is-empty { color: var(--ink3); }
+.lay-main .kp-preview { text-align: center; font-size: 15px; color: var(--ink2); }
+.lay-main .kp-preview b { color: var(--ink1); }
+.lay-main .kp-pill { position: relative; align-self: center; height: 34px; padding: 0 14px; border-radius: 17px; background: var(--chip-bg); color: var(--ink1); font-size: 14px; font-weight: 600; }
+.lay-main .kp-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: auto; }
+.lay-main .kp-key { height: 54px; border-radius: 14px; font-size: 26px; font-weight: 500; display: flex; align-items: center; justify-content: center; color: var(--ink1); }
+.lay-main .kp-key:hover { background: var(--hover); }
+.lay-main .kp-key:active { background: var(--sunken); }
+.lay-main .sheet .submit { margin-top: 4px; }
+
+/* log row: model + who on the left; amount and "首字/耗时 · 时间" pinned right */
+.lay-main .lg-row { align-items: center; padding-top: 9px; padding-bottom: 9px; }
+.lay-main .lg-row .row-lead { padding-top: 0; align-self: center; }
+.lay-main .lg-row .row-chev { padding-top: 0; }
+.lay-main .lg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lay-main .lg-model { font-size: 14.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .lg-who { font-size: 13px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .lg-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 96px; }
+.lay-main .lg-cost { font-size: 15px; font-weight: 600; color: var(--ink1); }
+.lay-main .lg-cost.is-missing { color: var(--ink3); font-weight: 500; }
+.lay-main .lg-time { font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+.lay-main .lg-head-cols { font-size: 12px; font-weight: 500; }
+
+/* request detail */
+.lay-main .rq-status { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 600; color: var(--tone-ink); }
+.lay-main .rq-status.ok { color: var(--ok-ink); }
+.lay-main .rq-model { font-size: 19px; font-weight: 600; margin-top: 10px; word-break: break-all; }
+.lay-main .rq-map { display: flex; gap: 8px; font-size: 13px; color: var(--ink2); margin-top: 4px; }
+.lay-main .rq-map .mono { color: var(--ink1); word-break: break-all; }
+.lay-main .rq-cost { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+.lay-main .rq-cost > div { display: flex; flex-direction: column; gap: 2px; }
+.lay-main .rq-cost small { font-size: 12px; color: var(--ink2); }
+.lay-main .rq-cost b { font-size: 22px; font-weight: 500; font-family: "SF Pro Display", "Bahnschrift", -apple-system, sans-serif; font-stretch: 75%; }
+.lay-main .rq-cost span.num { font-size: 15px; color: var(--ink1); }
+.lay-main .rq-error { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--sunken); font-size: 13px; line-height: 1.5; color: var(--ink1); word-break: break-word; }
+.lay-main .rq-timing { padding-top: 14px; padding-bottom: 12px; }
+.lay-main .rq-bar { display: flex; height: 8px; border-radius: 2px; overflow: hidden; background: var(--track); }
+.lay-main .rq-bar-first { background: var(--accent); }
+.lay-main .rq-bar-rest { flex: 1; background: var(--ink3); opacity: .35; }
+.lay-main .rq-timing-legend { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 10px; }
+.lay-main .rq-timing-legend span { display: flex; flex-direction: column; gap: 2px; }
+.lay-main .rq-timing-legend small { font-size: 12px; color: var(--ink2); }
+.lay-main .rq-timing-legend small::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: 0; background: transparent; }
+.lay-main .rq-timing-legend span:nth-child(1) small::before { background: var(--accent); }
+.lay-main .rq-timing-legend span:nth-child(2) small::before { background: var(--ink3); opacity: .5; }
+.lay-main .rq-timing-legend b { font-size: 16px; font-weight: 600; }
+.lay-main .rq-step { width: 22px; height: 22px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+.lay-main .rq-step.ok { background: var(--ok-wash); color: var(--ok-ink); }
+.lay-main .rq-step.bad { background: var(--critical-wash); color: var(--critical-ink); }
+.lay-main .rq-rid { font-size: 12.5px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .rq-saved { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13.5px; font-weight: 600; color: var(--ok-ink); }
+.lay-main .lg-lead { width: 46px; flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.lay-main .lg-clock { font-size: 13px; font-weight: 600; color: var(--ink1); line-height: 18px; }
+.lay-main .lg-lead .code { margin-left: -2px; height: 18px; width: 36px; justify-content: flex-start; font-size: 12px; }
+.lay-main .lg-lead .code-caution, .lay-main .lg-lead .code-critical { justify-content: center; }
+.lay-main .lg-row .lg-main, .lay-main .lg-row .lg-side { align-self: stretch; justify-content: space-between; }
+.lay-main .st-radio { width: 22px; height: 22px; border-radius: 11px; border: 1.8px solid var(--ink3); display: inline-flex; align-items: center; justify-content: center; color: var(--on-accent); }
+.lay-main .st-radio.on { background: var(--accent-fill); border-color: var(--accent-fill); }
+.lay-main .mo-seg { margin-bottom: 14px; }
+.lay-main .mo-meters { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding-top: 12px; }
+.lay-main .mo-meter { display: flex; flex-direction: column; gap: 6px; }
+.lay-main .mo-meter-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; color: var(--ink2); }
+.lay-main .mo-meter-top b { font-size: 20px; color: var(--ink1); font-weight: 500; }
+.lay-main .mo-meter .cap-read { display: none; }
+.lay-main .mo-spark .spark-line { stroke: var(--ink2); stroke-width: 1.4; fill: none; vector-effect: non-scaling-stroke; }
+.lay-main .mo-trend { padding-bottom: 10px; display: flex; flex-direction: column; gap: 4px; }
+.lay-main .mo-trend small { font-size: 12px; color: var(--ink2); }
+.lay-main .mo-trend .spark-line { stroke: var(--critical); stroke-width: 1.6; fill: none; vector-effect: non-scaling-stroke; }
+.lay-main .mo-trend .spark-area { fill: var(--critical-wash); }
+.lay-main .mo-actions { display: inline-flex; gap: 6px; }
+.lay-main .st-switch { width: 46px; height: 28px; border-radius: 14px; background: var(--track); position: relative; flex: none; transition: background .2s; }
+.lay-main .st-switch i { position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 12px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
+.lay-main .st-switch.on { background: var(--accent-fill); }
+.lay-main .st-switch.on i { transform: translateX(18px); }
+
+/* round-4 core: schedule switch marks, keypad note, filtered-log empty state, upstream status chip */
+.lay-main .sched-mark { color: var(--neutral-ink); font-weight: 600; }
+.lay-main .hero-sched { display: flex; align-items: flex-start; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: 13.5px; line-height: 1.45; color: var(--ink2); }
+.lay-main .hero-sched svg { margin-top: 3px; color: var(--neutral-ink); }
+.lay-main .hero-sched b { color: var(--ink1); font-weight: 600; }
+.lay-main .kp-user .badge { margin-left: 2px; }
+.lay-main .kp-note { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 6px 0 14px; border-radius: 12px; background: var(--chip-bg); }
+.lay-main .kp-note-label { flex: none; font-size: 14px; font-weight: 600; color: var(--ink2); }
+.lay-main .kp-note input { flex: 1; min-width: 0; height: 44px; border: 0; background: none; outline: none; font-size: 15px; color: var(--ink1); }
+.lay-main .kp-note input::placeholder { color: var(--ink3); }
+.lay-main .kp-note:focus-within { box-shadow: 0 0 0 2px var(--accent); }
+.lay-main .kp-note-clear { flex: none; width: 32px; height: 32px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink3); }
+.lay-main .kp-note-clear:hover { background: var(--hover); color: var(--ink2); }
+.lay-main .ledger-note { color: var(--ink2); }
+.lay-main .lg-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 26px; padding-bottom: 26px; text-align: center; font-size: 14px; color: var(--ink2); }
+.lay-main .lg-empty-dash { font-size: 28px; line-height: 1; font-weight: 500; color: var(--ink3); }
+.lay-main .lg-empty-clear { margin-top: 4px; min-height: 44px; padding: 0 16px; border-radius: 22px; font-size: 15px; font-weight: 600; color: var(--accent); }
+.lay-main .lg-empty-clear:hover { background: var(--accent-wash); }
+.lay-main .rq-status.is-upstream { color: var(--ink2); gap: 8px; }
+.lay-main .rq-status.is-upstream .code { margin-left: 0; width: auto; padding: 0 7px; font-size: 13px; }
+.lay-main .rq-step.caution { background: var(--caution-wash); color: var(--caution-ink); }
+.lay-main .st-wrap .row-meta { display: block; white-space: normal; line-height: 1.45; }
+/* Plain-text meta lines that can outgrow one line (alert names, alert rule + window): wrap instead of being cut mid-word (a flex box cannot ellipsize). */
+.lay-main .row-meta.mo-wrap { display: block; white-space: normal; line-height: 1.45; }
+
+/* round-5 core: test result, last upstream error, filters a list cannot take, ledger items without an amount, hit areas */
+.lay-main .kp-pill::after { content: ''; position: absolute; left: 0; right: 0; top: calc(50% - 22px); height: 44px; }
+.lay-main .ts-result { align-items: flex-start; }
+.lay-main .ts-result svg { margin-top: 1px; }
+.lay-main .ts-result-text { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.lay-main .ts-result-text small { font-size: 13.5px; line-height: 1.45; color: var(--ink1); }
+.lay-main .ts-result-act { position: relative; flex: none; align-self: center; min-height: 36px; padding: 0 14px; border-radius: 18px; background: var(--accent-fill); color: var(--on-accent); font-size: 14.5px; font-weight: 600; }
+.lay-main .ts-result-act::after { content: ''; position: absolute; left: 0; right: 0; top: calc(50% - 22px); height: 44px; }
+.lay-main .hero-last { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 44px; margin-top: 10px; padding: 0; border-top: 1px solid var(--hairline); font-size: 13.5px; color: var(--ink2); text-align: left; }
+.lay-main .hero-last b { color: var(--ink1); font-weight: 600; }
+.lay-main .hero-last + .hero-sched { margin-top: 0; }
+.lay-main .hero-last svg { color: var(--ink3); }
+.lay-main .token-off { background: var(--chip-bg); color: var(--ink3); border-color: var(--hairline); border-style: dashed; }
+.lay-main .token-off .mono { text-decoration: line-through; }
+.lay-main .lg-filter-note { margin: -4px 0 8px; font-size: 13px; line-height: 1.45; color: var(--ink2); }
+.lay-main .ledger-display { font-size: 15.5px; font-weight: 600; color: var(--ink1); }
+.lay-main .mo-silenced { align-items: center; color: var(--neutral-ink); }
+.lay-main .mo-silenced svg { flex: none; }
+
+/* round-6 small items: the redeem code under a balance-history item (Web: code.slice(0, 8) + '...'), pinned right on line 2 */
+.lay-main .ledger-sub { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.lay-main .ledger-sub > .row-meta { flex: 1; min-width: 0; }
+.lay-main .ledger-code { flex: none; font-size: 13px; color: var(--ink2); white-space: nowrap; }

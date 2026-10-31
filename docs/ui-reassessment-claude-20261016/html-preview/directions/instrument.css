@@ -1,0 +1,77 @@
+/* 游标 Vernier · tokens from design/21-visual-instrument.md */
+.page-instrument {
+  --page-title-font: 600 34px/1.15 "SF Pro Display", "Bahnschrift", "Segoe UI", "PingFang SC", sans-serif;
+}
+
+.dir-instrument {
+  --num-font: "SF Pro Text", "Bahnschrift", "Segoe UI", system-ui, sans-serif;
+  --readout-font: "SF Pro Display", "Bahnschrift", "Segoe UI", sans-serif;
+  --money-font: var(--num-font);
+  --mono-font: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  --large-title-font: 700 32px/1.15 -apple-system, "SF Pro Display", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  --money-xl-font: 500 44px/1.05 "SF Pro Display", "Bahnschrift", sans-serif;
+  --amount-font: 500 52px/1.1 "SF Pro Display", "Bahnschrift", sans-serif;
+  --amount-sign-font: 400 30px/1 "SF Pro Display", "Bahnschrift", sans-serif;
+  --panel-radius: 14px;
+  --badge-radius: 3px;
+  --chip-radius: 8px;
+  --btn-radius: 10px;
+  --cap-radius: 1px;
+  --cap-h: 6px;
+  --row-title-weight: 500;
+  --readout-weight: 500;
+  --money-weight: 500;
+}
+
+/* condensed readouts: SF Pro width axis on Apple, Bahnschrift condensed on Windows */
+.dir-instrument .readout, .dir-instrument .money-xl, .dir-instrument .amount input, .dir-instrument .money-l { font-stretch: 75%; font-family: "SF Pro Display", "Bahnschrift", sans-serif; }
+.dir-instrument .money-l { font-weight: 500; font-size: 23px; }
+.dir-instrument .strip-side b { font-family: "SF Pro Display", "Bahnschrift", sans-serif; font-stretch: 75%; font-size: 21px; font-weight: 500; }
+
+/* panels: hairline-bordered modules, no shadow */
+.dir-instrument .sec { border: 1px solid var(--hairline); }
+.dir-instrument .sec-head { padding-bottom: 7px; align-items: center; }
+.dir-instrument .sec-title { font-size: 13px; font-weight: 600; color: var(--ink2); }
+.dir-instrument .sec-line { height: 1px; background: var(--hairline); margin-top: 1px; }
+.dir-instrument .sec-meta { font-weight: 500; color: var(--ink3); }
+
+/* status spine: early comparison pages only. Main mode (.lay-main) draws the floating status capsule instead
+   (shared/base.css 状态胶囊) and never touches the host's background, so banners keep their --tone-wash fill and
+   heroes / strips their surface. :where keeps the old specificity for the comparison pages. */
+.dir-instrument:where(:not(.lay-main)) .rail { background: linear-gradient(to right, var(--tone) 0 3px, transparent 3px); }
+.dir-instrument:where(:not(.lay-main)) .rail.tappable:hover { background: linear-gradient(to right, var(--tone) 0 3px, var(--hover-row) 3px); }
+.dir-instrument .list-group .row + .row::before { left: 48px; }
+
+/* lamp plates: near-square, glyph + text, wash fill */
+.dir-instrument .badge { height: 21px; padding: 0 6px; font-size: 12px; border: 0; }
+.dir-instrument .badge.lv1 { background: var(--neutral-wash); color: var(--neutral-ink); }
+.dir-instrument .glyph-normal svg { width: 7px; height: 7px; }
+
+/* vernier capacity bar: notches at 25/50/75 drawn above the fill, over-limit cap */
+.dir-instrument .cap-track::after { content: ''; position: absolute; inset: 0; z-index: 1; background: linear-gradient(to right, transparent calc(25% - .5px), var(--surface) 0 calc(25% + .5px), transparent 0 calc(50% - .5px), var(--surface) 0 calc(50% + .5px), transparent 0 calc(75% - .5px), var(--surface) 0 calc(75% + .5px), transparent 0); }
+.dir-instrument .cap-over .cap-track { box-shadow: 2px 0 0 var(--critical); }
+
+/* ledger legend ticks: the three cost bases differ by stroke; amounts stay ink */
+.dir-instrument small[data-kind]::before { content: ''; display: inline-block; width: 10px; height: 0; margin-right: 5px; vertical-align: middle; border-top: 2px solid var(--lg-actual); }
+.dir-instrument small[data-kind="cost"]::before { border-top: 2px dashed var(--lg-cost); }
+.dir-instrument small[data-kind="standard"]::before { border-top: 2px dotted var(--lg-standard); }
+
+/* chart: graphite bars, current hour ink, compare dotted */
+.dir-instrument .chart-compare { stroke-dasharray: 1.5 3; stroke-width: 1.2; }
+.dir-instrument .lg-today { height: 8px !important; width: 6px !important; border-radius: 1px; background: var(--chart-bar-now); }
+
+/* plain hairline list rows, inline nav */
+.dir-instrument .list-head { font-size: 12.5px; letter-spacing: .02em; }
+.dir-instrument .chip b { font-family: var(--num-font); }
+.dir-instrument .act { border: 1px solid var(--hairline); }
+.dir-instrument .act-primary { border-color: transparent; }
+.dir-instrument .hero { border: 1px solid var(--hairline); }
+.dir-instrument:where(:not(.lay-main)) .hero.rail { background: linear-gradient(to right, var(--tone) 0 3px, var(--surface) 3px); } /* main mode: status capsule */
+.dir-instrument .hero-quiet { border: 1px solid var(--hairline); }
+.dir-instrument .hero .readout-xl { font-size: 52px; }
+.dir-instrument .code { border-radius: 3px; }
+.dir-instrument .health-fill { background: var(--ink2); }
+.dir-instrument .strip18 i { border-radius: 1px; height: 10px; }
+.dir-instrument .chan-stat { border: 1px solid var(--hairline); border-radius: 10px; }
+.dir-instrument .search-field { border-radius: 10px; }
+.dir-instrument .avatar { border-radius: 8px; }

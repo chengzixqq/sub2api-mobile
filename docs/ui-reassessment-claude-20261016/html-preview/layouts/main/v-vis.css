@@ -1,0 +1,290 @@
+/* 外观变体（vis）。只改外观、不动布局；颜色只用 Vernier 变量（阴影只调透明度）。
+   vis-soft「B 式柔和」：滚动页（概览、详情、监控）是 22px 大圆角卡片 + 柔和阴影（深色改细描边）；列表页（账号、用户、使用记录）
+     是 List(.insetGrouped) 式内嵌分组，不加阴影（SwiftUI 的 List 分组投不出阴影）。圆体数字（真机 SF Pro Rounded，网页预览退回系统字体）、
+     更宽松的留白、圆点 + 胶囊状态牌（状态卡里只留圆点 + 文字）、图标底块、状态卡渐变底；小按钮次要 = 青色浅底、主要 = 实心青。
+   vis-mid 「折中」：18px 圆角、无描边、极淡阴影（深色无）、浮动的圆头状态竖条、胶囊 + 图标状态牌、标准宽度 SF Pro 中等字重数字、细线保留但更淡。 */
+
+/* =====================================================================
+   vis-soft · B 式柔和
+   ===================================================================== */
+
+.lay-main.vis-soft {
+  /* SF Pro Rounded on Apple (same stack as B); browsers without it fall back to the system UI face, as B's preview does */
+  --num-font: ui-rounded, "SF Pro Rounded", -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --readout-font: var(--num-font);
+  --money-font: var(--num-font);
+  --money-xl-font: 600 46px/1.05 var(--num-font);
+  --amount-font: 600 56px/1.1 var(--num-font);
+  --panel-radius: 22px;
+  --badge-radius: 12px;
+  --chip-radius: 18px;
+  --btn-radius: 24px;
+  --cap-radius: 4px;
+  --cap-h: 8px;
+  --row-title-weight: 600;
+  --readout-weight: 600;
+  --money-weight: 600;
+  --vs-card: 0 1px 2px rgba(20, 24, 27, .05), 0 8px 22px rgba(20, 24, 27, .06);
+  --vs-chip: 0 1px 2px rgba(20, 24, 27, .06), 0 2px 6px rgba(20, 24, 27, .04);
+  --vs-primary: 0 6px 16px rgba(11, 110, 133, .24);
+}
+.lay-main.vis-soft.dark {
+  --vs-card: inset 0 0 0 1px rgba(255, 255, 255, .065);
+  --vs-chip: inset 0 0 0 1px rgba(255, 255, 255, .07);
+  --vs-primary: none;
+}
+
+/* numerals: rounded, normal width (undo the instrument's condensed readouts) */
+.lay-main.vis-soft .readout,
+.lay-main.vis-soft .money-xl,
+.lay-main.vis-soft .money-l,
+.lay-main.vis-soft .strip-side b,
+.lay-main.vis-soft .kp-amount,
+.lay-main.vis-soft .rq-cost b { font-family: var(--num-font); font-stretch: 100%; font-weight: 600; letter-spacing: -.01em; }
+.lay-main.vis-soft .money-l { font-size: 21px; }
+.lay-main.vis-soft .strip-side b { font-size: 20px; }
+.lay-main.vis-soft .hero .readout-xl { font-size: 54px; letter-spacing: -.02em; }
+.lay-main.vis-soft .kp-amount { font-size: 66px; letter-spacing: -.025em; }
+
+/* rhythm: looser between cards, a little more air inside them */
+.lay-main.vis-soft .strip { margin: 6px 16px 26px; }
+.lay-main.vis-soft .sec-wrap { margin: 0 16px 28px; }
+.lay-main.vis-soft .detail-head { padding: 6px 16px 28px; gap: 16px; }
+.lay-main.vis-soft .row { padding: 12px 16px; gap: 12px; }
+.lay-main.vis-soft .lg-row { padding-top: 10px; padding-bottom: 10px; }
+.lay-main.vis-soft .cap-line { padding-top: 12px; padding-bottom: 12px; }
+.lay-main.vis-soft .ledger-line { padding-top: 12px; padding-bottom: 12px; }
+.lay-main.vis-soft .balance-hero { padding: 2px 16px 28px; }
+
+/* section heads: big bold title, no rule */
+.lay-main.vis-soft .sec-head { padding: 0 4px 10px; align-items: baseline; }
+.lay-main.vis-soft .sec-title { font-size: 19px; font-weight: 700; color: var(--ink1); letter-spacing: -.01em; }
+.lay-main.vis-soft .sec-line { background: none; }
+.lay-main.vis-soft .sec-meta { font-size: 13.5px; font-weight: 500; color: var(--ink3); }
+
+/* cards on scroll pages (overview, details, monitor): no border, soft lift (dark: thin ring instead of shadow) */
+.lay-main.vis-soft .sec,
+.lay-main.vis-soft .chan-stat { border: 0; box-shadow: var(--vs-card); }
+.lay-main.vis-soft .sec { border-radius: 22px; }
+
+/* every List page (accounts, users, request log) is SwiftUI List(.insetGrouped): rounded groups, the group head inside
+   like B's card heads, and NO shadow — a List section cannot cast one, so the preview doesn't pretend it can.
+   Rows trim their side padding so the inset costs as little text as possible. */
+.lay-main.vis-soft .screen-plain { background: var(--canvas); }
+.lay-main.vis-soft .list-group { margin: 0 16px 20px; border-radius: 22px; overflow: hidden; background: var(--surface); box-shadow: none; }
+.lay-main.vis-soft .list-head { background: transparent; padding: 15px 14px 4px; font-size: 15px; font-weight: 700; color: var(--ink1); letter-spacing: 0; }
+.lay-main.vis-soft .list-head b { font-size: 13.5px; font-weight: 600; color: var(--ink3); }
+.lay-main.vis-soft .list-group .row { padding-left: 14px; padding-right: 14px; gap: 10px; }
+.lay-main.vis-soft .list-group .row + .row::before { left: 52px; }
+
+/* the request log joins the same inset groups; its rows run tighter so the pinned right column keeps its width */
+.lay-main.vis-soft .list-head b.lg-head-cols { font-size: 12px; font-weight: 500; }
+.lay-main.vis-soft .list-group .lg-row { padding: 10px 10px 10px 14px; gap: 8px; }
+.lay-main.vis-soft .list-group .lg-row + .lg-row::before { left: 14px; }
+.lay-main.vis-soft .lg-row .row-chev { padding-top: 0; }
+
+/* status: rails give way to tinted icon tiles; the hero gets B's pass-card wash */
+.lay-main.vis-soft .rail { background: none; }
+.lay-main.vis-soft .rail.tappable:hover { background: var(--hover-row); }
+.lay-main.vis-soft .row-lead { width: 28px; padding-top: 0; align-self: flex-start; }
+.lay-main.vis-soft .glyph,
+.lay-main.vis-soft .lead-icon { width: 28px; height: 28px; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: var(--tone-wash, var(--sunken)); color: var(--tone-ink, var(--ink2)); }
+.lay-main.vis-soft .glyph svg, .lay-main.vis-soft .lead-icon svg { width: 16px; height: 16px; }
+.lay-main.vis-soft .glyph-normal { background: var(--sunken); color: var(--ok); }
+.lay-main.vis-soft .glyph-normal svg { width: 15px; height: 15px; } /* the 'dot' icon → a ~6px dot, same as the badge dots */
+.lay-main.vis-soft .lead-icon.dim { background: var(--sunken); color: var(--ink2); }
+.lay-main.vis-soft .row-lead .select-ring { margin-top: 3px; }
+.lay-main.vis-soft .row-chev { padding-top: 7px; }
+.lay-main.vis-soft .row-main { min-height: 28px; justify-content: center; } /* one-line rows centre on the tile */
+.lay-main.vis-soft .row + .row::before { left: 56px; }
+/* light sheets sit on the grey canvas: lift neutral tiles to white so they stay visible */
+.lay-main.vis-soft.light .sheet .glyph-normal,
+.lay-main.vis-soft.light .sheet .glyph.tone-neutral,
+.lay-main.vis-soft.light .sheet .avatar { background: var(--surface); }
+
+/* lamp plates → dot + capsule */
+.lay-main.vis-soft .badge { height: 24px; padding: 0 10px 0 9px; gap: 6px; border-radius: 12px; font-size: 12.5px; font-weight: 600; }
+.lay-main.vis-soft .badge > svg { display: none !important; } /* Icon sets display:block inline */
+.lay-main.vis-soft .badge::before { content: ''; width: 6px; height: 6px; border-radius: 3px; background: var(--tone); flex: none; }
+.lay-main.vis-soft .badge-big { height: 30px; padding: 0 13px 0 11px; gap: 7px; border-radius: 15px; font-size: 14px; }
+.lay-main.vis-soft .badge-big::before { width: 7px; height: 7px; border-radius: 4px; }
+
+/* hero (status card) */
+.lay-main.vis-soft .hero,
+.lay-main.vis-soft .hero.rail,
+.lay-main.vis-soft .hero-quiet { border: 0; border-radius: 24px; background: linear-gradient(160deg, var(--tone-wash, var(--surface)), var(--surface) 64%); box-shadow: var(--vs-card); padding: 18px; }
+.lay-main.vis-soft .hero-quiet { padding: 16px 18px; gap: 12px; font-size: 16px; }
+.lay-main.vis-soft .hero-quiet .glyph { background: var(--surface); }
+/* on the tinted card the capsule fill would melt into the wash: dot + word only, like B's pass card */
+.lay-main.vis-soft .hero .badge { background: transparent; padding-left: 0; padding-right: 0; }
+.lay-main.vis-soft .hero-figure { margin-top: 12px; }
+.lay-main.vis-soft .hero-models { margin-top: 16px; border-radius: 16px; padding: 11px 14px; }
+.lay-main.vis-soft .hero-error { font-weight: 500; }
+
+/* buttons: pills; secondary floats on a white card */
+.lay-main.vis-soft .actions { gap: 10px; }
+.lay-main.vis-soft .act { height: 48px; border-radius: 24px; border: 0; background: var(--surface); color: var(--ink1); box-shadow: var(--vs-card); }
+.lay-main.vis-soft .act-primary { background: var(--accent-fill); color: var(--on-accent); box-shadow: var(--vs-primary); }
+.lay-main.vis-soft .act-small { height: 32px; padding: 0 13px; border-radius: 16px; background: var(--accent-wash); color: var(--accent); box-shadow: none; font-size: 14px; }
+/* small pills keep A's hierarchy: secondary = cyan wash (B's 测试 / 恢复状态 pill), primary = solid cyan */
+.lay-main.vis-soft .act-small.act-primary { background: var(--accent-fill); color: var(--on-accent); }
+.lay-main.vis-soft .submit { box-shadow: var(--vs-primary); }
+.lay-main.vis-soft .submit:disabled { box-shadow: none; }
+/* inside a sheet the submit sits on the scroller's bottom edge, where a drop shadow would be clipped into a band */
+.lay-main.vis-soft .sheet .submit { box-shadow: none; }
+
+/* chips & segmented */
+.lay-main.vis-soft .chips { padding: 6px 16px 14px; }
+.lay-main.vis-soft .chip { height: 36px; padding: 0 14px; border-radius: 18px; border: 0; background: var(--surface); box-shadow: var(--vs-chip); font-weight: 500; }
+.lay-main.vis-soft .chip b { font-family: var(--num-font); }
+.lay-main.vis-soft .chip.on { background: var(--accent-fill); color: var(--on-accent); box-shadow: none; }
+.lay-main.vis-soft .chip.on b { color: inherit; opacity: .85; }
+.lay-main.vis-soft .token-add { background: transparent; box-shadow: none; border: 1.5px dashed var(--rule-strong); color: var(--ink2); }
+.lay-main.vis-soft .seg { border-radius: 14px; padding: 3px; }
+.lay-main.vis-soft .seg-item { height: 36px; border-radius: 11px; }
+.lay-main.vis-soft .seg-item.on { box-shadow: 0 1px 2px rgba(20, 24, 27, .08), 0 3px 8px rgba(20, 24, 27, .06); }
+.lay-main.vis-soft.dark .seg-item.on { box-shadow: none; }
+.lay-main.vis-soft .search-field { height: 42px; border-radius: 21px; background: var(--surface); box-shadow: var(--vs-chip); }
+.lay-main.vis-soft .search-field.big { height: 48px; border-radius: 24px; }
+.lay-main.vis-soft .sheet-body > .search-field { flex: none; } /* keep its height inside the scrolling sheet body */
+
+/* small parts */
+.lay-main.vis-soft .avatar { width: 28px; height: 28px; margin-left: 0; border-radius: 14px; background: var(--sunken); color: var(--ink1); font-size: 13.5px; }
+.lay-main.vis-soft .code { border-radius: 7px; }
+.lay-main.vis-soft .rq-step { width: 28px; height: 28px; border-radius: 14px; font-size: 13px; }
+.lay-main.vis-soft .kv { border-bottom: 0; padding: 10px 0; }
+.lay-main.vis-soft .kv-label { font-size: 12.5px; }
+.lay-main.vis-soft small[data-kind]::before { width: 8px; height: 8px; border: 0; border-radius: 4px; background: var(--lg-actual); vertical-align: 0; }
+.lay-main.vis-soft small[data-kind="cost"]::before { border: 0; background: var(--lg-cost); }
+.lay-main.vis-soft small[data-kind="standard"]::before { border: 0; background: var(--lg-standard); }
+
+/* bars: thicker, round ends, no vernier notches */
+.lay-main.vis-soft .cap-track::after { display: none; }
+.lay-main.vis-soft .cap-over .cap-track { box-shadow: none; }
+.lay-main.vis-soft .health-scale { height: 8px; border-radius: 4px; }
+.lay-main.vis-soft .health-fill { border-radius: 4px; }
+.lay-main.vis-soft .health-needle { width: 3px; margin-left: -1.5px; border-radius: 2px; }
+.lay-main.vis-soft .strip18 { gap: 2px; }
+.lay-main.vis-soft .strip18 i { height: 13px; border-radius: 3px; }
+.lay-main.vis-soft .chart-bar { rx: 3px; } /* round tops only — the bars keep A's full data contrast */
+.lay-main.vis-soft .lg-today { width: 8px !important; height: 8px !important; border-radius: 4px; }
+.lay-main.vis-soft .rq-bar { height: 10px; border-radius: 5px; }
+.lay-main.vis-soft .rq-timing-legend small::before { border-radius: 4px; }
+
+/* monitor summary tiles */
+.lay-main.vis-soft .chan-summary { gap: 10px; margin-bottom: 26px; }
+.lay-main.vis-soft .chan-stat { border-radius: 18px; padding: 11px 12px 10px; }
+.lay-main.vis-soft .chan-stat .readout-l { font-size: 26px; }
+
+/* request detail, banners, sheets */
+.lay-main.vis-soft .rq-cost { border-top: 1px dashed var(--hairline); padding-top: 14px; margin-top: 16px; }
+.lay-main.vis-soft .rq-error { border-radius: 14px; padding: 12px 14px; }
+.lay-main.vis-soft .banner,
+.lay-main.vis-soft .banner.rail { margin: 2px 16px 16px; border-radius: 20px; padding: 14px 12px 14px 16px; background: var(--tone-wash); }
+.lay-main.vis-soft .stream,
+.lay-main.vis-soft .result { border-radius: 18px; }
+.lay-main.vis-soft .kp-key { height: 56px; border-radius: 18px; font-family: var(--num-font); }
+.lay-main.vis-soft .kp-pill { height: 36px; border-radius: 18px; background: var(--surface); box-shadow: var(--vs-chip); }
+.lay-main.vis-soft .kp-avatar { background: var(--surface); box-shadow: var(--vs-chip); }
+
+/* =====================================================================
+   vis-mid · 折中
+   ===================================================================== */
+
+.lay-main.vis-mid {
+  /* standard-width SF Pro (Segoe UI Variable in the preview) instead of A's condensed DIN-like readouts */
+  --num-font: "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --readout-font: "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --money-font: var(--num-font);
+  --money-xl-font: 500 42px/1.05 var(--readout-font);
+  --amount-font: 500 52px/1.1 var(--readout-font);
+  --panel-radius: 18px;
+  --badge-radius: 11px;
+  --chip-radius: 17px;
+  --btn-radius: 14px;
+  --cap-radius: 3px;
+  --cap-h: 6px;
+  --readout-weight: 500;
+  --row-title-weight: 600;
+  --vm-lift: 0 1px 2px rgba(20, 24, 27, .05), 0 1px 1px rgba(20, 24, 27, .03);
+  --vm-line: color-mix(in srgb, var(--hairline) 70%, transparent);
+}
+.lay-main.vis-mid.light { --btn-bg: var(--surface); }
+.lay-main.vis-mid.dark { --vm-lift: none; }
+
+/* numerals: standard-width SF Pro, medium weight (A uses condensed readouts, soft uses rounded semibold) */
+.lay-main.vis-mid .readout,
+.lay-main.vis-mid .money-xl,
+.lay-main.vis-mid .money-l,
+.lay-main.vis-mid .strip-side b,
+.lay-main.vis-mid .kp-amount,
+.lay-main.vis-mid .rq-cost b { font-family: var(--readout-font); font-stretch: 100%; font-weight: 500; letter-spacing: -.01em; }
+.lay-main.vis-mid .money-l { font-size: 21px; }
+.lay-main.vis-mid .strip-side b { font-size: 20px; }
+.lay-main.vis-mid .hero .readout-xl { font-size: 50px; }
+.lay-main.vis-mid .kp-amount { font-size: 62px; }
+.lay-main.vis-mid .rq-cost b { font-size: 21px; }
+
+/* section heads: a plain dark title, no rule (between A's grey label and B's big heading) */
+.lay-main.vis-mid .sec-wrap { margin-bottom: 24px; }
+.lay-main.vis-mid .sec-head { padding: 0 4px 9px; }
+.lay-main.vis-mid .sec-title { font-size: 16px; font-weight: 600; color: var(--ink1); }
+.lay-main.vis-mid .sec-line { background: none; }
+.lay-main.vis-mid .sec-meta { color: var(--ink3); font-weight: 500; }
+
+/* panels: no hairline frame, a whisper of lift in light mode */
+.lay-main.vis-mid .sec,
+.lay-main.vis-mid .hero,
+.lay-main.vis-mid .hero-quiet,
+.lay-main.vis-mid .chan-stat { border: 0; box-shadow: var(--vm-lift); }
+.lay-main.vis-mid .hero, .lay-main.vis-mid .hero-quiet { border-radius: 20px; }
+.lay-main.vis-mid .hero-models { border-radius: 12px; }
+
+/* softer hairlines */
+.lay-main.vis-mid .row + .row::before { opacity: .7; right: 14px; }
+.lay-main.vis-mid .kv { border-bottom-color: var(--vm-line); }
+.lay-main.vis-mid .cap-line + .cap-line,
+.lay-main.vis-mid .ledger-line + .ledger-line { border-top-color: var(--vm-line); }
+.lay-main.vis-mid .rq-cost { border-top-color: var(--vm-line); }
+.lay-main.vis-mid .list-head { font-size: 13px; letter-spacing: 0; padding: 14px 16px 6px; }
+.lay-main.vis-mid .list-head b.lg-head-cols { font-size: 12px; }
+
+/* status spine: inset, round-ended bar instead of a full-height stripe */
+.lay-main.vis-mid .rail { background: none; }
+.lay-main.vis-mid .rail.tappable:hover { background: var(--hover-row); }
+.lay-main.vis-mid .hero.rail { background: var(--surface); }
+.lay-main.vis-mid .rail::after { content: ''; position: absolute; left: 5px; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; background: var(--tone); }
+.lay-main.vis-mid .hero.rail::after { left: 6px; top: 18px; bottom: 18px; width: 4px; }
+
+/* lamp plates: A's glyph inside B's capsule */
+.lay-main.vis-mid .badge { height: 22px; padding: 0 9px 0 7px; border-radius: 11px; gap: 4px; }
+.lay-main.vis-mid .badge-big { height: 28px; padding: 0 12px 0 10px; border-radius: 14px; }
+
+/* buttons & chips */
+.lay-main.vis-mid .act { border: 0; box-shadow: var(--vm-lift); }
+.lay-main.vis-mid .act-primary { box-shadow: none; }
+.lay-main.vis-mid .act-small { border-radius: 15px; }
+.lay-main.vis-mid .sec .act-small:not(.act-primary) { background: var(--sunken); box-shadow: none; } /* white-on-white inside cards would vanish; the primary keeps its solid cyan */
+.lay-main.vis-mid .chip { border: 0; }
+.lay-main.vis-mid .chip.on { background: var(--accent-wash); color: var(--accent); }
+.lay-main.vis-mid .chip.on b { color: inherit; }
+.lay-main.vis-mid .token-add { border: 1px dashed var(--rule-strong); }
+.lay-main.vis-mid .seg { border-radius: 12px; }
+.lay-main.vis-mid .seg-item { border-radius: 9px; }
+.lay-main.vis-mid .search-field { border-radius: 12px; }
+.lay-main.vis-mid .search-field.big { border-radius: 14px; }
+.lay-main.vis-mid .sheet-body > .search-field { flex: none; } /* keep its height inside the scrolling sheet body */
+
+/* small parts */
+.lay-main.vis-mid .avatar { border-radius: 15px; }
+.lay-main.vis-mid .code { border-radius: 6px; }
+.lay-main.vis-mid .chan-stat { border-radius: 14px; }
+.lay-main.vis-mid .cap-track::after { display: none; }
+.lay-main.vis-mid .strip18 i { border-radius: 2px; height: 11px; }
+.lay-main.vis-mid .health-fill { border-radius: 3px; }
+.lay-main.vis-mid .chart-bar { rx: 2px; }
+.lay-main.vis-mid .rq-bar { border-radius: 4px; }
+.lay-main.vis-mid .rq-error { border-radius: 12px; }
+.lay-main.vis-mid .banner,
+.lay-main.vis-mid .banner.rail { border-radius: 16px; background: var(--tone-wash); }
+.lay-main.vis-mid .kp-key { border-radius: 16px; }
