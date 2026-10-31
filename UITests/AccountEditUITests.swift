@@ -625,4 +625,20 @@ final class AccountEditUITests: XCTestCase {
         field.typeText(text)
         XCTAssertTrue(waitUntil(field, "value == '\(text)'"), String(describing: field.value))
     }
+
+    // MARK: - 列表完整刷新（S2-23）
+
+    /// 20 §1.6: a save in the detail makes the account tab read its whole list again, so the row has the new name on the way back.
+    @MainActor func testRenameInDetailShowsNewNameInListAfterBack() {
+        openSheet(4, section: "basic")
+        defer { diagnostics("account-edit-rename-list-final") }
+        addText("改名-", to: "account.edit.name")
+        app.buttons["account.edit.save"].tap()
+        waitForReceipt("已保存：名称")
+        XCTAssertTrue(app.buttons["account.edit.save"].waitForNonExistence(timeout: 5), app.debugDescription)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let row = app.buttons["account.4"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitUntil(row, "label CONTAINS '改名-'", timeout: 5), "\(row.label)\n\(app.debugDescription)")
+    }
 }

@@ -37,6 +37,12 @@ extension DemoData {
         static let groupTransition = "-ui-account-group-transition"
         /// The detail's first `GET :id/today-stats` answers 429 with retry_after 8 (S2-09); later reads work.
         static let todayThrottled = "-ui-account-today-throttled"
+        /// The detail's second `GET :id/today-stats` answers 429 with retry_after 8, so the figures stay while it waits (S2-23).
+        static let todayRefreshThrottled = "-ui-account-today-refresh-throttled"
+        /// Followed by a focus (basic, sched, cred, proxy, models, adv): the account tab pushes Claude-官方-01's detail with it once
+        /// (X39, S2-23).
+        static let detailFocus = "-ui-account-focus"
+        static let focusAccountID = 1
         /// Before each account's first PATCH another administrator changes its notes to `otherAdminNotes`, so that PATCH meets
         /// 412 ACCOUNT_VERSION_CONFLICT (S2-10).
         static let patchConflict = "-ui-account-patch-conflict"
@@ -75,6 +81,11 @@ extension DemoData {
         /// reauthorize answers 400 REAUTH_UNSUPPORTED (shadow_account) (S2-17).
         static let reauthUnsupported = "-ui-account-reauth-unsupported"
 
+        static func launchDetailRoute(arguments: [String]) -> AppRoute? {
+            guard let index = arguments.firstIndex(of: detailFocus), index + 1 < arguments.count,
+                  let focus = AccountDetailFocus(rawValue: arguments[index + 1]) else { return nil }
+            return .account(id: focusAccountID, focus: focus)
+        }
         static func launchIntent(arguments: [String]) -> TabIntent? {
             guard let index = arguments.firstIndex(of: intent), index + 1 < arguments.count else { return nil }
             let value = arguments[index + 1]
@@ -245,6 +256,7 @@ final class AccountDemoStore {
     private let arguments: [String]
     private var listReads = 0
     private var todayThrottleServed = false
+    private var todayReads = 0
     /// S2-17: the authorization sessions this session's links opened (DemoData+AccountReauth).
     var oauthSessions = AccountOAuthFixtureState()
     /// S2-19: creates this session has received (DemoData+AccountNew).
@@ -477,10 +489,14 @@ final class AccountDemoStore {
 
 extension AccountDemoStore {
     /// `GET :id/today-stats` from DemoData.accountToday: 503 under `todayError`; under `todayThrottled` the first read is a 429 with
-    /// retry_after 8.
+    /// retry_after 8, under `todayRefreshThrottled` the second one.
     func todayStats(id: Int) throws -> AccountTodayStats {
         if arguments.contains(DemoData.AccountFixture.todayThrottled), !todayThrottleServed {
             todayThrottleServed = true
+            throw APIError.server(status: 429, envelope: nil, retryAfter: 8)
+        }
+        todayReads += 1
+        if arguments.contains(DemoData.AccountFixture.todayRefreshThrottled), todayReads == 2 {
             throw APIError.server(status: 429, envelope: nil, retryAfter: 8)
         }
         guard let stats = todayStats(ids: [id]).stats[id] else { throw APIError.server(status: 503, reason: "ACCOUNT_STATS_UNAVAILABLE") }

@@ -76,7 +76,6 @@ func everyListedReadRevalidatesTransparently(path: String) async throws {
     }
     let client = cachingClient(transport)
     for _ in 0..<2 {
-        #expect(try await client.accounts(page: 1, search: "", status: nil, platform: nil).items.first?.id == 9)
         #expect(try await client.managedAccounts(page: 1, query: AccountListQuery()).items.first?.id == 9)
         #expect(try await usersPage(client).items.first?.id == 7)
         #expect(try await client.groups(page: 1).items.first?.id == 10)
@@ -84,8 +83,8 @@ func everyListedReadRevalidatesTransparently(path: String) async throws {
         #expect(try await client.dashboardCostSnapshot().actual == Decimal(string: "12.34567891"))
     }
     let sent = await validators(transport)
-    #expect(sent.count == 12)
-    #expect(sent.prefix(6).allSatisfy { $0 == nil }); #expect(sent.suffix(6).allSatisfy { $0 != nil })
+    #expect(sent.count == 10)
+    #expect(sent.prefix(5).allSatisfy { $0 == nil }); #expect(sent.suffix(5).allSatisfy { $0 != nil })
 }
 
 @Test func todayStatsBatchKeyFollowsNormalizedBody() async throws {

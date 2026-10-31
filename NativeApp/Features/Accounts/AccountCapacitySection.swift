@@ -60,18 +60,25 @@ struct AccountCapacitySection: View {
     }
 }
 
-/// A section of the detail's top half: the numbered title over a surface card. The meta (“更新于 …”) sits before the number;
-/// NumberedSectionHeader takes one from S1-09b on, and S2-23 moves these headers over.
-struct AccountDetailSectionBox<Content: View>: View {
+/// A section of the detail's top half: the numbered title over a surface card. The header is NumberedSectionHeader (S2-23): the
+/// meta (“更新于 …”) sits before the number and the accessory (今日's block status) right after the title.
+struct AccountDetailSectionBox<Accessory: View, Content: View>: View {
     let title: String
     let ordinal: String
     var meta: String?
     let id: String
-    @ViewBuilder let content: Content
+    let content: Content
+    let accessory: Accessory
+
+    init(title: String, ordinal: String, meta: String? = nil, id: String, @ViewBuilder content: () -> Content,
+         @ViewBuilder accessory: () -> Accessory) {
+        self.title = title; self.ordinal = ordinal; self.meta = meta; self.id = id; self.content = content(); self.accessory = accessory()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header.padding(.horizontal, 4)
+            NumberedSectionHeader(title: title, ordinal: ordinal.isEmpty ? nil : ordinal, meta: meta, id: id) { accessory }
+                .padding(.horizontal, 4)
             VStack(alignment: .leading, spacing: 0) { content }
                 .padding(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -79,18 +86,10 @@ struct AccountDetailSectionBox<Content: View>: View {
         }
         .padding(.top, 6)
     }
+}
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink2)
-            Spacer(minLength: 8)
-            if let meta { Text(meta).font(.footnote).monospacedDigit().foregroundStyle(Palette.ink3) }
-            Text(ordinal).font(.subheadline).foregroundStyle(Palette.ink3).accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(title))
-        .accessibilityValue(Text(meta ?? ""))
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityIdentifier(id)
+extension AccountDetailSectionBox where Accessory == EmptyView {
+    init(title: String, ordinal: String, meta: String? = nil, id: String, @ViewBuilder content: () -> Content) {
+        self.init(title: title, ordinal: ordinal, meta: meta, id: id, content: content) { EmptyView() }
     }
 }

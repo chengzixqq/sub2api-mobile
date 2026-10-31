@@ -561,4 +561,36 @@ final class AccountListUITests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
         confirm.buttons["手动解决"].firstMatch.tap()
     }
+
+    // MARK: - 只读令牌下的新建（S2-23）
+
+    /// 00 §2.6.3 / C-1: a read-only admin access token greys “＋” (20 §7.1), with no caption beside it in the toolbar.
+    @MainActor func testReadOnlyTokenGreysNewAccountButton() {
+        launchWithReadOnlyToken()
+        defer { diagnostics("accounts-new-readonly-final") }
+        app.tabBars.buttons["账号"].tap()
+        let plus = app.buttons["accounts.new"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(plus.isEnabled, app.debugDescription)
+        XCTAssertFalse(element("readonly.caption").exists, app.debugDescription)
+    }
+
+    /// `-ui-accounts-empty` (S2-03's fixture): a site without accounts shows the empty card, no section and no failure.
+    @MainActor func testEmptySiteShowsEmptyCard() {
+        launchAndOpenAccounts(arguments: ["-ui-accounts-empty"])
+        defer { diagnostics("accounts-empty-site-final") }
+        let empty = element("accounts.empty")
+        XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(empty.label, "没有符合条件的账号")
+        XCTAssertFalse(app.buttons["account.1"].exists || element("accounts.failure").exists, app.debugDescription)
+    }
+
+    /// `-ui-accounts-summary-error` (S2-03's fixture): status-summary failing says nothing (20 §1.5); the rows stay and the list
+    /// shows no failure.
+    @MainActor func testSummaryFailureKeepsRowsSilently() {
+        launchAndOpenAccounts(arguments: ["-ui-accounts-summary-error"])
+        defer { diagnostics("accounts-summary-error-final") }
+        XCTAssertTrue(app.buttons["account.1"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("accounts.failure").exists || element("accounts.banner").exists, app.debugDescription)
+    }
 }

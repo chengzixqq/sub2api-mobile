@@ -293,20 +293,22 @@ final class AccountDetailUITests: XCTestCase {
         assertLogsMode("上游错误")
     }
 
-    /// The first today-stats read answers 429 (retry_after 8): the wait counts down with 重试 greyed out, then today is read
-    /// again by itself.
+    /// The first today-stats read answers 429 (retry_after 8): C-5's failure row counts down with 重试 greyed out, then today is
+    /// read again by itself (X37, S2-23).
     @MainActor func testTodayThrottleCountsDownThenRetriesAutomatically() {
         openDetail(1, arguments: [Fixture.todayThrottled])
         defer { diagnostics("account-detail-today-throttled-final") }
         let retry = app.buttons["account.today.retry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(retry.label.hasPrefix("请求过于频繁，") && retry.label.hasSuffix("秒后自动重试"), retry.label)
         XCTAssertFalse(retry.isEnabled, app.debugDescription)
+        let failure = element("account.today.failure")
+        let notice = failure.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "请求过于频繁，")).firstMatch
+        XCTAssertTrue(notice.exists && notice.label.hasSuffix("秒后自动重试"), app.debugDescription)
         let actual = element("account.today.actual")
         XCTAssertEqual(actual.value as? String, "无数据")
         diagnostics("account-detail-today-throttled")
         waitForValue(actual, equals: "$409.38", timeout: 20)
-        XCTAssertTrue(retry.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(failure.waitForNonExistence(timeout: 5), app.debugDescription)
     }
 
     // MARK: - 基础 · 调度（S2-10）
@@ -611,5 +613,45 @@ final class AccountDetailUITests: XCTestCase {
         reveal(listed)
         listed.tap()
         XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    // MARK: - 区块 429 与路由分区（S2-23）
+
+    private static let todayRefreshThrottled = "-ui-account-today-refresh-throttled"
+    private static let detailFocus = "-ui-account-focus"
+
+    /// The second today-stats read (the return to the foreground reads every section again) answers 429 (retry_after 8): the
+    /// figures stay, the countdown sits beside 今日's title, and today is read again by itself (X37).
+    @MainActor func testTodayRefreshThrottleKeepsFiguresWithHeaderCountdown() {
+        openDetail(1, arguments: [Self.todayRefreshThrottled])
+        defer { diagnostics("account-detail-today-refresh-throttled-final") }
+        let actual = element("account.today.actual")
+        waitForValue(actual, equals: "$409.38")
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        let status = element("account.today.status")
+        let counting = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", "请求过于频繁，"), object: status)
+        XCTAssertEqual(XCTWaiter().wait(for: [counting], timeout: 10), .completed, app.debugDescription)
+        diagnostics("account-detail-today-refresh-throttled")
+        XCTAssertEqual(actual.value as? String, "$409.38")
+        XCTAssertFalse(element("account.today.failure").exists, app.debugDescription)
+        XCTAssertTrue(status.waitForNonExistence(timeout: 20), app.debugDescription)
+        XCTAssertEqual(actual.value as? String, "$409.38")
+    }
+
+    /// X39: `.account(id:focus:)` opens the detail on each of its six sections without a scroll (`-ui-account-focus`, Claude-官方-01).
+    @MainActor func testRouteFocusScrollsToEachSection() {
+        for focus in ["basic", "sched", "cred", "proxy", "models", "adv"] {
+            launchAndLogin(arguments: [Self.detailFocus, focus])
+            app.tabBars.buttons["账号"].tap()
+            let header = element("account.section.\(focus)")
+            XCTAssertTrue(header.waitForExistence(timeout: 10), "\(focus)\n\(app.debugDescription)")
+            let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: header)
+            XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 5), .completed, "\(focus)\n\(app.debugDescription)")
+            XCTAssertTrue(isAboveTabBar(header), "\(focus)\n\(app.debugDescription)")
+            XCTAssertTrue(app.navigationBars["Claude-官方-01"].exists, app.debugDescription)
+            diagnostics("account-detail-focus-\(focus)")
+            app.terminate()
+        }
     }
 }
