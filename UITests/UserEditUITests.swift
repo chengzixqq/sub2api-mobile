@@ -495,4 +495,32 @@ final class UserEditUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
     }
+
+    // MARK: - S3-14 平台限额是立即生效写
+
+    @MainActor func testImmediateQuotaWriteListedOnLeave() {
+        launchAndLogin()
+        defer { diagnostics("user-edit-quota-leave-final") }
+        openEditor(1, name: "Alice")
+        type("季度客户", into: "user-edit.notes")
+        app.buttons["user-edit.segment.keys"].tap()
+        let row = app.buttons["keys.quota.row.anthropic"]
+        tap(row)
+        XCTAssertTrue(app.navigationBars["Anthropic 限额"].waitForExistence(timeout: 5), app.debugDescription)
+        let daily = element("keys.quota.input.daily")
+        XCTAssertTrue(daily.waitForExistence(timeout: 5), app.debugDescription)
+        // The right-aligned “10” is selected with a double tap and typed over (a tap snaps the caret to the word's start).
+        daily.tap()
+        daily.doubleTap()
+        daily.typeText(XCUIKeyboardKey.delete.rawValue + "20")
+        XCTAssertTrue(waitUntil(daily, "value == '20'"), String(describing: daily.value))
+        app.buttons["keys.quota.save"].tap()
+        waitForReceipt("已更新 Anthropic 的平台限额")
+        app.buttons["user-edit.back"].tap()
+        let alert = app.alerts["放弃未保存的更改？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), app.debugDescription)
+        let message = alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "已经立即生效、不会撤回：平台限额（Anthropic）。")).firstMatch
+        XCTAssertTrue(message.exists, app.debugDescription)
+        alert.buttons["继续编辑"].tap()
+    }
 }

@@ -130,7 +130,12 @@ struct UserEditScreen: View {
         .scrollDismissesKeyboard(.interactively)
         .refreshable {
             rpmRefresh += 1
-            if editor.segment == .keys { await editor.keys?.refreshAll() }
+            if editor.segment == .keys {
+                // S3-14: the platform quotas are read alongside the keys.
+                let quota = Task { await keyPrompts.quota?.refresh() }
+                await editor.keys?.refreshAll()
+                await quota.value
+            }
             await editor.reloadStrip(model: model)
         }
         .onScrollGeometryChange(for: Double.self) {
