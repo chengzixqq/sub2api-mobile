@@ -24,6 +24,11 @@ struct AccountsView: View {
     /// 20 §1.4 (S2-22): the 告警 sheet a header's alert opened, and the alert detail to push once it has closed.
     @State private var alertSheetEvent: AlertEvent?
     @State private var alertDetailAfterSheet: Int?
+    /// Shown, not covered by a pushed page or another tab.
+    @State private var isShown = false
+    /// A write elsewhere (a detail, its sheets, a test) asked for the whole list while this page was covered (20 §1.6, S2-23):
+    /// it is read once the page shows again, so the list never redraws under a detail and its sheets.
+    @State private var reloadsWhenShown = false
     private let initialGroupID: Int?
 
     init(initialGroupID: Int? = nil) { self.initialGroupID = initialGroupID }
@@ -46,8 +51,10 @@ struct AccountsView: View {
         .onChange(of: model.foregroundRevision) { _, _ in Task { await store?.foregroundResumed() } }
         // A list that failed while compliance was pending reads again once it is accepted (00 §1.10).
         .onChange(of: model.securityPrompts.complianceRevision) { _, _ in Task { await store?.reload() } }
-        // A detail deleted the account, reverted or changed its proxy (20 §3.4): the whole list again.
-        .onChange(of: model.accountListSignal.revision) { _, _ in Task { await store?.reload() } }
+        // A detail wrote (20 §1.6, §3.4): the whole list again, now or once the page shows.
+        .onChange(of: model.accountListSignal.revision) { _, _ in
+            if isShown { Task { await store?.reload() } } else { reloadsWhenShown = true }
+        }
         // 20 §7.6 (S2-19): the timers pause under a sheet; after 新建账号 the whole list is read again.
         .onChange(of: router.presentedSheet) { old, new in
             store?.setSheetPresented(hasSheet)
@@ -230,14 +237,20 @@ struct AccountsView: View {
     private func appeared() {
         let current = store ?? makeStore()
         current.setVisible(true)
+        isShown = true
         if !hasActivated || leftTab {
             hasActivated = true
             leftTab = false
+            reloadsWhenShown = false
             Task { await current.activate() }
+        } else if reloadsWhenShown {
+            reloadsWhenShown = false
+            Task { await current.reload() }
         }
         applyIntent()
     }
     private func disappeared() {
+        isShown = false
         store?.setVisible(false)
         leftTab = initialGroupID == nil && router.path(for: .accounts).isEmpty
     }
@@ -251,6 +264,12 @@ struct AccountsView: View {
                                  onMissing: { [weak made] in made?.noteMissing(id: $0) })
         // The group page's transitional entry has no selection mode.
         if initialGroupID == nil { batch = AccountBatchRunner(model: model, list: made) }
+        // X39 (S2-23): `-ui-testing` may open a detail on one of its sections once per session (DemoData.AccountFixture.detailFocus).
+        // The stack takes the path after this first appearance.
+        if initialGroupID == nil, model.isUITesting, let route = DemoData.AccountFixture.launchDetailRoute(arguments: ProcessInfo.processInfo.arguments) {
+            let router = router
+            Task { router.setPath(router.path(for: .accounts) + [route], for: .accounts) }
+        }
         return made
     }
     /// 10 §0.7-4: the tab's root takes the intent once. `-ui-testing` may start the session with one (DemoData.AccountFixture.intent).

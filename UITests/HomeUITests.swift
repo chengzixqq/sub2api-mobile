@@ -771,4 +771,17 @@ final class HomeUITests: XCTestCase {
         }
         XCTAssertTrue(element("home.regular").exists, app.debugDescription)
     }
+
+    // MARK: - 概览进入的账号详情（S2-23）
+
+    /// The error row's account is one of the account tab's demo accounts, so the detail is the live one, not “已删除”.
+    @MainActor func testErrorAccountRowOpensLiveAccountDetail() {
+        launchAndLogin()
+        defer { diagnostics("home-attention-live-account-final") }
+        loadedAttention()
+        shownRow("account-7").tap()
+        XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["OpenAI-备用-A"].exists, app.debugDescription)
+        XCTAssertFalse(element("account.detail.removed").exists, app.debugDescription)
+    }
 }

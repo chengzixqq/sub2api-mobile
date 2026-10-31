@@ -117,7 +117,7 @@ private actor AccountRuntimeTransport: HTTPTransport {
     let transport = AccountRuntimeTransport()
     let site = ServerProfile(name: "账号测试", baseURL: URL(string: "https://accounts.example.invalid")!, authentication: .adminKey)
     let client = APIClient(server: site, credential: .adminKey("fixture"), transport: transport)
-    let page = try await client.accounts(page: 1, search: "", status: nil, platform: nil)
+    let page = try await client.managedAccounts(page: 1, query: AccountListQuery())
     #expect(page.items.first?.currentConcurrency == 3 && page.items.first?.currentRPM == 47)
     #expect(await transport.requests().count == 1)
     #expect(try await client.accountTodayStatsBatch(ids: []).stats.isEmpty)
@@ -143,7 +143,7 @@ private actor AccountRuntimeTransport: HTTPTransport {
     let transport = AccountRuntimeTransport()
     let site = ServerProfile(name: "账号测试", baseURL: URL(string: "https://accounts.example.invalid")!, authentication: .adminKey)
     let client = APIClient(server: site, credential: .adminKey("fixture"), transport: transport)
-    _ = try await client.accounts(page: 1, search: "", status: nil, platform: nil, includeSchedulerScore: true)
+    _ = try await client.managedAccounts(page: 1, query: AccountListQuery(includeSchedulerScore: true))
     let request = try #require(await transport.requests().first)
     #expect(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "include_scheduler_score", value: "1")) == true)
 }

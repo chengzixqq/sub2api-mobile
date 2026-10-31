@@ -183,10 +183,6 @@ public actor APIClient {
     }
 
     // MARK: - 账号
-    public func accounts(page: Int, search: String, status: String?, platform: String?, includeSchedulerScore: Bool = false) async throws -> Page<UpstreamAccount> {
-        try await request("admin/accounts", query: pagination(page, search: search, status: status) + optionalQuery("platform", platform)
-            + (includeSchedulerScore ? [URLQueryItem(name: "include_scheduler_score", value: "1")] : []))
-    }
     public func account(id: Int) async throws -> UpstreamAccount { try await request("admin/accounts/\(validID(id))") }
     public func accountTodayStats(id: Int) async throws -> AccountTodayStats { try await request("admin/accounts/\(validID(id))/today-stats") }
 

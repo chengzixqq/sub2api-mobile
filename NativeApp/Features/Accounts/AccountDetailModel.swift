@@ -131,7 +131,7 @@ final class AccountDetailModel {
         let answered = await load()
         if !answered, lastCountdownTarget == target { lastCountdownTarget = nil }
     }
-    /// A write's account (20 §2.6); an older read in flight is dropped.
+    /// A write's account (20 §2.6); an older read in flight is dropped, and the list reads again (20 §1.6).
     func applyWrite(_ updated: UpstreamAccount) {
         guard isLive, updated.id == accountID else { return }
         invalidateReads()
@@ -140,6 +140,7 @@ final class AccountDetailModel {
         failure = nil
         etagNeedsRefresh = true
         markSynced()
+        noteListNeedsRefresh()
     }
     /// GET or PATCH: the account with its version.
     func apply(_ versioned: VersionedAccount) {
@@ -284,11 +285,14 @@ extension AccountDetailModel {
         guard let base = await editVersion(), let flow = makePatchFlow() else { return }
         editor = AccountEditorRequest(section: section, base: base, flow: flow)
     }
-    /// C-14 for this account: what it saves or reads back replaces the page's account and version; a deleted account closes the
-    /// sheet and shows “已删除”; 重新载入 reads the whole page again.
+    /// C-14 for this account: what it saves or reads back replaces the page's account and version, and the list reads again; a
+    /// deleted account closes the sheet and shows “已删除”; 重新载入 reads the whole page again.
     func makePatchFlow() -> AccountPatchFlow? {
         guard let app else { return nil }
-        return AccountPatchFlow(model: app, accountID: accountID, onChange: { [weak self] in self?.applyEdit($0) },
+        return AccountPatchFlow(model: app, accountID: accountID, onChange: { [weak self] base in
+                                    self?.applyEdit(base)
+                                    self?.noteListNeedsRefresh()
+                                },
                                 onRemoved: { [weak self] in
                                     self?.editor = nil
                                     self?.noteMissing()
@@ -301,6 +305,12 @@ extension AccountDetailModel {
     func applyEdit(_ base: AccountEditBase) {
         invalidateReads()
         apply(VersionedAccount(account: base.account, etag: base.etag))
+    }
+    /// 20 §1.6 “本章任何写操作成功后”: the account tab reads its whole list again (S2-11's signal). The list's own writes do not
+    /// come through here; they refresh it themselves.
+    func noteListNeedsRefresh() {
+        guard isLive else { return }
+        app?.accountListSignal.bump()
     }
 }
 

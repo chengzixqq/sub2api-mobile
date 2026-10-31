@@ -128,12 +128,16 @@ extension AppModel: AccountWriteSource {
     }
 
     func recoverAccountState(id: Int, schedulable: Bool?, generation: UUID) async throws -> UpstreamAccount {
-        if isUITesting { return try accountDemoWrite(generation) { try $0.recover(id: id, schedulable: schedulable) } }
-        return try await accountWriteClient(generation).recoverAccountState(id: id, schedulable: schedulable)
+        try await recordingAccountWrite(generation) {
+            if isUITesting { return try accountDemoWrite(generation) { try $0.recover(id: id, schedulable: schedulable) } }
+            return try await accountWriteClient(generation).recoverAccountState(id: id, schedulable: schedulable)
+        }
     }
     func setAccountSchedulable(id: Int, enabled: Bool, idempotencyKey: UUID?, generation: UUID) async throws -> WriteOutcome<UpstreamAccount> {
-        if isUITesting { return WriteOutcome(value: try accountDemoWrite(generation) { try $0.setSchedulable(id: id, enabled: enabled) }) }
-        return try await accountWriteClient(generation).setSchedulable(id: id, enabled: enabled, idempotencyKey: idempotencyKey)
+        try await recordingAccountWrite(generation) {
+            if isUITesting { return WriteOutcome(value: try accountDemoWrite(generation) { try $0.setSchedulable(id: id, enabled: enabled) }) }
+            return try await accountWriteClient(generation).setSchedulable(id: id, enabled: enabled, idempotencyKey: idempotencyKey)
+        }
     }
     /// A read: no generation (S2D1-05).
     func accountWithVersion(id: Int) async throws -> VersionedAccount {
@@ -144,26 +148,32 @@ extension AppModel: AccountWriteSource {
         return try await requireClient().accountWithVersion(id: id)
     }
     func patchAccount(id: Int, body: AccountPatchRequest, ifMatch: String, generation: UUID) async throws -> VersionedAccount {
-        if isUITesting {
-            let arguments = ProcessInfo.processInfo.arguments
-            return try accountDemoWrite(generation) { try $0.patch(id: id, request: body, ifMatch: ifMatch, arguments: arguments) }
+        try await recordingAccountWrite(generation) {
+            if isUITesting {
+                let arguments = ProcessInfo.processInfo.arguments
+                return try accountDemoWrite(generation) { try $0.patch(id: id, request: body, ifMatch: ifMatch, arguments: arguments) }
+            }
+            return try await accountWriteClient(generation).patchAccount(id: id, body: body, ifMatch: ifMatch)
         }
-        return try await accountWriteClient(generation).patchAccount(id: id, body: body, ifMatch: ifMatch)
     }
     func fullUpdateAccount(id: Int, patch: AccountPatchRequest, base: UpstreamAccount?, idempotencyKey: UUID?,
                            generation: UUID) async throws -> UpstreamAccount {
-        if isUITesting {
-            let arguments = ProcessInfo.processInfo.arguments
-            return try accountDemoWrite(generation) { try $0.fullUpdate(id: id, patch: patch, base: base, arguments: arguments) }
+        try await recordingAccountWrite(generation) {
+            if isUITesting {
+                let arguments = ProcessInfo.processInfo.arguments
+                return try accountDemoWrite(generation) { try $0.fullUpdate(id: id, patch: patch, base: base, arguments: arguments) }
+            }
+            return try await accountWriteClient(generation).fullUpdate(id: id, patch: patch, base: base, idempotencyKey: idempotencyKey)
         }
-        return try await accountWriteClient(generation).fullUpdate(id: id, patch: patch, base: base, idempotencyKey: idempotencyKey)
     }
 
     /// 20 §8.2, one request of a batch (S2-07); `-ui-testing` writes AccountDemoStore.bulkSetSchedulable.
     func setAccountsSchedulable(ids: [Int], enabled: Bool, idempotencyKey: UUID?, onEvent: KeyedWriteEventHandler? = nil,
                                 generation: UUID) async throws -> WriteOutcome<AccountBulkReply> {
-        if isUITesting { return WriteOutcome(value: try accountDemoWrite(generation) { try $0.bulkSetSchedulable(ids: ids, enabled: enabled) }) }
-        return try await accountWriteClient(generation).setAccountsSchedulable(ids: ids, enabled: enabled, idempotencyKey: idempotencyKey, onEvent: onEvent)
+        try await recordingAccountWrite(generation) {
+            if isUITesting { return WriteOutcome(value: try accountDemoWrite(generation) { try $0.bulkSetSchedulable(ids: ids, enabled: enabled) }) }
+            return try await accountWriteClient(generation).setAccountsSchedulable(ids: ids, enabled: enabled, idempotencyKey: idempotencyKey, onEvent: onEvent)
+        }
     }
 
     private func accountDemoWrite<T>(_ generation: UUID, _ write: (AccountDemoStore) throws -> T) throws -> T {
@@ -196,12 +206,16 @@ extension AppModel: AccountDetailWriteSource {
         return try await requireClient().allProxies(withCount: withCount)
     }
     func revertAccountProxyFallback(id: Int, generation: UUID) async throws {
-        if isUITesting { return try accountDemoWrite(generation) { try $0.revertProxyFallback(id: id) } }
-        try await accountWriteClient(generation).revertAccountProxyFallback(id: id)
+        try await recordingAccountWrite(generation) {
+            if isUITesting { return try accountDemoWrite(generation) { try $0.revertProxyFallback(id: id) } }
+            try await accountWriteClient(generation).revertAccountProxyFallback(id: id)
+        }
     }
     func deleteAccount(id: Int, generation: UUID) async throws -> DeleteResult {
-        if isUITesting { return try accountDemoWrite(generation) { $0.delete(id: id) } }
-        return try await accountWriteClient(generation).deleteAccount(id: id)
+        try await recordingAccountWrite(generation) {
+            if isUITesting { return try accountDemoWrite(generation) { $0.delete(id: id) } }
+            return try await accountWriteClient(generation).deleteAccount(id: id)
+        }
     }
 }
 
@@ -274,11 +288,16 @@ extension AppModel: AccountTestSource {
         return try await requireClient().testRun(runID: runID)
     }
 
-    /// One per session (`publish`); its “启用调度” goes through AccountActions and the App's receipts.
+    /// One per session (`publish`); its “启用调度” goes through AccountActions and the App's receipts. A finished test may have
+    /// changed the account (one that passes is recovered): home reads past the cache next time and the list reads again (S2-23).
     func makeAccountTestCenter(generation: UUID) -> AccountTestCenter {
         AccountTestCenter(generation: generation, source: self, receipts: receipts,
                           makeScheduling: { [unowned self] onChange in AccountActions(model: self, onChange: onChange) },
-                          background: isUITesting ? .none : .application)
+                          background: isUITesting ? .none : .application,
+                          onFinished: { [weak self] _ in
+                              self?.noteAccountWrite()
+                              self?.accountListSignal.bump()
+                          })
     }
 }
 
@@ -289,11 +308,13 @@ extension AppModel: AccountTestSource {
 extension AppModel: AccountRefreshSource {
     var siteTimeZone: TimeZone { siteSession?.serverTimeZone.timeZone ?? .current }
     func refreshAccount(id: Int, idempotencyKey: UUID?, generation: UUID) async throws -> AccountRefreshResult {
-        if isUITesting {
-            let arguments = ProcessInfo.processInfo.arguments
-            return try accountDemoWrite(generation) { try $0.refreshToken(id: id, now: accountFixtureNow(), arguments: arguments) }
+        try await recordingAccountWrite(generation) {
+            if isUITesting {
+                let arguments = ProcessInfo.processInfo.arguments
+                return try accountDemoWrite(generation) { try $0.refreshToken(id: id, now: accountFixtureNow(), arguments: arguments) }
+            }
+            return try await accountWriteClient(generation).refreshAccount(id: id, idempotencyKey: idempotencyKey).value
         }
-        return try await accountWriteClient(generation).refreshAccount(id: id, idempotencyKey: idempotencyKey).value
     }
 }
 
@@ -317,16 +338,20 @@ extension AppModel: AccountReauthorizeSource {
         return try await accountWriteClient(generation).exchangeCode(link, code: code, proxyID: proxyID)
     }
     func reauthorizeAccount(id: Int, request: AccountReauthorizeRequest, generation: UUID) async throws -> UpstreamAccount {
-        if isUITesting {
-            let arguments = ProcessInfo.processInfo.arguments
-            return try accountDemoWrite(generation) { try $0.reauthorize(id: id, request: request, now: accountFixtureNow(), arguments: arguments) }
+        try await recordingAccountWrite(generation) {
+            if isUITesting {
+                let arguments = ProcessInfo.processInfo.arguments
+                return try accountDemoWrite(generation) { try $0.reauthorize(id: id, request: request, now: accountFixtureNow(), arguments: arguments) }
+            }
+            return try await accountWriteClient(generation).reauthorize(accountID: id, request: request)
         }
-        return try await accountWriteClient(generation).reauthorize(accountID: id, request: request)
     }
     func applyOAuthCredentials(accountID: Int, type: OAuthAuthKind, credentials: [String: JSONValue], extra: [String: JSONValue]?,
                                generation: UUID) async throws -> UpstreamAccount {
-        if isUITesting { return try accountDemoWrite(generation) { try $0.applyOAuth(id: accountID, type: type, now: accountFixtureNow()) } }
-        return try await accountWriteClient(generation).applyOAuthCredentials(accountID: accountID, type: type, credentials: credentials, extra: extra)
+        try await recordingAccountWrite(generation) {
+            if isUITesting { return try accountDemoWrite(generation) { try $0.applyOAuth(id: accountID, type: type, now: accountFixtureNow()) } }
+            return try await accountWriteClient(generation).applyOAuthCredentials(accountID: accountID, type: type, credentials: credentials, extra: extra)
+        }
     }
 }
 
@@ -343,12 +368,14 @@ extension AppModel: AccountCreateSource {
     }
     func createAccount(_ request: AccountCreateRequest, idempotencyKey: UUID?, onEvent: KeyedWriteEventHandler?,
                        generation: UUID) async throws -> WriteOutcome<UpstreamAccount> {
-        if isUITesting {
-            guard generation == sessionGeneration else { throw CancellationError() }
-            let arguments = ProcessInfo.processInfo.arguments
-            return WriteOutcome(value: try accountDemo.create(request, key: idempotencyKey, now: accountFixtureNow(), arguments: arguments))
+        try await recordingAccountWrite(generation) {
+            if isUITesting {
+                guard generation == sessionGeneration else { throw CancellationError() }
+                let arguments = ProcessInfo.processInfo.arguments
+                return WriteOutcome(value: try accountDemo.create(request, key: idempotencyKey, now: accountFixtureNow(), arguments: arguments))
+            }
+            return try await accountWriteClient(generation).createAccount(request, idempotencyKey: idempotencyKey, onEvent: onEvent)
         }
-        return try await accountWriteClient(generation).createAccount(request, idempotencyKey: idempotencyKey, onEvent: onEvent)
     }
     /// A read: no generation (S2D1-05).
     func findCreatedAccount(name: String, platform: String, notBefore: Date) async throws -> UpstreamAccount? {
@@ -383,5 +410,17 @@ extension AppModel {
             return try accountDemo.scheduledTests(accountID: accountID, resultLimit: resultLimit, arguments: ProcessInfo.processInfo.arguments)
         }
         return try await requireClient().accountScheduledTests(accountID: accountID, resultLimit: resultLimit)
+    }
+}
+
+// MARK: - 首页刷新接线（S2-23）
+
+extension AppModel {
+    /// 10 §1.4, X17: an account write ran or may have run, so the home page reads past the server cache the next time it shows.
+    func noteAccountWrite() { liveOps?.noteExternalWrite() }
+
+    /// The shell of every account write wrapper above; `generation` is the wrapper's own, the session the user acted in.
+    func recordingAccountWrite<T: Sendable>(_ generation: UUID, _ operation: @MainActor () async throws -> T) async throws -> T {
+        try await AccountWriteMark.run(generation: generation, isCurrent: { $0 == sessionGeneration }, mark: { noteAccountWrite() }, operation)
     }
 }

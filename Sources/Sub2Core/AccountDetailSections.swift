@@ -259,22 +259,10 @@ extension AccountDetailPresentation {
     }
 }
 
-// MARK: - 今日 429（X37）
-
-// S2-23 replaces these two with S1-08's BlockFailureRow and deletes them; nothing else depends on them.
-
-/// The line under 今日's figures: a failure to retry, or the 429 wait with 重试 greyed out until it ends.
-public struct AccountTodayStatusLine: Equatable, Sendable {
-    public let text: String
-    public let retryEnabled: Bool
-    public init(text: String, retryEnabled: Bool) { self.text = text; self.retryEnabled = retryEnabled }
-}
+// MARK: - 今日的失败（X37）
 
 extension AccountDetailPresentation {
-    /// `throttle` is `BlockRefresh.throttleMessage(at:)`: “请求过于频繁，N 秒后自动重试” wins over the failure while it lasts.
-    public static func todayStatusLine(_ state: BlockState<AccountTodayStats>, throttle: String?) -> AccountTodayStatusLine? {
-        guard case .failed(_, let previous, _) = state else { return nil }
-        if let throttle { return AccountTodayStatusLine(text: throttle, retryEnabled: false) }
-        return AccountTodayStatusLine(text: previous == nil ? "读取失败 · 重试" : "刷新失败 · 重试", retryEnabled: true)
-    }
+    /// 20 §2.3 “读取失败 · 重试”: S1-08's BlockFailureRow with this title when 今日 has no figures yet; with figures, its
+    /// BlockStatusAccessory says 更新失败 beside the title (00 §4.6). Either counts down a 429 wait with 重试 held back.
+    public static let todayFailureTitle = "读取失败"
 }

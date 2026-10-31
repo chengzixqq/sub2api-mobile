@@ -180,18 +180,24 @@ private func query(_ request: URLRequest?) -> [String: String] {
     #expect(AccountTodayFigures.footnote == "账号成本与标准只按真实上游调用计算；实际扣费还含合并探测的跟随请求。")
 }
 
-@Test func todayStatusLineCoversFailureRefreshFailureAndThrottle() {
+/// X37 (S2-23): 今日 uses S1-08's block wording: “读取失败 · 重试” without figures, 更新失败 beside the title with them, and the
+/// 429 wait counting down with 重试 held back either way.
+@Test func todayFailureRowUsesSharedBlockWording() {
     let stats = AccountTodayStats(requests: 1, tokens: 1, cost: 1)
-    let first = AccountDetailPresentation.todayStatusLine(.failed(reason: "x", previous: nil, at: nil), throttle: nil)
-    #expect(first == AccountTodayStatusLine(text: "读取失败 · 重试", retryEnabled: true))
-    let again = AccountDetailPresentation.todayStatusLine(.failed(reason: "x", previous: stats, at: now), throttle: nil)
-    #expect(again == AccountTodayStatusLine(text: "刷新失败 · 重试", retryEnabled: true))
-    let throttle = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: 3), at: now).throttleMessage(at: now)
-    let waiting = AccountDetailPresentation.todayStatusLine(.failed(reason: "x", previous: nil, at: nil), throttle: throttle)
-    #expect(waiting == AccountTodayStatusLine(text: "请求过于频繁，3 秒后自动重试", retryEnabled: false))
-    #expect(AccountDetailPresentation.todayStatusLine(.loaded(stats, at: now), throttle: throttle) == nil)
-    #expect(AccountDetailPresentation.todayStatusLine(.loading(previous: nil, at: nil), throttle: nil) == nil)
-    #expect(AccountDetailPresentation.todayStatusLine(.idle, throttle: nil) == nil)
+    let title = AccountDetailPresentation.todayFailureTitle
+    #expect(title == "读取失败")
+    #expect(BlockStatusPresentation.failureRow(title: title, error: nil, refresh: BlockRefresh(), at: now)
+        == .init(text: "读取失败", action: .retry))
+    let throttled = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: 3), at: now)
+    #expect(BlockStatusPresentation.failureRow(title: title, error: nil, refresh: throttled, at: now)
+        == .init(text: "请求过于频繁，3 秒后自动重试", action: .waiting))
+    #expect(BlockStatusPresentation.failureRow(title: title, error: nil, refresh: throttled, at: now.addingTimeInterval(3)).action == .retry)
+    let compliance = APIError.server(status: 423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED")
+    #expect(BlockStatusPresentation.failureRow(title: title, error: compliance, refresh: BlockRefresh(), at: now).action == .completeCompliance)
+    let failedWithFigures = BlockState<AccountTodayStats>.failed(reason: "x", previous: stats, at: now)
+    #expect(BlockStatusPresentation.accessory(for: failedWithFigures, refresh: BlockRefresh(), at: now) == .updateFailed)
+    #expect(BlockStatusPresentation.accessory(for: failedWithFigures, refresh: throttled, at: now) == .throttled("请求过于频繁，3 秒后自动重试"))
+    #expect(BlockStatusPresentation.accessory(for: BlockState<AccountTodayStats>.failed(reason: "x", previous: nil, at: nil), refresh: throttled, at: now) == .none)
 }
 
 // MARK: - 记录（叁）与最近上游错误

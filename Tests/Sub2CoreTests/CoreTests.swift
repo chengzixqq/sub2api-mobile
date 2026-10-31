@@ -262,7 +262,7 @@ private actor MockTransport: HTTPTransport {
         return ok("{\"items\":[\(accountJSON)],\"total\":42,\"page\":2,\"page_size\":20,\"pages\":3}")
     }
     let client = APIClient(server: server(), credential: token(), transport: transport)
-    let page = try await client.accounts(page: 2, search: " a&b 中文 ", status: "active", platform: "anthropic")
+    let page = try await client.managedAccounts(page: 2, query: AccountListQuery(search: " a&b 中文 ", platform: "anthropic"))
     #expect(page.hasMore); #expect(page.page == 2)
     let requests = await transport.requests(); #expect(requests.count == 3)
     let finalURL = try #require(requests.last?.url)

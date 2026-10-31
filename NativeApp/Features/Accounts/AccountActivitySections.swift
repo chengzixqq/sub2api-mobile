@@ -3,8 +3,9 @@ import Sub2Core
 
 // 20 §2.3 今日（贰）, 记录（叁） and the status card's “最近上游错误” line (S2-09). S2-21 adds 定时测试 to 记录's end.
 
-/// 实际 · 账号成本 · 标准, then 请求 / Tokens, the status line and the footnote. Each figure reads its name, then its value.
-/// The status line is X37's: S2-23 replaces it (and the wait's own resend below) with S1-08's BlockFailureRow.
+/// 实际 · 账号成本 · 标准, then 请求 / Tokens and the footnote. Each figure reads its name, then its value. Failures use S1-08's
+/// block views (X37): without figures BlockFailureRow “读取失败 · 重试” under them, with figures BlockStatusAccessory beside the
+/// title; both count a 429 wait down with 重试 held back and read again by themselves once it ends.
 struct AccountTodaySection: View {
     let load: LoadState<AccountTodayStats>
     let ordinal: String
@@ -15,18 +16,28 @@ struct AccountTodaySection: View {
     var body: some View {
         AccountDetailSectionBox(title: "今日", ordinal: ordinal, id: "account.today.header") {
             figures(AccountDetailPresentation.today(load.value), pending: isPending)
-            statusLine
+            if showsFailureRow {
+                BlockFailureRow(title: AccountDetailPresentation.todayFailureTitle, error: load.lastError, occurredAt: load.lastErrorAt,
+                                refresh: load.refresh, id: "account.today", resendsAfterWait: autoRetry, retry: resend)
+                    .padding(.vertical, 4)
+            }
             Text(AccountTodayFigures.footnote).font(.footnote).foregroundStyle(Palette.ink3).fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 8)
                 .accessibilityIdentifier("account.today.footnote")
+        } accessory: {
+            BlockStatusAccessory(load, id: "account.today", resendsAfterWait: autoRetry, retry: resend)
         }
-        .task(id: TodayResend(notBefore: load.refresh.notBefore, isOn: autoRetry)) { await resendAfterWait() }
     }
 
     /// The first read: skeleton figures, never 0.
     private var isPending: Bool {
         if case .placeholder = load.state.display { true } else { false }
     }
+    /// A failure with no figures to keep; with figures the title's accessory speaks instead.
+    private var showsFailureRow: Bool {
+        if case .failed(_, nil, _) = load.state { true } else { false }
+    }
+    private func resend() { Task { await retry() } }
 
     private func figures(_ figures: AccountTodayFigures, pending: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -62,41 +73,6 @@ struct AccountTodaySection: View {
         }
         .figureAccessibility(label, value, id: id, pending: pending)
     }
-
-    // MARK: 失败与 429（X37）
-
-    @ViewBuilder private var statusLine: some View {
-        if let notBefore = load.refresh.notBefore, notBefore > Date() {
-            TimelineView(.periodic(from: .now, by: 1)) { context in statusButton(at: context.date) }
-        } else {
-            statusButton(at: Date())
-        }
-    }
-    @ViewBuilder private func statusButton(at now: Date) -> some View {
-        if let line = AccountDetailPresentation.todayStatusLine(load.state, throttle: load.refresh.throttleMessage(at: now)) {
-            Button { Task { await retry() } } label: {
-                Text(line.text).font(.subheadline).monospacedDigit().foregroundStyle(line.retryEnabled ? Palette.accent : Palette.ink2)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!line.retryEnabled)
-            .accessibilityLabel(Text(line.text))
-            .accessibilityIdentifier("account.today.retry")
-        }
-    }
-    /// 00 §2.7.2: once the 429 wait ends, today is read again by itself, once.
-    private func resendAfterWait() async {
-        guard autoRetry, let notBefore = load.refresh.notBefore else { return }
-        let wait = notBefore.timeIntervalSinceNow
-        guard wait > 0 else { return }
-        do { try await Task.sleep(for: .seconds(wait + 0.2)) } catch { return }
-        await retry()
-    }
-}
-
-private struct TodayResend: Hashable {
-    let notBefore: Date?
-    let isOn: Bool
 }
 
 private extension View {

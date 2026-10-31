@@ -108,12 +108,15 @@ final class AccountTestCenter {
     @ObservationIgnored private var openers: [Int: Opener] = [:]
     @ObservationIgnored private var backgroundTokens: [UUID: Int] = [:]
     @ObservationIgnored private var scheduling: (any AccountTestScheduling)?
+    /// A test ended, its 启用调度 wrote, or a new account's background run settled (S2-23: home and list read again).
+    @ObservationIgnored private let onFinished: @MainActor (Int) -> Void
 
     init(generation: UUID, source: any AccountTestSource, receipts: ReceiptCenter, makeScheduling: @escaping SchedulingFactory,
          background: AccountTestBackgroundActivity = .none,
-         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+         onFinished: @escaping @MainActor (Int) -> Void = { _ in }) {
         self.generation = generation; self.source = source; self.receipts = receipts; self.makeScheduling = makeScheduling
-        self.background = background; self.sleep = sleep
+        self.background = background; self.sleep = sleep; self.onFinished = onFinished
     }
 
     func state(for accountID: Int) -> AccountTestState? { states[accountID] }
@@ -324,6 +327,7 @@ final class AccountTestCenter {
     }
     private func post(_ id: Int, _ change: AccountTestCompletion.Change) {
         completions[id] = AccountTestCompletion(id: UUID(), change: change)
+        onFinished(id)
     }
     private func append(_ events: [AccountTestEvent], to id: Int) {
         for event in events { states[id]?.transcript.apply(event, at: .now) }
@@ -366,7 +370,10 @@ extension AccountTestCenter {
               newAccountRuns[target.id]?.verdict?.passed != true else { return nil }
         let run = newAccountRuns[target.id] ?? AccountNewTestRun(target: target, generation: generation, status: status, writer: writer, receipts: receipts,
                                                                  opener: opener, makeKey: makeKey,
-                                                                 onSettled: { [weak self] id in self?.newAccountRuns[id] = nil })
+                                                                 onSettled: { [weak self] id in
+                                                                     self?.onFinished(id)
+                                                                     self?.newAccountRuns[id] = nil
+                                                                 })
         run.restart(target)
         newAccountRuns[target.id] = run
         start(target, model: model, opener: opener)
