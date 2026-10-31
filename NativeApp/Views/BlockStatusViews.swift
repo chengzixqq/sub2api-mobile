@@ -130,14 +130,19 @@ extension View {
     }
 }
 
-/// 00 §2.7.2: once a 429 wait ends, the block is read again by itself, once.
+/// 00 §2.7.2: once a 429 wait ends, the block is read again by itself, once. `isOn` may follow a page's refresh gate: closing
+/// it during the wait cancels the resend, opening it again before the end waits out the rest.
 private struct ResendAfterWait: ViewModifier {
     let notBefore: Date?
     let isOn: Bool
     let retry: @MainActor () -> Void
 
     func body(content: Content) -> some View {
-        content.task(id: notBefore) { await waitThenRetry() }
+        content.task(id: Trigger(notBefore: notBefore, isOn: isOn)) { await waitThenRetry() }
+    }
+    private struct Trigger: Hashable {
+        let notBefore: Date?
+        let isOn: Bool
     }
     private func waitThenRetry() async {
         guard isOn, let notBefore else { return }
