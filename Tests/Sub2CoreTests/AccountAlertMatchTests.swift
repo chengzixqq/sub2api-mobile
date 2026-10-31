@@ -23,14 +23,25 @@ private func platformName(_ id: String) -> String { id == "anthropic" ? "Anthrop
 /// 20 §1.2 / §1.5: the shared list counts only once read (a refresh keeps it); failed, unread, disabled or ops off shows nothing.
 @Test func listUsableOnlyWhenReadAndOpsOn() {
     let events = [alert(40)]
-    #expect(Match.isListUsable(.loaded(events, at: now), opsDisabled: false))
-    #expect(Match.isListUsable(.loading(previous: events, at: now), opsDisabled: false))
-    #expect(!Match.isListUsable(.loading(previous: nil, at: nil), opsDisabled: false))
-    #expect(!Match.isListUsable(.failed(reason: "站点暂时不可用", previous: events, at: now), opsDisabled: false))
-    #expect(!Match.isListUsable(.failed(reason: nil, previous: nil, at: nil), opsDisabled: false))
-    #expect(!Match.isListUsable(BlockState<[AlertEvent]>.idle, opsDisabled: false))
-    #expect(!Match.isListUsable(BlockState<[AlertEvent]>.disabled(reason: "OPS_DISABLED"), opsDisabled: false))
-    #expect(!Match.isListUsable(.loaded(events, at: now), opsDisabled: true))
+    #expect(Match.isListUsable(.loaded(events, at: now), lastReadFailed: false, opsDisabled: false))
+    #expect(Match.isListUsable(.loading(previous: events, at: now), lastReadFailed: false, opsDisabled: false))
+    #expect(!Match.isListUsable(.loading(previous: nil, at: nil), lastReadFailed: false, opsDisabled: false))
+    #expect(!Match.isListUsable(.failed(reason: "站点暂时不可用", previous: events, at: now), lastReadFailed: true, opsDisabled: false))
+    #expect(!Match.isListUsable(.failed(reason: nil, previous: nil, at: nil), lastReadFailed: true, opsDisabled: false))
+    #expect(!Match.isListUsable(BlockState<[AlertEvent]>.idle, lastReadFailed: false, opsDisabled: false))
+    #expect(!Match.isListUsable(BlockState<[AlertEvent]>.disabled(reason: "OPS_DISABLED"), lastReadFailed: false, opsDisabled: false))
+    #expect(!Match.isListUsable(.loaded(events, at: now), lastReadFailed: false, opsDisabled: true))
+}
+
+/// S2D1-17: after a failed read the retry carries the old list (`withLoading`) and a cancelled retry restores it as loaded
+/// (`withCancelledLoad`); neither shows it until a read succeeds.
+@Test func oldListAfterFailedReadStaysUnusable() {
+    let failed = BlockState<[AlertEvent]>.loaded([alert(40)], at: now).withFailure("站点暂时不可用")
+    let retrying = failed.withLoading()
+    #expect(retrying == .loading(previous: [alert(40)], at: now))
+    #expect(!Match.isListUsable(retrying, lastReadFailed: true, opsDisabled: false))
+    #expect(retrying.withCancelledLoad() == .loaded([alert(40)], at: now))
+    #expect(!Match.isListUsable(retrying.withCancelledLoad(), lastReadFailed: true, opsDisabled: false))
 }
 
 @Test func severityRankIgnoresCaseAndSpacesAndPutsUnknownLast() {

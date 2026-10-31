@@ -197,10 +197,11 @@ final class AccountListModel {
     }
 
     /// 20 §1.3 header alerts (S2-22): a platform's events in LiveOpsStore's firing list, the monitor's 告警中 (10 §0.5); none
-    /// while that list is unread or failed or ops monitoring is off (20 §1.5), and none on the group page's entry.
+    /// while that list is unread or its last read failed (a retry's old list included) or ops monitoring is off (20 §1.5), and
+    /// none on the group page's entry.
     func firingAlerts(platform: String) -> [AlertEvent] {
         guard groupID == nil, isLive, let ops = app?.liveOps,
-              AccountAlertMatch.isListUsable(ops.firing.state, opsDisabled: ops.opsDisabled) else { return [] }
+              AccountAlertMatch.isListUsable(ops.firing, opsDisabled: ops.opsDisabled) else { return [] }
         return ops.firingAlerts(platform: platform)
     }
 

@@ -36,9 +36,10 @@ public enum AccountAlertMatch {
     public static let detailLinkTitle = "告警详情"
 
     /// 20 §1.2 / §1.5: the list counts once read (a refresh keeps it showing); unread, failed, disabled or with ops monitoring
-    /// off, no header shows an alert and nothing is said.
-    public static func isListUsable(_ state: BlockState<[AlertEvent]>, opsDisabled: Bool) -> Bool {
-        guard !opsDisabled else { return false }
+    /// off, no header shows an alert and nothing is said. `lastReadFailed`: the last answer was a failure and no read succeeded
+    /// since, so the old list a retry carries (or a cancelled retry restores) stays hidden (S2D1-17).
+    public static func isListUsable(_ state: BlockState<[AlertEvent]>, lastReadFailed: Bool, opsDisabled: Bool) -> Bool {
+        guard !opsDisabled, !lastReadFailed else { return false }
         switch state {
         case .loaded: return true
         case .loading(let previous, _): return previous != nil
