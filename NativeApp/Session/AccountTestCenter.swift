@@ -97,6 +97,8 @@ final class AccountTestCenter {
     let generation: UUID
     private(set) var states: [Int: AccountTestState] = [:]
     private(set) var completions: [Int: AccountTestCompletion] = [:]
+    /// New accounts' tests and the switch after them (S2-20), by account.
+    private(set) var newAccountRuns: [Int: AccountNewTestRun] = [:]
     @ObservationIgnored private let source: any AccountTestSource
     @ObservationIgnored private let receipts: ReceiptCenter
     @ObservationIgnored private let makeScheduling: SchedulingFactory
@@ -154,6 +156,8 @@ final class AccountTestCenter {
         backgroundTokens.values.forEach { background.end($0) }
         backgroundTokens = [:]
         states = [:]; completions = [:]; openers = [:]
+        newAccountRuns.values.forEach { $0.cancel() }
+        newAccountRuns = [:]
     }
 
     // MARK: - Running
@@ -291,6 +295,11 @@ final class AccountTestCenter {
         case .interrupted: post(id, .tested(nil))
         case .notStarted: break
         }
+        // A new account's run says how it ended itself (S2-20).
+        if let run = newAccountRuns[id] {
+            states[id] = state.isDetached ? nil : state
+            return run.testEnded(ending)
+        }
         guard state.isDetached else { states[id] = state; return }
         states[id] = nil
         showReceipt(ending, state: state)
@@ -340,6 +349,36 @@ final class AccountTestCenter {
     private func releaseBackgroundTask(_ ticket: UUID) {
         guard let token = backgroundTokens.removeValue(forKey: ticket) else { return }
         background.end(token)
+    }
+}
+
+// MARK: - 新建账号（S2-20）
+
+extension AccountTestCenter {
+    func newAccountRun(for accountID: Int?) -> AccountNewTestRun? { accountID.flatMap { newAccountRuns[$0] } }
+    /// 20 §7.4-1: the new account's test over the stream, its run made (or restarted, keeping the status the last test left) before
+    /// it starts. nil in another session or while this account's test runs.
+    @discardableResult
+    func startNewAccountTest(_ target: AccountTestTarget, model: String?, status: AccountNewScheduleStatus, writer: any AccountNewScheduleWriter,
+                             opener: Opener?, makeKey: @escaping @MainActor () -> UUID = { UUID() }) -> AccountNewTestRun? {
+        guard source.accountTestSession?.generation == generation, !isRunning(target.id) else { return nil }
+        let run = newAccountRuns[target.id] ?? AccountNewTestRun(target: target, generation: generation, status: status, writer: writer, receipts: receipts,
+                                                                 opener: opener, makeKey: makeKey,
+                                                                 onSettled: { [weak self] id in self?.newAccountRuns[id] = nil })
+        run.restart(target)
+        newAccountRuns[target.id] = run
+        start(target, model: model, opener: opener)
+        return run
+    }
+    /// The form closed while the test or the switch is out: it goes on, and its end is a receipt (20 §7.4-4).
+    func detachNewAccountTest(_ accountID: Int) {
+        detach(accountID)
+        newAccountRuns[accountID]?.detach()
+    }
+    /// The form dealt with the ended run (完成, 保留, 停用, 删除).
+    func endNewAccountTest(_ accountID: Int) {
+        newAccountRuns.removeValue(forKey: accountID)?.cancel()
+        detach(accountID)
     }
 }
 

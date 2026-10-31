@@ -249,6 +249,10 @@ final class AccountDemoStore {
     var oauthSessions = AccountOAuthFixtureState()
     /// S2-19: creates this session has received (DemoData+AccountNew).
     var createAttempts = 0
+    /// S2-20: the accounts this session created, how often each one's credentials were saved since, and the stops that failed.
+    var createdIDs: Set<Int> = []
+    var credentialRevisions: [Int: Int] = [:]
+    var pauseFailures = 0
     private static var latest: (generation: UUID, store: AccountDemoStore)?
     private static let failure = APIError.server(status: 502, reason: nil)
 
@@ -344,6 +348,10 @@ final class AccountDemoStore {
     /// `POST :id/schedulable`.
     func setSchedulable(id: Int, enabled: Bool) throws -> UpstreamAccount {
         var account = try existing(id)
+        if !enabled, arguments.contains(DemoData.AccountFixture.newPauseFail), createdIDs.contains(id), pauseFailures == 0 {
+            pauseFailures += 1
+            throw APIError(kind: .transport, message: "网络连接已中断")
+        }
         account.schedulable = enabled
         replace(account)
         return account
@@ -400,6 +408,7 @@ final class AccountDemoStore {
         let updated = withProxyObject(Self.applying(request, to: account), changed: request.proxyID != nil)
         replace(updated)
         bump(id)
+        if createdIDs.contains(id), !request.credentialsPatch.isEmpty { credentialRevisions[id, default: 0] += 1 }
         return VersionedAccount(account: updated, etag: etag(id))
     }
     /// `PUT :id`, the fallback without `accounts.patch`: the body the client would build, then the same rules as PATCH.

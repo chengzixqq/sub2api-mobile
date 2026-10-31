@@ -52,6 +52,8 @@ final class AccountNewModel {
     private(set) var mixedRisks: [Int: MixedChannelWarning] = [:]
     private(set) var oauthFlow: OAuthFlowModel?
     let submission: AccountNewSubmission
+    /// S2-20: the test sheet and everything after the account exists.
+    let tester: AccountNewTestController
     var prompt: Prompt?
     var scrollTarget: Anchor?
     var path: [AccountNewPage] = []
@@ -73,6 +75,8 @@ final class AccountNewModel {
         self.app = app; self.router = router
         draft = AccountNewDraft(isLegacyServer: app.siteSession?.me.isLegacyServer ?? false)
         submission = AccountNewSubmission(source: app)
+        tester = AccountNewTestController(app: app, router: router, submission: submission)
+        tester.onFinish = { [weak self] in self?.isFinished = true }
     }
 
     // MARK: Reading
@@ -90,9 +94,13 @@ final class AccountNewModel {
         return items + issues.filter { issue in !items.contains { $0.label == issue.label } }
     }
     var subtitle: String {
-        AccountNewFlow.subtitle(site: siteName, missingCount: missingItems.count, createdID: submission.createdAccountID, status: submission.scheduleStatus)
+        AccountNewFlow.subtitle(site: siteName, missingCount: missingItems.count, createdID: submission.createdAccountID,
+                                status: tester.scheduleStatus ?? submission.scheduleStatus)
     }
-    var dock: AccountNewDockContent { AccountNewDockContent.make(stage: submission.stage, missing: missingItems.map(\.label), keyed: submission.isKeyed) }
+    var dock: AccountNewDockContent {
+        let missing = missingItems.map(\.label)
+        return tester.dock(draft: draft, missing: missing) ?? AccountNewDockContent.make(stage: submission.stage, missing: missing, keyed: submission.isKeyed)
+    }
     var groupsState: BlockState<[AdminGroup]> { app.groupDirectory?.state ?? .idle }
     var eligibleGroups: [AdminGroup] {
         guard let platform = draft.platform else { return [] }
@@ -157,7 +165,7 @@ final class AccountNewModel {
     }
     func requestMethod(_ method: AccountNewMethod) {
         guard method.id != draft.method?.id, !submission.locksForm else { return }
-        if let question = draft.methodSwitchConfirmation(to: method, createdAccountID: nil, oauthInProgress: oauthInProgress) {
+        if let question = draft.methodSwitchConfirmation(to: method, createdAccountID: submission.createdAccountID, oauthInProgress: oauthInProgress) {
             prompt = .switchMethod(method, question)
         } else {
             switchMethod(to: method)
@@ -355,7 +363,15 @@ extension AccountNewModel {
         case .retrySameKey, .resend: run { await $0.retrySameKey() }
         case .reconcile: run { await $0.reconcile() }
         case .retryPause: run { await $0.retryPause() }
+        case .saveAndRetest, .retest:
+            guard missingItems.isEmpty else { return jumpToFirstMissing() }
+            tester.saveAndRetest(draft: draft)
         }
+    }
+    /// 修改凭据后重试: back to the form, whose banner says what happened to the account.
+    func editAfterTest() {
+        tester.showsSheet = false
+        scrollTarget = .banner
     }
     func confirmMixedChannel() {
         answeredMixedChannel = true
@@ -370,16 +386,19 @@ extension AccountNewModel {
     /// true: close now (nothing picked). Otherwise a question is set, or nothing happens while a request is out.
     func cancelRequested() -> Bool {
         let action = AccountNewFlow.cancelAction(hasPlatform: draft.platform != nil, isCreated: submission.createdAccountID != nil,
-                                                 isBusy: submission.isBusy, isTesting: false, isPassed: false, pauseUnconfirmed: isPauseUnconfirmed,
-                                                 resultUnconfirmed: isResultUnconfirmed)
+                                                 isBusy: submission.isBusy || tester.isBusy, isTesting: tester.isTesting, isPassed: tester.isPassed,
+                                                 pauseUnconfirmed: isPauseUnconfirmed, resultUnconfirmed: isResultUnconfirmed)
         switch action {
-        case .close, .finish, .resolveCreated: return true
+        case .close: return true
+        case .finish: tester.complete(viewAccount: false)
+        case .resolveCreated: tester.presentResolve(hasUnsavedChanges: tester.hasChanges(draft))
+        case .continueInBackground: tester.continueInBackground()
         case .confirmDiscard:
             guard let question = draft.discardConfirmation(oauthInProgress: oauthInProgress) else { return true }
             prompt = .discard(question)
         case .resolvePauseFailed: prompt = .pauseUnconfirmed
         case .resolveUnconfirmed: prompt = .createUnconfirmed
-        case .blocked, .continueInBackground: break
+        case .blocked: break
         }
         return false
     }
@@ -414,12 +433,10 @@ extension AccountNewModel {
             self.settled()
         }
     }
-    /// S2-19's step before S2-20's test sheet: created and outside the scheduler, the form closes with “已创建「{name}」· 暂停调度”.
+    /// Created and outside the scheduler: S2-20's test sheet reads the version and tests (20 §7.4-1).
     private func settled() {
         guard case .created = submission.stage, let account = submission.account, !isFinished else { return }
-        let copy = AccountNewCopy.createdReceipt(name: account.name)
-        app.receipts.show(Receipt(text: copy.text, systemImage: copy.systemImage, tone: copy.tone, action: viewAction(account)))
-        isFinished = true
+        tester.accountCreated(account, draft: draft, platformName: AccountNaming.platformName(account.platform, catalog: catalog))
     }
     private func viewAction(_ account: UpstreamAccount) -> ReceiptAction {
         let router = router

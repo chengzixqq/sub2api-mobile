@@ -17,6 +17,10 @@ extension DemoData.AccountFixture {
     static let newCatalogError = "-ui-account-new-catalog-error"
     /// The e-mail exchange-code reports (Gemini reports none).
     static let oauthEmail = "ops@example.com"
+    /// S2-20: a new account's test fails (401, marked as an error) until its credentials are saved again.
+    static let newTestFail = "-ui-account-new-test-fail"
+    /// S2-20: the create answers `schedulable: true` and the first stop after it is lost on the way; the next one works.
+    static let newPauseFail = "-ui-account-new-pause-fail"
 }
 
 extension AccountDemoStore {
@@ -31,11 +35,19 @@ extension AccountDemoStore {
         createAttempts += 1
         let first = createAttempts == 1
         if first, arguments.contains(DemoData.AccountFixture.createLost) { throw Self.lostAnswer(key) }
-        let schedulable = arguments.contains(DemoData.AccountFixture.createLegacy) || (body["schedulable"] as? Bool ?? true)
+        let ignoresSwitch = arguments.contains(DemoData.AccountFixture.createLegacy) || arguments.contains(DemoData.AccountFixture.newPauseFail)
+        let schedulable = ignoresSwitch || (body["schedulable"] as? Bool ?? true)
         let account = try Self.created(body, id: (accounts.map(\.id).max() ?? 0) + 1, groups: groups, schedulable: schedulable, now: now, base: base)
         insert(account)
+        createdIDs.insert(account.id)
         if first, arguments.contains(DemoData.AccountFixture.createUnconfirmed) { throw Self.lostAnswer(key) }
         return account
+    }
+    /// S2-20: under `newTestFail` a new account's test passes only once its credentials were saved again; nil leaves it to S2-14's
+    /// arguments.
+    func newAccountTestPasses(id: Int) -> Bool? {
+        guard createdIDs.contains(id), ProcessInfo.processInfo.arguments.contains(DemoData.AccountFixture.newTestFail) else { return nil }
+        return (credentialRevisions[id] ?? 0) > 0
     }
 
     /// CreateAccount's default group: none picked joins an active “{platform}-default” group when the site has one (U18).
