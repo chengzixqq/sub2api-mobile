@@ -421,9 +421,6 @@ final class AppModel {
     }
     func dashboardTrend() async throws -> DashboardTrendReply {
         if isUITesting {
-            if ProcessInfo.processInfo.arguments.contains("-ui-dashboard-slow-trend") {
-                try await Task.sleep(for: .seconds(8))
-            }
             if ProcessInfo.processInfo.arguments.contains("-ui-dashboard-detail-errors") {
                 throw APIError(kind: .transport, message: "趋势请求超时，请重试。")
             }

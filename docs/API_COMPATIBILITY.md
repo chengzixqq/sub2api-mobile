@@ -8,10 +8,10 @@
 | 邮箱登录 / TOTP | POST `/auth/login`、`/auth/login/2fa` |
 | 会话 / 刷新 / 退出 | GET `/auth/me`；POST `/auth/refresh`、`/auth/logout` |
 | 二次验证 | POST `/user/totp/step-up` |
-| 概览 / 小时趋势 | GET `/admin/dashboard/stats`、`/admin/dashboard/trend` |
-| 费用兼容快照 | GET `/admin/dashboard/snapshot-v2`，只开启 `include_stats`，禁用所有趋势和模型/分组统计 |
+| 概览 | GET `/admin/dashboard/home`（`timezone`、可选 `include`、下拉刷新 `nocache=1`；ETag / 304）；平静布局的账号排行 GET `/admin/dashboard/accounts-ranking`；没有 `dashboard.home` 能力，或 home 返回 404 / 网络失败时逐接口退路：`dashboard/stats`、`dashboard/trend`、`dashboard/rates`、`ops/dashboard/overview`、`ops/alert-events`（及 `/counts`）、`accounts/status-summary`（没有时 `groups/all` 加 lite 账号列表）、`channel-monitor-v2/overview` |
+| 费用兼容快照 | GET `/admin/dashboard/snapshot-v2`，只开启 `include_stats`，禁用所有趋势和模型/分组统计；只在没有 `dashboard.account_cost` 能力的旧站点退路里补账号成本 |
 | 连接探针 | GET `/admin/me`（三种登录方式通用；旧服务端退路见 FINAL-SPEC 00 §1.9） |
-| 运行监控 | GET `/admin/ops/dashboard/overview`；性能另用 GET `/admin/ops/dashboard/throughput-trend`（默认近 1 小时按需加载） |
+| 监控 | GET `/admin/ops/dashboard/overview`、`/admin/ops/dashboard/snapshot-v2`（45 分钟错误率）、`/admin/ops/concurrency`、`/admin/ops/system-metrics/history`、`/admin/ops/system-logs/health`、`/admin/ops/ingress-rejections`；GET / PUT `/admin/ops/monitoring-status`（没有 `ops.monitoring_status` 能力的旧服务端只在站点有 `/admin/me` 时用 PUT `/admin/settings` 开启，正文只带 `ops_monitoring_enabled` 一个键）；渠道 GET `/admin/channel-monitor-v2/overview`；告警 GET `/admin/ops/alert-events`、`/alert-events/counts`、`/alert-events/:id`、`/admin/ops/alert-rules`，PUT `/alert-events/:id/status`，POST `/admin/ops/alert-silences`，PUT / DELETE `/alert-silences/:id`（事件没有 `silence` 键的旧服务端不提供静默）；统计分析过渡页的性能另用 GET `/admin/ops/dashboard/throughput-trend` |
 | 账号列表 / 详情 / 今日统计 | GET `/admin/accounts`、`/admin/accounts/:id`、`/admin/accounts/:id/today-stats`；POST `/admin/accounts/today-stats/batch` |
 | 调度 / 刷新 / 测试 | POST `/admin/accounts/:id/schedulable`、`/refresh`、`/test` |
 | 用户列表 / 详情 / 更新 | GET `/admin/users`、`/admin/users/:id`；POST `/admin/users` 创建；PUT `/admin/users/:id` 只提交变化字段；含并发变更时固定 `Idempotency-Key` |
@@ -21,15 +21,15 @@
 
 用户用量明确显示“本月”；旧 `/admin/users/:id/usage` 在基线中返回占位数据，因此不使用。账号测试使用 POST body 的 `model_id`，SSE 按增量 UTF-8 解析，支持 CRLF/心跳/多行帧；需要明确完成事件，拒绝畸形或过大的事件。
 
-概览进入前台时，基础统计、小时趋势和运行监控立即发起独立请求，单次等待预算分别为 90 秒、45 秒、15 秒；各分区在自己的请求结束后间隔 30 秒刷新，慢分区不阻塞其他分区。下拉刷新并发更新这三个分区，必要时另行请求费用快照；各分区按钮仍可单独刷新或重试，同一分区的在途趋势、监控请求不重复启动。趋势使用“昨日以来”的小时数据，而非首屏默认查询 7 天历史。每个分区独立处理失败、重试和最后更新时间，刷新失败保留该分区已成功的数据；切站、离开页面或进入后台取消请求和轮询，迟到结果不能写入新会话或覆盖更新的加载结果。
+概览只发一次 `dashboard/home`：客户端超时 15 秒；服务端整体预算 8 秒、各段 3–6 秒，某段超时或失败只把该段标成 timeout / error，整体仍回 200。页面可见且在前台时每 60 秒轮询，失败按 FINAL-SPEC 00 §4.6 退避，429 按 `Retry-After` 推迟；下拉刷新带 `nocache=1`。附加请求只在需要时发：今日 SLA（`ops/dashboard/overview` 的今日窗口）、错误账号的结构化原因（`accounts?status=error&lite=1`）、平静布局的账号排行。没有 `dashboard.home` 的站点按 FINAL-SPEC 10 §1.2 逐接口退路，各区块各自落地、各自退避。切站、离开页面或进入后台取消请求和轮询，迟到结果不能写入新会话。
 
 连接时读 `/admin/me` 验证权限并取得能力集合；只有比合规功能还旧的站点才退回 `/admin/dashboard/realtime` 验证权限，其指标为占位值，绝不用于显示。当前源码没有 stats lite 模式；添加 `mode=lite` 或 `lite=true` 不会减少计算。`snapshot-v2` 的 `include_stats=true` 会刷新统计，不能当成轻量替代。
 
-概览实际费用表示用户扣费，上游成本表示账号成本；今日和累计分别使用各自字段。基础统计返回 `total_requests`、`total_actual_cost`，当前后端 `/stats` handler 遗漏今日和累计账号成本，客户端独立补取只含 stats 的 snapshot-v2。今日或累计任一费用字段缺失时，仅在该周期快照提供同次响应的完整实际/成本对时整体替换；快照失败或不完整时保留基础统计已知值，缺失项显示不可用，不跨响应拼接成完整对，也不用标准计费或零值代替。费用快照附独立更新时间；视图重绘时判定超过 90 秒为过期，该判断并非严格计时失效。卡片金额使用 `compactCost(Decimal?)`：Decimal 全程舍入，固定两位，>=1000 最高使用 K，例如 `$45.08K`、`$3872.50K`；Tokens 继续使用 K/M/B，原始数值不变。 snapshot-v2 使用 45 秒客户端预算，服务器共享计算预算仍为 30 秒；费用请求不会阻塞基础统计。服务端今日边界由服务器决定，snapshot 请求日期/手机时区不能改变该统计日。
+概览的今日实际扣费与账号成本取 `dashboard/home` 的 stats 段（Decimal）；没有 `dashboard.account_cost` 的旧站点在退路里并发取只含 stats 的 snapshot-v2，只有同次响应给出完整的实际 / 成本对时才整体替换，否则缺失项显示“—”。以下是退路的字段细节：实际费用表示用户扣费，上游成本表示账号成本；今日和累计分别使用各自字段。基础统计返回 `total_requests`、`total_actual_cost`，当前后端 `/stats` handler 遗漏今日和累计账号成本，客户端独立补取只含 stats 的 snapshot-v2。今日或累计任一费用字段缺失时，仅在该周期快照提供同次响应的完整实际/成本对时整体替换；快照失败或不完整时保留基础统计已知值，缺失项显示不可用，不跨响应拼接成完整对，也不用标准计费或零值代替。snapshot-v2 使用 45 秒客户端预算，服务器共享计算预算仍为 30 秒；费用请求不会阻塞基础统计。服务端今日边界由服务器决定，snapshot 请求日期/手机时区不能改变该统计日。
 
-历史四卡展示与字段兼容说明（此前测量）：累计 Tokens 使用 `total_tokens`，包含缓存 Tokens；今日请求底部显示 `total_requests: Int?`，保留全站累计整数，缺失或 null 显示不可用。四张概要卡片为今日请求、今日 Tokens、总 Tokens 和性能指标，标准字号实测均为 112pt，辅助功能 XXXL 字号均约 279.333pt，并使用单列布局；标题与数值左上对齐。今日请求底部显示 `total_requests` 全站累计请求，缺失显示不可用。今日/总 Tokens 底部分别显示今日/累计实际费用和上游成本，用绿色/金色区分，并提供“今日/累计实际费用”“今日/累计上游成本”辅助功能文字。费用行空间不足时改为两行；独立费用卡已移除，用量趋势排在运行健康之前。 异常账号与 `average_duration_ms` 累计平均响应时间保留在趋势之后的运行健康。平均响应时间达到 1000ms 时转秒，不套用最近五分钟口径。新可选字段缺失保持不可用，畸形金额仍按协议错误处理。
+阶段 1 起旧四卡、费用颜色区分与“运行健康”区已删除，概览改为 FINAL-SPEC 10 §1 的 6 格 + 待处理 + 今日 + 运行。
 
-趋势接口继续使用 GET `/admin/dashboard/trend`，查询范围不变；自动加载和前台轮询会发起请求。后端 `cost` 为标准计费，`actual_cost` 为用户实际消费；原生 `TrendPoint.actualCost` 为可选 Decimal，兼容原初始化接口。`actual_cost` 缺失或 null 时，实际消费显示不可用并跳过对应柱子，不使用 `cost`、零值或推算金额替代；请求数和 Tokens 指标仍可查看。响应中的重复日期桶保留最后一条，不累加重复的消费；非法日期单独提示并跳过。
+趋势接口继续使用 GET `/admin/dashboard/trend`，查询范围不变；自动加载和前台轮询会发起请求。阶段 1 起这个接口只在统计分析的过渡页 LegacyTrendPage 与首页逐接口退路里使用（过渡页由阶段 4 删除），首页改读 `dashboard/home` 的 hourly 段。后端 `cost` 为标准计费，`actual_cost` 为用户实际消费；原生 `TrendPoint.actualCost` 为可选 Decimal，兼容原初始化接口。`actual_cost` 缺失或 null 时，实际消费显示不可用并跳过对应柱子，不使用 `cost`、零值或推算金额替代；请求数和 Tokens 指标仍可查看。响应中的重复日期桶保留最后一条，不累加重复的消费；非法日期单独提示并跳过。
 
 趋势默认显示“实际消费”，可切换“请求数”和“Tokens”。切换指标、左右滚动、点选柱子、双指缩放及加减按钮均处理已经加载的数据，不发起新请求，也不扩大“昨日以来”的小时查询。缩放改变真实可见时间跨度；上限按总跨度计算，最大放大时窗口为 3 个桶的时长，不足 3 桶时显示全部。极小非零金额使用随数据调整的 Y 轴范围，不用固定最小范围将柱高压成零。
 
@@ -39,7 +39,7 @@
 
 共享显示格式仍使用 `NSDecimalRound` 与十进制字符串，金额固定两位；卡片最高 K，趋势和用户列表余额保留两位。历史账号容量版构建自干净源码 `d07091d5da137c3c58dc1a881c354b08c6f4d3ec`，运行 `20261015T115051Z-b20011a3`，Mac 全流程退出 0；81 项核心、4 项凭据、27 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,324,867 字节，SHA-256 `978cbccbcc6b83028538a43e9e41c91d48e0ee44af5affed6b6bfe75c9ae3a43`。 本轮只验证当前自用后端契约，不扩大官方兼容承诺。
 
-监控接口不可用时显示局部错误，不伪造零值；不会让监控失败抹去成功的概览。站点未提供必需字段时返回协议错误，避免默默填充不真实的统计值。服务端趋势查询本身还有 30 秒预算；客户端隔离慢查询不能替代服务器侧数据库优化。自动刷新、格式化与布局的受控测试不替代真实站点响应耗时或签名后 iPhone 验收。
+监控各区块独立加载，失败只在该区块显示“加载失败 · 重试”，或保留旧值并标“更新失败”，不伪造零值；运维监控关闭（404 `OPS_DISABLED`）时显示“运维监控未开启”和站长的开启入口；不会让监控失败抹去成功的概览。站点未提供必需字段时返回协议错误，避免默默填充不真实的统计值。服务端趋势查询本身还有 30 秒预算；客户端隔离慢查询不能替代服务器侧数据库优化。自动刷新、格式化与布局的受控测试不替代真实站点响应耗时或签名后 iPhone 验收。
 
 金额用 Decimal 解码，写入为精确十进制字符串。余额原请求保留 `serverID`、`userID`、金额、操作、备注和 UUID。结果不明时仅允许复用原请求；站点身份不匹配会阻断请求。幂等有效期及最终状态以服务端为准，超出服务端记录保留期后应先通过 Web 对账。
 
@@ -77,7 +77,7 @@
 
 `GET /admin/accounts` 的 full/lite 列表和 `GET /admin/accounts/:id` 详情自带 `current_concurrency: Int`；full/详情另有 `probe_concurrency: Int`，lite 当前不返回探测数。普通在用并发从 Redis 槽位/租约扣除独立探测计数，并非配置 `concurrency`。后端读取并发失败会静默返回 0，客户端无法把该响应与真实空闲区分；可选字段缺失仍保持不可用。
 
-`current_rpm: Int?` 为所有平台和认证类型的账号返回近 60 秒成功上游请求数，不受 `base_rpm` 是否配置限制。Redis 读取失败时缺失指标显示不可用，不以 0 或基础限额代替。概览 `rpm` 使用相同滚动口径并携带 `rpm_available`；false 显示不可用，true 的 0 是真实零，旧站点缺失标记时不声称近 60 秒。TPM 保持近 5 分钟平均。
+`current_rpm: Int?` 为所有平台和认证类型的账号返回近 60 秒成功上游请求数，不受 `base_rpm` 是否配置限制。Redis 读取失败时缺失指标显示不可用，不以 0 或基础限额代替。概览 6 格的 RPM / TPM 读 `dashboard/home` 的 `rates`（近 5 分钟，TPM 含缓存 Tokens），与账号 `current_rpm` 的近 60 秒口径不同；`dashboard/stats` 的 `rpm` / `rpm_available` 只在旧站点退路的第三级使用（TPM 加 * 标注）。
 
 容量还读取可选 `current_window_cost` / `window_cost_limit`（标准费用口径）、`active_sessions` / `max_sessions`、`scheduling_rpm` / `base_rpm`（自然分钟调度限流），以及 API Key/Bedrock 的 `quota_daily_used/limit`、`quota_weekly_used/limit`、`quota_used/limit`。窗口、会话、RPM 和日/周/总配额只在对应限额大于 0 时显示；基础并发始终展示，配置 0 保留为 0，不自行解释为无限。后端已处理过期日/周配额，手机不自行重置。`session_window_start/end` 是调度会话窗口，不是完整上游用量百分比。
 

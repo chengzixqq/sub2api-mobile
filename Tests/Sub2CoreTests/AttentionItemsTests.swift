@@ -419,3 +419,23 @@ func pendingRowsFromAnEarlierLoginOfTheSameSiteAreAnnotated(kind: Int) throws {
     #expect(HomePresentation.alertsFailedTitle == HomePresentation.alertsFailedText + " · " + BlockStatusPresentation.retryTitle)
     #expect(HomePresentation.availabilityFailedTitle == HomePresentation.availabilityFailedText + " · " + BlockStatusPresentation.retryTitle)
 }
+
+/// R02 (S1-18): a compensation row word for word — the amount only for a balance grant, never for a subscription — after the
+/// balance and redeem batch rows.
+@Test func compensationRowSpellsOutR02DetailAndAmount() throws {
+    let balance = PendingCompensation(serverID: HomeTestData.serverID, actorUserID: 1, createdAt: after(-300), userID: 3, userDisplayName: "王小明",
+                                      userEmail: "xiaoming@example.com", code: "GRANT-0002", type: .balance, value: 10)
+    let subscription = PendingCompensation(serverID: HomeTestData.serverID, actorUserID: 1, createdAt: after(-300), userID: 3,
+                                           userDisplayName: "王小明", userEmail: "xiaoming@example.com", code: "GRANT-0003", type: .subscription,
+                                           value: 30, groupID: 4, validityDays: 30)
+    for (record, amount) in [(balance, "$10.00"), (subscription, nil)] {
+        let row = try #require(items(pending: [record]).first)
+        #expect(row.kind == .pendingCompensation && row.tone == .caution)
+        #expect(row.title == "补偿结果待核对")
+        #expect(row.detail == "王小明 · 5 分钟前 · 未确认是否发放")
+        #expect(row.trailingText(now: now) == amount)
+        #expect(row.destination == .compensation(userID: 3, pendingID: record.id))
+    }
+    let topUp = HomeTestData.balance(), batch = HomeTestData.batch()
+    #expect(items(pending: [subscription, batch, topUp]).map(\.kind) == [.pendingBalance, .pendingRedeemBatch, .pendingCompensation])
+}
