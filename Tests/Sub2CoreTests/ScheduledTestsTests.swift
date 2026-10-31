@@ -212,3 +212,18 @@ func cronTextTable(_ expression: String, _ text: String, _ isRaw: Bool) {
         }
     }
 }
+
+@Test func foregroundReadsAgainWithoutAnAnswer() {
+    let snapshot = AccountScheduledTestsSnapshot(plans: [plan(1)], results: .notRequested)
+    let at = Date(timeIntervalSince1970: 1_000)
+    func reads(_ state: BlockState<AccountScheduledTestsSnapshot>) -> Bool { ScheduledTestsPresentation.readsAgainOnForeground(state) }
+    // Going to the background cancels the first read, which leaves the row idle (LoadState.withCancelledLoad).
+    #expect(reads(BlockState<AccountScheduledTestsSnapshot>.loading(previous: nil, at: nil).withCancelledLoad()))
+    #expect(reads(.idle))
+    #expect(reads(.failed(reason: "读取失败", previous: nil, at: nil)))
+    #expect(reads(.failed(reason: nil, previous: snapshot, at: at)))
+    #expect(!reads(.loaded(snapshot, at: at)))
+    #expect(!reads(BlockState.loading(previous: snapshot, at: at).withCancelledLoad()))
+    #expect(!reads(.loading(previous: nil, at: nil)))
+    #expect(!reads(.disabled(reason: "OPS_DISABLED")))
+}

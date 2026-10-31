@@ -499,6 +499,7 @@ final class AccountDetailUITests: XCTestCase {
     // MARK: - 定时测试（S2-21）
 
     private static let scheduledTestsError = "-ui-scheduled-tests-error"
+    private static let scheduledTestsThrottled = "-ui-scheduled-tests-throttled"
 
     /// 记录's last row sums up the first enabled plan and its newest result (DemoData+ScheduledTests); a raw cron stays as written.
     @MainActor func testScheduledTestsRowSummarizesEnabledPlan() {
@@ -582,6 +583,25 @@ final class AccountDetailUITests: XCTestCase {
         retry.tap()
         XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.buttons["account.scheduledTests.web"].exists, app.debugDescription)
+    }
+
+    /// The small page's first read answers 429 (retry_after 8): C-5's failure row counts down with 重试 greyed out, then the page
+    /// reads again by itself.
+    @MainActor func testScheduledTestsPageThrottleCountsDownThenRetries() {
+        openDetail(7, arguments: [Self.scheduledTestsThrottled])
+        defer { diagnostics("account-scheduled-throttled-final") }
+        let row = app.buttons["account.records.scheduledTests"]
+        reveal(row)
+        waitForValue(row, equals: "每 10 分钟 · gpt-4.1-mini · 上次失败")
+        row.tap()
+        let retry = app.buttons["account.scheduledTests.retry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(retry.isEnabled, app.debugDescription)
+        let notice = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "请求过于频繁，")).firstMatch
+        XCTAssertTrue(notice.exists && notice.label.hasSuffix("秒后自动重试"), app.debugDescription)
+        diagnostics("account-scheduled-throttled")
+        XCTAssertTrue(element("account.scheduledTests.result.7101").waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertFalse(element("account.scheduledTests.failure").exists, app.debugDescription)
     }
 
     /// Back to the list, then the account `id` further down (the list keeps its order while it lives).

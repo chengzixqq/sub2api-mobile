@@ -253,6 +253,8 @@ final class AccountDemoStore {
     var createdIDs: Set<Int> = []
     var credentialRevisions: [Int: Int] = [:]
     var pauseFailures = 0
+    /// S2-21: the small page's first read has answered 429 (DemoData+ScheduledTests).
+    var scheduledThrottleServed = false
     private static var latest: (generation: UUID, store: AccountDemoStore)?
     private static let failure = APIError.server(status: 502, reason: nil)
 

@@ -7,6 +7,8 @@ import Sub2Core
 extension DemoData.AccountFixture {
     /// The plans read answers 502: the detail's row reads “读取失败” and the small page offers 重试 (S2-21).
     static let scheduledTestsError = "-ui-scheduled-tests-error"
+    /// The small page's first read answers 429 with retry_after 8; the detail's row and later reads work (S2-21).
+    static let scheduledTestsThrottled = "-ui-scheduled-tests-throttled"
 }
 
 /// One result: minutes before the session's base, latency, then the failure's code, kind and message (nil kind = success).
@@ -45,6 +47,10 @@ extension AccountDemoStore {
     /// are the plan id × 100 + the row number (OpenAI-备用-A's newest is 7101).
     func scheduledTests(accountID: Int, resultLimit: Int, arguments: [String]) throws -> AccountScheduledTestsSnapshot {
         if arguments.contains(DemoData.AccountFixture.scheduledTestsError) { throw APIError.server(status: 502, reason: nil) }
+        if arguments.contains(DemoData.AccountFixture.scheduledTestsThrottled), resultLimit > 1, !scheduledThrottleServed {
+            scheduledThrottleServed = true
+            throw APIError.server(status: 429, envelope: nil, retryAfter: 8)
+        }
         guard account(id: accountID) != nil else { throw APIError.server(status: 404, reason: "ACCOUNT_NOT_FOUND") }
         let fixtures = scheduledPlanFixtures[accountID] ?? []
         let plans = try Self.decoded([ScheduledTestPlan].self, fixtures.map { plan -> [String: Any] in

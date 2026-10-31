@@ -101,7 +101,7 @@ private struct AccountDetailContent: View {
         .onDisappear { visible = false }
         .onChange(of: model.foregroundRevision) { _, _ in
             Task {
-                async let tests: Void = detail.retryScheduledTestsIfFailed()
+                async let tests: Void = detail.refreshScheduledTestsOnForeground()
                 await detail.refreshAll()
                 await tests
             }

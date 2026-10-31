@@ -340,9 +340,9 @@ extension AccountDetailModel {
         guard Self.isUnread(scheduledTests.state) else { return }
         await loadScheduledTests()
     }
-    /// The return to the foreground reads again only after a failure.
-    func retryScheduledTestsIfFailed() async {
-        guard case .failed = scheduledTests.state else { return }
+    /// The return to the foreground reads again after a failure, and when going to the background cancelled the first read.
+    func refreshScheduledTestsOnForeground() async {
+        guard ScheduledTestsPresentation.readsAgainOnForeground(scheduledTests.state) else { return }
         await loadScheduledTests()
     }
     /// Pull to refresh: everything, 定时测试 included (20 §2.6).

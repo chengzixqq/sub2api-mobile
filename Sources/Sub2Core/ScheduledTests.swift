@@ -171,6 +171,14 @@ public enum ScheduledTestsPresentation {
     }
     /// The first enabled plan in the server's order, else the first.
     public static func primaryPlan(_ plans: [ScheduledTestPlan]) -> ScheduledTestPlan? { plans.first(where: \.enabled) ?? plans.first }
+    /// 20 §9.6: back in the foreground the detail's row reads again after a failure, and when its first read never answered
+    /// (going to the background cancels the reads in flight, leaving it idle); a shown summary waits for pull to refresh.
+    public static func readsAgainOnForeground(_ state: BlockState<AccountScheduledTestsSnapshot>) -> Bool {
+        switch state {
+        case .idle, .failed: true
+        case .loading, .loaded, .disabled: false
+        }
+    }
     /// The small page's header: “每 10 分钟 · claude-sonnet-4-5”, “ · 已停用” for a plan that is off.
     public static func planText(_ plan: ScheduledTestPlan) -> String {
         ([cronText(plan.cronExpression).text, modelName(plan)] + (plan.enabled ? [] : ["已停用"])).joined(separator: " · ")

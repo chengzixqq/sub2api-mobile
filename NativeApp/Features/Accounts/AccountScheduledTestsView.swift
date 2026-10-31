@@ -63,8 +63,8 @@ struct AccountScheduledTestsView: View {
             ProgressView().frame(maxWidth: .infinity, minHeight: 160).accessibilityIdentifier("account.scheduledTests.loading")
         case .failed, .disabled:
             failure
-        case .value(let snapshot, _, _, let updateFailed):
-            if updateFailed { retryLine("更新失败 · 重试") }
+        case .value(let snapshot, _, _, _):
+            statusLine
             loaded(snapshot)
         }
     }
@@ -115,28 +115,23 @@ struct AccountScheduledTestsView: View {
         }
     }
 
-    /// 20 §9.5: a failed read (a vendor's other-workspace account included, 404 ACCOUNT_NOT_FOUND) says so and offers 重试.
+    /// 20 §9.5 “读取失败 · 重试” (a vendor's other-workspace account included, 404 ACCOUNT_NOT_FOUND) through C-5: a 429 counts
+    /// down and reads again by itself, a 423 offers 完成合规确认.
     private var failure: some View {
-        ContentUnavailableView {
-            Label("读取失败", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(load.error ?? "")
-        } actions: {
-            Button("重试") { Task { await reload() } }
-                .buttonStyle(.bordered).frame(minHeight: 44).accessibilityIdentifier("account.scheduledTests.retry")
+        AccountDetailSectionBox(title: "最近结果", ordinal: "", id: "account.scheduledTests.header") {
+            BlockFailureRow(title: ScheduledTestSummary.readFailed.text, error: load.lastError, occurredAt: load.lastErrorAt,
+                            refresh: load.refresh, id: "account.scheduledTests") { Task { await reload() } }
         }
-        .frame(maxWidth: .infinity, minHeight: 280)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("account.scheduledTests.failure")
     }
 
-    private func retryLine(_ text: String) -> some View {
-        Button { Task { await reload() } } label: {
-            Text(text).font(.subheadline).foregroundStyle(Palette.accent).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
+    /// A failed refresh keeps the list with C-5's 更新失败 (tap to retry), 加载超时 or 429 countdown above it. Pull to refresh has
+    /// its own spinner, so a refresh in flight adds nothing here.
+    @ViewBuilder private var statusLine: some View {
+        let accessory = BlockStatusPresentation.accessory(for: load.state, refresh: load.refresh, at: Date())
+        if accessory != .none, accessory != .refreshing {
+            BlockStatusAccessory(load, id: "account.scheduledTests") { Task { await reload() } }
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("account.scheduledTests.retry")
     }
 
     /// The Web's deep link opens the account's edit dialog; its plans are under that account's “定时测试” menu item.
