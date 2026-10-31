@@ -110,6 +110,20 @@ private func groupClient(_ transport: ScriptedTransport) -> APIClient {
     #expect(kept == UserGroupsChange(granted: [], revoked: [12]) && kept.reversed == UserGroupsChange(granted: [12], revoked: []))
 }
 
+/// 30 §8.4 “基线与草稿的专属分组去掉 X、加上 Y”: also when the server says the user had Y already (granted on the Web after the
+/// page was read), while the undo keeps Y (keep_old_group_access) and puts only X back.
+@Test func baseTakesTargetEvenWhenNotNewlyGranted() {
+    let sent = request(old: 5, new: 11)
+    #expect(ReplaceGroupUndo.baseChange(sent: sent) == UserGroupsChange(granted: [11], revoked: [5]))
+    let stale = baseline(allowed: [5, 1])
+    let (base, draft) = UserEditRebase.apply(ReplaceGroupUndo.baseChange(sent: sent), baseline: stale,
+                                             draft: UserAccessDraft(editing: stale, catalog: catalog), catalog: catalog)
+    #expect(base.allowedGroups == [11, 1] && draft.exclusiveGroupIDs == [11])
+    let undo = ReplaceGroupUndo.groupsChange(sent: sent, newlyGranted: false).reversed
+    let (undone, undoneDraft) = UserEditRebase.apply(undo, baseline: base, draft: draft, catalog: catalog)
+    #expect(undone.allowedGroups == [5, 11, 1] && undoneDraft.exclusiveGroupIDs == [5, 11])
+}
+
 // MARK: - 来源与目标（30 §8.3）
 
 @Test func targetsAndSources() {
@@ -131,15 +145,33 @@ private func groupClient(_ transport: ScriptedTransport) -> APIClient {
     let before = ReplaceGroupSnapshot(allowedGroups: [5, 2], keys: [key(301, group: 5), key(302, group: 5), key(1, group: 2)], source: 5, target: 11)
     func user(_ allowed: [Int]) -> AdminUser { AdminUser(id: 3, email: "xm.wang@example.com", allowedGroups: allowed) }
     let moved = [key(301, group: 11), key(302, group: 11), key(1, group: 2)]
-    #expect(ReplaceGroupReadback.outcome(sent, before: before, user: user([2, 11]), keys: moved)
+    #expect(ReplaceGroupReadback.outcome(sent, before: before, user: user([2, 11]), keys: moved, exactUndoSupported: true)
             == .applied(ReplaceGroupResult(migratedKeys: 2, migratedKeyIDs: [301, 302], newGroupNewlyGranted: true)))
     let kept = [key(301, group: 5), key(302, group: 5), key(1, group: 2)]
-    #expect(ReplaceGroupReadback.outcome(sent, before: before, user: user([2, 5]), keys: kept) == .notApplied)
-    #expect(ReplaceGroupReadback.outcome(sent, before: before, user: user([2, 5]), keys: moved) == .unclear)
-    #expect(ReplaceGroupReadback.outcome(sent, before: before, user: user([2]), keys: moved) == .unclear)
+    #expect(ReplaceGroupReadback.outcome(sent, before: before, user: user([2, 5]), keys: kept, exactUndoSupported: true) == .notApplied)
+    #expect(ReplaceGroupReadback.outcome(sent, before: before, user: user([2, 5]), keys: moved, exactUndoSupported: true) == .unclear)
+    #expect(ReplaceGroupReadback.outcome(sent, before: before, user: user([2]), keys: moved, exactUndoSupported: true) == .unclear)
     let hadTarget = ReplaceGroupSnapshot(allowedGroups: [5, 11], keys: [key(301, group: 5)], source: 5, target: 11)
-    #expect(ReplaceGroupReadback.outcome(sent, before: hadTarget, user: user([11]), keys: [key(301, group: 11)])
+    #expect(ReplaceGroupReadback.outcome(sent, before: hadTarget, user: user([11]), keys: [key(301, group: 11)], exactUndoSupported: true)
             == .applied(ReplaceGroupResult(migratedKeys: 1, migratedKeyIDs: [301], newGroupNewlyGranted: false)))
+}
+
+/// Without E04 (admin/me missing, 30 §0.1) the read back makes an older reply, so the undo follows §0.6: none when the target
+/// already had a key (a reverse replace there would move every key of it), a reverse without key_ids otherwise.
+@Test func readbackOnOlderServerFollows06() {
+    let sent = request(old: 5, new: 11)
+    func user(_ allowed: [Int]) -> AdminUser { AdminUser(id: 3, email: "xm.wang@example.com", allowedGroups: allowed) }
+    let targetKey = ReplaceGroupSnapshot(allowedGroups: [5], keys: [key(301, group: 5), key(302, group: 11)], source: 5, target: 11)
+    let outcome = ReplaceGroupReadback.outcome(sent, before: targetKey, user: user([11]), keys: [key(301, group: 11), key(302, group: 11)],
+                                               exactUndoSupported: false)
+    #expect(outcome == .applied(ReplaceGroupResult(migratedKeys: 1, migratedKeyIDs: nil, newGroupNewlyGranted: nil)))
+    guard case .applied(let result) = outcome else { return }
+    #expect(result.isLegacy && ReplaceGroupUndo.plan(sent, result: result, before: targetKey) == nil)
+    let clean = ReplaceGroupSnapshot(allowedGroups: [5], keys: [key(301, group: 5)], source: 5, target: 11)
+    guard case .applied(let older) = ReplaceGroupReadback.outcome(sent, before: clean, user: user([11]), keys: [key(301, group: 11)],
+                                                                  exactUndoSupported: false) else { Issue.record("应判为已生效"); return }
+    #expect(ReplaceGroupUndo.plan(sent, result: older, before: clean) == .reverse(request(old: 11, new: 5)))
+    #expect(older.movedKeyIDs(before: clean) == [301] && older.newlyGranted(target: 11, before: clean))
 }
 
 // MARK: - 失败（按 reason，不读 message）

@@ -202,6 +202,57 @@ final class UserReplaceGroupUITests: XCTestCase {
                       app.debugDescription)
     }
 
+    /// The user got Codex 专线 on the Web after the page was read (new_group_newly_granted false): the page takes it on all the
+    /// same, and the undo keeps it (keep_old_group_access) while Claude Code 组 comes back.
+    @MainActor func testTargetGrantedElsewhereJoinsBaseAndStaysAfterUndo() {
+        launchAndLogin(arguments: ["-ui-replace-target-granted"])
+        defer { diagnostics("user-replace-target-granted-final") }
+        openKeys(3, name: "王小明")
+        replace(5, with: 11)
+        waitForReceipt("分组替换成功，已迁移 1 个 Key")
+        let replaced = app.buttons["keys.replace.row.11"]
+        XCTAssertTrue(replaced.waitForExistence(timeout: 3), app.debugDescription)
+        app.buttons["receipt.action"].tap()
+        XCTAssertTrue(app.buttons["keys.replace.row.5"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(replaced.exists, "撤销保留网页上授予的「Codex 专线」：\(app.debugDescription)")
+        waitForLabel(revealUp(element("keys.card.301.meta")), contains: "Claude Code 组")
+        let access = app.buttons["user-edit.segment.access"]
+        access.tap()
+        XCTAssertTrue(app.buttons["user-edit.exclusive.5"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["user-edit.exclusive.11"].exists, app.debugDescription)
+        XCTAssertFalse(access.label.contains("已改"), access.label)
+    }
+
+    /// 00 §2.5.4: the reply and the read back are both lost. The sheet may close, but the page keeps the number: the sheet opened
+    /// again has the same target, and sending it again answers the first result with its exact undo.
+    @MainActor func testUnreadResultKeepsItsNumberAfterTheSheetCloses() {
+        launchAndLogin(arguments: ["-ui-replace-uncertain", "-ui-replace-unread"])
+        defer { diagnostics("user-replace-unread-final") }
+        openKeys(3, name: "王小明")
+        replace(5, with: 11)
+        let error = element("keys.replace.error")
+        XCTAssertTrue(error.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertEqual(error.label, "结果未确认，请刷新后检查")
+        app.buttons["keys.replace.cancel"].tap()
+        XCTAssertTrue(app.navigationBars["替换专属分组"].waitForNonExistence(timeout: 5), app.debugDescription)
+        let row = app.buttons["keys.replace.row.5"]
+        reveal(row)
+        XCTAssertTrue(waitUntil(row, "isEnabled == true"), app.debugDescription)
+        row.tap()
+        let submit = app.buttons["keys.replace.submit"]
+        XCTAssertTrue(waitUntil(submit, "label CONTAINS '替换为「Codex 专线」' AND isEnabled == true"), submit.label)
+        XCTAssertEqual(element("keys.replace.error").label, "结果未确认，请刷新后检查")
+        submit.tap()
+        let confirm = app.alerts.buttons["确认替换"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+        confirm.tap()
+        waitForReceipt("分组替换成功，已迁移 1 个 Key")
+        app.buttons["receipt.action"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["keys.replace.row.11"].exists, app.debugDescription)
+        waitForLabel(revealUp(element("keys.card.301.meta")), contains: "Claude Code 组")
+    }
+
     // MARK: - Helpers
 
     /// Password sign-in, or the access-token method for `accessToken` (a `sat_` key selects it on its own).

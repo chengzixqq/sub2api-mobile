@@ -113,6 +113,11 @@ public enum ReplaceGroupUndo: Sendable, Equatable {
     public static func groupsChange(sent: ReplaceGroupRequest, newlyGranted: Bool) -> UserGroupsChange {
         UserGroupsChange(granted: newlyGranted ? [sent.newGroupID] : [], revoked: [sent.oldGroupID])
     }
+    /// What the page's base and draft take on (30 §8.4 “去掉 X、加上 Y”): Y even when the user had it already, granted after
+    /// the page was read; left out, the next “保存” would send allowed_groups without it.
+    public static func baseChange(sent: ReplaceGroupRequest) -> UserGroupsChange {
+        UserGroupsChange(granted: [sent.newGroupID], revoked: [sent.oldGroupID])
+    }
 }
 
 /// A replace nobody saw the end of, read back from the user and the key list. The server does it in one transaction.
@@ -121,13 +126,17 @@ public enum ReplaceGroupReadback: Sendable, Equatable {
     case notApplied
     case unclear
 
-    public static func outcome(_ sent: ReplaceGroupRequest, before: ReplaceGroupSnapshot, user: AdminUser, keys: [AdminAPIKey]) -> ReplaceGroupReadback {
+    /// `exactUndoSupported`: E04 (admin/me answered, 30 §0.1). Without it the result is made like an older reply, so the undo
+    /// follows §0.6 and never sends key_ids an older server would ignore.
+    public static func outcome(_ sent: ReplaceGroupRequest, before: ReplaceGroupSnapshot, user: AdminUser, keys: [AdminAPIKey],
+                               exactUndoSupported: Bool) -> ReplaceGroupReadback {
         let allowed = Set(user.allowedGroups ?? [])
         let groupOf = Dictionary(keys.filter { !$0.isTombstone }.map { ($0.id, $0.groupID) }, uniquingKeysWith: { first, _ in first })
         if !allowed.contains(sent.oldGroupID) && allowed.contains(sent.newGroupID) {
             let moved = before.keyIDsInSource.filter { groupOf[$0] == sent.newGroupID }.sorted()
-            return .applied(ReplaceGroupResult(migratedKeys: moved.count, migratedKeyIDs: moved,
-                                               newGroupNewlyGranted: !before.allowedGroups.contains(sent.newGroupID)))
+            return .applied(exactUndoSupported
+                ? ReplaceGroupResult(migratedKeys: moved.count, migratedKeyIDs: moved, newGroupNewlyGranted: !before.allowedGroups.contains(sent.newGroupID))
+                : ReplaceGroupResult(migratedKeys: moved.count, migratedKeyIDs: nil, newGroupNewlyGranted: nil))
         }
         if allowed.contains(sent.oldGroupID), before.keyIDsInSource.allSatisfy({ groupOf[$0] == sent.oldGroupID }) { return .notApplied }
         return .unclear

@@ -71,6 +71,8 @@ final class UserEditorModel {
     /// `UserChangeSignal.balanceRevision` when the page opened: a larger one adds “余额” to the leave confirmation.
     @ObservationIgnored var entryBalanceRevision: Int?
     @ObservationIgnored var keptUpdate: KeptUserUpdate?
+    /// S3-15: the replace a confirmation froze, kept past its sheet until its result is known (00 §2.5.4; ReplaceGroupFlow).
+    @ObservationIgnored var frozenReplace: ReplaceGroupFrozen?
     /// The user's attribute values, until the profile has made the base.
     @ObservationIgnored private var attributeValues: [Int: String]?
 

@@ -343,6 +343,14 @@ extension AppModel {
         }
         return WriteOutcome(value: result)
     }
+    /// 30 §8.4: a replace nobody saw the end of is read back from the user and the keys; `-ui-replace-unread` fails the first.
+    func replaceGroupReadBack(userID: Int) async throws -> (user: AdminUser, keys: [AdminAPIKey]) {
+        if isUITesting, ReplaceGroupDemoStore.current(for: sessionGeneration).failsReadBack(arguments: ProcessInfo.processInfo.arguments) {
+            throw APIError(kind: .transport, message: "无法连接站点")
+        }
+        let user = try await user(id: userID)
+        return (user, try await userAPIKeys(userID: userID))
+    }
 
     // MARK: - 充值与调整记录（30 §4，S3-04）
     /// The full list reads 20 a page; the detail's latest five (S3-05) pass `pageSize: 5`.

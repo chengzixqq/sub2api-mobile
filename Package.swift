@@ -29,6 +29,7 @@ let package = Package(
             "AppModel+BalanceReconcile.swift",
             "AppModel+Users.swift",
             "DemoData+Users.swift",
+            "ReplaceGroupDemoStore.swift",
             // 阶段 4
             // 阶段 5
             // 阶段 6
