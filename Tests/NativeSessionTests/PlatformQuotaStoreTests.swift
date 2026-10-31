@@ -81,6 +81,7 @@ private func context(_ id: UUID = generation, items: Bool = true, readOnly: Bool
     }
     func replaceUserPlatformQuotas(userID: Int, quotas: [PlatformQuotaEntry]) async throws -> [UserPlatformQuota] {
         replaced.append(quotas)
+        if let hold { await hold.wait() }
         try record("PUT-ALL")
         // Kept rows keep their use; a row inserted now starts from 0 (user_platform_quota_repo.go UpsertForUser).
         server = quotas.filter { !$0.limits.isEmpty }.map { entry in
@@ -292,4 +293,25 @@ private func context(_ id: UUID = generation, items: Bool = true, readOnly: Bool
     #expect(stub.replaced.last == [PlatformQuotaEntry(platform: "anthropic", limits: limits(10, 50, nil))])
     #expect(receipts.current?.text == "已撤销，Anthropic 的已用额度会从 0 重新计算" && receipts.current?.tone == .caution)
     #expect(store.row("anthropic")?.daily.usage == 0 && hooks.undone == ["平台限额（Anthropic）"])
+}
+
+@MainActor @Test func fallbackWritesTakeTurns() async {
+    // A save on another platform waits for the fallback's 撤销 to land and starts from the table it left: neither PUT drops the other.
+    let stub = StubQuotas(), hooks = Hooks(), receipts = quietReceipts(), gate = Gate()
+    stub.platformQuotaContext = context(items: false)
+    let store = await loaded(stub, hooks: hooks, receipts: receipts)
+    await store.save(platform: "anthropic", limits: PlatformQuotaLimits())
+    stub.hold = gate
+    receipts.performAction(id: receipts.current!.id)
+    while await gate.waiting == 0 { await Task.yield() }
+    let saving = Task { await store.save(platform: "openai", limits: limits(nil, nil, 0)) }
+    while !store.busyPlatforms.contains("openai") { await Task.yield() }
+    for _ in 0..<20 { await Task.yield() }
+    #expect(stub.calls == ["GET", "GET", "PUT-ALL", "GET"])
+    await gate.open()
+    #expect(await saving.value)
+    #expect(stub.calls == ["GET", "GET", "PUT-ALL", "GET", "PUT-ALL", "GET", "PUT-ALL"])
+    #expect(stub.replaced.last == [PlatformQuotaEntry(platform: "anthropic", limits: limits(10, 50, nil)), PlatformQuotaEntry(platform: "openai", limits: limits(nil, nil, 0))])
+    #expect(stub.server.map(\.platform) == ["anthropic", "openai"] && store.rows.map(\.platform) == ["anthropic", "openai"])
+    #expect(hooks.undone == ["平台限额（Anthropic）"] && receipts.current?.text == "已更新 OpenAI 的平台限额" && store.busyPlatforms.isEmpty)
 }

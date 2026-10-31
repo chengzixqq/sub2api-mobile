@@ -35,7 +35,8 @@ struct PlatformQuotaHooks {
 
 /// 30 §8 平台限额 (S3-14, S3D1-17): the user's platform quotas and the writes. Nothing changes before the server answers; every
 /// write goes out once and a lost reply is read back. With `users.platform_quota_item` a save touches one platform and its 撤销
-/// follows PlatformQuotaUndo; without it the whole table is read fresh, only the target changed, and put back. A receipt's
+/// follows PlatformQuotaUndo; without it the whole table is read fresh, only the target changed, and put back, one write at a
+/// time across platforms so no PUT carries a table read before another landed. A receipt's
 /// 撤销 keeps the store alive after the page has gone; a session change drops every late reply.
 @MainActor @Observable
 final class PlatformQuotaStore {
@@ -52,6 +53,9 @@ final class PlatformQuotaStore {
     @ObservationIgnored let hooks: PlatformQuotaHooks
     @ObservationIgnored private var entryTask: Task<Void, Never>?
     @ObservationIgnored private var readTask: Task<Void, Never>?
+    /// The fallback's GET-then-PUT turn: held by one save or 撤销; the others wait in call order.
+    @ObservationIgnored private var wholeTableHeld = false
+    @ObservationIgnored private var wholeTableQueue: [CheckedContinuation<Void, Never>] = []
 
     init(userID: Int, source: any PlatformQuotaSource, receipts: ReceiptCenter, hooks: PlatformQuotaHooks = .none) {
         self.userID = userID; self.source = source; self.receipts = receipts; self.hooks = hooks
@@ -149,6 +153,9 @@ final class PlatformQuotaStore {
     /// S3D1-17: GET, change only the target in what came back, PUT that — never the page's copy. An unreadable row stops it.
     private func saveWhole(_ platform: String, limits: PlatformQuotaLimits, context: PlatformQuotaContext) async -> Bool {
         guard let source else { return false }
+        await takeWholeTableTurn()
+        defer { passWholeTableTurn() }
+        guard isCurrent(context.generation) else { return false }
         do {
             let latest = try await source.platformQuotas(userID: userID)
             guard isCurrent(context.generation) else { return false }
@@ -226,6 +233,9 @@ final class PlatformQuotaStore {
         guard let source, let context, canWrite, !busyPlatforms.contains(platform) else { return }
         busyPlatforms.insert(platform)
         defer { busyPlatforms.remove(platform) }
+        await takeWholeTableTurn()
+        defer { passWholeTableTurn() }
+        guard isCurrent(context.generation) else { return }
         do {
             let latest = try await source.platformQuotas(userID: userID)
             guard isCurrent(context.generation) else { return }
@@ -293,6 +303,15 @@ final class PlatformQuotaStore {
     // MARK: - 私有
 
     private func isCurrent(_ generation: UUID) -> Bool { source?.platformQuotaContext?.generation == generation }
+    private func takeWholeTableTurn() async {
+        guard wholeTableHeld else { wholeTableHeld = true; return }
+        await withCheckedContinuation { wholeTableQueue.append($0) }
+    }
+    /// Hands the turn to the next waiting write, or frees it.
+    private func passWholeTableTurn() {
+        guard !wholeTableQueue.isEmpty else { wholeTableHeld = false; return }
+        wholeTableQueue.removeFirst().resume()
+    }
     /// The reply's row replaces the platform's; nil removes it.
     private func put(_ row: UserPlatformQuota?, for platform: String, at context: PlatformQuotaContext) {
         let others = (quotas.value ?? []).filter { $0.platform != platform }
