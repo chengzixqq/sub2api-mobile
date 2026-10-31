@@ -319,7 +319,106 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 | S3-13 | Key 新建 / 编辑 / 删除与显示完整 Key | ✅ | `40ae8e7` | 最小表单与 ⋯ 第三项（U24 / U25 无设计稿，待看截图）；完整 Key 不可选中，只能复制（localOnly + 60 秒）；两种用途都 30 秒清除、进后台清除、inactive 遮住；撤销不写 status；所有结果不明的新建按同名 + 创建时间找回，找不到保留同一 key；编辑结果不明 GET 读回；有效期按服务器时区取当日 23:59:59；天数 ≤ 36500、名称转义后 ≤ 100 字节；管理模型由页面 UserKeyPrompts 持有，经 UserKeysModel 的 hooks / writeGate 写基线；新建 / 修改 / 删除都记入“已立即生效”；揭示 404 同时移除卡片；UI 测试已运行：UserKeys / SecurityPrompt / UserEdit 50/50 通过；同轮 UNIT 因无关的 AccountOAuthTests 计时断言失败一次，同一提交重跑 TOOLCHAIN / UNIT / BUILD 全 0（审查修正 8f2a3ea）审查修正 8f2a3ea：testNewlyGrantedGroupUpdatesBaselineAndLeaveList 偶发失败的原因是 visibleBand() 先查回执存在再读位置，回执 4.2 秒到时离开时用例会失败；改为先 exists 再从 snapshot 取位置，App 代码不变。check UserKeysUITests 29/29 通过，无不稳定用例。 |
 | S3-14 | Key 与限额 · 平台限额（单平台写、撤销、重置窗口、无能力退路） | ✅ | `2708802` | store 挂在 UserKeyPrompts（页面级），签名改为 PlatformQuotaHooks、不收 userName；夹具放新文件 PlatformQuotaDemoStore.swift（DemoData+Users 已 743 行）；另改 UserEditScreen 一处（下拉刷新带上平台限额）；restore 409 与整表撤销回执用规格原文；每页只在首次进入该段时读取；503 读写都显示停用文案；USER_NOT_FOUND 切到“用户不存在”；百分比一位小数与 Key 卡片一致；UI：check 跑 UserQuotaUITests（新 12 个）、UserKeysUITests、UserEditUITests 共 60 个全部通过（审查修正 495633f）审查修正 495633f：整表退路下的保存和撤销跨平台排队执行，避免 A 撤销与 B 保存交错时后落地的 PUT 覆盖另一边（单测 fallbackWritesTakeTurns）。 |
 | S3-15 | Key 与限额 · 替换分组（含精确撤销与退路） | ✅ | `6f76414` | E04 响应一律给撤销（迁移为空时 GET 后经 updateUserGroups 整表 PUT allowed_groups，绝不发空 key_ids）；0.6 的“不给撤销”只用于缺 E04 字段的旧响应；选项倍率按 S3D1-21 显示“×1”；Key 列表未读到时替换行和按钮置灰；结果不明先读回，撤销成功不出回执，失败“撤销没有成功：…”（GROUP_NOT_ACTIVE / KEY_NOT_IN_GROUP 用规格原句）；分组 sheet“改用替换分组”经 UserEditSheet.replaceGroup 原位换 sheet（多改 UserEditScreen / UserEditView）；UserEditUITests.removeGroup5 断言随行为改为“有”；已停用的专属分组不进分区；UI：check 5 类 85/85 通过（审查修正 e3702ec）审查修正 e3702ec 改了三处：①替换成功后，基线一律去掉 X、加上 Y，撤销只放回 X；②旧服务端结果不明时，读回按 §0.6 判断撤销；③结果不明时，编号挂到编辑页（UserEditorModel.frozenReplace），关掉 sheet 后再开会用同一编号重发，换目标前先读回核对。另把替换分组夹具从 DemoData+Users.swift（已超 800 行）拆到 Session/ReplaceGroupDemoStore.swift，Package.swift 加了一行排除，并多改了 UserEditorModel.swift 一行。check 三个类 60/60 通过。 |
-| S3-16 | 阶段 3 完成度核查、补测与收口（含门槛 sheet 换大数字键盘） | ✅ | `415c38e` | 门槛 sheet 换 S3-00 的 AmountKeypad（6 位、整数、上限 100000，“.”位留空），D36 不变；输入“0”时加自拟提示“门槛要在 $1 至 $100,000 之间”（settings.threshold.hint），sheet 改为 large 档；AppPreferences 加 faceIDThresholdFractionDigits。按 S3D1-26 删除 APIClient 旧 updateBalance(_:onEvent:)，测试 39 处调用只改调用行（含 files 未列的 BalanceWriteOutcomeTests、UserManagementTests）。夹具只删两个无用例使用的参数（-ui-user-email-exists、-ui-user-attrs-empty）。README 用户 / 设置 / 余额口径、NATIVE_CONTRACT 用户签名已更新。30 §10 十项核查都已有测试，没有新增锁定用例；旧符号 grep 为 0。未做：用户详情分区头 meta、同地址旧站点显示（交 S6-26），用户章 Key 卡片 / RPM / 平台限额 / 只读属性 / 完整 Key 框的“—”读屏（记 BACKLOG）。代码与文档合成一个提交。UI：check 跑阶段 3 的 12 个类，166 / 166 通过，无 flaky |
+| S3-16 | 阶段 3 完成度核查、补测与收口（含门槛 sheet 换大数字键盘） | ✅ | `415c38e` | 门槛 sheet 换 S3-00 的 AmountKeypad（6 位、整数、上限 100000，“.”位留空），D36 不变；输入“0”时加自拟提示“门槛要在 $1 至 $100,000 之间”（settings.threshold.hint），sheet 改为 large 档；AppPreferences 加 faceIDThresholdFractionDigits。按 S3D1-26 删除 APIClient 旧 updateBalance(_:onEvent:)，测试 39 处调用只改调用行（含 files 未列的 BalanceWriteOutcomeTests、UserManagementTests）。夹具只删两个无用例使用的参数（-ui-user-email-exists、-ui-user-attrs-empty）。README 用户 / 设置 / 余额口径、NATIVE_CONTRACT 用户签名已更新。30 §10 十项核查都已有测试，没有新增锁定用例；旧符号 grep 为 0。未做：用户详情分区头 meta、同地址旧站点显示（交 S6-26），用户章 Key 卡片 / RPM / 平台限额 / 只读属性 / 完整 Key 框的“—”读屏（记 BACKLOG）。代码与文档合成一个提交。UI：check 跑阶段 3 的 12 个类，166 / 166 通过，无 flaky（审查修正 daac0ff）审查修正 daac0ff：README 和 UserListField 注释写明列表字段选择按 30 §1.7 留给简化模式。 |
+
+### 阶段 3 小结
+
+#### (1) 完成项
+
+- S3-00 `68de60c`；S3-01 `c6d8a44`；S3-03 `7e2de59`；S3-04 `c63c6a8`；S3-09 `6bcb497`
+- S3-02 `2fba3df`（修正 `763cb8b`）
+- S3-05 `ee64359`（修正 `c1e5b1e`）
+- S3-06 `d2dbc57`（修正 `a882036`）
+- S3-07 `0a4db1b`（修正 `824730d`）
+- S3-08 `86b5db6`（修正 `fe068c4`）
+- S3-10 `827ef2e`（修正 `a789bd5`）
+- S3-11 `082ff96` `ef13c9f`（修正 `c06f56f`）
+- S3-12 `41b3645`（修正 `0078189`）
+- S3-13 `40ae8e7`（修正 `8f2a3ea`）
+- S3-14 `2708802`（修正 `495633f`）
+- S3-15 `6f76414`（修正 `e3702ec`）
+- S3-16 `415c38e`（审查修正 `daac0ff`：README 写明列表字段选择留给简化模式，UserListField 加注释）
+
+#### (2) 30 §10 测试清单对照（S3-16 逐项核对，十项都已有测试，没有新增锁定用例）
+
+写流程按 S3D1-17 放在 Session，所以有几项的测试在 `Tests/NativeSessionTests`，不全在 `Sub2CoreTests`。
+
+- 余额低判定（percentage、全局关、用户阈值）：UserPresentationTests.lowBalanceFollowsQuickTopupRules（参数表含百分比、总充值 0 按美元、旧服务端、全局关、用户阈值 0 不回落全局、禁用不标）、globalLowBalanceComesFromPublicSettings、listMarkPrefersPendingThenDisabledThenLowBalance
+- Key 状态推导（含 simple）：AdminAPIKeyStatusTests.localDerivationFollowsBackendOrder、effectiveStatusFromServerWinsOverLocalDerivation、simpleModeKeepsExpiredAndExhaustedKeysUsable；UserKeyPresentationTests.badgeFollowsStatusTableIncludingSimpleMode
+- 记录标题与数值文本：UserLedgerTests.titleFollowsWebForEveryType、valueTextSignsMoneyAndConcurrencyAndNamesSubscriptionDays、codePrefixCopyAndSpokenOnlyForRedeemedTypes
+- `group_rates` null 编码：UserManagementTests.updateRequestEncodesGroupRatesWithExplicitNull、updateRequestDropsEmptyGroupRatesAndNeverCarriesBalance；UserAccessDraftTests.groupRateChangesSendChangedClearedAndRemovedExclusive、unchangedRatesSendNoGroupRatesKey
+- `allowed_groups` 组装（保留未知 ID、关限制去公开分组）：UserAccessDraftTests.editAllowedGroupsKeepUnknownIDsAndApplyUIChanges、turningRestrictionOffDropsEveryPublicGroup、createAllowedGroupsAddPublicOnlyWhenRestricted、allowedGroupsAlwaysTravelWithRestrictFlag；UserKeyPresentationTests.allowedGroupsAfterRevokeKeepsUnknownIDs
+- 平台限额撤销决策：PlatformQuotaTests.undoPlanCoversThreeBranches、fallbackUndoEntriesRestoreBeforeSnapshot；PlatformQuotaStoreTests.undoUsesPreviousOnItemPath、addedPlatformUndoDeletesIt、cancelDeletesAndUndoRestoresUsage
+- 账本核对匹配：BalanceReconciliationTests.ignoredFiltersReturningUnrelatedRowsAreNotExecution（服务端忽略筛选返回无关行）、candidateRequiresUserOperationAmountNotesOperatorAndTime、twoCandidatesAreAmbiguous、legacyCandidatesIgnoreTime；候选不自动 resolve：BalanceReconcileSessionTests.foregroundPassOnlyActsOnExactMatches
+- `balanceWriteOutcome`：BalanceWriteOutcomeTests.successfulWritesAreExecuted、definiteRefusalsResolve、otherNotFoundRepliesStayPending、keyedFailuresMapToTheTable、serverAndNetworkFailuresStayPending、refusalAfterUncertainAttemptStaysPending、executorResultsFlowThroughOutcome
+- `KeypadInput`：KeypadInputTests.maximumRefusesOnlyTheKeyThatWouldPassIt、deleteAndClearEditTheText、valueParsesExactDecimalWithoutDouble、valueRefusesTextTheKeypadCannotProduce；门槛键盘参数 AppPreferencesTests.thresholdKeypadParametersMatchTheSaveRule
+- `PendingBalanceOperation` 旧记录解码：PendingMoneyLedgerTests.legacyBalanceFileLoadsAndSurvivesRewrite；CoreTests.decimalBalanceIsDeterministicStringAndCodableIdentitySurvives；旧记录宽限 BalanceReconciliationTests.legacyRecordGetsGraceOnlyAfterARetry
+
+#### (3) 30 章各节改动点
+
+- §1.7：UsersView.swift 已删，列表是 Features/Users/UserListView（S3-02）；状态 Picker 与“显示字段”已删；`users(query:)`、`quickTopup()`、`usersTodayUsage(ids:)`、AdminUser 新字段、UserPresentation、QuickTopupStrip 都在。`ListFieldSelection<UserListField>` 按 30 §1.7 留给简化模式，主模式不用（README“当前功能”表下一段写明，UserListField 加了注释）。
+- §2.6：UserDetailView 重写为 hero 布局，分区并发加载；月份按服务器时区（monthRange 用 serverZone）；`deleteUser(id:)`、`setUserStatus` 带 key（S3-05）。
+- §3.7：BalanceView 已删，换成 BalanceKeypadSheet（S3-08）；KeypadInput；PendingBalanceOperation 新字段可缺失解码；`balanceWriteOutcome`、`reconcileBalance` 在 BalanceReconciliation.swift（S3-06）；回前台自动核对（S3-07）；余额只有 `updateBalance(_:sameAddress:onEvent:)` 一个发送口，旧 `updateBalance(_:onEvent:)` 由 S3-16 删除（S3D1-26）。
+- §4：UserLedger.swift、UserLedgerView（S3-04）。
+- §5 / §6：UserEditorView、PreparedUserMutation 已删；UserEditView / UserEditorModel、基础与权限两段、UserGroupSheets、UserRPMStatusView；UserUpdateRequest 的 `group_rates` 写显式 null；有 `admin.idempotent_writes` 时 supportsSafeRetry 恒为 true；`userRPMStatus`、`userAttributes`、`adminCount`（S3-09 至 S3-11）。
+- §7：UserAPIKey 换成 AdminAPIKey，只保留 key_masked；UserKeys.swift；UserKeyCards、UserKeyGroupSheet、UserKeyFormSheet、UserKeyRevealSheet（S3-03、S3-12、S3-13）。
+- §8：PlatformQuota.swift、PlatformQuotaSection、ReplaceGroupSheet（S3-14、S3-15）。
+
+#### (4) BACKLOG 与阶段 0 备注里留给阶段 3 的事项
+
+- 待核对门控跨站点 id、余额核对的阶段 3 部分、余额重试后的执行宽限：已完成。S3-06 做了 Core 与同地址口径，S3-07 做了用户详情、设置页的核对流程与回前台自动核对，S3-08 做了键盘内的两次确认。
+- 余额页 UI 测试：BalanceKeypadUITests.testLaterKeepsTheRecordAndShowsTheBanner（稍后核对）、BalanceReconcileUITests.testRetryStoppedByStepUpKeepsTheRecord（重试被二次验证拦住时保留记录）。
+- 读类 POST 的安全重发：S3-03 把 reveal 声明为读类，S3-13 发送前先 ensureStepUp。只读令牌仍会被 403 拒绝，Key 卡片 ··· 菜单整体置灰。
+- 只读令牌写按钮置灰（S0-13 备注）：用户章写入口都挂 S3-00 的 ReadOnlyGate 置灰，不隐藏。UI 用例：UserListUITests.testReadOnlyTokenShowsTodayDashAndGraysCreate、testReadOnlyTokenEmptyStateButtonHasCaption；UserDetailUITests.testReadOnlyTokenGraysWritesAndHidesToday；UserEditUITests.testReadOnlyTokenGraysSave；UserKeysUITests.testReadOnlyTokenShowsTodayDashAndGraysWrites、testReadOnlyTokenGreysKeyManagement；UserQuotaUITests.testReadOnlyTokenDisablesQuotaWrites；UserReplaceGroupUITests.testReadOnlyTokenDisablesReplace。
+- 绝对时间戳按服务器时区（S0-08 备注）：Features/Users 与用户 Core 文件里没有 TimeZone.current，也没有 DateFormatter。记录行用 `DisplayFormat.monthDayClock(_:timeZone:now:)`（S3D1-28），Key 重置时刻、有效期、平台限额重置时刻都按服务器时区。
+- 缺失值“—”的读屏：用户列表、详情、记录读“无数据”；其余位置见 (7)。
+- 倍率的显示位数：用户页统一用 `UserEditCopy.rateText`（DisplayFormat.decimal，最多 3 位小数，S3D1-21），与 S2-10 的 AccountEditCopy.rate 一致；分组页由阶段 5 定。
+- 路由参数在旧页面上不生效、跨 Tab 跳转撤不掉视图式推入的页面（X39）：阶段 3 部分已处理。.user、.userLedger、.userNew、.userEdit(segment:)、.balanceKeypad 都由新页面接收；Features/Users 没有推入 Tab path 的视图式 NavigationLink，唯一一处在 Key 表单 sheet 自己的导航栈里。
+- Face ID 金额门槛 sheet 的键盘：S3-16 已换成 AmountKeypad，D36 不变（SettingsUITests.testDeniedRaiseKeepsTheOldThreshold）。
+- 通用删除确认：S3-00 的 DeleteConfirmationSheet，用户删除（S3-05 / S3-11）与 Key 删除（S3-13）已接入。
+- 旧余额页绕过唯一发送口：已处理（S3-08 删 BalanceView，S3-16 删旧 updateBalance）。
+
+#### (5) 核查结果（S3-16 一次性脚本，不入库）
+
+- 旧符号为 0：UserAPIKey、users(page:)、BalanceView、UserEditorView、PreparedUserMutation、UserEditorTarget、LegacyBalanceSheet、definitelyRejected、balance.prepare、user-editor.、updatingSnapshot、APIClient 的旧 updateBalance(_:onEvent:)。角色词“普通用户 / 代运营”在 Sources、NativeApp、UITests 里为 0（测试里的“代运营”是工作区名称夹具）。
+- R19 唯一定义：readInBatches、UserEditCopy、monthDayClock、MoneyRecordOrigin.oldLoginNote、UserKeyName 各一处。
+- 余额发送口：NativeApp 只有 AppModel+Users.updateBalance 调 client.updateBalance(_:sameAddress:onEvent:)，发送前先调 MoneyRecordOrigin.checkSender。
+- AppModel 阶段 3 锚点正好四项：userChanges、userList、pendingChecks、userAttributeDefinitions，publish 与 endActiveSession 各四行。
+- Key 名称显示都读 displayName。标识前缀：编辑页只有 user-edit.*，第三段只有 keys.*。UITests 引用的 user.* / keys.* / balance.* / user-edit.* / settings.threshold.* 标识在 NativeApp 都能找到，-ui-* 参数两边对应。
+- 阶段 3 文件都不超过 800 行（DemoData+Users 745 行，平台限额与替换分组夹具已拆到 PlatformQuotaDemoStore、ReplaceGroupDemoStore）。
+
+#### (6) 与规格不同的取舍（阶段汇总，各条目的细项见上表备注）
+
+- AdminUser.balance 严格解码：坏值时整页解码失败，不按 30 §1.3 只在该格显示“—”。后端是 float64，实际不会出现坏值（S3D1-25）。
+- 回到前台多条精确命中的回执不合并：按 R17 新回执替换旧回执，多条命中时只看到最后一条（S3D1-25）。
+- ReasonCatalog 不补 API_KEY_NOT_FOUND、GROUP_NOT_ACTIVE、SUBSCRIPTION_REQUIRED、GROUP_STILL_IN_USE、SAME_GROUP、GROUP_NOT_EXCLUSIVE、GROUP_IS_SUBSCRIPTION、KEY_NOT_IN_GROUP 这 8 个 reason，以各页面按 reason 的固定文案为准（UserKeyPresentation、UserKeyFormCopy、ReplaceGroup 里按 reason 取文案，S3D1-25）。
+- Key 名称按反转义后的名称显示，删除确认也按它输入；Web 显示实体原文（S3D1-12）。
+- “本人”只按 id 判断，不比邮箱（S3D1-14，30 §0.1）；夹具用 -ui-users-self 指定。
+- UserChangeSignal 分资料与余额两种计数，编辑页离开确认里的“余额”只看 balanceRevision（S3D1-03）。
+- 平台限额整表退路：任一行限额读不出时中止、不发 PUT，提示“平台限额读取不完整，不能保存，请在 Web 端修改”（S3D1-17）；退路下的保存与撤销跨平台排队执行（S3-14 修正）。
+- 只改密码、结果不明时读回无法判定：保留草稿、下次保存换新 key，提示“密码是否已修改无法确认，请再保存一次”（S3D1-18）。
+- 删除确认用 sheet（设计稿是 alert），输入框允许粘贴（S3-00）。
+- 余额写：已发出过的记录只有由请求体决定的 400 判未执行；旧记录用同一编号重试后从 lastSentAt 起算 40 秒宽限（S3-06）。
+- 退款提醒按字面把“充值”换成“退款”，待用户看截图确认（S3-08）。
+- Key 新建 / 编辑用最小表单，“显示完整 Key…”放在 ··· 第三项（U24 / U25 没有设计稿，S3-13）。
+- 门槛 sheet 输入“0”时加自拟提示“门槛要在 $1 至 $100,000 之间”，sheet 改为 large 档（S3-16）。
+
+#### (7) 未做项及原因
+
+- 用户详情私有分区头换成 NumberedSectionHeader 的 meta 版：S3-16 不依赖 S1-09b，交 S6-26（S3D1-25 ①）。
+- 同地址旧站点（凭据已清）在站点列表的显示、LoginView 待核对列表的“打开原站点核对”：不属于阶段 3，交 S6-26（S3D1-25 ③）。
+- 用户章其余位置的“—”读屏（Key 卡片事实格、RPM 状态块、平台限额格、编辑页只读属性行、完整 Key 框清除后）：仍读显示文字，已记 BACKLOG，建议并入 S6-26。
+- 余额发送没有登记 MoneyWriteInFlight（S3-07 重试、S3-08 首发），由 S6-26 复核时统一登记（BACKLOG）。
+- U26（percentage 阈值在总充值为 0 时的口径）请后端确认；U30（退款超额、降级或删除最后一位管理员返回无 reason 的 500）请后端补 reason（BACKLOG）。
+- 列表字段选择（ListFieldSelection、UserListField）按 30 §1.7 留给以后的简化模式，主模式不用，不是遗漏也不是死代码。
+- 需要用户拍板的六条按默认值实现（_decisions-S3 末尾）：Key 名称实体、删除确认样式、余额坏值、退款提醒措辞、RPM 总计行顺序、编辑老用户时校验新增的必填属性。
+
+#### (8) UI 测试运行情况
+
+- S3-16 check（线 B，基于 `0ed37b4` 加本条改动）：阶段 3 的 12 个类 166 / 166 通过，没有重跑后才通过的用例。按类：UserListUITests 13、UserLedgerUITests 8、UserDetailUITests 14、BalanceReconcileUITests 14、BalanceKeypadUITests 12、UserCreateUITests 15、UserEditUITests 19、UserKeysUITests 29、UserQuotaUITests 12、UserReplaceGroupUITests 12、SecurityPromptUITests 3、SettingsUITests 15。单元测试 2253 + 949 通过，编译无新增 warning。
+- 集成者合入后 check 同样 12 个类 166 / 166 通过，BalanceReconcileUITests.testForegroundExactMatchResolvesOnItsOwn 重跑后才通过。
+- 集成者全量 gate：627 个用例 626 个通过。UserKeysUITests.testChangeGroupReceiptAndUndo、UserReplaceGroupUITests.testEmptyMigrationUndoUsesAllowedGroups 重跑后通过。两次都失败的只有 AccountDetailMenuUITests.testSwitchingToNoProxy，是阶段 2 的既有问题（基线 `6154134` 上同样失败，BACKLOG 已记），与阶段 3 无关；集成者单独重跑这三个类（58 个用例）时也只有它失败。
+- 审查修正 `daac0ff`（README 与注释）：check（工具链、单元测试 2256 + 956、编译无新增 warning、UserListUITests 13 / 13）通过，没有重跑。
 
 ## 阶段 4 · 日志与统计
 
