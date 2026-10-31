@@ -162,13 +162,21 @@ struct UserEditScreen: View {
                                    if !isExclusive { editor.setPublicGroup(id, allowed: allowed) }
                                    editor.setRate(rate, for: id)
                                },
-                               onRemove: removal(of: id, isExclusive: isExclusive))
+                               onRemove: removal(of: id, isExclusive: isExclusive), onReplace: replacement(of: id))
             }
         case .attribute(let id):
             if let definition = editor.definitions.first(where: { $0.id == id }) {
                 UserAttributeOptionSheet(definition: definition, value: editor.draft.attributes[id] ?? "") { editor.draft.attributes[id] = $0 }
             }
+        case .replaceGroup(let id):
+            if let keys = editor.keys { ReplaceGroupSheet(source: id, editor: editor, keys: keys) }
         }
+    }
+
+    /// S3-15 (30 §6.3, design setSheet): only a group the user has on the server, and the sheet is swapped in place.
+    private func replacement(of id: Int) -> (@MainActor () -> Void)? {
+        guard editor.baseline?.allowedGroups.contains(id) == true, editor.keys != nil else { return nil }
+        return { sheet = .replaceGroup(id: id) }
     }
 
     /// Only an exclusive group can be removed from its sheet.

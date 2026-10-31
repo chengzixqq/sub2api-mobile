@@ -23,6 +23,7 @@ struct UserKeysSegment: View {
             PlatformQuotaSection(store: quota, hasActiveSubscription: hasActiveSubscription) { prompts.quotaSheet = $0 }
         }
         // MARK: S3-15 替换分组
+        ReplaceGroupSection(editor: editor, keys: model, groups: groups) { prompts.replaceSource = ReplaceGroupSource(groupID: $0) }
     }
 
     private var noticeSection: some View {
@@ -143,6 +144,8 @@ final class UserKeyPrompts {
     /// S3-14: the platform quota section's store, made on the first visit to the segment and kept for the page, and its sheets.
     private(set) var quota: PlatformQuotaStore?
     var quotaSheet: PlatformQuotaSheetRoute?
+    /// S3-15: 替换专属分组 from the section's row.
+    var replaceSource: ReplaceGroupSource?
 
     /// Writes are named in the page's leave confirmation; USER_NOT_FOUND turns the page into “用户不存在”.
     func enterQuota(userID: Int, app: AppModel, editor: UserEditorModel) async {
@@ -192,6 +195,10 @@ private struct UserKeyPromptsModifier: ViewModifier {
             .confirmDelete($manage.deleteRequest)
             // S3-14: 添加平台限额 and the platform's sheet; picking a platform replaces the picker with its sheet.
             .sheet(item: $prompts.quotaSheet) { quotaSheet($0) }
+            // S3-15: 替换专属分组 from the section's row; the group sheet's “改用替换分组” opens it through UserEditSheet.
+            .sheet(item: $prompts.replaceSource) { source in
+                if let model { ReplaceGroupSheet(source: source.groupID, editor: editor, keys: model) }
+            }
     }
 
     @ViewBuilder private func quotaSheet(_ route: PlatformQuotaSheetRoute) -> some View {

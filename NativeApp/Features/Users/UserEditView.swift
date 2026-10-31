@@ -6,6 +6,8 @@ enum UserEditSheet: Identifiable, Hashable {
     case addExclusiveGroups
     case group(id: Int)
     case attribute(id: Int)
+    /// S3-15: the edit page's group sheet swaps itself for 替换专属分组.
+    case replaceGroup(id: Int)
     var id: Self { self }
 }
 
@@ -194,6 +196,8 @@ struct UserEditView: View {
             if let definition = editor.definitions.first(where: { $0.id == id }) {
                 UserAttributeOptionSheet(definition: definition, value: editor.draft.attributes[id] ?? "") { editor.draft.attributes[id] = $0 }
             }
+        case .replaceGroup:
+            EmptyView()
         }
     }
 

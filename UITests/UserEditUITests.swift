@@ -422,7 +422,8 @@ final class UserEditUITests: XCTestCase {
         let alert = app.alerts["移除「Claude Code 组」？"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(alert.staticTexts["绑定在「Claude Code 组」的 1 个 Key 会无法调用。要保留请用替换分组。"].exists, app.debugDescription)
-        XCTAssertFalse(alert.buttons["改用替换分组"].exists)
+        // S3-15: a group the user has offers the replace instead.
+        XCTAssertTrue(alert.buttons["改用替换分组"].exists, app.debugDescription)
         alert.buttons["仍要移除"].tap()
         XCTAssertTrue(remove.waitForNonExistence(timeout: 5), app.debugDescription)
     }

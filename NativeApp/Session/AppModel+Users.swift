@@ -322,6 +322,27 @@ extension AppModel {
     // MARK: - 限额
 
     // MARK: - 替换分组
+    /// 30 §8.4 (S3-15): `idempotencyKey` is made at “确认替换” / “撤销” (R05). The fixture runs the server's checks on the
+    /// session's user and key table (ReplaceGroupDemoStore); a number seen before answers its first result.
+    func replaceUserGroup(userID: Int, _ change: ReplaceGroupRequest, idempotencyKey: UUID,
+                          onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<ReplaceGroupResult> {
+        guard isUITesting else {
+            return try await requireClient().replaceUserGroup(userID: userID, change, idempotencyKey: idempotencyKey, onEvent: onEvent)
+        }
+        if siteSession?.isReadOnlyToken == true { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+        let generation = sessionGeneration, arguments = ProcessInfo.processInfo.arguments, store = ReplaceGroupDemoStore.current(for: generation)
+        if let first = store.result(for: idempotencyKey) { return WriteOutcome(value: first, replayed: true) }
+        var users = demoUsersBySession[generation] ?? DemoData.allUsers
+        let index = users.firstIndex { $0.id == userID }
+        let (user, result) = try store.replace(change, user: index.map { users[$0] }, keys: UserKeyDemoStore.current(for: generation), key: idempotencyKey,
+                                               arguments: arguments)
+        if let index { users[index] = user; demoUsersBySession[generation] = users }
+        if arguments.contains(ReplaceGroupFixtureArgument.uncertain), change.keyIDs == nil {
+            throw KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: idempotencyKey.uuidString.lowercased(),
+                                    actionID: nil, lastError: nil)
+        }
+        return WriteOutcome(value: result)
+    }
 
     // MARK: - 充值与调整记录（30 §4，S3-04）
     /// The full list reads 20 a page; the detail's latest five (S3-05) pass `pageSize: 5`.

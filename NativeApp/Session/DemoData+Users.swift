@@ -741,3 +741,68 @@ extension UserKeyDemoStore {
         return previous == AdminAPIKeyPrevious() ? nil : previous
     }
 }
+
+/// S3-15 替换分组's `-ui-testing` launch arguments. The App sends `key_ids` only in an undo.
+enum ReplaceGroupFixtureArgument {
+    /// A replace answers 400 GROUP_NOT_ACTIVE.
+    static let targetInactive = "-ui-replace-target-inactive"
+    /// An undo (a replace with key_ids) answers 400 GROUP_NOT_ACTIVE.
+    static let undoSourceInactive = "-ui-replace-undo-source-inactive"
+    /// A replace goes through and its reply is lost.
+    static let uncertain = "-ui-replace-uncertain"
+}
+
+/// S3-15: replace-group on the session's copies (S3D1-04), checked in admin_api_key_group_undo.go's order; a number seen before
+/// answers its first result. Strict like S3-11's update fixture: with E04 the App never reverses a replace without key_ids, so
+/// such a request is refused (400 without a reason).
+@MainActor final class ReplaceGroupDemoStore {
+    private static var stores: [UUID: ReplaceGroupDemoStore] = [:]
+    private var results: [UUID: ReplaceGroupResult] = [:]
+    /// [user, old, new] of the replaces without key_ids still standing (not reversed since).
+    private var done: Set<[Int]> = []
+
+    static func current(for generation: UUID) -> ReplaceGroupDemoStore {
+        if let store = stores[generation] { return store }
+        let store = ReplaceGroupDemoStore()
+        stores[generation] = store
+        return store
+    }
+    func result(for key: UUID) -> ReplaceGroupResult? { results[key] }
+
+    /// The user after the write and the reply; no user is 404 USER_NOT_FOUND, after the group checks as on the server.
+    func replace(_ change: ReplaceGroupRequest, user: AdminUser?, keys: UserKeyDemoStore, key: UUID,
+                 arguments: [String]) throws -> (AdminUser, ReplaceGroupResult) {
+        let refusedArgument = change.keyIDs == nil ? ReplaceGroupFixtureArgument.targetInactive : ReplaceGroupFixtureArgument.undoSourceInactive
+        if arguments.contains(refusedArgument) { throw APIError.server(status: 400, reason: "GROUP_NOT_ACTIVE") }
+        guard let group = DemoData.accountGroups.first(where: { $0.id == change.newGroupID }) else {
+            throw APIError.server(status: 404, reason: "GROUP_NOT_FOUND")
+        }
+        guard group.status == "active" else { throw APIError.server(status: 400, reason: "GROUP_NOT_ACTIVE") }
+        guard group.isExclusive == true else { throw APIError.server(status: 400, reason: "GROUP_NOT_EXCLUSIVE") }
+        guard group.subscriptionType != "subscription" else { throw APIError.server(status: 400, reason: "GROUP_IS_SUBSCRIPTION") }
+        guard var user else { throw APIError.server(status: 404, reason: "USER_NOT_FOUND") }
+        let forward = [user.id, change.oldGroupID, change.newGroupID], reverse = [user.id, change.newGroupID, change.oldGroupID]
+        if change.keyIDs == nil, done.contains(reverse) { throw APIError.server(status: 400, reason: nil) }
+        let moved = try keys.migrate(userID: user.id, from: change.oldGroupID, to: change.newGroupID, only: change.keyIDs)
+        var allowed = Set(user.allowedGroups ?? [])
+        let newly = allowed.insert(change.newGroupID).inserted
+        if !change.keepOldGroupAccess { allowed.remove(change.oldGroupID) }
+        user.allowedGroups = allowed.sorted()
+        done.remove(reverse)
+        if change.keyIDs == nil { done.insert(forward) }
+        let result = ReplaceGroupResult(migratedKeys: moved.count, migratedKeyIDs: moved, newGroupNewlyGranted: newly)
+        results[key] = result
+        return (user, result)
+    }
+}
+
+extension UserKeyDemoStore {
+    /// MigrateUserKeysGroup: the user's live keys of `from` (only `ids` when given) move to `to`; fewer than `ids` is 400
+    /// KEY_NOT_IN_GROUP and nothing moves.
+    func migrate(userID: Int, from: Int, to: Int, only ids: [Int]?) throws -> [Int] {
+        let moving = keys(userID: userID).filter { !$0.isTombstone && $0.groupID == from && (ids?.contains($0.id) ?? true) }.map(\.id)
+        if let ids, moving.count != Set(ids).count { throw APIError.server(status: 400, reason: "KEY_NOT_IN_GROUP") }
+        rows[userID] = keys(userID: userID).map { moving.contains($0.id) ? $0.movedToGroup(to) : $0 }
+        return moving.sorted()
+    }
+}

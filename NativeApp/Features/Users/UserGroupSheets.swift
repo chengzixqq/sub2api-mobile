@@ -71,7 +71,8 @@ struct UserAddExclusiveGroupsSheet: View {
 
 /// 30 §5.3 / §6.3 分组 sheet. A new user (context `.create`) has no rates yet: only the restricted public group's “允许使用”
 /// and, for an exclusive group, “移除这个专属分组”. Editing adds the user's own rate (“专属倍率”, × prefix, > 0 with at most 3
-/// decimals, blank for the group's default) and asks before removing a group keys are bound to. “完成” changes the draft only.
+/// decimals, blank for the group's default) and asks before removing a group keys are bound to, offering “改用替换分组” for a
+/// group the user has (S3-15). “完成” changes the draft only.
 struct UserGroupSheet: View {
     enum Context { case create, edit }
     let group: AdminGroup
@@ -81,15 +82,18 @@ struct UserGroupSheet: View {
     let boundKeys: Int
     let onDone: @MainActor (_ allowed: Bool, _ rate: Decimal?) -> Void
     let onRemove: (@MainActor () -> Void)?
+    /// S3-15: the page swaps this sheet for 替换专属分组.
+    let onReplace: (@MainActor () -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var allowed: Bool
     @State private var rateText: String
     @State private var confirmsRemoval = false
 
     init(group: AdminGroup, isExclusive: Bool, context: Context, restrictsPublic: Bool, allowed: Bool, rate: Decimal? = nil, boundKeys: Int = 0,
-         onDone: @escaping @MainActor (_ allowed: Bool, _ rate: Decimal?) -> Void, onRemove: (@MainActor () -> Void)?) {
+         onDone: @escaping @MainActor (_ allowed: Bool, _ rate: Decimal?) -> Void, onRemove: (@MainActor () -> Void)?,
+         onReplace: (@MainActor () -> Void)? = nil) {
         self.group = group; self.isExclusive = isExclusive; self.context = context; self.restrictsPublic = restrictsPublic
-        self.boundKeys = boundKeys; self.onDone = onDone; self.onRemove = onRemove
+        self.boundKeys = boundKeys; self.onDone = onDone; self.onRemove = onRemove; self.onReplace = onReplace
         _allowed = State(initialValue: allowed)
         _rateText = State(initialValue: rate.map { NSDecimalNumber(decimal: $0).stringValue } ?? "")
     }
@@ -143,9 +147,9 @@ struct UserGroupSheet: View {
                     .accessibilityIdentifier("user-edit.group-sheet.done")
                 }
             }
-            // 30 §6.3: “改用替换分组” joins these buttons with S3-15.
             .alert(UserEditCopy.removeGroupTitle(group.name), isPresented: $confirmsRemoval) {
                 Button(UserEditCopy.removeAnyway, role: .destructive) { removeAfterAlert() }
+                if let onReplace { Button(ReplaceGroupCopy.useReplace) { afterAlert(onReplace) } }
                 Button("取消", role: .cancel) {}
             } message: { Text(UserEditCopy.removeGroupMessage(group.name, keys: boundKeys)) }
         }
@@ -183,9 +187,12 @@ struct UserGroupSheet: View {
     /// The sheet closes once the alert has left.
     private func removeAfterAlert() {
         onRemove?()
+        afterAlert { dismiss() }
+    }
+    private func afterAlert(_ action: @escaping @MainActor () -> Void) {
         Task {
             try? await Task.sleep(for: Self.afterAlertDelay)
-            dismiss()
+            action()
         }
     }
     private static let afterAlertDelay: Duration = .milliseconds(450)
