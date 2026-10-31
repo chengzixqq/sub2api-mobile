@@ -479,6 +479,8 @@
 | 缺失值“—”的读屏（用户章其余位置） | 用户列表、详情、记录已读“无数据”；Key 卡片的事实格（当前并发、今日）、RPM 状态块、平台限额格、编辑页只读属性行、完整 Key 框清除后的“—”仍读显示文字。改它们要动 UserKeyCards / UserRPMStatusView / PlatformQuotaSection / UserEditBasicSection / UserKeyRevealSheet 与 UserKeysUITests 的“—”断言，建议并入 S6-26 收口 |
 | U26 percentage 余额阈值请后端确认 | percentage 类型且 total_recharged = 0 时，App 与 quick-topup SQL 一样直接按美元阈值判断（admin_quick_topup_repo.go:77-96），请后端确认这是预期语义 |
 | U30 无 reason 的 500 请后端补 reason | 退款超额时 ErrBalanceNegative 被 service/admin_user.go 用 fmt.Errorf 包装，变成无 reason 的 500；降级或删除最后一位管理员也是无 reason 的 500。App 只能事前拦截，并按“结果未确认，已记为待核对”处理，请后端补 reason |
+| 其他 UI 测试类回执撤销前的等待 | S3-16 审查修正查明：XCTest 自带的等待（XCTNSPredicateExpectation、waitForExistence、waitForNonExistence）约 1 秒后才第一次检查，而回执只显示 4.2 秒。UserKeysUITests、UserReplaceGroupUITests 已在点“撤销”前改用 UITests/XCUIElement+Poll.swift 轮询。另有 18 个测试文件也点 receipt.action，前面大多有一两个这样的等待，暂未出现不稳定；出现时照同样写法改：只在回执出现到撤销之间轮询，别处保持原样，否则卡片展开中 isHittable 会失败。 |
+| 其他用例按主屏幕键后立刻 activate() | AccountDetailUITests、CompensationForegroundUITests、ProxiesUITests、Sub2MobileUITests 仍在 press(.home) 之后立刻 activate()。S3-16 诊断显示 press 返回时 App 还会在前台停留约 0.5 秒，可能没进后台就被拉回，不触发“回到前台”。出现不稳定时改用 BalanceReconcileUITests.leaveAndReturn() 的写法（可提成共用扩展）。 |
 
 ### App 与设计 · 阶段 4
 
