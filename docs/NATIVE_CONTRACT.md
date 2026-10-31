@@ -47,12 +47,15 @@ actor APIClient {
   func logout() async throws
   func cancelAll() async
   func dashboard() async throws -> DashboardSummary
-  func accounts(page: Int, search: String, status: String?, platform: String?) async throws -> Page<UpstreamAccount>
+  func managedAccounts(page: Int, query: AccountListQuery) async throws -> AccountListPage  // the App's one account list read (R19)
   func account(id: Int) async throws -> UpstreamAccount
+  func accountWithVersion(id: Int) async throws -> VersionedAccount  // ETag cv-N, the PATCH If-Match; never cached
   func accountTodayStats(id: Int) async throws -> AccountTodayStats
-  func setSchedulable(id: Int, enabled: Bool) async throws -> UpstreamAccount
-  func refreshAccount(id: Int) async throws
-  func testAccount(id: Int, model: String?) async throws -> AsyncThrowingStream<AccountTestEvent, Error>
+  func setSchedulable(id: Int, enabled: Bool, idempotencyKey: UUID? = nil, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<UpstreamAccount>
+  func refreshAccount(id: Int, idempotencyKey: UUID?, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AccountRefreshResult>
+  func testAccount(id: Int, model: String?, prompt: String? = nil, mode: String? = nil, expectsTestResult: Bool) async throws -> AsyncThrowingStream<AccountTestEvent, any Error>
+  // The other account writes (PATCH / PUT, bulk, delete, proxy revert, OAuth, create, test runs) live in AccountPatch, AccountWrites,
+  // AccountManagement, AccountOAuth, AccountCreate and AccountTestRuns.
   func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser>
   func user(id: Int) async throws -> AdminUser
   func userUsage(id: Int) async throws -> UserUsageSummary
