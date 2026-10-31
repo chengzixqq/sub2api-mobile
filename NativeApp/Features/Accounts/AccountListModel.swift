@@ -196,6 +196,14 @@ final class AccountListModel {
         return batch.failedIDs.contains(id) || batch.stats[id] == nil
     }
 
+    /// 20 §1.3 header alerts (S2-22): a platform's events in LiveOpsStore's firing list, the monitor's 告警中 (10 §0.5); none
+    /// while that list is unread or failed or ops monitoring is off (20 §1.5), and none on the group page's entry.
+    func firingAlerts(platform: String) -> [AlertEvent] {
+        guard groupID == nil, isLive, let ops = app?.liveOps,
+              AccountAlertMatch.isListUsable(ops.firing.state, opsDisabled: ops.opsDisabled) else { return [] }
+        return ops.firingAlerts(platform: platform)
+    }
+
     // MARK: 选择模式（S2-07）
 
     func beginSelecting() {
@@ -330,11 +338,12 @@ final class AccountListModel {
         }
         await refreshCompanions(round)
     }
-    /// status-summary and today, side by side after each list or runtime read.
+    /// status-summary, today and the firing alerts, side by side after each list or runtime read.
     private func refreshCompanions(_ round: AccountListRefresh.Round) async {
         async let summaryRead: Void = loadSummary(round)
         async let todayRead: Void = loadToday(round)
-        _ = await (summaryRead, todayRead)
+        async let alertsRead: Void = refreshFiringAlerts()
+        _ = await (summaryRead, todayRead, alertsRead)
     }
     /// A failure falls back to local header counts silently. The badge takes the site's error count with the device time it was read.
     private func loadSummary(_ round: AccountListRefresh.Round) async {
@@ -376,6 +385,11 @@ final class AccountListModel {
             today = error is CancellationError ? today.withCancelledLoad() : today.withFailure(error.localizedDescription)
             if !(error is CancellationError) { todayBlock = todayBlock.recordingFailure(error, at: Date()) }
         }
+    }
+    /// 20 §1.2, §1.6: while the tab shows, the monitor's refresh of the one firing list, which reuses a read under 60 seconds old.
+    private func refreshFiringAlerts() async {
+        guard groupID == nil, isVisible, isLive, let ops = app?.liveOps else { return }
+        await ops.refreshFiringAlerts()
     }
     private func refreshGroups() async {
         guard let directory = app?.groupDirectory else { return }

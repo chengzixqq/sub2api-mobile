@@ -419,15 +419,17 @@ final class UserKeysUITests: XCTestCase {
     }
     /// Below the navigation bar and the page head, above the keyboard and a receipt.
     @MainActor private func visibleBand() -> (CGFloat, CGFloat) {
-        let frame = app.frame, navigation = app.navigationBars.firstMatch, keyboard = app.keyboards.firstMatch
-        var top = navigation.exists ? navigation.frame.maxY : frame.minY + 100
+        let frame = app.frame
+        var top = shownFrame(app.navigationBars.firstMatch)?.maxY ?? frame.minY + 100
         var bottom = frame.maxY - 40
-        let segments = element("user-edit.segment.basic"), receipt = element("receipt")
-        if segments.exists { top = max(top, segments.frame.maxY + 36) }
-        if keyboard.exists { bottom = min(bottom, keyboard.frame.minY) }
-        if receipt.exists { bottom = min(bottom, receipt.frame.minY) }
+        if let segments = shownFrame(element("user-edit.segment.basic")) { top = max(top, segments.maxY + 36) }
+        if let keyboard = shownFrame(app.keyboards.firstMatch) { bottom = min(bottom, keyboard.minY) }
+        if let receipt = shownFrame(element("receipt")) { bottom = min(bottom, receipt.minY) }
         return (top, max(bottom, top + 80))
     }
+    /// A receipt leaving on its 4.2-second timer between `exists` and `frame` would fail the test, so the frame comes from a
+    /// snapshot, which only throws then; `exists` first, as a snapshot of a missing element retries for about 2 seconds.
+    @MainActor private func shownFrame(_ item: XCUIElement) -> CGRect? { item.exists ? (try? item.snapshot())?.frame : nil }
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
