@@ -383,6 +383,7 @@
 | AccountNewUITests 三个用例在主分支上稳定失败 | testCredentialSectionsFollowMethod、testDockListsMissingItemsAndJumpsToFirst（底栏只列“还差API Key”，不列“名称”）、testTurningOffMixedSchedulingRemovesGroupsWithUndo（没有回执）。在 091294f 上用 MAC_REF 复跑同样失败，线 A S2-20 的 check、集成者的 gate 里也一样；不在 app-rules 的基线清单里，需要 S2-19 / S2-20 的线修复或补登基线（S2-22 汇报） |
 | 告警 sheet“只看需处理的账号”是否同时展开或筛到该平台 | 规格与设计稿都只切胶囊（S2-22 照做）。有平台筛选、或该平台分区已收起时，切过去可能看不到本平台需处理的账号；要不要同时展开分区或筛到该平台，待用户决定 |
 | 10 §0.5 补一句“账号 Tab 也会触发 firing 列表刷新” | 20 审查记录第 7 条的建议；规格文件线上不能改，S2-22 已按这个口径实现（AccountListModel 调 LiveOpsStore.refreshFiringAlerts()） |
+| 新建账号测试通过后换模型重测 | S2-20 审查修正后，测试通过（含启用没有成功）时测试行不再可点模型名。规格 20 §7.3 和设计稿允许结束后都能换模型，但通过后账号已参与调度，失败的结论没有正确文案（现有文案都说“已停止调度”）。如果要恢复，需要给“通过后重测失败、仍参与调度”定文案和按钮。 |
 
 ### App 与设计 · 阶段 3
 
