@@ -463,6 +463,21 @@
 | 替换分组不含已停用的专属分组 | 用户拥有的已停用专属分组不在替换分区里（UserGroupCatalog 只取启用分组，设计稿也不显示），这类替换留给 Web；需要时再给分区加上停用分组的来源行 |
 | 替换分组结果不明、尚未核对时仍可“保存”分组 | S3-15 审查修正后，结果不明的替换编号已经留在编辑页，但权限段“保存”仍会按旧基线整表 PUT allowed_groups，可能把已生效的新分组删掉。以后决定是否在核对前拦住带分组变化的保存（00 §2.5.4 第 4 条） |
 | 新建 Key 结果不明后关掉 sheet 会丢编号 | S3-13 的 UserKeyFormModel 冻结编号随 sheet 一起释放，再点“新建”会生成新编号；读回按名称找到时没有问题，读回失败时可能重复创建。以后决定是否像 S3-15 一样把编号挂到编辑页 |
+| Face ID 金额门槛 sheet 的键盘 | （更新原行）S3-16（415c38e）已换成 S3-00 的 AmountKeypad（6 位、整数、上限 100000，“.”位留空），D36 不变，标识 settings.threshold.field / save 不变；输入“0”时加自拟提示“门槛要在 $1 至 $100,000 之间”。这一行可以移到已完成或删除 |
+| 路由参数在旧页面上不生效 | （补充已有行）阶段 3 部分已处理：.user(id:)、.userLedger(userID:)、.userNew、.userEdit(id:segment:)、.balanceKeypad(userID:mode:) 都由新页面接收（S3-02…S3-11） |
+| 跨 Tab 跳转撤不掉视图式推入的页面 | （补充已有行）阶段 3 部分已处理：grep Features/Users，没有推入 Tab path 的视图式 NavigationLink。唯一一处 NavigationLink { } 在 Key 表单 sheet 自己的 NavigationStack 里选分组，sheet 关闭就撤，不受影响（S3-16 核对） |
+| 余额页 UI 测试 | （更新原行）已完成：稍后核对由 S3-08 的 BalanceKeypadUITests.testLaterKeepsTheRecordAndShowsTheBanner 覆盖；重试被二次验证拦住时记录保留，由 S3-07 的 BalanceReconcileUITests.testRetryStoppedByStepUpKeepsTheRecord 与 BalanceReconcileSessionTests 覆盖 |
+| 待核对门控跨站点 id / 余额核对的阶段 3 部分 / 余额重试后的执行宽限 | （更新三行）阶段 3 已完成：Core 与同地址口径由 S3-06 完成；用户详情、设置页的核对流程与回前台自动核对由 S3-07 完成；键盘内两次确认由 S3-08 完成。概览入口已由 S1-10 / S1-11 接入，兑换码与补偿入口见阶段 6，S6-26 逐处复核 |
+| 读类 POST 的安全重发 | （补充已有行）阶段 3 部分已处理：S3-03 把 reveal 声明为读类，S3-13 发送前先 ensureStepUp。只读令牌仍会被后端 403 ACCESS_TOKEN_READ_ONLY 拒绝（放行表没有 reveal），Key 卡片 ··· 菜单整体挂 .readOnlyGate() 置灰 |
+| 资金写待核对的界面与回前台自动核对 | （补充已有行）余额部分已完成：S3-07 做了用户详情横幅、设置页余额待核对与回前台自动核对，S3-08 做了键盘内“仍要充值”两次确认；补偿与兑换码见阶段 6 |
+| 通用删除确认还没有做 | （更新原行）S3-00 已建 DeleteConfirmationSheet，用户删除（S3-05 / S3-11）与 Key 删除（S3-13）已接入；其他删除流程随各阶段接入 |
+| 有待核对记录的站点重新登录会多出一个同名站点 | （补充已有行）阶段 3：设置页里同地址旧登录的记录已能用当前身份核对或放弃（S3-07）。凭据已清的旧站点在站点列表的显示、LoginView 待核对列表的“打开原站点核对”不属于阶段 3，交 S6-26 |
+| 旧余额页绕过唯一发送口 | （更新原行）已处理：S3-08 删除了 BalanceView，S3-16 删除了 APIClient 旧的 updateBalance(_:onEvent:)。NativeApp 只有 AppModel+Users.updateBalance 一处调 client.updateBalance(_:sameAddress:onEvent:)，发送前先 checkSender |
+| 回到前台多条精确命中的回执合并 | （更新原行）S3-16 按 S3D1-25 决定不合并：R17 新回执替换旧回执，多条命中时只看到最后一条。如果要改成“已核对 N 笔”，只改 S3-07 的回前台核对一处 |
+| AdminUser.balance 坏值整项解码失败 / 用户行余额坏值显示“—” | （更新两行）S3-16 按 S3D1-25 保持严格解码，不改：后端是 float64，实际不会出坏值。这与 30 §1.3“解码失败显示 —”不同，已写进阶段 3 取舍 |
+| 缺失值“—”的读屏（用户章其余位置） | 用户列表、详情、记录已读“无数据”；Key 卡片的事实格（当前并发、今日）、RPM 状态块、平台限额格、编辑页只读属性行、完整 Key 框清除后的“—”仍读显示文字。改它们要动 UserKeyCards / UserRPMStatusView / PlatformQuotaSection / UserEditBasicSection / UserKeyRevealSheet 与 UserKeysUITests 的“—”断言，建议并入 S6-26 收口 |
+| U26 percentage 余额阈值请后端确认 | percentage 类型且 total_recharged = 0 时，App 与 quick-topup SQL 一样直接按美元阈值判断（admin_quick_topup_repo.go:77-96），请后端确认这是预期语义 |
+| U30 无 reason 的 500 请后端补 reason | 退款超额时 ErrBalanceNegative 被 service/admin_user.go 用 fmt.Errorf 包装，变成无 reason 的 500；降级或删除最后一位管理员也是无 reason 的 500。App 只能事前拦截，并按“结果未确认，已记为待核对”处理，请后端补 reason |
 
 ### App 与设计 · 阶段 4
 
