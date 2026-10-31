@@ -388,6 +388,7 @@
 | vendor 读定时测试结果 | /admin/scheduled-test-plans/:id/results 不在 vendor 路由白名单，vendor 能看到计划但读结果返回 403 FORBIDDEN；App 目前写“没有权限查看测试结果，在 Web 中查看”。是否给 vendor 放开（只读、限自家账号），待用户决定 |
 | 定时测试状态码正则是否放宽 | App 按规格 20 §0.1 用窄正则 \((\d{3})\)\|returned (\d{3})；后端自己用更宽的 (?:returned\|返回\|HTTP)\s*(\d{3})\b\|\((\d{3})\)。旧结果写“返回 429”“HTTP 403”时 App 解析不到码、徽章显示“—”，看实测再决定是否放宽 |
 | 定时测试“每 1 分钟”写法与失败行耗时 | cron */1 照规格字面写成“每 1 分钟 / 每 1 小时”；失败结果行照规格不写耗时（设计稿 VdTests 写了）；“其他”分类词写成“529 上游 529”这种重复写法。都等用户看截图后定 |
+| LoadState 重读被取消后恢复成 loaded，失败标记随之丢失 | 上次读取失败后，如果下一次重读被取消（下拉刷新、切换胶囊等会取消伴随请求），withCancelledLoad 会把 .loading(旧值) 恢复成 .loaded(旧值, 上次成功时间)。监控页等直接看 BlockState 的地方，“更新失败”标记会跟着消失，要等下一次读取才会回来。S2-22 的组头告警牌已经改用 lastErrorAt 绕开这个问题；BlockState / LoadState 的共用语义要不要改（例如取消时回到 failed），需要另外决定。 |
 
 ### App 与设计 · 阶段 3
 
@@ -445,6 +446,10 @@
 | Key 名称超长后端返回 500 无 reason | ent MaxLen(100) 在 Save 时校验转义后的名称；App 已在本地拦截（转义后 ≤ 100 字节），请后端补 reason |
 | AccountOAuthTests.authURLReplyKeepsStateAndRejectsUnsafeLinks 计时断言偶发失败 | remaining 只留 1 秒窗口，Mac 高负载下在 S3-13 check 中失败一次、重跑通过；建议放宽窗口或改用可注入时钟 |
 | UI 测试“先 exists 再读 frame”写法 | 很多 UITests 的 reveal / visibleBand 辅助函数用 `x.exists ? x.frame : …` 读键盘、导航栏、标签栏的位置。元素在两步之间消失时，XCTest 会记失败。UserKeysUITests 已改用 shownFrame()（先 exists 再 try? snapshot()）。其他类目前读的都是不会自己定时消失的元素，暂时没出问题；以后要读回执这类会自动消失的元素时，沿用同样的写法 |
+| 平台限额 GET 在服务未启用时返回 200 空数组 | 后端 GetUserPlatformQuotas 在仓储为空时回 200 []，App 要等写入收到 503 才能显示“站点没有启用平台限额”。建议后端读取也返回 503 SERVICE_UNAVAILABLE，App 的读取已按 503 处理 |
+| 平台限额整表退路的竞争窗口 | 没有 users.platform_quota_item 时，GET 和整表 PUT 之间别人新加的平台限额会被软删。App 已让两步紧挨执行，并有单测保证只改目标平台；要彻底解决需要后端整表 PUT 支持版本 / If-Match，或站点升级到带单平台接口的版本 |
+| 平台限额切段刷新口径 | 目前和 Key 区一致：每个编辑页第一次进入“Key 与限额”读一次，之后靠下拉刷新和写后替换。如果要求每次切回该段都重读，需要在 UserEditScreen 的切段处加钩子 |
+| 平台限额百分比小数位 | 窗口格沿用 DisplayFormat.percent 一位小数（28.0%），和 Key 卡片一致；设计稿 UeWin 是取整（28%）。如果改成取整，两处要一起改 |
 
 ### App 与设计 · 阶段 4
 
