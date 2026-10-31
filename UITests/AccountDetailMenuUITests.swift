@@ -38,10 +38,7 @@ final class AccountDetailMenuUITests: XCTestCase {
         hk02.tap()
         // The receipt stays 4.2 seconds (R17): one wait for the closed picker's row, then 撤销 while the receipt is still up.
         waitForLabel(element("account.proxy.row"), contains: "hk-02")
-        XCTAssertEqual(app.staticTexts["receipt.text"].label, "已保存：代理 → hk-02")
-        let undo = app.buttons["receipt.action"]
-        XCTAssertEqual(undo.label, "撤销")
-        undo.tap()
+        receiptButton("撤销", in: "已保存：代理 → hk-02").tap()
         XCTAssertFalse(element("account.proxy.picker").exists, app.debugDescription)
         waitForLabel(element("account.proxy.row"), contains: "sg-01")
     }
@@ -53,6 +50,8 @@ final class AccountDetailMenuUITests: XCTestCase {
         openPicker()
         element("account.proxy.option.direct").tap()
         waitForReceipt("已保存：代理 → 无代理")
+        // The receipt with 撤销 floats above the tab bar for 4.2 seconds (R17) and takes taps; after 编辑 the row sits under it.
+        XCTAssertTrue(app.staticTexts["receipt.text"].waitForNonExistence(timeout: 10), app.debugDescription)
         let row = element("account.proxy.row")
         reveal(row)
         waitForLabel(row, contains: "无代理")
@@ -148,9 +147,7 @@ final class AccountDetailMenuUITests: XCTestCase {
         reveal(element("account.proxy.fallback"))
         confirmRevert()
         waitForReceipt("原代理已删除、停用或过期，续期并启用后才能恢复")
-        let view = app.buttons["receipt.action"]
-        XCTAssertEqual(view.label, "查看原代理")
-        view.tap()
+        receiptButton("查看原代理", in: "原代理已删除、停用或过期，续期并启用后才能恢复").tap()
         XCTAssertTrue(element("proxy.detail.card").waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.navigationBars["hk-01"].exists, app.debugDescription)
         goBack()
@@ -301,9 +298,8 @@ final class AccountDetailMenuUITests: XCTestCase {
         XCTAssertFalse(original.isSelected, app.debugDescription)
         original.tap()
         waitForReceipt("已保存：代理 → sg-01")
-        XCTAssertEqual(app.buttons["receipt.action"].label, "撤销")
+        receiptButton("撤销", in: "已保存：代理 → sg-01").tap()
         XCTAssertTrue(element("account.proxy.picker").waitForNonExistence(timeout: 5), app.debugDescription)
-        app.buttons["receipt.action"].tap()
         let row = element("account.proxy.row")
         reveal(row)
         waitForLabel(row, contains: "us-west-3")
@@ -376,6 +372,13 @@ final class AccountDetailMenuUITests: XCTestCase {
     /// System menu items are found by their title.
     @MainActor private func menuButton(_ label: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+    /// The receipt's button, only while the receipt says `text`: one query, so a tap lands within the receipt's 4.2 seconds even
+    /// when this long page's snapshots are slow.
+    @MainActor private func receiptButton(_ title: String, in text: String) -> XCUIElement {
+        app.otherElements.matching(identifier: "receipt")
+            .containing(NSPredicate(format: "identifier == %@ AND label == %@", "receipt.text", text))
+            .buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@", "receipt.action", title)).firstMatch
     }
     @MainActor private func waitForReceipt(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
         let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", text), object: app.staticTexts["receipt.text"])
