@@ -279,6 +279,27 @@
 | 告警详情“近 24 小时 N 条”的口径 | 按日志页口径计数：errorCount 沿用 view=all，含业务限制、含 429 / 529 和已恢复的上游错误，条数与点进去的日志页一致。它不是告警指标的分子：error_rate 排除业务限制，upstream_error_rate 排除 429 / 529。界面不解释这个差异（S1-17）。 |
 | 平台告警的错误计数行 | 只有 platform 的错误类告警（如 Anthropic 上游错误率）不显示“近 24 小时 N 条”：规格没有这一行，RequestLogFilter 和 LogsRoute 也没有平台条件。要加的话，先给 40 章的筛选与路由加上平台条件（S1-17）。 |
 | S4-05 同步告警详情的日志页断言 | AlertDetailUITests.assertErrorLogsOpened 现在断言的是旧页“请求与错误日志”、logs.mode 选中“失败请求”和“分组 #<id>”。S4-05 换成 LogsView 时要一并改这个 helper，否则 S1-17 的两个 UI 用例会失败（S1D1-28）。 |
+| 长超时读请求超时后的自动重试 | （补充已有行）S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认值：客户端超时 dashboard/home 15 秒、统计聚合 45 秒、dashboard/stats 90 秒；后端 dashboard/home 有 8 秒整体预算（各段 3–6 秒），段内超时只把该段标 timeout。统计聚合与 dashboard/stats 超时后是否还自动重试，仍等生产量级实测（后端 B10 / 维护者 Q17） |
+| 真机确认 ETag 304 | （补充已有行）S1-18 未实测：未获授权访问测试环境。dashboard/home 走 ConditionalCache（S1-01），URLSession 层的 304 透传仍只有桩测试；账号列表的 304 由 S2-23 确认，真机仍待验 |
+| UI 测试 6 并发下的快照停顿 | （补充已有行）S1-18 删除了 AppModel 里残留的 -ui-dashboard-slow-trend 分支；趋势缩放用例随 LegacyTrendUITests 在阶段 4 删除 |
+| 缺失值“—”的读屏 | （补充已有行）阶段 1 已统一：概览、监控、告警详情的读屏值经 DisplayFormat.spoken 输出“无数据”（StageOneFixtureUITests 的运维关闭夹具断言 home.today.successRate、home.run.health 读“无数据”）；其余页面重写时套用（X33） |
+| 区块 429 倒计时文案与重试按钮 | （补充已有行）阶段 1 的区块都用 S1-08 的 BlockFailureRow / BlockStatusAccessory：显示倒计时、等待期内禁用重试、到时自动重发；账号详情今日节由 S2-23 统一（X37） |
+| 有待核对记录的站点重新登录会多出一个同名站点 | （补充已有行）概览已按同一规范化地址合并显示旧站点 id 的记录，加注“本站点的旧登录下发起”并计入平静判定（S1-10 / S1-11，X34）；S1-18 补了 UI 用例 HomeUITests.testEarlierLoginRowsAreAnnotatedAndOpenTheirPages；设置页由 S3-07 处理 |
+| 资金写待核对的界面与回前台自动核对 | （补充已有行）概览部分已完成：S1-10 的三类待核对行、S1-11 的平静判定，S1-18 补了补偿行与本站点旧登录行的 UI 用例（补偿行点按打开 S6-09 的补偿待核对 sheet，关闭后记录不变） |
+| 读区块的“完成合规确认”入口 | （补充已有行）阶段 1 已处理：S1-08 的 BlockFailureRow 在 423 时显示「完成合规确认」并调 AppModel.presentCompliance()，阶段 1 的区块都用它；合规通过后概览立即重读（e8dfe42）；其他阶段的区块接入时复用 |
+| 路由参数在旧页面上不生效 | （补充已有行）阶段 1 部分：.monitor(segment:)、.alert(id:) 已生效；.analytics 的 focus / metric 由过渡页 LegacyTrendPage 生效，range 仍不生效（S4-12 / S4-13）；概览与监控的其余去向都是新页面 |
+| 跨 Tab 跳转撤不掉视图式推入的页面 | （补充已有行）阶段 1 部分已处理：grep Features/Home、Features/Monitor 与过渡页 LegacyTrendPage，没有 NavigationLink { 目的视图 }、NavigationLink(destination:)、navigationDestination(isPresented:) / (item:)，一律走 HomeDestinationAction 或 router.push / select / present；其他页面由各阶段收口条目核对（X39） |
+| AppModel 里随旧概览失去用途的夹具分支 | （补充已有行）S1-18 已删除 -ui-dashboard-slow-trend；-ui-missing-account-cost、-ui-cost-snapshot-error 已由 S1-09b 删除，全仓 0 处；-ui-trend-long-series、-ui-dashboard-detail-errors 仍给 LegacyTrendUITests，-ui-performance-error 没有 UI 用例（PerformanceTrendView 的失败夹具），三者随 S4-13 / S4-16 删除 |
+| 首页与监控的健康分行合并 | （补充已有行）S1-18 未合并（方案 out_of_scope）：两处已共用 HealthScoreBar 与 HomeRunPresentation.Health（MonitorTabPresentation.health 返回同一类型），剩下的只是各自的行布局与标识（home.run.health / monitor.run.health）；合并要同时动 HomeUITests、MonitorUITests、StageOneFixtureUITests 的断言，留给设计复核或阶段收尾统一处理 |
+| S1-18 的标识静态核查要接受插值后缀 | （补充已有行）S1-18 的一次性核查脚本已按前缀识别插值与拼接（"\(id).retry"、"x." + kind、monitor.server.cpu.<色调>、monitor.server.job.<任务名>）：UITests 902 个标识中只有 24 个找不到字面量，都是 capability 名、邮箱 / 模型名片段或其他阶段的键盘与菜单前缀，阶段 1 的首页与监控标识全部能找到。脚本不入库（scratch/s1-18/check_stage1.py），阶段收尾要入库时可参考 |
+| 渠道行状态图标与账号状态图标统一 | （补充已有行）S1-18 未抽：ChannelGlyph 只在渠道段一处使用，抽共用组件要动阶段 2 的 AccountStateGlyph 与阶段 6 的 ProxyGlyphView，留给 S2-23 收口时评估 |
+| 首页夹具与账号 Tab 演示数据不一致 | （补充已有行）S1-18 核对：情况未变，只影响 UI 测试与截图；StageOneFixtureUITests 只断言首页 / 监控自身的元素，不跨 Tab 比对 |
+| 概览待处理账号行是否复用 AccountActions | 20 §5.1 写“概览复用”，10 §1.3.3 只给错误行定义了「测试」。阶段 1 默认不做（dag.md 第 8 节第 2 条），处理动作放在账号详情；如要加左滑「恢复状态」/「停止调度」，在 S2-06 与 S1-10 合入后另立约 1.5 小时的小条目（线 A） |
+| 阶段 1 过渡页与旧趋势代码的删除 | LegacyTrendPage（含 DashboardTrendChart / AnimatedTrendViewport）、LegacyTrendUITests 与 .analytics 的 focus 分流由 S4-13 删除；PerformanceTrendView 抽 PerfTrendBody、删除 AppModel.dashboardPerformanceTrend(hours:) 由 S4-16 做。在此之前 AppModel 的 -ui-trend-long-series / -ui-dashboard-detail-errors / -ui-performance-error 分支保留（X20）。DashboardTrendMetric.actualCost 的文案已是“实际扣费”，不用再改 |
+| 首页可用性退路与 status-summary 的口径差异 | 只影响没有 dashboard.home 的旧站点（S1-07）。有 accounts.status_summary 时用 status-summary（include_accounts）按首页口径裁剪；没有时用 groups/all 的计数加 lite 账号列表本地分档（AccountDisplayState）。账号超过 1000 个时只取第一页并标 accountsTruncated；分组可用不足按后端默认比例 0.5 判定，与服务端按告警规则判定的口径可能不同；status-summary 缺 accounts / shortage 等字段（旧版本）时只给汇总、不出账号行。等真实旧站点有反馈再定 |
+| 运行区健康分在 config_off 时的措辞 | disabled_reason 为 config_off 时，6 格下方的提示行写“运维监控已在服务器配置中关闭”，运行区健康分仍写“运维监控未开启”（S1-09b 按规格原文）。两种原因都是“未开启”的事实；要统一只改 HomeRunPresentation 一处，等用户看过截图再定 |
+| 阶段 1 需用户确认的默认值 | 没有 /admin/me 的旧服务端不提供开启运维监控入口；事件没有 silence 键的旧服务端不提供静默（S1D1-15）；旧服务端告警行补规则名与分组名的做法（S1D1-16）；是否授权在测试环境实测 U54 与 dashboard/home 的 304（S1D1-27）。均已按默认实现 |
+| AccountOAuthTests 计时用例在高负载下偶发失败 | Tests/Sub2CoreTests/AccountOAuthTests.swift:85 的 authURLReplyKeepsStateAndRejectsUnsafeLinks 断言授权链接剩余时间 > 1799 秒，只有 1 秒窗口。Mac 上 3 个检查并行时，S1-18 的 check 与一次 unit 重跑都因此报 UNIT_EXIT=1，再重跑通过。建议归属条目把断言放宽（例如 > 1790 秒）或注入时钟 |
 
 ### App 与设计 · 阶段 2
 

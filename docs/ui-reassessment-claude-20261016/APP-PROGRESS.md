@@ -136,6 +136,140 @@ Mac 补装 Xcode 27.1 的 CoreSimulator 组件后，在 iPhone 18 Pro（iOS 27�
 | S1-15 | 监控 · 渠道段（ChannelsSection） | ✅ | `debb19e` | 四格计数为 0 不着色（规格四档都标色调，设计稿只给性能下降 / 不可用上色）；首字沿用 S1-03 毫秒读数（900ms / 8.6s）；403 CHANNEL_MONITOR_DISABLED 时丢弃旧列表并继续按退避轮询，成功即恢复；夹具分组 id 对齐 DEMO.groups，但 S5-06 前旧分组详情夹具只有 10 / 11，UI 测试只点 id 10；默认首页渠道计数改为由 9 个渠道派生（3/1/1/4），平静仍 8 个；状态图标暂用文件私有 ChannelGlyph；渠道详情页与 App 内开关不做。check 跑 MonitorUITests、HomeUITests、AlertDetailUITests、HomeCalmUITests、AppNavigationUITests：90 个全部通过，无重跑。（审查修正 548ea86）审查修正 548ea86：旧站点没有渠道路由时（非 JSON 404），渠道段改为置灰空态“站点版本较旧，暂不支持此功能”，本会话内不再请求（00 §3.3）。首页退路仍对同一应答显示“渠道监控未开启”，两处文案不同，留待统一。 |
 | S1-16 | 监控 · 告警段（告警中、最近结束、加载更早与行内手动解决 / 静默） | ✅ | `ad165a5`、`54185a1` | 分页按 cross_review 放在 RecentAlerts+Paging 扩展，不改 S1-05 的 recent 类型；游标取原始页最后一条（含 firing）；轮询与写后只合并第一页、下拉重置；告警中去掉已在最近结束的事件；新增截断说明“只显示最新 N 条”（规格没有）；与方案不同：开关显示关闭时下拉仍读一次最近结束（同概况）；无 reason 的 400 一律视为游标被拒；行内按钮为同级 overlay + 隐藏占位，读屏标签带告警标题；改了 S1-06 AlertActionsTests 一处写后计数断言，并给 StubLiveOpsSource 加 alertEventRequests / alertEventPages；UI 测试未运行（UI_UNAVAILABLE），检查时 TOOLCHAIN_EXIT=3（Mac Xcode 已升到 27.2 / 27B52），待环境修好后补跑 check（审查修正 da85a73）审查修正 da85a73：轮询或写操作后拉到的第一页是满页、且最后一条比已加载第一页里最新的一条还新时（两者之间有缺口），改为从新页重来，「加载更早」从缺口往前翻；以前会漏掉缺口里的事件，「加载更早」可能消失或直接跳过缺口。实现上给 S1-05 的 RecentAlerts 加了 head 属性（服务器所给第一页里最新的一条，各方法原样保留），没有改 recent 的类型。从新页重来的效果与下拉相同：会丢掉已加载的更早页，以及本地移入、触发早于 24 小时的手动解决事件。“触发早于第一页、之后才结束”和“24 小时窗口滑出的旧行”两点仍按已知限制处理。UI 测试未运行（UI_UNAVAILABLE），TOOLCHAIN_EXIT=3，原因同前。 |
 | S1-17 | 告警详情 · 错误请求计数行（接阶段 4 的 errorCount） | ✅ | `c8bc894` | 只调 S4-01 的 errorCount（R19），经 LiveOpsSource.errorCount 与 controlled(_:)，404 OPS_DISABLED 记运维关闭；计数在事件读完后再发（事件不存在、运维关闭、400 时不发，旧服务端等补上规则），只随 load(refreshScope: true)，不进 60 秒轮询；全站错误类规则也加这一行（不带分组），全站 upstream_error_rate 写“上游错误”；平台告警不加（规格没有，筛选与路由也没有平台条件）；有旧值时失败写“更新失败”、保留数字，没有旧值时失败是“错误请求 · 加载失败 · 重试”；去向映射叫 pushedRoute（方案写 logsRoute），S1-12 的 row() 改为按它判断；夹具测试放在 AlertDetailFixturesTests（方案写 LiveOpsFixturesTests）；-ui-alert-error-count-fails 只让第一次失败（首屏只 load 一次）。移交 S4-05：改写日志页时同步更新 AlertDetailUITests 的 assertErrorLogsOpened。UI 测试未运行（UI_UNAVAILABLE），检查时 TOOLCHAIN_EXIT=3（Mac Xcode 已升到 27.2 / 27B52），待环境修好后补跑 check AlertDetailUITests,HomeUITests |
+| S1-18 | 阶段 1 收口：测试清单与夹具核对、旧代码清理、文档与小结 | ✅ | `d293b29`、`b7734f3` | 按 D28 分两次提交，18a 通过 check，18b 只改文档。取舍：参数化 UI 用例做成表驱动的新类 StageOneFixtureUITests（11 个夹具各一个函数，每屏两张截图），覆盖首页 6 种 + 旧站点退路 + 监控 4 种；HomeUITests 末尾补补偿行与本站点旧登录行两个用例（S6-09 已合入，补偿行点按断言 grant.pending，不是占位 sheet）；两条锁定性单测首跑即过；AppModel 只删 -ui-dashboard-slow-trend 三行，不拆、不改 Package.swift；HomeTicker 映射与 monitor.placeholder 已由 S1-10 / S1-16 清理，本条只 grep 核对；没有文件超过 800 行（HomeUITests 774），未拆分；README / API_COMPATIBILITY / NATIVE_CONTRACT 最小修改。未做：U54 与 304 实测（未获授权访问测试环境，S1D1-27）、健康分行合并与 ChannelGlyph 统一（见 BACKLOG）。阶段 1 小结见下节。UI 测试：check 8 类（StageOneFixture、Home、HomeCalm、Monitor、AlertDetail、LegacyTrend、AppNavigation、Sub2Mobile）132/132 通过，无 flaky；单测一次被无关的计时用例 AccountOAuthTests.authURLReplyKeepsStateAndRejectsUnsafeLinks 挤掉，同一提交重跑 UNIT_EXIT=0。建议集成者合入后跑一次全量 gate |
+
+### 阶段 1 小结
+
+#### (1) 完成项
+
+- S1-00 `97038af`；S1-01 `d8608c6`；S1-02 `807a76f`；S1-03 `bac53e6`；S1-04 `a5a7854`
+- S1-05 `61fb705`（修正 `ac54a3b`）
+- S1-06 `6f1e62b` `4678cd1`（修正 `84057e5`、`274af1f`）
+- S1-07 `c1e07f8`（修正 `326e15e`）
+- S1-08 `36bb886`（修正 `c13c064`）
+- S1-09 `5246947`（修正 `e8dfe42`）
+- S1-09b `6107758` `a36f79a`（修正 `5e26c54`）
+- S1-10 `0ed4a0d`；S1-11 `3a38b05`
+- S1-12 `6ba5598` `20d2a5c`（修正 `0ec7452`）
+- S1-13 `1c3cc13` `0a7c6fa`（修正 `77e25a6`）
+- S1-14 `836d01c` `937a1ed`
+- S1-15 `debb19e`（修正 `548ea86`）
+- S1-16 `ad165a5` `54185a1`（修正 `da85a73`）
+- S1-17 `c8bc894`
+- S1-18 `d293b29` `b7734f3`
+- 与阶段 1 相关、提前做的其他阶段条目：S3-07 `0a4db1b`（同地址待核对夹具）、S4-01 `e760dd5`（errorCount）、S4-10 `f785b88`（PerformanceTrend 按覆盖秒数）、S4-11 `5c6897e`、S6-09 `b921f1c`（补偿待核对页）。
+- S1-17 随第 1 波完成，不进未做项。
+
+#### (2) 完成标志对照（核查脚本逐个函数对照，全部存在）
+
+- 10 §1.7 HomePresentationTests：
+  - 6 格：tickerCellsFollowFixedOrderLabelsAndDestinations、tickerCellsFormatThroughDisplayFormat
+  - “—”：tickerCellsShowDashWhenMissing
+  - 利润为负：profitIsActualMinusAccountWithUnicodeMinusAndNoPlus
+  - 涨跌：yesterdayChangeArrowOneDecimalAndHiddenCases
+  - TPM 退路标记：tpmFallbackMarkOnlyForDashboardStats
+- DashboardHomeDecodingTests：partialSuccessKeepsEachSectionIndependent、unknownSectionStatusDecodesAsError、missingOrNullSectionDecodesAsError
+- AttentionItemsTests：
+  - 顺序：itemsFollowFixedSlotOrder、alertsSortedBySeverityThenNewest
+  - 合并 / stopped 第 3 行：limitedRowMergesNamesEarliestAndStoppedThirdLine
+  - 截断：limitedRowUsesTotalsAndEllipsisWhenTruncated、moreAlertsRowCountAndHighestRemainingTone
+  - 上游返回异常：errorRowReasonMatchesAccountDisplayStateAndNeverErrorMessage
+  - 上游 529：overloadedRowFixedReasonCountdownAndStoppedMark
+  - R02：pendingMoneyRowsTitlesDetailsAmountsAndDestinations，加 S1-18 的 compensationRowSpellsOutR02DetailAndAmount
+  - X34 加注：pendingRowsFromAnEarlierLoginOfTheSameSiteAreAnnotated
+- §2.8 五条：calmWhenOnlyLimitedAccounts、silencedFiringAlertIsNotCalm、opsDisabledWithoutIssuesIsCalm、availabilityFailureIsNotCalm、localPendingRecordsIncludingCompensationAreNotCalm，加 S1-18 的 calmTreatsPendingRecordsFromAnyServerIDAsNotCalm
+- §3.7 / §6.3：OpsAlertsDecodingTests.silenceKeyPresenceIsRecorded；AlertPresentationTests 的 thresholdPrefersRuleThenEventValue、valueFormatsByUnit、operatorSymbolsMapAllBackendOperators、scopeTextFollowsDimensionPriority、titleUsesRuleNameAndStripsSeverityPrefixWithoutRule、sinceTextByStatus
+- §4.7 MonitorPresentationTests：jobNamesMapAndSortByTableOrder、jobLineTrailingTextPerState、jobLineDetailTextPerState、localJudgementFollowsFourRules、errorRateSeriesMergesFortyFiveMinuteBucketsIntoNinePoints、errorRateSeriesHandlesResidualSparseAndZeroDenominator
+- §5.7 ChannelOverviewDecodingTests：decodesBackendOverviewShape、channelOverviewToleratesMissingAndNullFields（方案写的名字是 toleratesMissingAndNullFields，以代码为准）
+- §6.7 OpsAlertsAPITests：alertEventsSendsQueryInFixedOrder、alertReadEndpointsUseTheirPaths
+- DashboardRPMTests、OverviewPresentationTests 不再引用 performanceWindow / performanceCard。
+- 夹具：LiveOpsFixturesTests 的 allOK / opsDisabled / availabilityError / hourlyTimeout / calmFixturesAreCalm。
+- 6 种 UI 数据：StageOneFixtureUITests 的 11 个用例全部通过：testHomeAllOK / OpsDisabled / AvailabilityError / HourlyTimeout / Calm / CalmLimited / LegacyFallbackRenders，testMonitorDefaultRendersEverySegment / OpsDisabledRendersEverySegment / ChannelMonitorOffRendersChannels / NoFiringRendersEmptyAlerts。
+
+#### (3) 改动总表 10 章各行
+
+- 已满足：
+  - DashboardView 换成 Home/*，四卡与“运行健康”删除，三个 30 秒轮询合成 60 秒（S1-09 / S1-09b）
+  - costBreakdown / performanceCard 删除，snapshot-v2 退路进 LiveOpsStore+Fallback
+  - APIClient.dashboard() 保留作退路，新增 dashboardHome
+  - dashboardTrend 按服务器时区
+  - dashboardMonitoring / OpsReply / OpsSnapshot / DashboardSummary.monitoring 删除（a36f79a）
+  - 条件请求走 ConditionalCache
+  - dashboardRates / accountStatusSummary / errorAccounts / accountsRanking
+  - DashboardHome、AccountStatusSummary、HomePresentation、MonitorPresentation、OpsMonitoring、OpsAlerts、ChannelMonitor 等新文件
+  - Sub2MobileApp MainTabs 的概览与监控 Tab
+  - AlertRow 首页复用
+  - PerformanceTrend 按覆盖秒数（S4-10）
+  - DashboardTrendMetric.actualCost 文案已是“实际扣费”
+- 位置不同但已满足：
+  - DashboardLoadState → NativeApp/Session/LoadState.swift，内部存 BlockState（X27）
+  - 6 种 UI 数据 → LiveOpsFixtures*，不在 DemoData（X05）
+  - AppModel 包装 → LiveOpsSource / ClientLiveOpsSource（S1-05）
+  - DashboardTrendChart → 统计分析过渡页 LegacyTrendPage
+  - 0.4 格式函数 → 统一用 DisplayFormat（R10）
+  - requestErrorCount / upstreamErrorCount → errorCount(filter:kind:)（R19，S4-01 / S1-17）
+- 留给阶段 4：
+  - PerformanceTrendView 抽 PerfTrendBody，删除 dashboardPerformanceTrend(hours:)（S4-16）
+  - 删除 LegacyTrendPage、LegacyTrendUITests 与 focus 分流（S4-13）
+
+#### (4) 阶段 0 备注里留给阶段 1 的事项
+
+- S0-04：U54 未实测，见 (7)。
+- S0-05：dashboard/home 走 ConditionalCache；“更新于”用本机收到响应的时间（HomeView 的 lastFullSuccessAt 按时钟偏移换算）。已满足。
+- S0-07：首页副标题设备与服务器偏移不同时加“· 按 UTC+8”（subtitleUsesServerCalendarAndAppendsOffsetOnlyWhenDifferent）。已满足。
+- S0-08：relativeTime（待核对行）、countdown（过载 / 受限）、minutesLeft（R18 横幅）已有页面调用，6 格术语“利润”。已满足。
+- S0-09：区块小视图 BlockFailureRow / BlockStatusAccessory（S1-08）、LiveOpsStore.pollInterval 60 秒、颜色只用 Palette / Tone（核查 0 处系统色）。已满足。
+- S0-10：R18 横幅 home.banner.renewal。已满足。
+- S0-12：三类待核对行（S1-10），S1-18 补了补偿行与旧登录行的 UI 用例。已满足。
+- S0-13：BlockFailureRow 在 423 时给「完成合规确认」；合规确认后概览重读（e8dfe42）。已满足。
+- S0-19：区块错误态接 ErrorDetailsDisclosure（BlockStatusViews.swift:91）。已满足。
+
+#### (5) 核查结果
+
+核查脚本只读，不入库，放在 scratch/s1-18/check_stage1.py。
+- R19：Sub2Core 里 func accountStatusSummary( / alertEvents( / errorCount( 各 1 处，struct AlertEventCursor、enum OpsDisabledReason 各 1 处。LiveOpsSource 的协议要求与转发实现不算重复定义。测试 target 里没有 extension LiveOpsSource。
+- 旧符号全仓 0 处：requestErrorCount、upstreamErrorCount、firingAlerts(groupID:、dashboardMonitoring、OpsReply、OpsSnapshot、DashboardLoadState、DashboardView、MetricView、performanceCard、performanceWindow、monitor.placeholder、HomeRatesLevel、HomeFallback.alertCounts、LegacyAlertSilences、-ui-dashboard-slow-trend、-ui-missing-account-cost、-ui-cost-snapshot-error。其中 NATIVE_CONTRACT 两处与 slow-trend 分支是本条清掉的。
+- HomeDestination → AppRoute 的映射全 App 只有 HomeDestinationAction 一处。
+- 格式代码：首页、监控与阶段 1 展示文件（43 个）没有显示用的格式代码。只有两处非显示用途：HomeFallback.swift:182 的 DateFormatter（接口日期键前缀）和 OpsAlerts.swift:210 的 ISO8601DateFormatter（游标）。
+- TimeZone.current：只有 ServerTime.swift:24（.device）一处，加上 HomeView 副标题的 deviceTimeZone: .current（白名单）。另有 7 处 `serverTimeZone.timeZone ?? .current` 是没有会话时的退路，与 .device 等价。
+- UI 标识：UITests 里 902 个标识，按插值前缀和 "\(id).retry" 之类的后缀识别后，阶段 1 的首页 / 监控标识都能在 NativeApp 找到。剩下 24 个找不到字面量的，都是 capability 名（-ui-without-capabilities 的参数）、邮箱或模型名片段，或其他阶段的键盘 / 菜单前缀，不属于阶段 1。
+- tabBars.buttons["管理"] / ["设置"] 只在 AppNavigationUITests 里作“不存在”断言。
+- 启动参数：UITests 用到的参数 NativeApp 都有解析。阶段 1 夹具里没有 UI 用例在用的只剩 -ui-performance-error（PerformanceTrendView，S4-16 删除）；-ui-home-legacy 现在由 StageOneFixtureUITests 使用。
+- 文件长度：没有超过 800 行的。AppModel 472、HomeUITests 774、MonitorUITests 740、LiveOpsStore 476、LiveOpsFixtures 456 行。
+- 其他：generate_project.py 在加新文件前重新生成无差异；Features/Home、Features/Monitor、LegacyTrendPage 没有视图式推入（X39）；Package.swift 的 exclude 完整；build 没有我们源码的 warning。
+
+#### (6) 未做项及原因
+
+- HomeUITests 没抽基类（S1D1-14），774 行，未超过 800。
+- 首页与监控的健康分行没合并（方案 out_of_scope，两处已共用 HealthScoreBar 与 HomeRunPresentation.Health）。
+- ChannelGlyph 与账号 / 代理图标没统一（留给 S2-23）。
+- 概览待处理账号行是否复用 AccountActions：默认不做。
+- U07 渠道详情、U13 静默列表、U09 入口拒绝明细：本版不做。
+- 需要用户确认的默认值：
+  - 没有 /admin/me 的旧服务端不提供开启运维监控
+  - 事件没有 silence 键的旧服务端不提供静默（S1D1-15）
+  - 旧服务端告警行补规则名与分组名的做法（S1D1-16）
+  - 测试环境实测 U54 / 304（S1D1-27）
+
+#### (7) U54 与 304
+
+S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认值（客户端超时：home 15 秒、统计聚合 45 秒、dashboard/stats 90 秒）。
+
+#### (8) UI 测试运行情况
+
+- check 跑了 8 个类：StageOneFixtureUITests 11、HomeUITests、HomeCalmUITests、MonitorUITests、AlertDetailUITests、LegacyTrendUITests、AppNavigationUITests、Sub2MobileUITests，共 132/132 通过，没有重跑才过的。
+- 本条之前 Mac 上的 Xcode 自动升级到 27.2，第一次 check 被工具链守卫拒绝（TOOLCHAIN_EXIT=3），但 132 个 UI 用例同样全过。合入主分支 b91d265 后在 d293b29 上重跑，全部通过。
+- calm 夹具与账号 Tab 的演示数据不一致（S1-05），只影响 UI 测试与截图。
+- 建议集成者合入后跑一次全量 gate，作为阶段 1 的收尾。
+- 集成者合入后（合并提交 `4c70522`）：check 8 个类 132/132 通过；全量 gate 的 TOOLCHAIN_EXIT=0、UNIT_EXIT=0（2175 + 912）、BUILD_EXIT=0、我们源码无 warning，UI 575 个中 572 个通过、没有重跑才过的。失败的 3 个都是 AccountNewUITests 的既有失败（testCredentialSectionsFollowMethod、testDockListsMissingItemsAndJumpsToFirst、testTurningOffMixedSchedulingRemovesGroupsWithUndo），两次都失败，失败点与 BACKLOG 阶段 2“S2-19 新建账号三个 UI 用例原有失败”一致，与阶段 1 无关。
+
+#### 移交（S1D1-28）
+
+- S2-23：测试连接完成时调用 liveOps?.noteExternalWrite()。
+- S4-05：改写日志页时同步 AlertDetailUITests.assertErrorLogsOpened。
+- S6-09：已合入，补偿待核对页保留了 sheet.close（RedeemGrantPendingView.swift:42），本条两个 HomeUITests 用例依赖它。
+- S4-02：复用 TrendGranularity。
+- S4-13 / S4-16 / S4-18：运维关闭一律用 OpsDisabledNotice。
 
 ## 阶段 2 · 账号
 
