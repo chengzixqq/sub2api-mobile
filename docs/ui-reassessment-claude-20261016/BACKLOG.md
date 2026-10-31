@@ -389,6 +389,16 @@
 | 定时测试状态码正则是否放宽 | App 按规格 20 §0.1 用窄正则 \((\d{3})\)\|returned (\d{3})；后端自己用更宽的 (?:returned\|返回\|HTTP)\s*(\d{3})\b\|\((\d{3})\)。旧结果写“返回 429”“HTTP 403”时 App 解析不到码、徽章显示“—”，看实测再决定是否放宽 |
 | 定时测试“每 1 分钟”写法与失败行耗时 | cron */1 照规格字面写成“每 1 分钟 / 每 1 小时”；失败结果行照规格不写耗时（设计稿 VdTests 写了）；“其他”分类词写成“529 上游 529”这种重复写法。都等用户看截图后定 |
 | LoadState 重读被取消后恢复成 loaded，失败标记随之丢失 | 上次读取失败后，如果下一次重读被取消（下拉刷新、切换胶囊等会取消伴随请求），withCancelledLoad 会把 .loading(旧值) 恢复成 .loaded(旧值, 上次成功时间)。监控页等直接看 BlockState 的地方，“更新失败”标记会跟着消失，要等下一次读取才会回来。S2-22 的组头告警牌已经改用 lastErrorAt 绕开这个问题；BlockState / LoadState 的共用语义要不要改（例如取消时回到 failed），需要另外决定。 |
+| 真机确认 ETag 304 | （补充已有行）S2-23 未实测：测试环境地址只在主工作区的未跟踪目录里，线上实现者不进入主工作区，而且测试环境与生产同机。方案记录的后端事实：buildAccountsListETag 覆盖 items 里的并发、RPM、会话、窗口费用等运行时采样，命中时返回 304、没有响应体，并带 Vary: If-None-Match，所以只有没有流量的站点才稳定 304。单测证据见 ConditionalRequestTests.accountListPageKeepsCountsOn304AndLaterPagesOmitCounts。请集成者或用户在测试环境用 curl 带上次的 If-None-Match，连发两次 GET admin/accounts?page=1&page_size=500&lite=1&sort_by=urgency&include_counts=1 确认（地址不入库） |
+| 倍率的显示位数 | （补充已有行）账号一侧已按 DisplayFormat.decimal 定（S2-10 的 AccountEditCopy.rate：调度分区“×1.2”和新建 / 编辑里的分组倍率，最多 3 位小数）；App 不显示上游探测倍率；分组页由阶段 5 处理 |
+| 缺失值“—”的读屏 | （补充已有行）阶段 2 账号页（列表行、详情状态卡、容量、今日、记录、编辑分区、定时测试小页）的读屏值都经 DisplayFormat.spoken / spokenValue / missingSpoken，读作“无数据”（S2-23 grep 核对；其余 accessibilityValue 是名称或整数，不会出现“—”） |
+| 区块 429 倒计时文案与重试按钮 | （补充已有行）账号部分已处理：账号详情今日节改用 S1-08 的 BlockFailureRow / BlockStatusAccessory（S2-23，X37），等待期重试置灰，到时自动重读；定时测试小页在 S2-21 修正时已改；账号列表的今日金额只显示“—”，不单独提示（20 §1.5） |
+| 读区块的“完成合规确认”入口 | （补充已有行）账号详情今日节经 BlockFailureRow 也有了（S2-23） |
+| 路由参数在旧页面上不生效 | （补充已有行）账号部分已处理：.account(id:focus:) 的 basic / sched / cred / proxy / models / adv 都能滚到对应分区（S2-08 / S2-10 / S2-11 / S2-12 / S2-16），由 S2-23 的 AccountDetailUITests.testRouteFocusScrollsToEachSection 锁定（夹具 -ui-account-focus） |
+| 跨 Tab 跳转撤不掉视图式推入的页面 | （补充已有行）账号部分已处理：AccountsView 与 Features/Accounts 在 Tab 栈上一律 NavigationLink(value: AppRoute) 或 router.push；剩下的只有 sheet 内自带导航栈的推入（AccountNewView、AccountSectionSheet，不在 Tab path 里），以及分组过渡入口 AccountsView(initialGroupID:) 的 navigationDestination(item:)（S5-13 随入口一起删） |
+| 账号写后概览刷新没有 UI 断言 | X17 收口在 AppModel+Accounts 的 11 个账号写包装（recordingAccountWrite）与 AccountTestCenter.onFinished，由 AccountWriteMarkTests、AccountTestCenterFinishTests 和 S2-23 的静态核查保证；UI 夹具（FixtureLiveOpsSource）不区分 nocache，测不到“下次可见时绕过缓存”。以后给夹具加 nocache 计数时补用例。第 2 波若在 AppModel+Accounts 新增账号写包装（如 S5-08 改 group_ids），必须同样套 recordingAccountWrite |
+| AccountDetailMenuUITests.testSwitchingToNoProxy 既有失败 | 在主分支基线 6154134 上单跑该类也两次失败（S2-23 用 MAC_REF 核对，不含 S2-23 改动）：保存“无代理”后立即点代理行，选择器不再弹出，界面上没有 sheet、行也没置灰。S2-11 当时通过，疑为之后合入的改动引入；与 S2-23 无关，请编排者另开修正 |
+| 账号详情的下拉刷新在 UI 测试里拉不出 | S2-23 的有旧值 429 用例原本用下拉触发第二次读今日，app.pullToRefresh 和慢速拖动两种写法都没有触发 detail.pullToRefresh，只好改用回到前台触发。需要在真机上下拉确认：是 XCUITest 的手势问题，还是详情 ScrollView 的 .refreshable 没生效 |
 
 ### App 与设计 · 阶段 3
 
