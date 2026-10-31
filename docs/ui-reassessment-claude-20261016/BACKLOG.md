@@ -399,6 +399,7 @@
 | 账号写后概览刷新没有 UI 断言 | X17 收口在 AppModel+Accounts 的 11 个账号写包装（recordingAccountWrite）与 AccountTestCenter.onFinished，由 AccountWriteMarkTests、AccountTestCenterFinishTests 和 S2-23 的静态核查保证；UI 夹具（FixtureLiveOpsSource）不区分 nocache，测不到“下次可见时绕过缓存”。以后给夹具加 nocache 计数时补用例。第 2 波若在 AppModel+Accounts 新增账号写包装（如 S5-08 改 group_ids），必须同样套 recordingAccountWrite |
 | AccountDetailMenuUITests.testSwitchingToNoProxy 既有失败 | 在主分支基线 6154134 上单跑该类也两次失败（S2-23 用 MAC_REF 核对，不含 S2-23 改动）：保存“无代理”后立即点代理行，选择器不再弹出，界面上没有 sheet、行也没置灰。S2-11 当时通过，疑为之后合入的改动引入；与 S2-23 无关，请编排者另开修正 |
 | 账号详情的下拉刷新在 UI 测试里拉不出 | S2-23 的有旧值 429 用例原本用下拉触发第二次读今日，app.pullToRefresh 和慢速拖动两种写法都没有触发 detail.pullToRefresh，只好改用回到前台触发。需要在真机上下拉确认：是 XCUITest 的手势问题，还是详情 ScrollView 的 .refreshable 没生效 |
+| UI 测试点回执按钮与 4.2 秒窗口 | 别的 UITests 里还有“等回执 → 读按钮标题 → 再点”这种 3 次以上快照往返的写法（例如 ProxiesUITests 的停用撤销、AccountEditUITests 几处）。页面变长或 Mac 负载高时，可能像 testPickingProxySavesThenUndoRestores 一样赶不上回执的 4.2 秒；另外，带按钮的回执会盖住标签栏上方约 52pt 的内容，点那里的行要先等回执离开。可以考虑把 receiptButton(_:in:) 挪到共用的 UITestNavigation.swift，碰到时逐个换掉。 |
 
 ### App 与设计 · 阶段 3
 
