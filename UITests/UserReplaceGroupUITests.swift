@@ -46,7 +46,7 @@ final class UserReplaceGroupUITests: XCTestCase {
         defer { diagnostics("user-replace-undo-final") }
         openKeys(3, name: "王小明")
         replace(5, with: 11)
-        waitForReceipt("分组替换成功，已迁移 1 个 Key")
+        waitForReceipt("分组替换成功，已迁移 1 个 Key", polling: true)
         app.buttons["receipt.action"].tap()
         let row = app.buttons["keys.replace.row.5"]
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
@@ -69,14 +69,14 @@ final class UserReplaceGroupUITests: XCTestCase {
         reveal(row)
         XCTAssertTrue(row.label.contains("绑定 0 个 Key"), row.label)
         replace(5, with: 11)
-        waitForReceipt("分组替换成功，已迁移 0 个 Key")
-        XCTAssertTrue(app.buttons["keys.replace.row.11"].waitForExistence(timeout: 5), app.debugDescription)
+        waitForReceipt("分组替换成功，已迁移 0 个 Key", polling: true)
+        XCTAssertTrue(app.buttons["keys.replace.row.11"].poll(timeout: 5), app.debugDescription)
         // The fixture refuses a reverse replace without key_ids: the undo has to go through allowed_groups.
         app.buttons["receipt.action"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.buttons["keys.replace.row.11"].exists, app.debugDescription)
-        let receipt = app.staticTexts["receipt.text"]
-        XCTAssertFalse(receipt.exists && receipt.label.hasPrefix("撤销没有成功"), receipt.label)
+        let receipt = app.staticTexts["receipt.text"].shownSnapshot?.label ?? ""
+        XCTAssertFalse(receipt.hasPrefix("撤销没有成功"), receipt)
     }
 
     @MainActor func testEnterFromRemoveGroupConfirmation() {
@@ -126,7 +126,7 @@ final class UserReplaceGroupUITests: XCTestCase {
         defer { diagnostics("user-replace-undo-inactive-final") }
         openKeys(3, name: "王小明")
         replace(5, with: 11)
-        waitForReceipt("分组替换成功，已迁移 1 个 Key")
+        waitForReceipt("分组替换成功，已迁移 1 个 Key", polling: true)
         app.buttons["receipt.action"].tap()
         waitForReceipt("原分组已停用，无法撤销")
         XCTAssertTrue(app.buttons["keys.replace.row.11"].exists, app.debugDescription)
@@ -209,9 +209,9 @@ final class UserReplaceGroupUITests: XCTestCase {
         defer { diagnostics("user-replace-target-granted-final") }
         openKeys(3, name: "王小明")
         replace(5, with: 11)
-        waitForReceipt("分组替换成功，已迁移 1 个 Key")
+        waitForReceipt("分组替换成功，已迁移 1 个 Key", polling: true)
         let replaced = app.buttons["keys.replace.row.11"]
-        XCTAssertTrue(replaced.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertTrue(replaced.poll(timeout: 3), app.debugDescription)
         app.buttons["receipt.action"].tap()
         XCTAssertTrue(app.buttons["keys.replace.row.5"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(replaced.exists, "撤销保留网页上授予的「Codex 专线」：\(app.debugDescription)")
@@ -246,7 +246,7 @@ final class UserReplaceGroupUITests: XCTestCase {
         let confirm = app.alerts.buttons["确认替换"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
         confirm.tap()
-        waitForReceipt("分组替换成功，已迁移 1 个 Key")
+        waitForReceipt("分组替换成功，已迁移 1 个 Key", polling: true)
         app.buttons["receipt.action"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.buttons["keys.replace.row.11"].exists, app.debugDescription)
@@ -340,10 +340,13 @@ final class UserReplaceGroupUITests: XCTestCase {
         }
         field.typeText(value)
     }
-    @MainActor private func waitForReceipt(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
-        let receipt = app.staticTexts["receipt.text"]
-        let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", text), object: receipt)
-        XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 10), .completed, "回执应为「\(text)」\n\(app.debugDescription)", file: file, line: line)
+    /// `polling`: right before the receipt's 撤销, which has to come within its 4.2 seconds (XCUIElement+Poll). Elsewhere XCTest's
+    /// wait, whose first look after about a second also lets the page settle before the next `reveal`.
+    @MainActor private func waitForReceipt(_ text: String, polling: Bool = false, file: StaticString = #filePath, line: UInt = #line) {
+        let receipt = app.staticTexts["receipt.text"], predicate = NSPredicate(format: "label == %@", text)
+        let shown = polling ? receipt.poll(predicate, timeout: 10)
+            : XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: receipt)], timeout: 10) == .completed
+        XCTAssertTrue(shown, "回执应为「\(text)」\n\(app.debugDescription)", file: file, line: line)
     }
     @MainActor private func waitForLabel(_ item: XCUIElement, contains text: String, file: StaticString = #filePath, line: UInt = #line) {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: item)
@@ -391,9 +394,8 @@ final class UserReplaceGroupUITests: XCTestCase {
         if let receipt = shownFrame(element("receipt")) { bottom = min(bottom, receipt.minY) }
         return (top, max(bottom, top + 80))
     }
-    /// A receipt leaving on its 4.2-second timer between `exists` and `frame` would fail the test, so the frame comes from a
-    /// snapshot, which only throws then; `exists` first, as a snapshot of a missing element retries for about 2 seconds.
-    @MainActor private func shownFrame(_ item: XCUIElement) -> CGRect? { item.exists ? (try? item.snapshot())?.frame : nil }
+    /// From a snapshot: a receipt leaving on its 4.2-second timer between `exists` and `frame` would fail the test (S3-13).
+    @MainActor private func shownFrame(_ item: XCUIElement) -> CGRect? { item.shownSnapshot?.frame }
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
