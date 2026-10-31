@@ -90,6 +90,7 @@ public enum AccountListField: String, ListField, Codable {
     }
 }
 
+/// Kept for the later simplified mode (30 §1.7): the main-mode user list has no field picker, so no page uses it yet.
 public enum UserListField: String, ListField, Codable {
     case username, role, status, balance, concurrency, createdAt, lastUsedAt, lastActiveAt, notes, rpm
     public static let storageNamespace = "users"
