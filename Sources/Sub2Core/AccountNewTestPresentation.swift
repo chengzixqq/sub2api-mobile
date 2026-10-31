@@ -92,7 +92,8 @@ public struct AccountNewTestStageRow: Sendable, Equatable, Identifiable {
     public let meta: String?
     /// The save's failure reason, under the row.
     public let detail: String?
-    /// The test row's model can be tapped to test again with another.
+    /// The test row's model can be tapped to test again with another; not once passed (scheduling is on, or may be, and a
+    /// failure there would not turn it off).
     public let offersModelChange: Bool
     public var id: Stage { stage }
     init(_ stage: Stage, _ title: String, _ state: AccountNewTestStageState, meta: String? = nil, detail: String? = nil, offersModelChange: Bool = false) {
@@ -318,7 +319,7 @@ public enum AccountNewTestPresentation {
         case .preparing: return AccountNewTestStageRow(.test, title, .running)
         case .running: return AccountNewTestStageRow(.test, title, .running, meta: model)
         case .finished(let verdict):
-            return AccountNewTestStageRow(.test, title, verdict.passed ? .done : .failed, meta: model, offersModelChange: !s.isBusy)
+            return AccountNewTestStageRow(.test, title, verdict.passed ? .done : .failed, meta: model, offersModelChange: !verdict.passed && !s.isBusy)
         case .interrupted, .notStarted: return AccountNewTestStageRow(.test, title, .failed, meta: model, offersModelChange: !s.isBusy)
         }
     }

@@ -173,7 +173,7 @@ struct AccountNewTestSheet: View {
 }
 
 /// One progress row (design AnStage): its state, the title and the meta; the test row's model is a menu once the test has
-/// ended, and picking one tests again.
+/// ended without passing, and picking one tests again.
 private struct AccountNewTestStageRowView: View {
     let row: AccountNewTestStageRow
     let models: [AccountModelOption]
