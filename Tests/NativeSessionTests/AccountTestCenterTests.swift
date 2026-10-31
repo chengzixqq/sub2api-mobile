@@ -764,3 +764,22 @@ private func newResult(_ success: Bool, marked: Bool = false, status: String? = 
     other.h.center.cancelAll()
     #expect(other.h.center.newAccountRuns.isEmpty && other.h.center.states.isEmpty)
 }
+
+@MainActor @Test(.timeLimit(.minutes(1))) func passedRunIsNotTestedAgain() async throws {
+    // Scheduling is on (or may be) once the test passed; another model's failure would leave it on and the sheet would read paused.
+    let c = NewAccountCase()
+    let run = try #require(c.start())
+    await c.finish([newResult(true)])
+    #expect(run.phase == .passed && c.writer.sent.count == 1)
+    #expect(c.start(model: "claude-haiku-4-5") == nil)
+    #expect(run.phase == .passed && run.verdict?.passed == true && c.h.source.streams.count == 1)
+
+    let refused = NewAccountCase()
+    refused.writer.switches = [.failure(APIError.server(status: 400, reason: nil))]
+    let other = try #require(refused.start())
+    await refused.finish([newResult(true)])
+    guard case .enableFailed = other.phase else { Issue.record("\(other.phase)"); return }
+    #expect(refused.start(model: "claude-haiku-4-5") == nil)
+    guard case .enableFailed = other.phase else { Issue.record("\(other.phase)"); return }
+    #expect(refused.h.source.streams.count == 1)
+}

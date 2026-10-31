@@ -50,7 +50,7 @@ final class AccountNewTestRun {
     var isSettled: Bool { phase != .testing && phase != .enabling }
     var isPassed: Bool { phase == .passed }
 
-    /// Another model, 重新测试, or the test after 保存修改: the status the last test left stays.
+    /// Another model, 重新测试, or the test after 保存修改, all after a test that did not pass: the status it left stays.
     func restart(_ target: AccountTestTarget) {
         cancel()
         name = target.name; credential = target.credential
