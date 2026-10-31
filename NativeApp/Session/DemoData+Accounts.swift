@@ -37,6 +37,8 @@ extension DemoData {
         static let groupTransition = "-ui-account-group-transition"
         /// The detail's first `GET :id/today-stats` answers 429 with retry_after 8 (S2-09); later reads work.
         static let todayThrottled = "-ui-account-today-throttled"
+        /// The same first 429 with retry_after 20, long enough for a sheet to open and close within the wait (S2-23 review).
+        static let todayThrottledLong = "-ui-account-today-throttled-long"
         /// The detail's second `GET :id/today-stats` answers 429 with retry_after 8, so the figures stay while it waits (S2-23).
         static let todayRefreshThrottled = "-ui-account-today-refresh-throttled"
         /// Followed by a focus (basic, sched, cred, proxy, models, adv): the account tab pushes Claude-官方-01's detail with it once
@@ -489,11 +491,12 @@ final class AccountDemoStore {
 
 extension AccountDemoStore {
     /// `GET :id/today-stats` from DemoData.accountToday: 503 under `todayError`; under `todayThrottled` the first read is a 429 with
-    /// retry_after 8, under `todayRefreshThrottled` the second one.
+    /// retry_after 8 (20 under `todayThrottledLong`), under `todayRefreshThrottled` the second one.
     func todayStats(id: Int) throws -> AccountTodayStats {
-        if arguments.contains(DemoData.AccountFixture.todayThrottled), !todayThrottleServed {
+        let isLong = arguments.contains(DemoData.AccountFixture.todayThrottledLong)
+        if isLong || arguments.contains(DemoData.AccountFixture.todayThrottled), !todayThrottleServed {
             todayThrottleServed = true
-            throw APIError.server(status: 429, envelope: nil, retryAfter: 8)
+            throw APIError.server(status: 429, envelope: nil, retryAfter: isLong ? 20 : 8)
         }
         todayReads += 1
         if arguments.contains(DemoData.AccountFixture.todayRefreshThrottled), todayReads == 2 {

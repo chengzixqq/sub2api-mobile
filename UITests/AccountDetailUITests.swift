@@ -654,4 +654,65 @@ final class AccountDetailUITests: XCTestCase {
             app.terminate()
         }
     }
+
+    /// 20 §2.6: a sheet over the page holds today's 429 resend back. The first read answers 429 (retry_after 20) and an edit
+    /// sheet covers the page until the wait has ended: closed, 今日 still offers 重试 because nothing was read under the sheet.
+    @MainActor func testTodayThrottleResendWaitsWhileSheetCoversPage() {
+        openDetail(1, arguments: [Self.todayThrottledLong])
+        defer { diagnostics("account-detail-today-throttled-covered-final") }
+        let retry = app.buttons["account.today.retry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        let waitEnds = todayWaitEnd()
+        let cancel = openBasicEditor()
+        XCTAssertLessThan(Date(), waitEnds.addingTimeInterval(-3), "the sheet opened too close to the end of the 429 wait")
+        RunLoop.current.run(until: waitEnds.addingTimeInterval(3))
+        cancel.tap()
+        XCTAssertTrue(cancel.waitForNonExistence(timeout: 5), app.debugDescription)
+        let actual = element("account.today.actual")
+        XCTAssertEqual(actual.value as? String, "无数据", app.debugDescription)
+        reveal(retry, towardBottom: false)
+        XCTAssertTrue(retry.isEnabled, app.debugDescription)
+        diagnostics("account-detail-today-throttled-covered")
+        retry.tap()
+        waitForValue(actual, equals: "$409.38")
+    }
+
+    /// The same wait with the sheet closed again well before it ends: the rest of the wait runs out and 今日 is read by itself.
+    @MainActor func testTodayThrottleResendGoesOutOnceSheetClosesWithinWait() {
+        openDetail(1, arguments: [Self.todayThrottledLong])
+        defer { diagnostics("account-detail-today-throttled-uncovered-final") }
+        XCTAssertTrue(app.buttons["account.today.retry"].waitForExistence(timeout: 10), app.debugDescription)
+        let waitEnds = todayWaitEnd()
+        let cancel = openBasicEditor()
+        cancel.tap()
+        XCTAssertTrue(cancel.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertLessThan(Date(), waitEnds.addingTimeInterval(-3), "the sheet closed too close to the end of the 429 wait")
+        let actual = element("account.today.actual")
+        XCTAssertEqual(actual.value as? String, "无数据", app.debugDescription)
+        waitForValue(actual, equals: "$409.38", timeout: 30)
+        XCTAssertFalse(element("account.today.failure").exists, app.debugDescription)
+    }
+
+    private static let todayThrottledLong = "-ui-account-today-throttled-long"
+
+    /// When today's 429 wait ends, from the N of “请求过于频繁，N 秒后自动重试” (rounded up, so the wait ends by then).
+    @MainActor private func todayWaitEnd() -> Date {
+        let notice = element("account.today.failure").staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "请求过于频繁，")).firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 5), app.debugDescription)
+        let digits = notice.label.drop(while: { !$0.isNumber }).prefix(while: \.isNumber)
+        let seconds = TimeInterval(String(digits))
+        XCTAssertNotNil(seconds, notice.label)
+        return Date().addingTimeInterval(seconds ?? 0)
+    }
+    /// 基础's edit sheet over the page; returns its 取消.
+    @MainActor private func openBasicEditor() -> XCUIElement {
+        let edit = app.buttons["account.section.basic.edit"]
+        reveal(edit)
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: edit)
+        XCTAssertEqual(XCTWaiter().wait(for: [enabled], timeout: 5), .completed, app.debugDescription)
+        edit.tap()
+        let cancel = app.buttons["account.edit.cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), app.debugDescription)
+        return cancel
+    }
 }
