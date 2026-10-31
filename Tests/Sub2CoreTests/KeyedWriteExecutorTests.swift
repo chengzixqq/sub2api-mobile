@@ -27,7 +27,7 @@ private actor Recorded<Value: Sendable> {
     let recorder = SleepRecorder()
     let client = keyedClient(transport, clock: .recording(recorder))
     let write = balanceWrite(client)
-    let outcome = try await client.updateBalance(write)
+    let outcome = try await client.updateBalance(write, sameAddress: [])
     #expect(outcome.value.id == 7 && !outcome.replayed)
     let requests = await transport.requests, body = try write.record.requestBody()
     #expect(requests.count == 3)
@@ -44,7 +44,7 @@ func keyedWriteBecomesUnconfirmedAfterTwoTransportRetries(step: ScriptStep) asyn
     let transport = ScriptedTransport(script: [step])
     let client = keyedClient(transport)
     let write = balanceWrite(client)
-    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(write) })
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(write, sameAddress: []) })
     #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil))
     #expect(failure.key == write.record.key)
     #expect(failure.localizedDescription == "结果未确认：服务器可能已执行。可以核对，或用同一编号重试，不会重复执行")
@@ -59,7 +59,7 @@ func keyedWriteBecomesUnconfirmedAfterTwoTransportRetries(step: ScriptStep) asyn
     }
     let recorder = SleepRecorder()
     let client = keyedClient(transport, clock: clock.advancingClock(recorder))
-    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client)) })
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) })
     #expect(failure.disposition == .unconfirmed(.stillProcessing, retryNotBefore: nil))
     #expect(failure.lastError?.reason == "IDEMPOTENCY_IN_PROGRESS")
     #expect(await stamps.values == [0, 12, 24, 30])
@@ -74,7 +74,7 @@ func keyedWriteBecomesUnconfirmedAfterTwoTransportRetries(step: ScriptStep) asyn
                                                .reply(okReply(stubUserJSON))])
     let recorder = SleepRecorder()
     let client = keyedClient(transport, clock: .recording(recorder))
-    #expect(try await client.updateBalance(balanceWrite(client)).value.id == 7)
+    #expect(try await client.updateBalance(balanceWrite(client), sameAddress: []).value.id == 7)
     #expect(await recorder.durations == [.seconds(4), .seconds(2)])
 }
 
@@ -83,7 +83,7 @@ func keyedWriteBecomesUnconfirmedAfterTwoTransportRetries(step: ScriptStep) asyn
                                                .reply(okReply(stubUserJSON))])
     let recorder = SleepRecorder()
     let client = keyedClient(transport, clock: .recording(recorder))
-    #expect(try await client.updateBalance(balanceWrite(client)).value.id == 7)
+    #expect(try await client.updateBalance(balanceWrite(client), sameAddress: []).value.id == 7)
     let requests = await transport.requests
     #expect(requests.count == 2 && requests[0].httpBody == requests[1].httpBody)
     #expect(sentHeader(requests[0], "Idempotency-Key") == sentHeader(requests[1], "Idempotency-Key"))
@@ -97,7 +97,7 @@ func keyProblemsRequireReconfirmationWithoutRetry(status: Int, reason: String, c
     let transport = ScriptedTransport(script: [.reply(errorReply(status, reason: reason)), .reply(okReply(stubUserJSON))])
     let recorder = SleepRecorder()
     let client = keyedClient(transport, clock: .recording(recorder))
-    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client)) })
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) })
     #expect(failure.disposition == .needsNewKey(cause))
     #expect(failure.localizedDescription == (cause == .keyConflict ? "请求已变化，请重新提交" : "请求无效，请重试"))
     #expect(await transport.requests.count == 1); #expect(await recorder.durations.isEmpty)
@@ -107,7 +107,7 @@ func keyProblemsRequireReconfirmationWithoutRetry(status: Int, reason: String, c
     let clock = ManualClock(), recorder = SleepRecorder()
     let transport = ScriptedTransport(script: [.reply(errorReply(503, reason: "IDEMPOTENCY_STORE_UNAVAILABLE")), .reply(okReply(stubUserJSON))])
     let client = keyedClient(transport, clock: clock.advancingClock(recorder))
-    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client)) })
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) })
     #expect(failure.disposition == .unconfirmed(.storeUnavailable, retryNotBefore: clock.start.addingTimeInterval(10)))
     #expect(failure.localizedDescription == "服务器暂时无法受理，稍后用同一编号重试")
     #expect(await transport.requests.count == 1); #expect(await recorder.durations.isEmpty)
@@ -118,7 +118,7 @@ func keyProblemsRequireReconfirmationWithoutRetry(status: Int, reason: String, c
 func recoveredReplayedAndDegradedResponsesCountAsSuccess(headers: [String: String]) async throws {
     let transport = ScriptedTransport(script: [.reply(okReply(stubUserJSON, headers: headers))])
     let client = keyedClient(transport)
-    let outcome = try await client.updateBalance(balanceWrite(client))
+    let outcome = try await client.updateBalance(balanceWrite(client), sameAddress: [])
     #expect(outcome.value.id == 7)
     #expect(outcome.recovered == (headers["X-Idempotency-Recovered"] != nil))
     #expect(outcome.replayed == (headers["X-Idempotency-Replayed"] != nil))
@@ -134,7 +134,7 @@ func businessErrorsAreThrownAsAPIErrorWithoutRetry(response: HTTPResponse) async
     let transport = ScriptedTransport(script: [.reply(response), .reply(okReply(stubUserJSON))])
     let recorder = SleepRecorder()
     let client = keyedClient(transport, clock: .recording(recorder))
-    let error = try #require(await thrownAPIError { _ = try await client.updateBalance(balanceWrite(client)) })
+    let error = try #require(await thrownAPIError { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) })
     #expect(error.statusCode == response.statusCode)
     #expect(error.reason == ErrorEnvelope.decode(response.data)?.marker)
     #expect(!error.localizedDescription.contains("secret"))
@@ -156,7 +156,7 @@ func rejectionBeforeExecutionAfterUncertainAttemptStaysUnconfirmed(first: Script
                                                                          headers: ["X-Admin-Adjustment-Action-ID": action.uuidString], data: rejection.data))])
     let client = keyedClient(transport)
     let write = balanceWrite(client)
-    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(write) })
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(write, sameAddress: []) })
     #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil))
     #expect(failure.key == write.record.key && failure.actionID == action)
     #expect(failure.lastError?.statusCode == rejection.statusCode)
@@ -175,7 +175,7 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
     // 61 seconds of access: enough for the first attempt, under the 60-second refresh lead after the 2-second wait.
     let tokens = TokenPair(accessToken: "old-access", refreshToken: refreshable ? "old-refresh" : "", expiresAt: clock.start.addingTimeInterval(61))
     let client = keyedClient(transport, clock: clock.advancingClock(recorder), credential: .tokens(tokens))
-    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client)) })
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) })
     #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil))
     #expect(failure.lastError?.statusCode == 401)
     #expect(await transport.requests.filter { !isRefresh($0) }.count == 1)
@@ -186,7 +186,7 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
 @Test func businessAnswerAfterLostAttemptStillSettles() async throws {
     let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(errorReply(400, reason: "INVALID_BALANCE"))])
     let client = keyedClient(transport)
-    let error = try #require(await thrownAPIError { _ = try await client.updateBalance(balanceWrite(client)) })
+    let error = try #require(await thrownAPIError { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) })
     #expect(error.statusCode == 400 && error.reason == "INVALID_BALANCE")
     #expect(await transport.requests.count == 2)
 }
@@ -197,14 +197,14 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
                                                .fail(URLError(.timedOut))])
     let events = Recorded<KeyedWriteEvent>()
     let client = keyedClient(transport)
-    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client)) { await events.add($0) } })
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) { await events.add($0) } })
     #expect(failure.actionID == action)
     #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil))
     #expect(await events.values == [.actionID(action), .waitingForServer(elapsedSeconds: 0), .confirming(retry: 1), .confirming(retry: 2)])
     #expect(await transport.requests.count == 4)
     let rejecting = ScriptedTransport(script: [.reply(errorReply(500, headers: ["X-Admin-Adjustment-Action-ID": action.uuidString]))])
     let other = keyedClient(rejecting)
-    let error = try #require(await thrownAPIError { _ = try await other.updateBalance(balanceWrite(other)) })
+    let error = try #require(await thrownAPIError { _ = try await other.updateBalance(balanceWrite(other), sameAddress: []) })
     #expect(error.actionID == action && error.statusCode == 500)
 }
 
@@ -214,7 +214,7 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
     let clock = RequestClock(sleep: { _ in await sleeping.open(); try await Task.sleep(for: .seconds(60)) }, jitter: { .zero })
     let client = keyedClient(transport, clock: clock)
     let write = balanceWrite(client)
-    let pending = Task { try await client.updateBalance(write) }
+    let pending = Task { try await client.updateBalance(write, sameAddress: []) }
     // If the write never waits, open the gate so the test fails instead of hanging.
     let watcher = Task { _ = try? await pending.value; await sleeping.open() }
     await sleeping.wait()
@@ -227,14 +227,14 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
 @Test func balanceWriteRejectsOtherStationAndUnreadableSuccessIsUnconfirmed() async throws {
     let transport = ScriptedTransport(script: [.reply(HTTPResponse(statusCode: 200, data: Data("<html>portal</html>".utf8))), .reply(okReply(stubUserJSON))])
     let client = keyedClient(transport)
-    await #expect(throws: APIError.stationMismatch) { try await client.updateBalance(balanceWrite(client, serverID: UUID())) }
+    await #expect(throws: APIError.stationMismatch) { try await client.updateBalance(balanceWrite(client, serverID: UUID()), sameAddress: []) }
     #expect(await transport.requests.isEmpty)
-    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client)) })
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) })
     #expect(failure.disposition == .unconfirmed(.unreadableResponse, retryNotBefore: nil))
     #expect(await transport.requests.count == 1)
     let emptyData = ScriptedTransport(script: [.reply(okReply("{}"))])
     let other = keyedClient(emptyData)
-    #expect(await keyedFailure { _ = try await other.updateBalance(balanceWrite(other)) }?.disposition == .unconfirmed(.unreadableResponse, retryNotBefore: nil))
+    #expect(await keyedFailure { _ = try await other.updateBalance(balanceWrite(other), sameAddress: []) }?.disposition == .unconfirmed(.unreadableResponse, retryNotBefore: nil))
 }
 
 @Test func userWritesSendKeyOnlyWhenOperationAllows() async throws {
@@ -272,7 +272,7 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
     }
     let recorder = SleepRecorder()
     let client = keyedClient(transport, clock: .recording(recorder), credential: stubTokens())
-    _ = try await client.updateBalance(balanceWrite(client))
+    _ = try await client.updateBalance(balanceWrite(client), sameAddress: [])
     let writes = await transport.requests.filter { !isRefresh($0) }
     #expect(writes.count == 2 && writes[0].httpBody == writes[1].httpBody)
     for name in ["Idempotency-Key", "X-Request-ID"] { #expect(sentHeader(writes[0], name) == sentHeader(writes[1], name)) }
@@ -287,7 +287,7 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
     let clock = RequestClock(sleep: { _ in await sleeping.open(); try await Task.sleep(for: .seconds(60)) }, jitter: { .zero })
     let client = keyedClient(transport, clock: clock)
     let write = balanceWrite(client)
-    let pending = Task { try await client.updateBalance(write) }
+    let pending = Task { try await client.updateBalance(write, sameAddress: []) }
     let watcher = Task { _ = try? await pending.value; await sleeping.open() }
     await sleeping.wait()
     await client.suspend()
@@ -302,11 +302,11 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
     let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .fail(URLError(.timedOut)), .reply(okReply(stubUserJSON))])
     let client = keyedClient(transport)
     await client.suspend()
-    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client)) })
+    let failure = try #require(await keyedFailure { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) })
     #expect(failure.disposition == .unconfirmed(.transport, retryNotBefore: nil))
     #expect(await transport.requests.count == 1)
     await client.resume()
-    #expect(try await client.updateBalance(balanceWrite(client)).value.id == 7)
+    #expect(try await client.updateBalance(balanceWrite(client), sameAddress: []).value.id == 7)
     #expect(await transport.requests.count == 3)
 }
 
@@ -316,13 +316,13 @@ func sessionEndingBeforeRetryKeepsWriteUnconfirmed(refreshable: Bool) async thro
     let transport = ScriptedTransport(script: [.reply(inProgress(["Retry-After": "1", "X-Admin-Adjustment-Action-ID": action.uuidString])),
                                                .reply(errorReply(400, reason: "INVALID_BALANCE"))])
     let client = keyedClient(transport)
-    let error = try #require(await thrownAPIError { _ = try await client.updateBalance(balanceWrite(client)) })
+    let error = try #require(await thrownAPIError { _ = try await client.updateBalance(balanceWrite(client), sameAddress: []) })
     #expect(error.statusCode == 400); #expect(error.reason == "INVALID_BALANCE"); #expect(error.actionID == action)
     // A reply's own header wins over the one seen earlier.
     let own = UUID()
     let replied = ScriptedTransport(script: [.reply(inProgress(["Retry-After": "1", "X-Admin-Adjustment-Action-ID": action.uuidString])),
                                              .reply(errorReply(400, reason: "INVALID_BALANCE", headers: ["X-Admin-Adjustment-Action-ID": own.uuidString]))])
     let other = keyedClient(replied)
-    #expect(await thrownAPIError { _ = try await other.updateBalance(balanceWrite(other)) }?.actionID == own)
+    #expect(await thrownAPIError { _ = try await other.updateBalance(balanceWrite(other), sameAddress: []) }?.actionID == own)
     #expect(await transport.requests.count == 2)
 }

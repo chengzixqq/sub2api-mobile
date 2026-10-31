@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Sub2Core
 @testable import NativeSessionSupport
 
 /// A private suite per test, removed afterwards.
@@ -82,4 +83,24 @@ func thresholdParsingRefusesEverythingElse(text: String) {
     }
     #expect(preferences.faceIDThreshold == 300)
     #expect(scratch.defaults.string(forKey: "security.faceID.threshold") == "300")
+}
+
+/// S3-16: the threshold sheet's keypad takes its three limits from here, and whatever it can type either saves or is "0".
+@Test func thresholdKeypadParametersMatchTheSaveRule() {
+    #expect(AppPreferences.faceIDThresholdFractionDigits == 0)
+    #expect(AppPreferences.faceIDThresholdMaxDigits == 6)
+    #expect(AppPreferences.faceIDThresholdRange.upperBound == 100_000)
+    func press(_ keys: [KeypadKey], from text: String = "") -> String {
+        keys.reduce(text) { typed, key in
+            KeypadInput.apply(key, to: typed, maxDigits: AppPreferences.faceIDThresholdMaxDigits,
+                              maxFractionDigits: AppPreferences.faceIDThresholdFractionDigits, maximum: AppPreferences.faceIDThresholdRange.upperBound)
+        }
+    }
+    #expect(press([1, 0, 0, 0, 0, 0, 0].map(KeypadKey.digit)) == "100000")
+    #expect(press([9, 9, 9, 9, 9, 9].map(KeypadKey.digit)) == "99999")
+    #expect(press([.decimalPoint], from: "12") == "12")
+    #expect(press([.digit(0), .digit(5)]) == "5")
+    #expect(press([.delete, .delete, .delete], from: "100") == "")
+    for typed in ["", "0"] { #expect(AppPreferences.parseThreshold(typed) == nil) }
+    for (typed, value) in [("1", Decimal(1)), ("99999", 99_999), ("100000", 100_000)] { #expect(AppPreferences.parseThreshold(typed) == value) }
 }

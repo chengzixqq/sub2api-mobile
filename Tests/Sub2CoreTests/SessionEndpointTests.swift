@@ -162,7 +162,7 @@ func logoutFailureNeverReportsSessionInvalidation(step: ScriptStep) async throws
     let log = InvalidationLog()
     let client = sessionClient(ScriptedTransport(script: [.reply(errorReply(401, reason: "INVALID_ADMIN_KEY"))]), credential: .adminKey("fixture-key"), log: log)
     let write = stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add))
-    await #expect(throws: APIError.self) { _ = try await client.updateBalance(write) }
+    await #expect(throws: APIError.self) { _ = try await client.updateBalance(write, sameAddress: []) }
     #expect(log.all.map(\.cause) == [.invalidCredential])
 }
 

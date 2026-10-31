@@ -369,8 +369,6 @@ enum BalanceFixtureArgument {
 
 /// S3-10's `-ui-testing` launch arguments for a new user (30 §5.4, §5.5). Groups come from DemoData.accountGroups (X11).
 enum UserCreateFixtureArgument {
-    /// The first creation in this process answers 409 EMAIL_EXISTS; an address the session's users have always does.
-    static let emailExists = "-ui-user-email-exists"
     /// The user is created but the reply is lost; the page reads it back by email and finds it.
     static let uncertain = "-ui-user-create-uncertain"
     /// The reply is lost and nobody was created; the read-back finds nothing.
@@ -385,15 +383,12 @@ enum UserCreateFixtureArgument {
     static let attributeFailure = "-ui-user-attr-fail"
     /// 公司 and 标签 are required (标签 is multi_select, which this App never requires, U28).
     static let requiredAttribute = "-ui-user-attr-required"
-    /// The site defines no attribute.
-    static let noAttributes = "-ui-user-attrs-empty"
 }
 
 // S3-10: the attribute definitions, the session's attribute values (the only store, S3D1-22) and the creations by number.
 extension DemoData {
     /// 11 公司 (text), 12 来源 (select), 13 标签 (multi_select, shown read-only).
     static func userAttributeDefinitions(arguments: [String]) -> [UserAttributeDefinition] {
-        guard !arguments.contains(UserCreateFixtureArgument.noAttributes) else { return [] }
         let required = arguments.contains(UserCreateFixtureArgument.requiredAttribute)
         func options(_ labels: [String]) -> [UserAttributeDefinition.Option] { labels.map { UserAttributeDefinition.Option(value: $0, label: $0) } }
         return [
@@ -414,15 +409,11 @@ extension DemoData {
     }
     /// Users created in this process by operation number: the same number is answered as a replay (00 §2.5.2).
     @MainActor static var userCreations: [UUID: AdminUser] = [:]
-    @MainActor private static var emailExistsAnswered = false
     @MainActor private static var readBackFailed = false
 
-    /// Emails are unique ignoring case (user_repo.go); `-ui-user-email-exists` refuses the first creation whatever its address.
-    @MainActor static func answersEmailExists(_ email: String, users: [AdminUser], arguments: [String]) -> Bool {
-        if users.contains(where: { $0.email.caseInsensitiveCompare(email) == .orderedSame }) { return true }
-        guard arguments.contains(UserCreateFixtureArgument.emailExists), !emailExistsAnswered else { return false }
-        emailExistsAnswered = true
-        return true
+    /// Emails are unique ignoring case (user_repo.go): an address the session's users have answers 409 EMAIL_EXISTS.
+    static func answersEmailExists(_ email: String, users: [AdminUser]) -> Bool {
+        users.contains { $0.email.caseInsensitiveCompare(email) == .orderedSame }
     }
     /// `-ui-user-find-fail-once`: only the first read-back in this process fails.
     @MainActor static func failsUserReadBack(arguments: [String]) -> Bool {

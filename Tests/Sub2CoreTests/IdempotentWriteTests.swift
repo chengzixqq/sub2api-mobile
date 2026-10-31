@@ -182,7 +182,7 @@ private func grant(_ type: CompensationType, _ value: String, group: Int? = nil,
     let write = try PersistedMoneyWrite(operation) { record in #expect(record == operation); _ = calls.next() }
     // Each construction called persist exactly once (1, 2), so the counter is now at 3.
     #expect(write.record == operation && calls.next() == 3)
-    #expect(try await client.updateBalance(write).value.id == 7)
+    #expect(try await client.updateBalance(write, sameAddress: []).value.id == 7)
     #expect(await transport.requests.count == 1)
 }
 

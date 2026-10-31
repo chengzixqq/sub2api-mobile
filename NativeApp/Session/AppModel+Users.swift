@@ -422,7 +422,7 @@ extension AppModel {
         guard generation == sessionGeneration else { return nil }
         return UserCreateSubmission.Target(serverID: profile.id, identity: identity)
     }
-    /// A replayed number answers the first result; a used address (or `-ui-user-email-exists` once) 409 EMAIL_EXISTS.
+    /// A replayed number answers the first result; a used address 409 EMAIL_EXISTS.
     private func fixtureCreateUser(_ operation: PendingUserCreateOperation, generation: UUID) async throws -> WriteOutcome<AdminUser> {
         typealias Argument = UserCreateFixtureArgument
         let arguments = ProcessInfo.processInfo.arguments
@@ -432,7 +432,7 @@ extension AppModel {
         guard generation == sessionGeneration else { throw CancellationError() }
         if arguments.contains(Argument.invalid) { throw APIError.server(status: 400, reason: nil) }
         var users = demoUsersBySession[generation] ?? DemoData.allUsers
-        if DemoData.answersEmailExists(operation.email, users: users, arguments: arguments) { throw APIError.server(status: 409, reason: "EMAIL_EXISTS") }
+        if DemoData.answersEmailExists(operation.email, users: users) { throw APIError.server(status: 409, reason: "EMAIL_EXISTS") }
         let lostReply = KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: operation.key, actionID: nil, lastError: nil)
         if arguments.contains(Argument.lost) { throw lostReply }
         let user = try DemoData.createdUser(body: operation.body, id: (users.map(\.id).max() ?? 0) + 1)
