@@ -495,4 +495,101 @@ final class AccountDetailUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
     }
+
+    // MARK: - 定时测试（S2-21）
+
+    private static let scheduledTestsError = "-ui-scheduled-tests-error"
+
+    /// 记录's last row sums up the first enabled plan and its newest result (DemoData+ScheduledTests); a raw cron stays as written.
+    @MainActor func testScheduledTestsRowSummarizesEnabledPlan() {
+        openDetail(3)
+        defer { diagnostics("account-detail-scheduled-row-final") }
+        let row = app.buttons["account.records.scheduledTests"]
+        reveal(row)
+        waitForValue(row, equals: "每 10 分钟 · claude-sonnet-4-5 · 上次失败")
+        diagnostics("account-detail-scheduled-row")
+        openListedAccount(1)
+        reveal(row)
+        waitForValue(row, equals: "每 30 分钟 · claude-haiku-4-5 · 上次成功")
+        openListedAccount(8)
+        reveal(row)
+        waitForValue(row, equals: "15 9 * * 1-5 · 默认模型")
+    }
+
+    /// No plan: the row says where to add one and the small page is empty with the Web link; all plans off: “计划已停用”.
+    @MainActor func testScheduledTestsRowEmptyAndDisabledPlans() {
+        openDetail(9)
+        defer { diagnostics("account-detail-scheduled-empty-final") }
+        let row = app.buttons["account.records.scheduledTests"]
+        reveal(row)
+        waitForValue(row, equals: "没有计划 · 在 Web 中添加")
+        row.tap()
+        XCTAssertTrue(app.navigationBars["定时测试"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("account.scheduledTests.empty").waitForExistence(timeout: 10), app.debugDescription)
+        let web = app.buttons["account.scheduledTests.web"]
+        reveal(web)
+        diagnostics("account-scheduled-empty")
+        web.tap()
+        waitForReceipt("已在浏览器打开「Kimi-01」的编辑页")
+        goBack()
+        openListedAccount(5)
+        reveal(row)
+        waitForValue(row, equals: "计划已停用")
+    }
+
+    /// The small page lists the plan's newest results: a failure as its code and kind word, never error_message; GLM's 529 comes
+    /// only from its message. Pull to refresh keeps the list.
+    @MainActor func testScheduledTestsPageListsResultsWithoutRawMessage() {
+        openDetail(7)
+        defer { diagnostics("account-scheduled-page-final") }
+        let row = app.buttons["account.records.scheduledTests"]
+        reveal(row)
+        waitForValue(row, equals: "每 10 分钟 · gpt-4.1-mini · 上次失败")
+        row.tap()
+        XCTAssertTrue(app.navigationBars["定时测试"].waitForExistence(timeout: 10), app.debugDescription)
+        let newest = element("account.scheduledTests.result.7101")
+        XCTAssertTrue(newest.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(newest.label.contains("401 凭据无效"), newest.label)
+        XCTAssertTrue(element("account.scheduledTests.result.7102").label.contains("成功 · 0.8s"), app.debugDescription)
+        XCTAssertEqual(element("account.scheduledTests.plan").label, "每 10 分钟 · gpt-4.1-mini")
+        let raw = NSPredicate(format: "identifier BEGINSWITH 'account.scheduledTests' AND label CONTAINS 'invalid_api_key'")
+        XCTAssertEqual(app.descendants(matching: .any).matching(raw).count, 0, app.debugDescription)
+        diagnostics("account-scheduled-page")
+        app.pullToRefresh(from: newest)
+        XCTAssertTrue(element("account.scheduledTests.result.7103").waitForExistence(timeout: 10), app.debugDescription)
+        goBack()
+        openListedAccount(11)
+        reveal(row)
+        row.tap()
+        let parsed = element("account.scheduledTests.result.11101")
+        XCTAssertTrue(parsed.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(parsed.label.contains("529 上游 529"), parsed.label)
+    }
+
+    /// A failed read: the row says “读取失败” and still opens the small page, which offers 重试; the other sections are unaffected.
+    @MainActor func testScheduledTestsReadFailureShowsRetry() {
+        openDetail(3, arguments: [Self.scheduledTestsError])
+        defer { diagnostics("account-scheduled-error-final") }
+        let row = app.buttons["account.records.scheduledTests"]
+        reveal(row)
+        waitForValue(row, equals: "读取失败")
+        XCTAssertTrue(element("account.today.header").exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["account.records.upstream"].exists, app.debugDescription)
+        row.tap()
+        let retry = app.buttons["account.scheduledTests.retry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        diagnostics("account-scheduled-error")
+        retry.tap()
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["account.scheduledTests.web"].exists, app.debugDescription)
+    }
+
+    /// Back to the list, then the account `id` further down (the list keeps its order while it lives).
+    @MainActor private func openListedAccount(_ id: Int) {
+        goBack()
+        let listed = app.buttons["account.\(id)"]
+        reveal(listed)
+        listed.tap()
+        XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+    }
 }
