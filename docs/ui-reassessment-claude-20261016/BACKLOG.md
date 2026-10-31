@@ -378,6 +378,8 @@
 | 新建账号遇到 503 IDEMPOTENCY_STORE_UNAVAILABLE | 创建遇到 store-unavailable 时按结果不明核对，找不到就给“用同一编号重试”，没有按 retryNotBefore 延后；S2-20 / S2-23 可统一处理 |
 | S2-19 新建账号三个 UI 用例原有失败 | Mac 能跑 UI 后首次跑出，c38ab7e 起就失败，不是这次审查修正带来的：testDockListsMissingItemsAndJumpsToFirst（第 49 行 clear 名称没清掉，坞仍是“还差API Key”）、testTurningOffMixedSchedulingRemovesGroupsWithUndo（第 165 行 sheet 内 ReceiptOverlay 的 receipt.text 找不到）、testCredentialSectionsFollowMethod（第 279 行“更多”里的负载因子行滚不到）。要查是测试辅助方法的问题，还是 sheet 内回执 / 更多分区的实现问题。 |
 | 新建账号坞的“重试”（.resend）分支已经走不到 | 建号现在一律带 key，AccountNewDockContent 里无 key 时的“重试”分支不会再出现；S2-20 动这个文件时可以顺手删掉，或保留作兜底。 |
+| PATCH 改 type 时清空旧凭据键 | 新建账号测试失败后改认证方式再保存：PATCH 的 credentials_patch 不能删除敏感键（CREDENTIAL_KEY_NOT_DELETABLE），PUT 退路又会保留没有提供的敏感键，旧方式的 api_key / access_token 会留在服务端（不参与新方式）。请后端评估 PATCH 改 type 时允许清空凭据；现在要彻底清除只能删除后重建。 |
+| 创建失败时是否也打开测试 sheet | 规格 20 §7.5 写“创建失败 → 测试 sheet 第一行标失败”。S2-20 改为账号存在后才打开 sheet，创建失败 / 结果不明 / 混合渠道确认仍在 S2-19 的坞和弹框里处理，避免确认框和 sheet 同时出现。是否按规格改，待用户决定。 |
 
 ### App 与设计 · 阶段 3
 
