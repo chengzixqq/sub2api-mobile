@@ -171,10 +171,10 @@ final class BalanceReconcileUITests: XCTestCase {
         openAlice()
         let banner = element("user.pending.\(Self.refund)")
         XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
-        XCUIDevice.shared.press(.home)
-        app.activate()
-        XCTAssertTrue(banner.waitForNonExistence(timeout: 15), app.debugDescription)
-        XCTAssertTrue(waitUntil(app.staticTexts["receipt.text"], "label BEGINSWITH '已核对'"), app.debugDescription)
+        leaveAndReturn()
+        // The receipt first: it is up for 4.2 seconds, while the banner stays gone.
+        XCTAssertTrue(app.staticTexts["receipt.text"].poll(NSPredicate(format: "label BEGINSWITH %@", "已核对"), timeout: 15), app.debugDescription)
+        XCTAssertTrue(banner.pollGone(timeout: 5), app.debugDescription)
         XCTAssertFalse(app.alerts.firstMatch.exists)
     }
 
@@ -184,8 +184,7 @@ final class BalanceReconcileUITests: XCTestCase {
         openAlice()
         let banner = element("user.pending.\(Self.refund)")
         XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
-        XCUIDevice.shared.press(.home)
-        app.activate()
+        leaveAndReturn()
         // A candidate is never settled on its own and asks nothing until the administrator checks.
         XCTAssertFalse(app.alerts.firstMatch.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
@@ -267,6 +266,15 @@ final class BalanceReconcileUITests: XCTestCase {
     }
     @MainActor private func waitUntil(_ item: XCUIElement, _ format: String) -> Bool {
         XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: format), object: item)], timeout: 10) == .completed
+    }
+    /// Home, and back once the App is in the background: activated during the home animation it may only have been inactive,
+    /// which is no return to the foreground (00 §4.6) and starts no check.
+    @MainActor private func leaveAndReturn(file: StaticString = #filePath, line: UInt = #line) {
+        XCUIDevice.shared.press(.home)
+        let deadline = Date().addingTimeInterval(10)
+        while app.state == .runningForeground, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+        XCTAssertNotEqual(app.state, .runningForeground, "按主屏幕键后 App 仍在前台", file: file, line: line)
+        app.activate()
     }
     @MainActor private func element(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier].firstMatch }
     @MainActor private func labelled(containing text: String, in root: XCUIElement? = nil) -> XCUIElement {

@@ -93,9 +93,9 @@ final class UserKeysUITests: XCTestCase {
         XCTAssertTrue(app.scrollUntilExists(codex), app.debugDescription)
         app.scrollUntilExists(app.buttons["keys.group.option.2"], towardBottom: false)
         app.buttons["keys.group.option.2"].tap()
-        XCTAssertTrue(app.buttons["keys.group.cancel"].waitForNonExistence(timeout: 5), app.debugDescription)
-        waitForReceipt("「默认」已改到「标准组」")
-        waitForLabel(element("keys.card.4087.meta"), contains: "标准组 · 专属倍率 ×0.9")
+        XCTAssertTrue(app.buttons["keys.group.cancel"].pollGone(timeout: 5), app.debugDescription)
+        waitForReceipt("「默认」已改到「标准组」", polling: true)
+        waitForLabel(element("keys.card.4087.meta"), contains: "标准组 · 专属倍率 ×0.9", polling: true)
         app.buttons["receipt.action"].tap()
         waitForLabel(element("keys.card.4087.meta"), contains: "高级组 · 默认 ×0.8")
     }
@@ -134,7 +134,7 @@ final class UserKeysUITests: XCTestCase {
         launchAndLogin()
         defer { diagnostics("user-keys-grant-undo-final") }
         openKeys()
-        grantClaudeCode()
+        grantClaudeCode(beforeUndo: true)
         app.buttons["receipt.action"].tap()
         waitForLabel(element("keys.card.4087.meta"), contains: "高级组")
         app.buttons["user-edit.segment.access"].tap()
@@ -146,7 +146,7 @@ final class UserKeysUITests: XCTestCase {
         launchAndLogin(arguments: ["-ui-key-still-in-use"])
         defer { diagnostics("user-keys-still-in-use-final") }
         openKeys()
-        grantClaudeCode()
+        grantClaudeCode(beforeUndo: true)
         app.buttons["receipt.action"].tap()
         waitForReceipt("Key 已还原；该分组还有其他 Key 在用，授权保留")
         XCTAssertFalse(app.buttons["receipt.action"].exists, app.debugDescription)
@@ -168,7 +168,7 @@ final class UserKeysUITests: XCTestCase {
         alert.buttons["知道了"].tap()
         XCTAssertTrue(app.buttons["keys.new.gap"].exists || app.scrollUntilExists(app.buttons["keys.new.gap"]), app.debugDescription)
         reveal(toggle(4087), towardBottom: false)
-        grantClaudeCode()
+        grantClaudeCode(beforeUndo: true)
         app.buttons["receipt.action"].tap()
         waitForLabel(element("keys.card.4087.meta"), contains: "高级组")
         app.buttons["user-edit.segment.access"].tap()
@@ -177,7 +177,7 @@ final class UserKeysUITests: XCTestCase {
         app.terminate()
         launchAndLogin(arguments: ["-ui-legacy-keys", "-ui-key-revoke-fails"])
         openKeys()
-        grantClaudeCode()
+        grantClaudeCode(beforeUndo: true)
         app.buttons["receipt.action"].tap()
         waitForReceipt("Key 已还原，但分组授权没收回，请在权限与并发里手动移除")
     }
@@ -188,8 +188,8 @@ final class UserKeysUITests: XCTestCase {
         openKeys()
         expand(4087)
         chooseFromCardMenu(4087, "停用 Key")
-        waitForReceipt("已停用「默认」")
-        XCTAssertTrue(waitUntil(toggle(4087), "label CONTAINS '已停用'"), toggle(4087).label)
+        waitForReceipt("已停用「默认」", polling: true)
+        XCTAssertTrue(waitUntil(toggle(4087), "label CONTAINS '已停用'", polling: true), toggle(4087).label)
         app.buttons["receipt.action"].tap()
         XCTAssertTrue(waitUntil(toggle(4087), "NOT (label CONTAINS '已停用')"), toggle(4087).label)
         expand(4100)
@@ -352,14 +352,15 @@ final class UserKeysUITests: XCTestCase {
         group.tap()
         XCTAssertTrue(app.buttons["keys.group.cancel"].waitForExistence(timeout: 5), app.debugDescription)
     }
-    /// 4087 默认 moves to Claude Code 组 (5), which the user lacks, so it is granted with the move.
-    @MainActor private func grantClaudeCode() {
+    /// 4087 默认 moves to Claude Code 组 (5), which the user lacks, so it is granted with the move. `beforeUndo` when the receipt's
+    /// 撤销 follows.
+    @MainActor private func grantClaudeCode(beforeUndo: Bool = false) {
         openGroupSheet(4087)
         let option = app.buttons["keys.group.option.5"]
         app.scrollUntilExists(option)
         option.tap()
-        waitForReceipt("已改到「Claude Code 组」，并为用户添加了这个分组")
-        waitForLabel(element("keys.card.4087.meta"), contains: "Claude Code 组")
+        waitForReceipt("已改到「Claude Code 组」，并为用户添加了这个分组", polling: beforeUndo)
+        waitForLabel(element("keys.card.4087.meta"), contains: "Claude Code 组", polling: beforeUndo)
     }
     /// The system menu's items are found by their words.
     @MainActor private func chooseFromCardMenu(_ id: Int, _ title: String) {
@@ -382,23 +383,29 @@ final class UserKeysUITests: XCTestCase {
         }
         field.typeText(value)
     }
-    @MainActor private func waitForReceipt(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
+    /// `polling`: right before the receipt's 撤销, which has to come within its 4.2 seconds (XCUIElement+Poll). Elsewhere XCTest's
+    /// waits, whose first look after about a second also lets an expanding card settle before `reveal` asks if it is hittable.
+    @MainActor private func waitForReceipt(_ text: String, polling: Bool = false, file: StaticString = #filePath, line: UInt = #line) {
         let receipt = app.staticTexts["receipt.text"]
-        let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", text), object: receipt)
-        XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 10), .completed, "回执应为「\(text)」\n\(app.debugDescription)", file: file, line: line)
+        XCTAssertTrue(wait(receipt, NSPredicate(format: "label == %@", text), timeout: 10, polling: polling), "回执应为「\(text)」\n\(app.debugDescription)",
+                      file: file, line: line)
     }
-    @MainActor private func waitForLabel(_ item: XCUIElement, contains text: String, file: StaticString = #filePath, line: UInt = #line) {
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: item)
-        XCTAssertEqual(XCTWaiter().wait(for: [expectation], timeout: 10), .completed, "\(item.label) ∌ \(text)\n\(app.debugDescription)",
-                       file: file, line: line)
+    @MainActor private func waitForLabel(_ item: XCUIElement, contains text: String, polling: Bool = false, file: StaticString = #filePath,
+                                         line: UInt = #line) {
+        XCTAssertTrue(wait(item, NSPredicate(format: "label CONTAINS %@", text), timeout: 10, polling: polling),
+                      "\(item.label) ∌ \(text)\n\(app.debugDescription)", file: file, line: line)
     }
     @MainActor private func waitForValue(_ item: XCUIElement, contains text: String, file: StaticString = #filePath, line: UInt = #line) {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", text), object: item)
         XCTAssertEqual(XCTWaiter().wait(for: [expectation], timeout: 10), .completed, "\(String(describing: item.value)) ∌ \(text)\n\(app.debugDescription)",
                        file: file, line: line)
     }
-    @MainActor private func waitUntil(_ item: XCUIElement, _ format: String) -> Bool {
-        XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: format), object: item)], timeout: 5) == .completed
+    @MainActor private func waitUntil(_ item: XCUIElement, _ format: String, polling: Bool = false) -> Bool {
+        wait(item, NSPredicate(format: format), timeout: 5, polling: polling)
+    }
+    @MainActor private func wait(_ item: XCUIElement, _ predicate: NSPredicate, timeout: TimeInterval, polling: Bool) -> Bool {
+        if polling { return item.poll(predicate, timeout: timeout) }
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: item)], timeout: timeout) == .completed
     }
     @MainActor private func element(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier].firstMatch }
     @MainActor private func tap(_ item: XCUIElement) { reveal(item); item.tap() }
@@ -427,9 +434,8 @@ final class UserKeysUITests: XCTestCase {
         if let receipt = shownFrame(element("receipt")) { bottom = min(bottom, receipt.minY) }
         return (top, max(bottom, top + 80))
     }
-    /// A receipt leaving on its 4.2-second timer between `exists` and `frame` would fail the test, so the frame comes from a
-    /// snapshot, which only throws then; `exists` first, as a snapshot of a missing element retries for about 2 seconds.
-    @MainActor private func shownFrame(_ item: XCUIElement) -> CGRect? { item.exists ? (try? item.snapshot())?.frame : nil }
+    /// From a snapshot: a receipt leaving on its 4.2-second timer between `exists` and `frame` would fail the test (S3-13).
+    @MainActor private func shownFrame(_ item: XCUIElement) -> CGRect? { item.shownSnapshot?.frame }
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
@@ -536,9 +542,9 @@ final class UserKeysUITests: XCTestCase {
         fill("keys.form.ipWhitelist", with: "")
         XCTAssertTrue(waitUntil(app.buttons["keys.form.submit"], "isEnabled == true"), app.debugDescription)
         app.buttons["keys.form.submit"].tap()
-        waitForReceipt("已保存「脚本 B」")
-        waitForLabel(toggle(4099), contains: "脚本 B")
-        waitForLabel(element("keys.card.4099.iprule"), contains: "黑名单 203.0.113.9")
+        waitForReceipt("已保存「脚本 B」", polling: true)
+        waitForLabel(toggle(4099), contains: "脚本 B", polling: true)
+        waitForLabel(element("keys.card.4099.iprule"), contains: "黑名单 203.0.113.9", polling: true)
         XCTAssertFalse(element("keys.card.4099.iprule").label.contains("白名单"), element("keys.card.4099.iprule").label)
         app.buttons["receipt.action"].tap()
         XCTAssertTrue(waitUntil(toggle(4099), "NOT (label CONTAINS '脚本 B')"), toggle(4099).label)
