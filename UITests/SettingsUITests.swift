@@ -97,17 +97,32 @@ final class SettingsUITests: XCTestCase {
         defer { diagnostics("settings-threshold-range") }
         app.openSearchItem("search.item.interface")
         openThresholdSheet()
-        let save = app.buttons["settings.threshold.save"]
-        let field = app.textFields["settings.threshold.field"]
+        let save = app.buttons["settings.threshold.save"], field = element("settings.threshold.field"), hint = element("settings.threshold.hint")
         XCTAssertTrue(save.isEnabled)
-        // D22 keypad rule: the key that would pass 100,000 is refused, so "100001" stops at "10000".
-        for (typed, shown, enabled) in [("0", "0", false), ("100001", "10000", true), ("1", "1", true), ("100000", "100000", true)] {
-            replaceThreshold(with: typed)
-            XCTAssertEqual(field.value as? String, shown, typed)
-            XCTAssertEqual(save.isEnabled, enabled, typed)
-        }
+        XCTAssertEqual(field.value as? String, "$100")
+        // S3-16: the AmountKeypad, whose “.” place is blank for whole dollars (S3-00).
+        XCTAssertTrue(element("settings.threshold.pad").exists, app.debugDescription)
+        XCTAssertFalse(app.buttons["settings.threshold.key.dot"].exists, app.debugDescription)
+        replaceThreshold(with: "0")
+        XCTAssertFalse(save.isEnabled)
+        XCTAssertTrue(hint.waitForExistence(timeout: 2), app.debugDescription)
+        XCTAssertEqual(hint.label, "门槛要在 $1 至 $100,000 之间")
+        replaceThreshold(with: "1")
+        XCTAssertTrue(save.isEnabled)
+        XCTAssertFalse(hint.exists)
+        // D22 keypad rule: the key that would pass 100,000 is refused.
+        replaceThreshold(with: "100000")
+        XCTAssertEqual(field.value as? String, "$100,000")
+        XCTAssertTrue(save.isEnabled)
+        app.buttons["settings.threshold.key.0"].tap()
+        XCTAssertEqual(field.value as? String, "$100,000")
+        replaceThreshold(with: "999999")
+        XCTAssertEqual(field.value as? String, "$99,999")
         diagnostics("settings-threshold-sheet")
         app.buttons["取消"].tap()
+        let threshold = app.buttons["settings.faceid.threshold"]
+        XCTAssertTrue(threshold.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(threshold.label.contains("$100") && !threshold.label.contains("$100,000"), threshold.label)
     }
 
     /// D36: a higher threshold needs the check, a lower one does not.
@@ -119,7 +134,7 @@ final class SettingsUITests: XCTestCase {
         replaceThreshold(with: "500")
         app.buttons["settings.threshold.save"].tap()
         // The check failed: the sheet stays, nothing is said, the old value is kept.
-        XCTAssertTrue(app.textFields["settings.threshold.field"].waitForExistence(timeout: 3))
+        XCTAssertTrue(element("settings.threshold.field").waitForExistence(timeout: 3))
         XCTAssertFalse(app.alerts.firstMatch.exists)
         app.buttons["取消"].tap()
         let threshold = app.buttons["settings.faceid.threshold"]
@@ -253,6 +268,49 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(element("grant.pending").waitForExistence(timeout: 10), app.debugDescription)
     }
 
+    /// D36 on the keypad (S3-16): a denied check on a raise keeps the sheet, says nothing and stores nothing.
+    @MainActor func testDeniedRaiseKeepsTheOldThreshold() {
+        launchAndLogin(arguments: ["-ui-faceid-on", "-ui-biometric-deny"])
+        defer { diagnostics("settings-threshold-denied-raise") }
+        app.openSearchItem("search.item.interface")
+        openThresholdSheet()
+        replaceThreshold(with: "250")
+        let save = app.buttons["settings.threshold.save"]
+        save.tap()
+        let settled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: save)
+        XCTAssertEqual(XCTWaiter().wait(for: [settled], timeout: 5), .completed, app.debugDescription)
+        XCTAssertTrue(element("settings.threshold.field").exists, app.debugDescription)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        app.buttons["取消"].tap()
+        let threshold = app.buttons["settings.faceid.threshold"]
+        XCTAssertTrue(threshold.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(threshold.label.contains("$100") && !threshold.label.contains("$250"), threshold.label)
+        openThresholdSheet()
+        XCTAssertEqual(element("settings.threshold.field").value as? String, "$100")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
+
+    /// S3-16: the keypad deletes to “未输入”, replaces a leading 0, and a lower threshold saves without the check.
+    @MainActor func testThresholdKeypadReplacesLeadingZeroAndDeletes() {
+        launchAndLogin(arguments: ["-ui-faceid-on"])
+        defer { diagnostics("settings-threshold-keypad") }
+        app.openSearchItem("search.item.interface")
+        openThresholdSheet()
+        let field = element("settings.threshold.field"), save = app.buttons["settings.threshold.save"]
+        XCTAssertEqual(field.value as? String, "$100")
+        for _ in 0..<3 { app.buttons["settings.threshold.key.delete"].tap() }
+        XCTAssertEqual(field.value as? String, "未输入")
+        XCTAssertEqual(field.label, "金额门槛")
+        XCTAssertFalse(save.isEnabled)
+        app.buttons["settings.threshold.key.0"].tap()
+        app.buttons["settings.threshold.key.7"].tap()
+        XCTAssertEqual(field.value as? String, "$7")
+        save.tap()
+        XCTAssertTrue(waitUntilGone(field), app.debugDescription)
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "settings.faceid.threshold", "$7"))
+            .firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+    }
+
     // MARK: Helpers
 
     @MainActor private func launchAndLogin(arguments: [String] = [], name: String = "设置站点", url: String = "https://settings.example.invalid") {
@@ -281,19 +339,21 @@ final class SettingsUITests: XCTestCase {
         let threshold = app.buttons["settings.faceid.threshold"]
         reveal(threshold)
         threshold.tap()
-        XCTAssertTrue(app.textFields["settings.threshold.field"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("settings.threshold.field").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["settings.threshold.key.1"].waitForExistence(timeout: 5), app.debugDescription)
     }
+    /// S3-16: deletes on the keypad until the amount reads “未输入”, then presses the digits.
     @MainActor private func replaceThreshold(with text: String) {
-        let field = app.textFields["settings.threshold.field"]
-        field.tap()
-        let current = (field.value as? String) ?? ""
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: max(current.count, 6)) + text)
+        let field = element("settings.threshold.field"), delete = app.buttons["settings.threshold.key.delete"]
+        for _ in 0..<7 where (field.value as? String) != "未输入" { delete.tap() }
+        XCTAssertEqual(field.value as? String, "未输入", app.debugDescription)
+        for digit in text { app.buttons["settings.threshold.key.\(digit)"].tap() }
     }
     @MainActor private func setThreshold(_ text: String) {
         openThresholdSheet()
         replaceThreshold(with: text)
         app.buttons["settings.threshold.save"].tap()
-        XCTAssertTrue(waitUntilGone(app.textFields["settings.threshold.field"]), app.debugDescription)
+        XCTAssertTrue(waitUntilGone(element("settings.threshold.field")), app.debugDescription)
     }
     @MainActor private func waitUntilGone(_ item: XCUIElement) -> Bool {
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: item)

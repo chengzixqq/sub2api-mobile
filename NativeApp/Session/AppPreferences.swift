@@ -18,6 +18,8 @@ final class AppPreferences {
     /// Whole dollars (60 §3.4, the keypad rule of 30 §3.7: at most six digits).
     nonisolated static let faceIDThresholdRange: ClosedRange<Decimal> = 1...100_000
     nonisolated static let faceIDThresholdMaxDigits = 6
+    /// Whole dollars: the threshold keypad has no “.” (KeypadInput).
+    nonisolated static let faceIDThresholdFractionDigits = 0
 
     private(set) var interfaceMode: InterfaceMode
     private(set) var appearance: Appearance

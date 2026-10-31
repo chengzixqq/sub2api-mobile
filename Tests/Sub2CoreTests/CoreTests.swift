@@ -229,7 +229,7 @@ private actor MockTransport: HTTPTransport {
     let client = APIClient(server: profile, credential: .adminKey("local-fixture-key"), transport: transport, requestClock: .recording(recorder))
     let operation = PendingBalanceOperation(serverID: profile.id, userID: 7, amount: Decimal(string: "0.00000001")!, operation: .add)
     // A proxy 503 is a transport failure for a keyed write: the same key and bytes go out again after 2 seconds.
-    #expect(try await client.updateBalance(stubPersisted(operation)).value.id == 7)
+    #expect(try await client.updateBalance(stubPersisted(operation), sameAddress: []).value.id == 7)
     let requests = await transport.requests
     #expect(requests.count == 2); #expect(await recorder.durations == [.seconds(2)])
     #expect(requests[0].httpBody == requests[1].httpBody)
@@ -237,7 +237,7 @@ private actor MockTransport: HTTPTransport {
     #expect(requests[0].value(forHTTPHeaderField: "Idempotency-Key") == operation.id.uuidString.lowercased())
     #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "X-Request-ID") == operation.id.uuidString.lowercased() })
     let wrong = PendingBalanceOperation(serverID: UUID(), userID: 7, amount: 1, operation: .set)
-    await #expect(throws: APIError.stationMismatch) { try await client.updateBalance(stubPersisted(wrong)) }
+    await #expect(throws: APIError.stationMismatch) { try await client.updateBalance(stubPersisted(wrong), sameAddress: []) }
     #expect(await transport.requests.count == 2)
     #expect(requests.allSatisfy { $0.url?.host == profile.baseURL.host })
 }

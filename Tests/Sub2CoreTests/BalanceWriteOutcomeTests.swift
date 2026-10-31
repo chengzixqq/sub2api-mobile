@@ -125,19 +125,19 @@ private func persistedWrite(_ client: APIClient, serverID: UUID? = nil) -> Persi
 @Test func executorResultsFlowThroughOutcome() async throws {
     let refused = ScriptedTransport { _ in errorReply(400, reason: "INVALID_BALANCE") }
     let invalid = balanceClient(refused)
-    do { _ = try await invalid.updateBalance(persistedWrite(invalid)); Issue.record("expected a refusal") }
+    do { _ = try await invalid.updateBalance(persistedWrite(invalid), sameAddress: []); Issue.record("expected a refusal") }
     catch { #expect(verdict(error) == .notExecuted("金额不合法，未入账")) }
 
     let gateway = ScriptedTransport { _ in HTTPResponse(statusCode: 502, data: Data("<html>bad gateway</html>".utf8)) }
     let lost = balanceClient(gateway)
-    do { _ = try await lost.updateBalance(persistedWrite(lost)); Issue.record("expected an unconfirmed write") }
+    do { _ = try await lost.updateBalance(persistedWrite(lost), sameAddress: []); Issue.record("expected an unconfirmed write") }
     catch { #expect(error is KeyedWriteFailure); #expect(verdict(error) == unconfirmed) }
     #expect(await gateway.requests.count == 3)
 
     let rewritten = ScriptedTransport { _ in okReply(stubUserJSON, headers: ["X-Request-ID": "proxy-generated"]) }
     let echoing = balanceClient(rewritten)
     let sent = persistedWrite(echoing)
-    let outcome = try await echoing.updateBalance(sent)
+    let outcome = try await echoing.updateBalance(sent, sameAddress: [])
     #expect(BalanceReconciliation.requestIDEchoMismatch(sent: sent.record.key, echoed: outcome.requestID))
     #expect(verdict(BalanceReconciliation.balanceWriteOutcome(for: outcome)) == .executed(userID: 7, replayed: false))
 }
@@ -149,13 +149,13 @@ private func persistedWrite(_ client: APIClient, serverID: UUID? = nil) -> Persi
 func proxyPageAfterLostAttemptStaysPending(page: HTTPResponse) async throws {
     let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(page)])
     let client = balanceClient(transport)
-    do { _ = try await client.updateBalance(persistedWrite(client)); Issue.record("expected a failure") }
+    do { _ = try await client.updateBalance(persistedWrite(client), sameAddress: []); Issue.record("expected a failure") }
     catch { #expect(verdict(error) == unconfirmed) }
     #expect(await transport.requests.count == 2)
 
     let missing = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(errorReply(404, reason: "USER_NOT_FOUND"))])
     let other = balanceClient(missing)
-    do { _ = try await other.updateBalance(persistedWrite(other)); Issue.record("expected a refusal") }
+    do { _ = try await other.updateBalance(persistedWrite(other), sameAddress: []); Issue.record("expected a refusal") }
     catch { #expect(verdict(error) == .notExecuted("用户不存在或已删除")) }
 }
 

@@ -252,11 +252,6 @@ extension APIClient {
         guard ["active", "disabled"].contains(status) else { throw APIError(kind: .validation, message: "无效的用户状态。") }
         return try encode(["status": status])
     }
-    /// Takes only a record already on disk; the body comes from the record and the key and X-Request-ID are its id (00 §9.1).
-    /// One sender (R19): it is `updateBalance(_:sameAddress:onEvent:)` for this site only; S3-16 removes it.
-    public func updateBalance(_ write: PersistedMoneyWrite<PendingBalanceOperation>, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
-        try await updateBalance(write, sameAddress: [], onEvent: onEvent)
-    }
 }
 
 /// `{"message":"User deleted successfully"}`; only that it decoded matters.

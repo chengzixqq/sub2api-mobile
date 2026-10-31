@@ -134,9 +134,10 @@ extension APIClient {
         }
         return BalanceReconciliation.evaluate(op, rows: rows, now: now, requestIDUsable: requestIDUsable, clockOffset: offset, coverage: coverage)
     }
-    /// The send of “用同一编号重试” for a record of this site or of an older login at the same address (C-26). It checks the
-    /// address only: APIClient does not know the administrator, so callers go through AppModel+Users.updateBalance, which
-    /// runs MoneyRecordOrigin.checkSender first (S3D1-16).
+    /// The only balance send (R19, S3-16): a record already on disk, its body from the record and its id as the key and
+    /// X-Request-ID (00 §9.1), of this site or of an older login at the same address (C-26). It checks the address only:
+    /// APIClient does not know the administrator, so callers go through AppModel+Users.updateBalance, which runs
+    /// MoneyRecordOrigin.checkSender first (S3D1-16).
     public func updateBalance(_ write: PersistedMoneyWrite<PendingBalanceOperation>, sameAddress: Set<UUID>,
                               onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser> {
         let operation = write.record

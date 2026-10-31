@@ -234,7 +234,7 @@ func userWritesCarryIdempotencyKeyOnlyWithCapability(capable: Bool) async throws
     #expect(try await client.userMonthUsage(id: 24).totalCost == Decimal(string: "0.5"))
     _ = try await client.userAPIKeys(userID: 24, maskedView: false)
     _ = try await client.setUserStatus(id: 24, status: "disabled")
-    _ = try await client.updateBalance(stubPersisted(balance))
+    _ = try await client.updateBalance(stubPersisted(balance), sameAddress: [])
     let sent = await transport.requests
     #expect(sent.map { "\($0.httpMethod ?? "") \($0.url?.path ?? "")" } == [
         "POST /api/v1/admin/users", "PUT /api/v1/admin/users/24", "GET /api/v1/admin/usage/stats", "GET /api/v1/admin/users/24/api-keys",
@@ -256,10 +256,10 @@ func userWritesCarryIdempotencyKeyOnlyWithCapability(capable: Bool) async throws
     let transport = ScriptedTransport { _ in okReply(managedUserJSON) }
     let client = APIClient(server: userServer(), credential: .adminKey("fixture-key"), transport: transport, requestClock: .immediate)
     let other = PendingBalanceOperation(serverID: UUID(), userID: 24, amount: 1, operation: .add)
-    #expect(await thrownAPIError { _ = try await client.updateBalance(stubPersisted(other)) } == .stationMismatch)
+    #expect(await thrownAPIError { _ = try await client.updateBalance(stubPersisted(other), sameAddress: []) } == .stationMismatch)
     #expect(await transport.requests.isEmpty)
     let own = PendingBalanceOperation(serverID: client.server.id, userID: 24, amount: 1, operation: .add)
-    #expect(try await client.updateBalance(stubPersisted(own)).value.id == 24)
+    #expect(try await client.updateBalance(stubPersisted(own), sameAddress: []).value.id == 24)
     let request = try #require(await transport.requests.first)
     let key = own.id.uuidString.lowercased()
     #expect(sentHeader(request, "Idempotency-Key") == key && sentHeader(request, "X-Request-ID") == key)

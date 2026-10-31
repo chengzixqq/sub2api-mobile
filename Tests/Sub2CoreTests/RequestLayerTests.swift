@@ -65,7 +65,7 @@ func authenticationHeadersAreMutuallyExclusive(credential: Credential) async thr
     _ = try await client.setUserStatus(id: 7, status: "disabled")
     _ = try await client.setUserStatus(id: 7, status: "active")
     let operation = PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)
-    _ = try await client.updateBalance(stubPersisted(operation))
+    _ = try await client.updateBalance(stubPersisted(operation), sameAddress: [])
     let requests = await transport.requests
     let first = try #require(sentHeader(requests[0], "X-Request-ID"))
     #expect(first == first.lowercased()); #expect(UUID(uuidString: first) != nil); #expect(first.utf8.count <= 64)
@@ -86,7 +86,7 @@ func expiredTokenResendsEveryMethodOnceWithIdenticalBytes(kind: String) async th
     switch kind {
     case "read": _ = try await client.user(id: 7)
     case "unkeyedWrite": _ = try await client.setUserStatus(id: 7, status: "active")
-    case "keyedWrite": _ = try await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)))
+    case "keyedWrite": _ = try await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)), sameAddress: [])
     default: _ = try await client.accountTodayStatsBatch(ids: [9])
     }
     let requests = await transport.requests
@@ -205,7 +205,7 @@ func rateLimitedReadsReportSecondsWithoutRetry(headers: [String: String], extra:
     _ = try? await client.users(query: UserListQuery())
     _ = try? await client.accountTodayStatsBatch(ids: [9])
     _ = try? await client.setUserStatus(id: 7, status: "active")
-    _ = try? await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)))
+    _ = try? await client.updateBalance(stubPersisted(PendingBalanceOperation(serverID: client.server.id, userID: 7, amount: 1, operation: .add)), sameAddress: [])
     _ = try? await client.setAccountsSchedulable(ids: [9], enabled: true, idempotencyKey: UUID())
     _ = try? await client.refreshAccount(id: 9, idempotencyKey: UUID())
     _ = try? await client.dashboard()

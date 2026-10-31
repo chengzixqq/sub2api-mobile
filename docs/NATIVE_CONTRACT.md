@@ -53,12 +53,13 @@ actor APIClient {
   func setSchedulable(id: Int, enabled: Bool) async throws -> UpstreamAccount
   func refreshAccount(id: Int) async throws
   func testAccount(id: Int, model: String?) async throws -> AsyncThrowingStream<AccountTestEvent, Error>
-  func users(page: Int, search: String, status: String?) async throws -> Page<AdminUser>
+  func users(query: UserListQuery) async throws -> Page<AdminUser>
   func user(id: Int) async throws -> AdminUser
-  func userUsage(id: Int) async throws -> UserUsageSummary
-  func userKeys(id: Int, page: Int) async throws -> Page<UserAPIKey>
-  func setUserStatus(id: Int, status: String) async throws -> AdminUser
-  func updateBalance(_ operation: PendingBalanceOperation) async throws -> AdminUser
+  func userMonthUsage(id: Int) async throws -> UserUsageSummary
+  func userAPIKeys(userID: Int, maskedView: Bool) async throws -> [AdminAPIKey]
+  func setUserStatus(id: Int, status: String, idempotencyKey: UUID?, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser>
+  // The only balance send; the App calls it through AppModel.updateBalance, which checks the sender first (S3D1-16).
+  func updateBalance(_ write: PersistedMoneyWrite<PendingBalanceOperation>, sameAddress: Set<UUID>, onEvent: KeyedWriteEventHandler? = nil) async throws -> WriteOutcome<AdminUser>
   func stepUp(code: String) async throws
 }
 ```
@@ -74,7 +75,7 @@ actor APIClient {
 - `OpsOverview` (Sources/Sub2Core/OpsMonitoring.swift): every figure is optional and missing job heartbeats are an empty list; missing values show —, never a fabricated zero.
 - `AccountTodayStats`: requests Int, tokens Int, cost Decimal.
 - `UserUsageSummary`: totalRequests Int, totalTokens Int, totalCost Decimal.
-- `UserAPIKey`: id Int, name String, key String?, status String, quota Decimal, quotaUsed Decimal (UI masks key).
+- `AdminAPIKey` (Sources/Sub2Core/UserKeys.swift): keeps only `key_masked` (a plaintext `key` is never stored); names show through `displayName`, the server's HTML escaping undone.
 - `PublicSettings`: captchaProvider String? (`turnstile`, `tencent`, `aliyun`, nil), captchaEnabled Bool.
 - `AccountTestEvent`: type String, content String?, message String?; `isTerminal`, `isSuccess`.
 - `BalanceOperation`: String/Codable/CaseIterable/Sendable enum set/add/subtract.
