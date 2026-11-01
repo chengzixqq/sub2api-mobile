@@ -235,6 +235,15 @@ func onlyForbiddenAndOpsDisabledHideASection(error: APIError, hides: Bool) {
     #expect(!GlobalSearchFailure.hidesSection(CancellationError()))
 }
 
+/// 00 §4.6: a read cut off by the suspend is no failure, so no system text reaches FailureView; the section keeps searching.
+@Test func aCancelledReadLeavesItsSectionSearching() {
+    let results = landed([.users: .failure(CancellationError())])
+    #expect(results.status(of: .users) == .searching && results.state(of: .users).failureReason == nil)
+    #expect(results.failedSections.isEmpty && results.failureMessage == nil && !results.isSettled)
+    let allCut = landed(Dictionary(uniqueKeysWithValues: SearchSection.allCases.map { ($0, .failure(CancellationError())) }))
+    #expect(allCut.phase == .results && allCut.failureMessage == nil)
+}
+
 /// One row of 60 §2.5's table; internal because parameterized tests cannot take private types.
 enum GlobalSearchAnswer: Sendable { case searching, rows(Int), forbidden, opsDisabled, failed }
 struct GlobalSearchStatusRow: Sendable, CustomTestStringConvertible {
