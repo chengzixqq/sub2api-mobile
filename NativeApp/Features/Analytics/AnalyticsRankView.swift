@@ -99,6 +99,7 @@ private struct AnalyticsRankPage: View {
     }
 
     /// 40 §4.5: the whole page loads, then fails with “加载失败 · 重试”; a failed refresh keeps the rows and says so in the header.
+    /// The failure keeps the sort menu, so a sort or source that keeps failing (it is remembered already) can be changed back.
     @ViewBuilder private func ranking<Value: Sendable>(_ load: LoadState<Value>?, shown: (Value) -> RankPageContent) -> some View {
         if let load, let value = load.value {
             let content = shown(value)
@@ -111,7 +112,12 @@ private struct AnalyticsRankPage: View {
                     .accessibilityIdentifier("analytics.rank.footnote")
             }
         } else if let load, load.error != nil {
-            BlockFailureRow(load, id: "analytics.rank", retry: retry).padding(.horizontal, 16).rankSurface()
+            VStack(spacing: 0) {
+                HStack { Spacer(minLength: 8); sortMenu }.padding(.trailing, 8)
+                Palette.hairline.frame(height: 1).accessibilityHidden(true)
+                BlockFailureRow(load, id: "analytics.rank", retry: retry).padding(.horizontal, 16)
+            }
+            .rankSurface()
         } else {
             ProgressView().frame(maxWidth: .infinity, minHeight: Self.loadingHeight)
                 .accessibilityElement(children: .ignore)
@@ -127,7 +133,7 @@ private struct AnalyticsRankPage: View {
                     .accessibilityIdentifier("analytics.rank.header")
                 Spacer(minLength: 8)
                 BlockStatusAccessory(load, id: "analytics.rank", retry: retry)
-                RankSortMenu(dimension: dimension, choice: choice, choose: choose)
+                sortMenu
             }
             .padding(.leading, 16).padding(.trailing, 8)
             if content.list.items.isEmpty {
@@ -144,6 +150,8 @@ private struct AnalyticsRankPage: View {
         }
         .rankSurface()
     }
+
+    private var sortMenu: some View { RankSortMenu(dimension: dimension, choice: choice, choose: choose) }
 
     /// Another sort or source is remembered for this dimension (40 §4.4).
     private func choose(_ next: AnalyticsRankChoice) {
