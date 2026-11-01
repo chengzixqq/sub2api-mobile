@@ -3,8 +3,23 @@ import Foundation
 /// 40 §1.4 计费趋势卡, row by row: the totals of `usage/stats` over the range and its filter, the comparison window's total for the
 /// change line, and `dashboard/trend` for the bars, a selected bar showing its own bucket.
 public struct AnalyticsBillingCard: Equatable, Sendable {
-    /// The comparison window's `usage/stats`: an earlier value counts as loaded; a failure only hides the change line.
-    public enum Comparison: Equatable, Sendable { case pending, failed, loaded(AnalyticsSummary) }
+    /// The comparison window's `usage/stats`; a failure only hides the change line.
+    public enum Comparison: Equatable, Sendable {
+        case pending, failed, loaded(AnalyticsSummary)
+
+        /// The change line divides two reads of the same moment, and a range up to now moves both windows on every refresh: a
+        /// comparison whose last read failed hides the line (40 §1.3), its earlier value too, and so do totals left from before a
+        /// failed refresh. `lastReadFailed`: the last answer was a failure and no read succeeded since. A read under way keeps the
+        /// earlier value.
+        public init(_ state: BlockState<AnalyticsSummary>?, lastReadFailed: Bool, totalsLastReadFailed: Bool) {
+            if lastReadFailed || totalsLastReadFailed { self = .failed; return }
+            switch state {
+            case .failed?, .disabled?: self = .failed
+            case .loaded(let value, _)?, .loading(let value?, _)?: self = .loaded(value)
+            case .idle?, .loading(nil, _)?, nil: self = .pending
+            }
+        }
+    }
 
     /// “实际扣费 · 近 7 天”, or the selected bucket's full name.
     public let headline: String

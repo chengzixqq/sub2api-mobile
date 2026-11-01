@@ -334,10 +334,12 @@ struct BillingTrendCard: View {
     }
 
     private var zone: TimeZone { session.timeZone.timeZone }
+    /// LoadState keeps `lastErrorAt` until a read succeeds, through a retry and a cancelled one.
     private var comparison: AnalyticsBillingCard.Comparison {
-        guard let state = session.state(.billingComparison, as: AnalyticsSummary.self) else { return .pending }
-        if let value = state.value { return .loaded(value) }
-        return state.error == nil ? .pending : .failed
+        let state = session.state(.billingComparison, as: AnalyticsSummary.self)
+        let totals = session.state(.billingSummary, as: AnalyticsSummary.self)
+        return AnalyticsBillingCard.Comparison(state?.state, lastReadFailed: state?.lastErrorAt != nil,
+                                               totalsLastReadFailed: totals?.lastErrorAt != nil)
     }
     private func retry() {
         let session = session
