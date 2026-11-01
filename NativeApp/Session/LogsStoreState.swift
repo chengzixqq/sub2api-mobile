@@ -138,17 +138,18 @@ final class LogsStoreState {
 
     // MARK: Lifecycle
 
-    /// Back from a detail nothing is read, so the list keeps its place (40 §6.4).
+    /// Back from a detail no list is read, so the list keeps its place (40 §6.4); counts the background stopped while the page
+    /// was away are asked (D18).
     func appeared() async {
         isVisible = true
-        guard phase == .idle else { return }
+        guard phase == .idle else { return resumeCounts(listReadsAgain: false) }
         await loadCounted(scope)
     }
     func disappeared() { isVisible = false }
     /// D18: a shown page reads its segment's page 1 again, and only the counts the background stopped.
     func foregroundResumed() async {
         guard isVisible else { return }
-        counter.resumeInterrupted()
+        resumeCounts(listReadsAgain: true)
         await loadFirstPage(scope)
     }
     /// LiveOpsStore's switch moved: an error segment that ops monitoring held back reads once it is on, as on entering.
@@ -314,9 +315,14 @@ extension LogsStoreState {
     /// The user's entries (40 §6.6): page 1 and a new round of counts over the same window.
     private func loadCounted(_ scope: LogScope) async {
         let window = time.window(now: clock())
-        if isCurrent() { counter.begin(countPlan(window: window)) }
+        if isCurrent() { counter.begin(countPlan(window: window), holdingBack: countsHeldBack) }
         await load(scope, page: 1, window: window)
     }
+    private func resumeCounts(listReadsAgain: Bool) {
+        counter.resumeInterrupted(listReadsAgain: listReadsAgain, holdingBack: countsHeldBack)
+    }
+    /// 00 §2.7.2: the counts are this page's reads too, so its 429 wait holds them back.
+    private var countsHeldBack: Bool { !refresh.allowsRequest(at: phoneClock()) }
     /// Each segment's request conditions without its greyed chips; usage counts over the site's zone.
     private func countPlan(window: LogTimeWindow) -> LogCountPlan {
         LogCountPlan(usage: LogListPolicy.usageCountQuery(filter(for: .usage, window: window), timeZone: timeZone),

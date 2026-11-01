@@ -70,8 +70,9 @@ struct LogCountPlan: Equatable, Sendable {
 
 /// 40 §6.2–§6.6: the segments' counts, asked in rounds. The page starts a round on entering, on a condition or time change, on
 /// pull and when ops monitoring is on again; switching segments asks nothing, except the shown error segment's count when it is
-/// left before its page 1 came back. A reply of an older round is dropped; one stopped by the background is asked again on
-/// return (D18). Failures read “—” and are not retried.
+/// left before its page 1 came back. A reply of an older round is dropped; one stopped by the background is asked again when
+/// the page is shown again (D18). Failures read “—” and are not retried; during the page's 429 wait nothing is asked and what
+/// would be reads “—” (00 §2.7.2).
 @MainActor @Observable
 final class LogSegmentCounter {
     private(set) var counts: [LogScope: LogCount] = [:]
@@ -84,6 +85,8 @@ final class LogSegmentCounter {
     @ObservationIgnored private var asked: [LogScope: LogCountRequest] = [:]
     @ObservationIgnored private var listScope: LogScope?
     @ObservationIgnored private var listFallback: LogCountRequest?
+    /// The background stopped `listScope`'s page 1.
+    @ObservationIgnored private var listInterrupted = false
     @ObservationIgnored private var tasks: [LogScope: Task<Void, Never>] = [:]
     @ObservationIgnored private var interrupted: Set<LogScope> = []
 
@@ -94,13 +97,14 @@ final class LogSegmentCounter {
 
     func count(for scope: LogScope) -> LogCount { counts[scope] ?? .pending }
 
-    func begin(_ plan: LogCountPlan) {
+    /// `holdingBack`: the page's 429 wait lasts, so the shown error segment waits for its page 1 and the others read “—”.
+    func begin(_ plan: LogCountPlan, holdingBack: Bool = false) {
         cancel()
         listScope = plan.listScope; listFallback = plan.listFallback
         counts = Dictionary(uniqueKeysWithValues: LogScope.allCases.map { scope -> (LogScope, LogCount) in
             (scope, plan.unavailable.contains(scope) ? .unavailable : .pending)
         })
-        for (scope, request) in plan.requests { ask(scope, request) }
+        for (scope, request) in plan.requests { ask(scope, request, holdingBack: holdingBack) }
     }
     /// The shown error segment's page 1 of this round: the first one that lands is its count.
     func firstPageLoaded(_ scope: LogScope, total: Int?) {
@@ -108,28 +112,32 @@ final class LogSegmentCounter {
         listScope = nil
         counts[scope] = total.map(LogCount.value) ?? .unavailable
     }
-    /// “—” until a retry lands; nil is a read held back or not sent. A cancelled read is read again on return, so it stays.
+    /// “—” until a retry lands; nil is a read held back or not sent. A cancelled read stays: on return page 1 is read again,
+    /// or the count asked (`resumeInterrupted`).
     func firstPageFailed(_ scope: LogScope, error: (any Error)?) {
-        guard scope == listScope, !(error is CancellationError) else { return }
-        counts[scope] = .unavailable
+        guard scope == listScope else { return }
+        if error is CancellationError { listInterrupted = true } else { counts[scope] = .unavailable }
     }
     /// Before the page switches away from `scope`.
     func leaving(_ scope: LogScope) {
-        guard scope == listScope, count(for: scope) == .pending, let listFallback else { return }
-        listScope = nil
-        ask(scope, listFallback)
+        guard scope == listScope else { return }
+        askListFallback(holdingBack: false)
     }
-    /// D18: only the asks the background stopped.
-    func resumeInterrupted() {
+    /// D18: only the asks the background stopped. With `listReadsAgain` false the page reads no page 1 again, so the shown
+    /// error segment whose page 1 the background stopped is asked as on leaving it.
+    func resumeInterrupted(listReadsAgain: Bool = true, holdingBack: Bool = false) {
         let resumed = interrupted
         interrupted = []
         for scope in LogScope.allCases where resumed.contains(scope) {
-            if let request = asked[scope] { ask(scope, request) }
+            if let request = asked[scope] { ask(scope, request, holdingBack: holdingBack) }
         }
+        guard listInterrupted else { return }
+        listInterrupted = false
+        if !listReadsAgain { askListFallback(holdingBack: holdingBack) }
     }
     func cancel() {
         for task in tasks.values { task.cancel() }
-        tasks = [:]; asked = [:]; interrupted = []; listScope = nil; listFallback = nil
+        tasks = [:]; asked = [:]; interrupted = []; listScope = nil; listFallback = nil; listInterrupted = false
         pass = UUID()
     }
     /// Waits for this round's asks (tests).
@@ -137,7 +145,14 @@ final class LogSegmentCounter {
         while let task = tasks.values.first { await task.value }
     }
 
-    private func ask(_ scope: LogScope, _ request: LogCountRequest) {
+    /// `listScope`'s page 1 of this round will not come: its count is asked once instead.
+    private func askListFallback(holdingBack: Bool) {
+        guard let scope = listScope, count(for: scope) == .pending, let listFallback else { return }
+        listScope = nil
+        ask(scope, listFallback, holdingBack: holdingBack)
+    }
+    private func ask(_ scope: LogScope, _ request: LogCountRequest, holdingBack: Bool) {
+        guard !holdingBack else { counts[scope] = .unavailable; return }
         let pass = self.pass, source = self.source
         asked[scope] = request
         tasks[scope] = Task { [weak self] in
