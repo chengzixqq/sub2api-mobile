@@ -318,17 +318,29 @@ private func arrived(_ gate: SessionGate) async {
     #expect(h.source.writes.count == 2 && h.source.writes[1] == h.source.writes[0])
 }
 
-@MainActor @Test func unkeyedUnconfirmedOffersAPlainRetry() async {
+/// A new number is made at the last confirmation (R05): 停用 asks again before it; 启用 is not confirmed and goes at once.
+@MainActor @Test func unkeyedUnconfirmedOffersAPlainRetry() async throws {
     let h = GroupHarness(ScriptedGroupSource(idempotentWrites: false))
     h.source.updateReplies = [.failure(offline)]
     h.source.readReplies = [.success(premium)]
     #expect(await h.disable(premium) == .notApplied)
     #expect(h.source.writes.first?.sendsIdempotencyKey == false)
     #expect(h.receiptText == "停用没有生效，可以重试" && h.receiptButton == "重试")
-    await h.tapReceipt(id: 1)
+    h.receipts.performAction(id: try #require(h.receipts.current).id)
+    await settle { h.actions.disablePrompt != nil }
+    #expect(h.actions.disablePrompt?.group == premium && h.source.writes.count == 1 && h.keys.count == 1)
+    #expect(await h.actions.confirmDisable(try #require(h.actions.disablePrompt)) == .succeeded)
     #expect(h.source.writes.count == 2 && h.source.writes[1].key != h.source.writes[0].key)
     #expect(text(h.source.writes[1]) == #"{"status":"inactive"}"#)
     #expect(h.receiptText == "已停用「高级组」")
+
+    let enabling = GroupHarness(ScriptedGroupSource(idempotentWrites: false))
+    enabling.source.updateReplies = [.failure(offline)]
+    enabling.source.readReplies = [.success(trial)]
+    #expect(await enabling.actions.enable(trial) == .notApplied)
+    await enabling.tapReceipt(id: 6)
+    #expect(enabling.source.writes.count == 2 && enabling.source.writes[1].key != enabling.source.writes[0].key)
+    #expect(enabling.receiptText == "已启用「测试组」")
 }
 
 @MainActor @Test func failedReadBackOffersCheck() async {
@@ -471,6 +483,49 @@ private func arrived(_ gate: SessionGate) async {
     await still.tapReceipt(id: 1)
     #expect(still.source.writes.count == 2 && still.source.writes[1] == still.source.writes[0])
     #expect(still.store.removed == [1] && still.receiptText == "已删除分组「高级组」")
+}
+
+/// Deleting again is a new number, so it passes the typed name or Face ID again (R05, 60 §3.4): the list asks again; the
+/// detail has left before the DELETE, so its receipt offers nothing and the group's menu is the way to delete it.
+@MainActor @Test func unkeyedDeleteThatDidNotRunAsksAgain() async throws {
+    var renamed = premium
+    renamed.name = "高级组 2"
+    let h = GroupHarness(ScriptedGroupSource(idempotentWrites: false))
+    h.source.deleteReplies = [.failure(offline)]
+    h.source.readReplies = [.success(renamed)]
+    #expect(await h.delete(premium) == .notApplied)
+    #expect(h.source.writes.first?.sendsIdempotencyKey == false && h.store.removed.isEmpty)
+    #expect(h.receiptText == "删除没有生效，可以重试" && h.receiptButton == "重试")
+    h.receipts.performAction(id: try #require(h.receipts.current).id)
+    await settle { h.actions.deletePrompt != nil }
+    let prompt = try #require(h.actions.deletePrompt)
+    #expect(prompt.group == renamed && h.source.writes.count == 1 && h.keys.count == 1)
+    #expect(await h.actions.performDelete(prompt, leaving: nil) == .succeeded)
+    #expect(h.source.writes.count == 2 && h.source.writes[1].key != h.source.writes[0].key)
+    #expect(h.store.removed == [1] && h.receiptText == "已删除分组「高级组 2」")
+
+    let detail = GroupHarness(ScriptedGroupSource(idempotentWrites: false))
+    detail.source.deleteReplies = [.failure(offline)]
+    detail.source.readReplies = [.success(premium)]
+    #expect(await detail.delete(premium, leaving: {}) == .notApplied)
+    #expect(detail.receiptText == "删除没有生效，可以重试" && detail.receiptButton == nil)
+    #expect(detail.source.writes.count == 1)
+}
+
+@MainActor @Test func deleteNeedingANewNumberAsksAgainWhereThePageStays() async throws {
+    let conflict = KeyedWriteFailure(disposition: .needsNewKey(.keyConflict), key: "k", actionID: nil, lastError: nil)
+    let h = GroupHarness()
+    h.source.deleteReplies = [.failure(conflict)]
+    #expect(await h.delete(premium) == .reconfirm)
+    #expect(h.receiptText == "删除没有执行，请重新操作" && h.receiptButton == "重试")
+    h.receipts.performAction(id: try #require(h.receipts.current).id)
+    await settle { h.actions.deletePrompt != nil }
+    #expect(h.actions.deletePrompt?.group == premium && h.source.writes.count == 1)
+
+    let detail = GroupHarness()
+    detail.source.deleteReplies = [.failure(conflict)]
+    #expect(await detail.delete(premium, leaving: {}) == .reconfirm)
+    #expect(detail.receiptText == "删除没有执行，请重新操作" && detail.receiptButton == nil)
 }
 
 // MARK: - 守卫

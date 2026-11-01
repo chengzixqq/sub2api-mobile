@@ -542,6 +542,9 @@
 | S4-06 条目 files 补登 | 实际改动还涉及 Tests/NativeSessionTests/LogsStoreRefreshTests.swift（新建，LogsStoreStateTests.swift 已超 800 行）和 Tests/NativeSessionTests/LogsStoreCountTests.swift（一个用例随回前台行为变化改写）；条件项 Sources/Sub2Core/LogListPolicy+Refresh.swift、NativeApp/Session/LogsStoreState+Refresh.swift 没有建 |
 | 利润明细未对齐时的说明只写前半句 | S4-14：旧服务端逐段有失败（ProfitBreakdown.isReconciled 为 false）时，单图页利润表说明只写“每小时（每天）的利润 = 这段的实际扣费 − 账号成本。”，不写“逐段相加等于合计”（S4D2b-09 ③），待 UI 审查确认 |
 | AnalyticsUITests 旧用例仍接受占位标题“图表” | S4-13 的 testBillingFootOpensTheBillingDetail 与 S4-13b 的 testProfitCardShowsTotalLatestFourRowsAndSelection 仍允许导航栏标题为“图表”（S4-14 之前的占位）；S4-14 之后只会是“计费明细 / 利润明细”，S4-20 收口时可收紧断言并删去“图表 until S4-14”注释 |
+| 路由参数在旧页面上不生效（X39）补记 | .analytics 的 metric 自 S4-16 起生效：概览 RPM / TPM 格进入时优先并写回记忆，只在第一次出现时生效；focus 的滚动由 S4-13 处理。整行留到 S4-20 收口。 |
+| RPM / TPM 性能明细的残桶写法（待用户确认） | 现在照规格写“只覆盖 N 秒”（如“只覆盖 240 秒”），设计稿写的是“只覆盖 N 分钟”；如改成整分钟时写分钟，只需改 PerfTrendPresentation 里的 coverage 一处。卡底桶数取实际点数，近 1 小时永远是 60 桶。 |
+| RPM / TPM 卡在 404 宽限期内的卡头小字 | 刚开启运维的 30 秒内，LiveOpsStore 还认为开着，接口却可能回 404 OPS_DISABLED。这时卡体显示“运维监控未开启”组件并每 30 秒以上重读，但卡头小字仍写“截至现在 · 运维监控”（卡头只读 analyticsOpsDisabled）。如要一致，需要让卡头也读到卡片状态。 |
 
 ### App 与设计 · 阶段 5
 
@@ -633,3 +636,5 @@
 | 全局搜索回到前台补发需视图接线 | S6-20 审查修正 c8680b9 新增了 GlobalSearchSession.foregroundResumed()。持有会话的 SearchHomeView（S6-21，线 B 的 93131e5 尚未合入，也还没接）要加 `.onChange(of: model.foregroundRevision) { _, _ in search?.foregroundResumed() }`；不接的话，进后台时被截断的那几路会一直显示“搜索中…”，直到改输入。合入 S6-21 时或它的审查修正里补上。 |
 | 切站时上一站点在途的推送登记 | 切站会对上一站点的 client 调 cancelAll，正在发的 POST /admin/push/devices 结果不明，服务端可能已经建了设备行。下次连接该站点时会用同一令牌重新登记，拿回 id 后自愈；但在那之前删除该站点，收尾候选里没有这台设备，它会留在服务端。退出和删除当前站点已经改为先等在途登记（最多 10 秒，S6-23 审查修正）；超过 10 秒的登记仍会被取消。 |
 | 跨站点推送点按只等 AppRouter 的全局 sheet | S6-23 审查修正后，点按其他站点的通知时，要等当前站点的全局 sheet（router.presentedSheet）关闭才切站。RootView 层的登录页 sheet（添加站点）和安全验证窗口不在等待条件里：这时点按仍会立刻切站，正在进行的登录会被取消、表单关闭，等待二次验证的写也会被放弃（这些写还没发出）。 |
+| 推送页“可在 Web 删除”提示与事实不符 | 00 §7.6 与 PushPresentation.pendingDeletionNotice 写“有设备未能从站点移除，可在 Web 删除”，但 Web 没有推送界面（60 §7 开头）。S6-24 照规格原文显示；建议改为“有设备未能从站点移除，可在下方“其他接收方式”里删除”。用户同意后由 S6-26 统一改这条文案与站点删除回执，并同步改单测（S6D2b-12） |
+| 本机推送未开启时不显示推送内容 | 订阅挂在设备上，本机没有登记设备时推送页不显示“推送内容”分区（规格没写这种情况），打开开关后才出现，初值是后端默认的告警触发 + 账号出错、P1。如果要在开启前预设订阅，需要先登记再 PUT，待定 |

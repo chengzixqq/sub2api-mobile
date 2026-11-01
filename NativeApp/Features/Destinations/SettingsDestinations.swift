@@ -13,9 +13,9 @@ struct SettingsRouteDestination: View {
         // .accessTokens：S6-02
         case .accessTokens: AccessTokensView()
         // .push：S6-24
-        case .push: ComingSoonView(title: route.placeholderTitle)
+        case .push: PushSettingsView()
         // .pushTarget：S6-24
-        case .pushTarget: ComingSoonView(title: route.placeholderTitle)
+        case .pushTarget(let id): PushTargetDetailView(id: id)
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }

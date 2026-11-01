@@ -79,9 +79,11 @@ struct LogSegment<Record: IncrementalRecord & Decodable>: LogSegmentStatus {
         return LogSegment(list: list, nextPage: nextPage, window: window, phase: recovered ? .loaded : phase,
                           lastError: recovered ? nil : lastError, lastErrorAt: recovered ? nil : lastErrorAt)
     }
-    /// The newest N rows stay, and “加载更多” reads the trim's page next.
+    /// The newest N rows stay, and “加载更多” reads the trim's page next, its 重试 too when it failed.
     func trimmed(_ trim: LogTrim<Record>) -> LogSegment {
-        LogSegment(list: trim.list, nextPage: trim.nextPage, window: window, phase: phase, lastError: lastError, lastErrorAt: lastErrorAt)
+        let kept: LogSegmentPhase = if case .failed(let page) = phase, page > 1 { .failed(page: trim.nextPage) } else { phase }
+        return LogSegment(list: trim.list, nextPage: trim.nextPage, window: window, phase: kept, lastError: lastError,
+                          lastErrorAt: lastErrorAt)
     }
     /// A poll with nothing to continue from read page 1 over `window`: it lands as page 1 does.
     func reloaded(_ reply: Page<Record>, window: LogTimeWindow) -> LogSegment {
