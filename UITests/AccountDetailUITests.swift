@@ -11,7 +11,6 @@ final class AccountDetailUITests: XCTestCase {
         static let detailError = "-ui-account-detail-error"
         static let removed = "-ui-account-removed"
         static let slowDetail = "-ui-account-detail-slow"
-        static let groupTransition = "-ui-account-group-transition"
         static let opsDisabled = "-ui-ops-disabled"
         static let todayThrottled = "-ui-account-today-throttled"
         static let errorSummary = "401 凭据已失效（invalid_api_key）"
@@ -175,28 +174,6 @@ final class AccountDetailUITests: XCTestCase {
         let receipt = app.staticTexts["receipt.text"]
         XCTAssertTrue(receipt.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(receipt.label.hasPrefix("已刷新令牌 · 新令牌 "), receipt.label)
-    }
-
-    /// S2D1-18: the group page's transitional account list pushes the detail itself, and going back stays in that list.
-    @MainActor func testGroupTransitionRowOpensDetailAndBackReturnsToGroupAccounts() {
-        launchAndLogin(arguments: [Fixture.groupTransition])
-        defer { diagnostics("account-detail-group-transition-final") }
-        app.openSearchItem("search.item.groups")
-        let group = app.buttons["group.row.10"]
-        XCTAssertTrue(app.buttons["group.row.4"].waitForExistence(timeout: 10), app.debugDescription)
-        app.scrollUntilExists(group)
-        group.tap()
-        let entry = app.buttons["group.accounts"]
-        app.scrollUntilExists(entry)
-        entry.tap()
-        let row = app.buttons["account.4"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
-        row.tap()
-        XCTAssertTrue(element("account.detail.card").waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.navigationBars["OpenAI-主力-01"].exists, app.debugDescription)
-        goBack()
-        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertFalse(element("account.detail.card").exists, app.debugDescription)
     }
 
     /// The first GET :id is still out (eight seconds here) when the recover dialog covers the page and cancels it: once the

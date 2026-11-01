@@ -306,4 +306,92 @@ final class AnalyticsRankUITests: XCTestCase {
         XCTAssertFalse(app.analyticsElement("analytics.filter.chip").exists, app.debugDescription)
         app.waitForLabel(cardRow(1), containing: "高级组")
     }
+
+    // MARK: 模型页（40 §5，S4-19）
+
+    private static let opsDisabled = "-ui-ops-disabled"
+
+    /// The rank card's first model row, claude-opus-4 as requested, into its page.
+    @MainActor private func openModelFromCard(file: StaticString = #filePath, line: UInt = #line) {
+        openRankCard(file: file, line: line)
+        app.waitForLabel(cardRow(1), containing: "claude-opus-4", file: file, line: line)
+        app.scrollUntilExists(cardRow(1), file: file, line: line)
+        cardRow(1).tap()
+        XCTAssertTrue(app.analyticsElement("analytics.model").waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+    }
+
+    @MainActor func testRankModelRowOpensModelPage() {
+        launch()
+        defer { diagnostics("model-page-final") }
+        openModelFromCard()
+        XCTAssertTrue(app.navigationBars["claude-opus-4"].waitForExistence(timeout: 10), app.debugDescription)
+        let subtitle = app.navigationBars.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "模型 · 近 7 天"))
+        XCTAssertTrue(subtitle.firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+        app.waitForLabel(app.analyticsElement("analytics.model.share"), containing: "实际扣费 · 占全部 2.1%")
+        app.waitForLabel(app.analyticsElement("analytics.model.actual"), containing: "$180.20")
+        app.waitForLabel(app.analyticsElement("analytics.model.change"), containing: "↑ 11.1%")
+        XCTAssertFalse(app.analyticsElement("analytics.model.upstream").exists, app.debugDescription)
+        diagnostics("model-page")
+        for part in ["trend", "usage", "speed", "users"] { app.scrollUntilExists(app.analyticsElement("analytics.model.\(part).header")) }
+        waitForValue(app.analyticsElement("analytics.model.usage.requests"), containing: "1,210")
+        waitForValue(app.analyticsElement("analytics.model.speed.tps"), containing: "52.4")
+        let logs = app.analyticsElement("analytics.model.logs")
+        app.scrollUntilExists(logs)
+        app.waitForLabel(logs, containing: "这个模型的使用记录，近 24 小时 · 带上模型筛选，可以去掉")
+        let alice = app.analyticsElement("analytics.model.user.1")
+        app.waitForLabel(alice, containing: "第 2 名，Alice")
+        app.scrollUntilExists(alice, towardBottom: false)
+        alice.tap()
+        XCTAssertTrue(app.analyticsElement("user.detail").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["Alice"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor func testMappingModelRowShowsArrowTitleAndUpstreamModel() {
+        launch()
+        defer { diagnostics("model-mapping-final") }
+        openRankPage(from: "模型")
+        chooseSort("映射（请求 → 上游）")
+        app.waitForLabel(header, containing: "13 个模型 · 映射")
+        app.waitForLabel(pageRow(1), containing: "claude-opus-4")
+        app.scrollUntilExists(pageRow(1))
+        pageRow(1).tap()
+        XCTAssertTrue(app.navigationBars["claude-opus-4 → claude-opus-4-20250514"].waitForExistence(timeout: 10), app.debugDescription)
+        app.waitForLabel(app.analyticsElement("analytics.model.upstream"), containing: "上游模型 claude-opus-4-20250514")
+        app.waitForLabel(app.analyticsElement("analytics.model.actual"), containing: "$180.20")
+        diagnostics("model-mapping")
+    }
+
+    @MainActor func testModelLogsRowKeepsGroupAndRemovableModelChip() {
+        launch()
+        defer { diagnostics("model-logs-final") }
+        filterByGroup(1)
+        openModelFromCard()
+        app.waitForLabel(app.analyticsElement("analytics.model.share"), containing: "实际扣费 · 占高级组 5.4%")
+        let logs = app.analyticsElement("analytics.model.logs")
+        app.scrollUntilExists(logs)
+        app.waitForLabel(logs, containing: "近 24 小时 · 带上模型和分组筛选，可以去掉")
+        logs.tap()
+        XCTAssertTrue(app.navigationBars["使用记录"].waitForExistence(timeout: 10), app.debugDescription)
+        let model = app.buttons["logs.chip.model"], group = app.buttons["logs.chip.group"]
+        app.waitForLabel(model, containing: "claude-opus-4")
+        app.waitForLabel(group, containing: "高级组")
+        diagnostics("model-logs")
+        model.tap()
+        XCTAssertTrue(model.pollGone(timeout: 5), app.debugDescription)
+        XCTAssertTrue(group.exists, app.debugDescription)
+    }
+
+    /// 40 §5.5: the speed block goes without leaving a gap; the users take its number (叁, checked by AnalyticsModelPageTests).
+    @MainActor func testModelPageHidesSpeedWhenOpsMonitoringIsOff() {
+        launch([Self.opsDisabled])
+        defer { diagnostics("model-ops-off-final") }
+        openModelFromCard()
+        app.waitForLabel(app.analyticsElement("analytics.model.actual"), containing: "$180.20")
+        app.scrollUntilExists(app.analyticsElement("analytics.model.usage.header"))
+        app.scrollUntilExists(app.analyticsElement("analytics.model.users.header"))
+        XCTAssertFalse(app.analyticsElement("analytics.model.speed.header").exists, app.debugDescription)
+        XCTAssertFalse(app.analyticsElement("analytics.model.speed").exists, app.debugDescription)
+        app.scrollUntilExists(app.analyticsElement("analytics.model.logs"))
+        XCTAssertTrue(app.analyticsElement("analytics.model.user.10").exists, app.debugDescription)
+    }
 }

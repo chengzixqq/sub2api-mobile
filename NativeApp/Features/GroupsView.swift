@@ -1,19 +1,6 @@
 import SwiftUI
 import Sub2Core
 
-/// `.group(id:)` until S5-06 rewrites the detail page; the group is read through the session's GroupStore.
-struct GroupDestination: View {
-    @Environment(AppModel.self) private var model
-    let id: Int
-
-    var body: some View {
-        LoadingDestination(loadingText: "正在读取分组…") { _ in
-            guard let store = model.groupStore else { throw CancellationError() }
-            return try await store.fetch(id: id)
-        } content: { GroupDetailView(initial: $0) }
-    }
-}
-
 /// `.groupEdit(id:)` until S5-10's sheet (S5-04): nil opens the old editor for a new group, an id the GroupStore has edits that
 /// group, and an id it does not have says so instead of turning into a new group.
 struct LegacyGroupEditSheet: View {
@@ -40,117 +27,6 @@ struct LegacyGroupEditSheet: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.accessibilityIdentifier("sheet.close") }
                 }
-        }
-    }
-}
-
-private struct GroupDetailView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.sessionContext) private var session
-    @Environment(AppRouter.self) private var router
-    @Environment(\.dismiss) private var dismiss
-    @State private var group: AdminGroup
-    @State private var capacity: GroupCapacitySummary?
-    @State private var capacityDate: Date?
-    @State private var capacityError: String?
-    @State private var error: String?
-    @State private var readTicket = UUID()
-    @State private var capacityTicket = UUID()
-    @State private var editor: GroupEditorTarget?
-    /// S5-05: the 管理 section goes through GroupActions until S5-06's detail.
-    @State private var actions: GroupActions?
-    init(initial: AdminGroup) { _group = State(initialValue: initial) }
-    private var store: GroupStore? { model.groupStore }
-    private var permissions: GroupPermissions { GroupPermissions(me: session?.site.me, isReadOnlyToken: session?.isReadOnlyToken ?? false) }
-    var body: some View {
-        List {
-            Section("分组信息") {
-                LabeledValue(label: "名称", value: group.name)
-                LabeledValue(label: "平台", value: GroupPlatform.title(group.platform))
-                LabeledValue(label: "状态", value: group.status == "active" ? "启用" : "停用")
-                LabeledValue(label: "计费", value: group.subscriptionType == "subscription" ? "订阅" : "按量")
-                LabeledValue(label: "计费倍率", value: group.rateMultiplier.map { NSDecimalNumber(decimal: $0).stringValue } ?? DisplayFormat.missing)
-                LabeledValue(label: "专属分组", value: group.isExclusive.map { $0 ? "是" : "否" } ?? DisplayFormat.missing)
-                LabeledValue(label: "RPM 限额", value: group.rpmLimit.map { $0 == 0 ? "不限制" : DisplayFormat.grouped($0) } ?? DisplayFormat.missing)
-                if let description = group.description, !description.isEmpty { LabeledValue(label: "描述", value: description) }
-                LabeledValue(label: "创建时间", value: ListFieldPresentation.timestamp(group.createdAt))
-                LabeledValue(label: "更新时间", value: ListFieldPresentation.timestamp(group.updatedAt))
-            }
-            if group.subscriptionType == "subscription" {
-                Section("订阅限额") {
-                    LabeledValue(label: "每日", value: group.dailyLimitUSD.map { DisplayFormat.money($0) } ?? "不限制")
-                    LabeledValue(label: "每周", value: group.weeklyLimitUSD.map { DisplayFormat.money($0) } ?? "不限制")
-                    LabeledValue(label: "每月", value: group.monthlyLimitUSD.map { DisplayFormat.money($0) } ?? "不限制")
-                }
-            }
-            Section("账号与容量") {
-                // omitempty counts: a missing value is zero (00 §6.5).
-                LabeledValue(label: "绑定账号", value: DisplayFormat.grouped(group.accountCount ?? 0))
-                LabeledValue(label: "活跃账号", value: DisplayFormat.grouped(group.activeAccountCount ?? 0))
-                LabeledValue(label: "限流账号", value: DisplayFormat.grouped(group.rateLimitedAccountCount ?? 0))
-                if let capacity {
-                    LabeledValue(label: "可调度账号并发", value: ratio(capacity.concurrencyUsed, capacity.concurrencyMax))
-                    LabeledValue(label: "可调度账号会话", value: ratio(capacity.sessionsUsed, capacity.sessionsMax))
-                    LabeledValue(label: "调度 RPM（自然分钟）", value: ratio(capacity.rpmUsed, capacity.rpmMax))
-                }
-                if let capacityDate { Text("容量更新：\(capacityDate.formatted(date: .omitted, time: .standard))").font(.caption).foregroundStyle(.secondary) }
-                if let capacityError { Text(capacityError).font(.caption).foregroundStyle(.secondary) }
-                NavigationLink("查看与管理分组账号") { AccountsView(initialGroupID: group.id) }.accessibilityIdentifier("group.accounts")
-            }
-            Section("用量") {
-                NavigationLink("统计分析") { AnalyticsView(groupID: group.id) }.accessibilityIdentifier("group.analytics")
-                NavigationLink("请求记录") { RequestLogsView(groupID: group.id) }.accessibilityIdentifier("group.logs")
-            }
-            Section("管理") {
-                if let actions { GroupActionMenuItems(group: group, actions: actions, permissions: permissions, showsDivider: false, onEdit: openEditor) }
-            }
-            if let error { Section("处理结果") { Text(error).textSelection(.enabled).accessibilityIdentifier("group.result") } }
-        }
-        .navigationTitle(group.name)
-        .groupActionsHost(actions, leaving: leave)
-        .task { if actions == nil { actions = GroupActions(model: model, router: router) } }
-        .task { await refresh() }
-        .task { await refreshCapacity() }
-        .refreshable { await refresh(); await refreshCapacity() }
-        .onChange(of: model.foregroundRevision) { _, _ in Task { await refresh(); await refreshCapacity() } }
-        .sheet(item: $editor, onDismiss: { Task { await refresh() } }) { GroupEditorView(target: $0) }
-        // The actions' optimistic row and the written group (GroupStore) show here too.
-        .onChange(of: store?.group(id: group.id)) { _, row in if let row { group = row } }
-    }
-    private func openEditor() {
-        guard let context = session, context.generation == model.sessionGeneration else { return }
-        editor = GroupEditorTarget(group: group, context: context, siteName: model.activeProfile?.name ?? "")
-    }
-    /// 50 §0.5: a delete from here pops this page first; a page not on the router's stack closes itself.
-    private func leave() {
-        if !router.leaveGroup(id: group.id) { dismiss() }
-    }
-    private func ratio(_ used: Int?, _ max: Int?) -> String {
-        guard let used, let max else { return DisplayFormat.missing }
-        return "\(DisplayFormat.grouped(used)) / \(DisplayFormat.grouped(max))"
-    }
-    private func refresh() async {
-        guard let store, let context = session, context.generation == model.sessionGeneration else { return }
-        let ticket = UUID(); readTicket = ticket
-        do {
-            let result = try await store.fetch(id: group.id)
-            guard context.generation == model.sessionGeneration, readTicket == ticket, !Task.isCancelled else { return }
-            group = result
-        } catch {
-            guard context.generation == model.sessionGeneration, readTicket == ticket, !(error is CancellationError), !Task.isCancelled else { return }
-            self.error = error.localizedDescription
-        }
-    }
-    private func refreshCapacity() async {
-        guard let context = session, context.generation == model.sessionGeneration, !model.isUITesting else { return }
-        let ticket = UUID(); capacityTicket = ticket
-        do {
-            let result = try await context.client.groupCapacities(groupIDs: [group.id], serverFiltered: context.has(.groupsCapacityFilter)).first
-            guard context.generation == model.sessionGeneration, capacityTicket == ticket, !Task.isCancelled else { return }
-            capacity = result; capacityDate = Date(); capacityError = result == nil ? "当前分组未提供容量数据。" : nil
-        } catch {
-            guard context.generation == model.sessionGeneration, capacityTicket == ticket, !(error is CancellationError), !Task.isCancelled else { return }
-            capacityError = "容量刷新失败，保留上次数据。\(error.localizedDescription)"
         }
     }
 }

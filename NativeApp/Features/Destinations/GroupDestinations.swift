@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// 50: group routes and sheets, named apart from GroupsView.swift's `GroupDestination`. Each case is its own line; a later
-/// item replaces only its case (X40).
+/// 50: group routes and sheets. Each case is its own line; a later item replaces only its case (X40).
 struct GroupRouteDestination: View {
     let route: AppRoute
 
@@ -10,7 +9,7 @@ struct GroupRouteDestination: View {
         // .groups：S5-04
         case .groups(let segment): GroupListView(segment: segment)
         // .group：S5-06
-        case .group(let id): GroupDestination(id: id)
+        case .group(let id): GroupDetailView(id: id)
         // .groupBatch：S5-09
         case .groupBatch: ComingSoonView(title: route.placeholderTitle)
         // .groupKeys：S5-12

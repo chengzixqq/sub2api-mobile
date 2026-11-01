@@ -1,8 +1,8 @@
 import XCTest
 
 /// 50 §1 (S5-04): the group list on the `-ui-testing` site — eleven groups whose buckets are counted from the demo accounts
-/// (GroupFixtures). Timed windows run an hour longer so GLM 组's overload holds for the whole test. Creating, editing and
-/// deleting still go through the old editor and detail, entered from the new list.
+/// (GroupFixtures). Timed windows run an hour longer so GLM 组's overload holds for the whole test. Creating and editing still
+/// go through the old editor, entered from the list and the detail's 编辑分组 (S5-06).
 final class GroupsUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
 
@@ -164,23 +164,22 @@ final class GroupsUITests: XCTestCase {
         XCTAssertTrue(created.label.contains("没有账号"), created.label)
         XCTAssertGreaterThan(created.frame.minY, element("groups.section.attention").frame.minY)
         created.tap()
-        reveal(app.buttons["group.menu.edit"])
-        app.buttons["group.menu.edit"].tap()
+        // S5-06: the detail's button row; a group without accounts has only 编辑分组 until S5-08.
+        reveal(app.buttons["group.action.edit"])
+        app.buttons["group.action.edit"].tap()
         set("移动分组更新", field: "group-editor.name", towardBottom: false)
         set("仅修改描述与名称", field: "group-editor.description")
         confirmEditor()
         // An Any query by the new title also matches the editor TextField's
         // value while the sheet is dismissing. Wait for the destination bar.
         XCTAssertTrue(app.navigationBars["移动分组更新"].waitForExistence(timeout: 10), app.debugDescription)
-        // S5-05: 停用分组… asks first, then says so in a receipt.
-        reveal(app.buttons["group.menu.disable"])
-        app.buttons["group.menu.disable"].tap()
+        // S5-05: 停用分组… (in the detail's ⋯) asks first, then says so in a receipt; 启用分组 then leads the button row.
+        tapMoreItem("停用分组…")
         confirmDisable()
         waitForReceipt("已停用「移动分组更新」")
-        XCTAssertTrue(app.buttons["group.menu.enable"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["group.action.enable"].waitForExistence(timeout: 5), app.debugDescription)
         diagnostics("group-edit-and-status-success")
-        reveal(app.buttons["group.menu.delete"])
-        app.buttons["group.menu.delete"].tap()
+        tapMoreItem("删除分组…")
         typeDeleteName("移动分组更新")
         waitForReceipt("已删除分组「移动分组更新」")
         XCTAssertTrue(app.buttons["groups.create"].waitForExistence(timeout: 10), app.debugDescription)
@@ -188,9 +187,9 @@ final class GroupsUITests: XCTestCase {
         XCTAssertTrue(row(4).exists, app.debugDescription)
     }
 
-    @MainActor func testGroupValidationAndStatisticsNavigation() {
+    @MainActor func testGroupEditorValidation() {
         launchAndOpenGroups()
-        defer { diagnostics("group-validation-navigation-final") }
+        defer { diagnostics("group-validation-final") }
         app.buttons["groups.create"].tap()
         reveal(app.buttons["group-editor.prepare"])
         app.buttons["group-editor.prepare"].tap()
@@ -202,13 +201,6 @@ final class GroupsUITests: XCTestCase {
         app.buttons["group-editor.prepare"].tap()
         reveal(element("group-editor.result"))
         XCTAssertTrue(element("group-editor.result").label.contains("倍率"), app.debugDescription)
-        app.buttons["group-editor.close"].tap()
-        let premium = row(1)
-        app.scrollUntilExists(premium)
-        premium.tap()
-        reveal(app.buttons["group.analytics"])
-        app.buttons["group.analytics"].tap()
-        XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     /// 00 §4.6: a slow usage-summary does not hold back 重试; the list is read again at once.
@@ -320,6 +312,13 @@ final class GroupsUITests: XCTestCase {
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
+    }
+    /// S5-06: the detail's ⋯, then an item by title (UIMenu may drop identifiers), apart from the button row's button.
+    @MainActor private func tapMoreItem(_ title: String) {
+        app.buttons["group.more"].tap()
+        let item = app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'group.action.')", title)).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
+        item.tap()
     }
     /// S5-05: the disable alert's 停用分组.
     @MainActor private func confirmDisable() {
