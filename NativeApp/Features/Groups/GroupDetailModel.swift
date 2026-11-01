@@ -224,16 +224,15 @@ final class GroupDetailModel {
         await shortage.load(isCurrent: { self.isCurrent }) { try await source.shortage(id) }
         noteBackoff(.shortage, shortage.refresh)
     }
-    /// groups/:id/stats, or on an older server the two page totals; not for a vendor or in simple mode (S5D2a-13).
+    /// groups/:id/stats, or on an older server the two page totals; not for a vendor or in simple mode (S5D2a-13). The billing is
+    /// the group's as it stands once stats answered, since the group's own read runs alongside.
     private func loadKeyCounts(if needed: Bool) async {
         guard needed, isCurrent, let session = app?.sessionContext, permissions(session).showsStats else { return }
-        let source = source, id = groupID, masked = session.has(.apiKeysMaskedView), isSubscription = group?.subscriptionType == "subscription"
+        let source = source, id = groupID, masked = session.has(.apiKeysMaskedView)
         await keyCounts.load(isCurrent: { self.isCurrent }) {
-            if let stats = try await source.stats(id) { return GroupKeyCounts(stats) }
-            let keys = try? await source.apiKeyCount(id, masked)
-            var subscriptions: Int?
-            if isSubscription { subscriptions = try? await source.activeSubscriptionCount(id) }
-            return GroupKeyCounts(fallbackTotalAPIKeys: keys, activeSubscriptions: subscriptions)
+            try await GroupKeyCounts.read(stats: { try await source.stats(id) }, apiKeyCount: { try await source.apiKeyCount(id, masked) },
+                                          activeSubscriptions: { try await source.activeSubscriptionCount(id) },
+                                          isSubscription: { @MainActor in self.group.map { $0.subscriptionType == "subscription" } })
         }
     }
 

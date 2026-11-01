@@ -117,6 +117,11 @@ public struct GroupMemberList: Sendable {
     public static func query(groupID: Int, supportsListQuery: Bool) -> AccountListQuery {
         AccountListQuery(group: .id(groupID), sort: .urgency, pageSize: pageSize, supportsListQuery: supportsListQuery)
     }
+    /// 2.3 the member rows' group names: this group by the page's own row, so “另属” leaves it out even before the session's
+    /// directory has loaded (a lite row embeds no names); the others through the directory (C-10), then the row's name or “#id”.
+    public static func groupName(_ id: Int, home: AdminGroup, directory: (Int) -> String?) -> String? {
+        id == home.id ? home.name : directory(id)
+    }
     public init(pages: [AccountListPage], serverSorted: Bool, now: Date) {
         self = GroupMemberList(rows: [], total: 0, pagesRead: 0, serverPages: 0, serverSorted: serverSorted).merging(pages, now: now)
     }
@@ -184,6 +189,17 @@ public struct GroupKeyCounts: Sendable, Equatable {
     /// `groupAPIKeyCount` and, for a subscription group, `activeSubscriptionCount`; each nil when it failed or was not read.
     public init(fallbackTotalAPIKeys: Int?, activeSubscriptions: Int?) {
         self.init(totalAPIKeys: fallbackTotalAPIKeys, activeAPIKeys: nil, subscriptionsTotal: nil, subscriptionsActive: activeSubscriptions)
+    }
+    /// stats, else the fallback. Whether the group bills by subscription is asked only then: a page entered from elsewhere learns
+    /// it from its own first read, which runs alongside. Still unknown reads the count anyway (its row shows for subscription groups).
+    public static func read(stats: @Sendable () async throws -> GroupStats?, apiKeyCount: @Sendable () async throws -> Int,
+                            activeSubscriptions: @Sendable () async throws -> Int,
+                            isSubscription: @Sendable () async -> Bool?) async throws -> GroupKeyCounts {
+        if let stats = try await stats() { return GroupKeyCounts(stats) }
+        let keys = try? await apiKeyCount()
+        var subscriptions: Int?
+        if await isSubscription() != false { subscriptions = try? await activeSubscriptions() }
+        return GroupKeyCounts(fallbackTotalAPIKeys: keys, activeSubscriptions: subscriptions)
     }
 }
 

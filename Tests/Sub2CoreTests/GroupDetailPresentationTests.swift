@@ -165,3 +165,58 @@ private func today(_ cost: String) -> AccountTodayStats {
     renamed.name = "高级组 2"
     #expect(!renamed.matchesIgnoringCounts(group))
 }
+
+// MARK: 审查修正：成员行的本组名、旧服务端的订阅退路
+
+@Test func memberRowsNameThisGroupFromThePageBeforeTheDirectoryLoads() {
+    let home = AdminGroup(id: 1, name: "高级组", platform: "anthropic")
+    // A lite row embeds no group names (dto.AccountListItem), so until the directory loads only the page knows this group's name.
+    let shared = UpstreamAccount(id: 7, name: "Claude-官方-01", platform: "anthropic", type: "oauth", groupIDs: [1, 5])
+    let only = UpstreamAccount(id: 8, name: "Claude-官方-02", platform: "anthropic", type: "oauth", groupIDs: [1])
+    func line(_ account: UpstreamAccount, _ names: [Int: String]) -> String {
+        AccountRowPresentation.secondLine(account, omit: .group, home: home.name, catalog: .builtin,
+                                          directory: { GroupMemberList.groupName($0, home: home, directory: { names[$0] }) })
+    }
+    #expect(line(shared, [:]) == "Anthropic · 另属 #5 · OAuth")
+    #expect(line(only, [:]) == "Anthropic · OAuth")
+    #expect(line(shared, [1: "高级组", 5: "Claude Code 组"]) == "Anthropic · 另属 Claude Code 组 · OAuth")
+    // A directory still holding the old name does not turn this group into “另属”.
+    #expect(line(shared, [1: "旧名", 5: "Claude Code 组"]) == "Anthropic · 另属 Claude Code 组 · OAuth")
+}
+
+private actor KeyCountCalls {
+    private(set) var calls: [String] = []
+    private(set) var isSubscription: Bool?
+    init(isSubscription: Bool?) { self.isSubscription = isSubscription }
+    func record(_ call: String) { calls.append(call) }
+    func learn(isSubscription: Bool) { self.isSubscription = isSubscription }
+}
+
+private func readKeyCounts(_ log: KeyCountCalls, stats: GroupStats?, learnsWhileStatsRuns: Bool? = nil) async throws -> GroupKeyCounts {
+    try await GroupKeyCounts.read(
+        stats: {
+            await log.record("stats")
+            if let learnsWhileStatsRuns { await log.learn(isSubscription: learnsWhileStatsRuns) }
+            return stats
+        },
+        apiKeyCount: { await log.record("keys"); return 3 },
+        activeSubscriptions: { await log.record("subscriptions"); return 12 },
+        isSubscription: { await log.isSubscription })
+}
+
+@Test func keyCountsAskWhetherItIsASubscriptionGroupOnlyOnceStatsSaidOldServer() async throws {
+    // Entered from elsewhere: the group's own read answers while stats is out.
+    let entered = KeyCountCalls(isSubscription: nil)
+    #expect(try await readKeyCounts(entered, stats: nil, learnsWhileStatsRuns: true) == GroupKeyCounts(fallbackTotalAPIKeys: 3, activeSubscriptions: 12))
+    #expect(await entered.calls == ["stats", "keys", "subscriptions"])
+    // Still unknown: read the count anyway (the subscription row only shows for a subscription group).
+    let unknown = KeyCountCalls(isSubscription: nil)
+    #expect(try await readKeyCounts(unknown, stats: nil).subscriptionsActive == 12)
+    let standard = KeyCountCalls(isSubscription: false)
+    #expect(try await readKeyCounts(standard, stats: nil) == GroupKeyCounts(fallbackTotalAPIKeys: 3, activeSubscriptions: nil))
+    #expect(await standard.calls == ["stats", "keys"])
+    let served = GroupStats(totalAPIKeys: 38, activeAPIKeys: 36, subscriptionsTotal: 2, subscriptionsActive: 1)
+    let newer = KeyCountCalls(isSubscription: true)
+    #expect(try await readKeyCounts(newer, stats: served) == GroupKeyCounts(served))
+    #expect(await newer.calls == ["stats"])
+}

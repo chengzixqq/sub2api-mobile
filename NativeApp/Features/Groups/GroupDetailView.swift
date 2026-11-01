@@ -49,6 +49,8 @@ private struct GroupDetailContent: View {
             .groupActionsHost(actions, leaving: leave)
             .task { if actions == nil { actions = GroupActions(model: model, router: router) } }
             .task { await detail.loadCatalog() }
+            // The members' lite rows embed no group names (2.3 “另属”).
+            .task(id: session?.generation) { await model.groupDirectory?.ensureLoaded() }
             .task(id: isOpen) { if isOpen { await detail.poll() } }
             .task(id: wait) { await waitForCountdown(wait) }
             .onAppear { visible = true }
@@ -167,8 +169,11 @@ private struct GroupDetailContent: View {
         guard case .content = page, let group = detail.group else { return "" }
         return GroupFormat.detailSubtitle(group, isSimpleMode: permissions.isSimpleMode, catalog: detail.catalog)
     }
-    /// C-10 names; a group the directory does not know falls back to the row's own name or “#id”.
-    private func groupName(_ id: Int) -> String? { model.groupDirectory?.name(for: id) }
+    /// C-10 names; this group is the page's own, and one the directory does not know falls back to the row's own name or “#id”.
+    private func groupName(_ id: Int) -> String? {
+        guard let group = detail.group else { return model.groupDirectory?.name(for: id) }
+        return GroupMemberList.groupName(id, home: group) { model.groupDirectory?.name(for: $0) }
+    }
     private var serverNow: Date { session?.client.serverClock.now() ?? Date() }
 }
 
