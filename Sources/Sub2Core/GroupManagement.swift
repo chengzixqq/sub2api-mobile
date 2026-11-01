@@ -334,8 +334,8 @@ extension APIClient {
     /// 50 §2.2 fallback, `total` only. `maskedView` is the caller's api_keys.masked_view; an older server sends plain keys,
     /// which never reach a model.
     public func groupAPIKeyCount(id: Int, maskedView: Bool) async throws -> Int {
-        let view = maskedView ? [URLQueryItem(name: "key_view", value: "masked")] : []
-        let reply: PageTotal = try await request("admin/groups/\(validID(id))/api-keys", query: pagination(1, pageSize: 1, search: "", status: nil) + view)
+        let reply: PageTotal = try await request("admin/groups/\(validID(id))/api-keys",
+                                                 query: pagination(1, pageSize: 1, search: "", status: nil) + UserKeyListing.keyView(maskedView))
         return reply.total
     }
     /// 50 §2.2 fallback: the group's active subscriptions, `total` only.
@@ -344,6 +344,17 @@ extension APIClient {
         let reply: PageTotal = try await request("admin/subscriptions", query: pagination(1, pageSize: 1, search: "", status: "active")
                                                  + [URLQueryItem(name: "group_id", value: String(group))])
         return reply.total
+    }
+    /// 50 §6.2 (C-29): page `page` of the keys bound to the group, `id` descending (the handler passes no sort), 20 a page.
+    /// `maskedView` is the caller's api_keys.masked_view; a plaintext an older server still sends never leaves AdminAPIKey's decoder.
+    public func groupAPIKeys(id: Int, page: Int, maskedView: Bool) async throws -> Page<AdminAPIKey> {
+        try await request("admin/groups/\(validID(id))/api-keys",
+                          query: pagination(page, pageSize: GroupRecordsPolicy.pageSize, search: "", status: nil) + UserKeyListing.keyView(maskedView))
+    }
+    /// 50 §7.2 (C-29): page `page` of the group's subscriptions, newest assignment first, 20 a page; the server marks a lapsed
+    /// active one expired and zeroes stale windows before replying.
+    public func groupSubscriptions(id: Int, page: Int) async throws -> Page<AdminUserSubscription> {
+        try await request("admin/groups/\(validID(id))/subscriptions", query: pagination(page, pageSize: GroupRecordsPolicy.pageSize, search: "", status: nil))
     }
     /// 50 §2.2: start_date = end_date = today on the server's calendar (00 §2.8). No row means no request today, a real zero.
     public func groupTodayUsage(id: Int, serverTimeZone zone: ServerTimeZone? = nil) async throws -> GroupTodayUsage {

@@ -13,9 +13,9 @@ struct GroupRouteDestination: View {
         // .groupBatch：S5-09
         case .groupBatch: ComingSoonView(title: route.placeholderTitle)
         // .groupKeys：S5-12
-        case .groupKeys: ComingSoonView(title: route.placeholderTitle)
+        case .groupKeys(let groupID): GroupKeysView(groupID: groupID)
         // .groupSubscriptions：S5-12
-        case .groupSubscriptions: ComingSoonView(title: route.placeholderTitle)
+        case .groupSubscriptions(let groupID): GroupSubscriptionsView(groupID: groupID)
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }

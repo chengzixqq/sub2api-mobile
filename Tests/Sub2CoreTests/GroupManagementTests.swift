@@ -505,3 +505,75 @@ func groupDeleteTreatsNotFoundAsAlreadyGone(keyed: Bool) async throws {
     #expect(throws: APIError.self) { try GroupWriteDraft(.create(GroupCreateRequest(name: " ")), serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
     #expect(throws: APIError.self) { try GroupWriteDraft(.create(GroupCreateRequest(name: "x", platform: "composite")), serverID: serverID, identity: identity, sendsIdempotencyKey: true) }
 }
+
+// MARK: - S5-12 分组 Key 与订阅读接口
+
+private func groupKeyItem(_ id: Int) -> String { #"{"id":\#(id),"name":"Key \#(id)","key_masked":"sk-…k\#(id)","status":"active"}"# }
+
+@Test func groupAPIKeysReadsOnePageOfTwentyWithMaskedViewOnlyWhenAsked() async throws {
+    let reply = #"{"items":[\#(groupKeyItem(20)),\#(groupKeyItem(19))],"total":38,"page":2,"page_size":20}"#
+    let transport = ScriptedTransport(script: [.reply(okReply(reply))])
+    let client = groupScriptedClient(transport)
+    let masked = try await client.groupAPIKeys(id: 1, page: 2, maskedView: true)
+    _ = try await client.groupAPIKeys(id: 1, page: 2, maskedView: false)
+    let sent = await transport.requests
+    #expect(sent.count == 2 && sent.allSatisfy { $0.url?.path == "/api/v1/admin/groups/1/api-keys" && $0.httpMethod == "GET" })
+    #expect(sent.allSatisfy { groupQueryValues($0, "page") == ["2"] && groupQueryValues($0, "page_size") == ["20"] })
+    #expect(groupQueryValues(sent.first, "key_view") == ["masked"] && groupQueryValues(sent.last, "key_view").isEmpty)
+    for name in ["sort_by", "sort_order", "search", "status"] { #expect(sent.allSatisfy { groupQueryValues($0, name).isEmpty }, "\(name)") }
+    #expect(masked.items.map(\.id) == [20, 19] && masked.total == 38 && !masked.hasMore)
+}
+
+@Test func groupAPIKeysNeverKeepsPlaintextKeys() async throws {
+    let plaintext = "sk-plaintext-abcdef123456"
+    let older = #"{"id":3,"key":"\#(plaintext)","name":"老服务端","status":"active","user_id":21,"user":{"id":21,"email":"billing@nova.example","username":"Nova 工作室","status":"disabled"}}"#
+    let newer = #"{"id":2,"key":"","key_masked":"sk-…9xQ2","name":"新服务端","status":"active","user_id":26}"#
+    let reply = #"{"items":[\#(older),\#(newer)],"total":2,"page":1,"page_size":20}"#
+    let client = groupScriptedClient(ScriptedTransport(script: [.reply(okReply(reply))]))
+    let page = try await client.groupAPIKeys(id: 1, page: 1, maskedView: false)
+    #expect(page.items.map(\.keyMasked) == ["sk-…3456", "sk-…9xQ2"])
+    #expect(!String(reflecting: page.items).contains(plaintext) && !"\(page.items)".contains(plaintext))
+    #expect(page.items[0].user == AdminUserSummary(id: 21, email: "billing@nova.example", username: "Nova 工作室", status: "disabled"))
+    #expect(page.items[1].user == nil && page.items[1].userID == 26)
+}
+
+@Test func groupRecordsRejectInvalidIDOrPageBeforeSending() async throws {
+    let transport = ScriptedTransport(script: [.reply(okReply(#"{"items":[],"total":0,"page":1,"page_size":20}"#))])
+    let client = groupScriptedClient(transport)
+    let keys = try #require(await thrownAPIError { _ = try await client.groupAPIKeys(id: 0, page: 1, maskedView: true) })
+    let subscriptions = try #require(await thrownAPIError { _ = try await client.groupSubscriptions(id: -1, page: 1) })
+    for error in [keys, subscriptions] { #expect(error.kind == .validation && error.localizedDescription == "无效的对象编号。") }
+    let page = try #require(await thrownAPIError { _ = try await client.groupSubscriptions(id: 4, page: 0) })
+    let keyPage = try #require(await thrownAPIError { _ = try await client.groupAPIKeys(id: 4, page: 0, maskedView: false) })
+    for error in [page, keyPage] { #expect(error.kind == .validation && error.localizedDescription == "页码必须从 1 开始。") }
+    #expect(await transport.requests.isEmpty)
+}
+
+/// 50 §6.5: only a key_view other than full / masked earns this 400, with an empty reason; reads do not resend a 400.
+@Test func groupAPIKeysInvalidKeyViewIsAPlain400SentOnce() async throws {
+    let body = #"{"code":400,"message":"Invalid key_view, use full/masked","reason":""}"#
+    let transport = ScriptedTransport(script: [.reply(HTTPResponse(statusCode: 400, data: Data(body.utf8)))])
+    let client = groupScriptedClient(transport)
+    let error = try #require(await thrownAPIError { _ = try await client.groupAPIKeys(id: 1, page: 1, maskedView: true) })
+    #expect(error.statusCode == 400 && error.reason == nil && !error.localizedDescription.contains("key_view"))
+    #expect(await transport.requests.count == 1)
+    #expect(GroupRecordsCopy.isParameterError(error))
+}
+
+@Test func groupSubscriptionsReadsOnePageOfTwentyAndDecodesLeniently() async throws {
+    let full = #"{"id":15,"user_id":9,"group_id":4,"starts_at":"2026-09-20T00:00:00Z","expires_at":"2026-10-20T00:00:00Z","status":"active","daily_usage_usd":0,"weekly_usage_usd":18.6,"monthly_usage_usd":270,"assigned_by":1,"notes":"年付","group":{"id":4},"user":{"id":9,"email":"yi.lin@example.com","username":"林一","status":"active"}}"#
+    let sparse = #"{"id":14,"user_id":26,"status":"expired","user":null,"expires_at":"not-a-date"}"#
+    let reply = #"{"items":[\#(full),\#(sparse)],"total":15,"page":1,"page_size":20}"#
+    let transport = ScriptedTransport(script: [.reply(okReply(reply))])
+    let client = groupScriptedClient(transport)
+    let page = try await client.groupSubscriptions(id: 4, page: 1)
+    let sent = try #require(await transport.requests.first)
+    #expect(sent.url?.path == "/api/v1/admin/groups/4/subscriptions" && sent.httpMethod == "GET")
+    #expect(groupQueryValues(sent, "page") == ["1"] && groupQueryValues(sent, "page_size") == ["20"])
+    #expect(groupQueryValues(sent, "status").isEmpty && groupQueryValues(sent, "group_id").isEmpty)
+    let first = page.items[0], second = page.items[1]
+    #expect(first.startsAt != nil && first.expiresAt != nil && first.status == "active" && first.user?.username == "林一")
+    #expect(first.dailyUsageUSD == 0 && first.weeklyUsageUSD == Decimal(string: "18.6") && first.monthlyUsageUSD == 270)
+    #expect(second.userID == 26 && second.user == nil && second.expiresAt == nil && second.dailyUsageUSD == nil)
+    #expect(page.total == 15 && !page.hasMore)
+}
