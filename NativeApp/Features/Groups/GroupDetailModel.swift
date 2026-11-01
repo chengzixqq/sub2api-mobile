@@ -60,6 +60,9 @@ final class GroupDetailModel {
     /// Parsed once per member change; the status card only passes a new `now` (S5D2a-02).
     private(set) var memberSnapshots: [GroupMemberSnapshot] = []
     private(set) var catalog: MetaCatalog = .builtin
+    /// S5-08 (2.4): members swiped out, hidden while their removal is out and, once it went through, until the members are
+    /// read after it; the 60-second refresh leaves them hidden.
+    private(set) var hiddenMemberIDs: Set<Int> = []
 
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private let source: GroupDetailSource
@@ -69,6 +72,8 @@ final class GroupDetailModel {
     @ObservationIgnored private var blockDue: [GroupDetailBlock: Date] = [:]
     @ObservationIgnored private var lastCountdownTarget: Date?
     @ObservationIgnored private var refreshesAfterAction = false
+    /// Members whose removal is out.
+    @ObservationIgnored private var removing: Set<Int> = []
 
     init(app: AppModel, groupID: Int, source: GroupDetailSource? = nil, sectionsSource: GroupDetailSectionsSource? = nil) {
         self.app = app
@@ -136,6 +141,25 @@ final class GroupDetailModel {
     func applyCounts(_ counts: GroupAccountCounts) {
         guard isCurrent else { return }
         group = group?.applyingCounts(counts)
+    }
+    /// S5-08 (S5D2a-10): a member write or a member's status action ended. Its counts first, then the group, the members, their
+    /// today and capacity; a members read that answered shows the rows removed meanwhile for good.
+    func refreshAfterMemberWrite(_ change: GroupMemberChange) async {
+        guard isCurrent, change.groupID == groupID else { return }
+        if let counts = change.counts { applyCounts(counts) }
+        let membersBefore = members.updatedAt
+        await reloadMembers()
+        if members.updatedAt != membersBefore, case .loaded = members.state { hiddenMemberIDs = removing }
+    }
+    /// 2.4 移出: the row leaves at once.
+    func beginRemoval(_ accountID: Int) {
+        removing.insert(accountID)
+        hiddenMemberIDs.insert(accountID)
+    }
+    /// `left`: the account is out of the group, so its row stays away until the members are read again; otherwise it comes back.
+    func endRemoval(_ accountID: Int, left: Bool) {
+        removing.remove(accountID)
+        if !left { hiddenMemberIDs.remove(accountID) }
     }
     /// GroupStore.revision moved (S5D2a-10). A row that differs only in its counts is left; otherwise it shows at once (S5-05's
     /// optimistic status) and the page reads again, after the action when one is running. A vanished row proves nothing: the

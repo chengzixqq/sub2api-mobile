@@ -35,6 +35,10 @@ final class GroupStore {
     private(set) var lastRefreshAt: Date?
     /// Platform names beyond the built-in list (X25), read once per session.
     private(set) var catalog: MetaCatalog?
+    /// S5-08: this session got 500 GROUP_REPOSITORY_UNSUPPORTED, so member writes take the 0.4.4 fallback from now on.
+    private(set) var memberBatchUnsupported = false
+    /// S5-08: the latest member write per group; the detail refreshes when its entry changes.
+    private(set) var memberChanges: [Int: GroupMemberChange] = [:]
     /// Set under `-ui-testing`.
     @ObservationIgnored let fixtures: GroupFixtures?
     @ObservationIgnored private weak var app: AppModel?
@@ -129,6 +133,21 @@ final class GroupStore {
         app?.groupDirectory?.remove(id: id)
     }
     func refreshDirectory() async { await app?.groupDirectory?.refresh() }
+
+    // MARK: - 成员写入（S5-08）
+
+    func noteMemberBatchUnsupported() { memberBatchUnsupported = true }
+    /// The reply's counts go on the row and its directory entry at once, without moving the revision (S5D2a-10); the detail
+    /// reads `memberChanges` and the list reads its three requests again.
+    func noteMemberChange(_ change: GroupMemberChange) {
+        if let counts = change.counts, let row = group(id: change.groupID) {
+            let updated = row.applyingCounts(counts)
+            list = list.updatingValue { rows in rows.map { $0.id == updated.id ? updated : $0 } }
+            app?.groupDirectory?.upsert(updated)
+        }
+        memberChanges[change.groupID] = change
+        Task { await refreshAll() }
+    }
 
     // MARK: - Internals
 

@@ -30,6 +30,8 @@ private struct GroupDetailContent: View {
     @State private var detail: GroupDetailModel
     /// Made once the page shows, with the session's tabs (as the list does).
     @State private var actions: GroupActions?
+    /// S5-08: the member rows' status actions and 移出, made with `actions`.
+    @State private var memberActions: GroupMemberActions?
     @State private var visible = false
     /// Set when the banner opened its alert: back here the banner is read again (2.4).
     @State private var awaitingAlertReturn = false
@@ -50,7 +52,11 @@ private struct GroupDetailContent: View {
                 }
             }
             .groupActionsHost(actions, leaving: leave)
-            .task { if actions == nil { actions = GroupActions(model: model, router: router) } }
+            .groupMemberPrompts(memberActions)
+            .task {
+                if actions == nil { actions = GroupActions(model: model, router: router) }
+                if memberActions == nil { memberActions = GroupMemberActions(model: model, router: router, detail: detail) }
+            }
             .task { await detail.loadCatalog() }
             // The members' lite rows embed no group names (2.3 “另属”).
             .task(id: session?.generation) { await model.groupDirectory?.ensureLoaded() }
@@ -61,6 +67,9 @@ private struct GroupDetailContent: View {
             .onChange(of: model.foregroundRevision) { _, _ in Task { await detail.refresh(.foreground) } }
             .onChange(of: model.groupStore?.revision) { _, _ in detail.storeChanged(whileActionRuns: isActionRunning) }
             .onChange(of: isActionRunning) { _, running in if !running { detail.actionEnded() } }
+            .onChange(of: model.groupStore?.memberChanges[detail.groupID]) { _, change in
+                if let change { Task { await detail.refreshAfterMemberWrite(change) } }
+            }
     }
 
     // MARK: - Pages (50 §2.5)
@@ -85,7 +94,8 @@ private struct GroupDetailContent: View {
                 GroupMembersSection(group: group, members: detail.members, today: detail.memberToday, summary: detail.memberSummary(now: serverNow),
                                     isLoadingMore: detail.isLoadingMoreMembers, loadMoreFailed: detail.loadMoreFailed, catalog: detail.catalog,
                                     groupName: groupName, onOpen: open, onRetry: { Task { await detail.retryMembers() } },
-                                    onLoadMore: { Task { await detail.loadMoreMembers() } })
+                                    onLoadMore: { Task { await detail.loadMoreMembers() } }, memberActions: memberActions, permissions: permissions,
+                                    hidden: detail.hiddenMemberIDs)
                 GroupDetailSections(detail: detail, group: group, buckets: buckets, permissions: permissions, fallbackName: fallbackName(group),
                                     onEdit: { openEditor(group) }, onOpenWeb: { detail.sections.openGroupsInWeb(using: openURL) })
             } else {
@@ -164,7 +174,7 @@ private struct GroupDetailContent: View {
     /// Foreground, visible, nothing over the page (the router's sheets, the actions' confirmations) and no action running.
     private var isRefreshOpen: Bool {
         guard visible, scenePhase == .active, !model.isSuspended, router.presentedSheet == nil, !detail.isDeleted, !isActionRunning else { return false }
-        return actions?.disablePrompt == nil && actions?.deletePrompt == nil
+        return actions?.disablePrompt == nil && actions?.deletePrompt == nil && memberActions?.recovering == nil && memberActions?.removal == nil
     }
     private var isActionRunning: Bool { actions?.isRunning(detail.groupID) ?? false }
     private func waitForCountdown(_ wait: GroupCountdownWait) async {
