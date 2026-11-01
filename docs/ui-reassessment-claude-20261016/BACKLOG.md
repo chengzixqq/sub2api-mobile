@@ -551,6 +551,10 @@
 | 使用记录用户胶囊文字统一 | 从筛选 sheet 选用户时胶囊写邮箱（“用户：xm.wang@example.com”，40 §6.3 示例），从用户详情进入时写用户名（“用户：Alice”，路由带 displayName）；S4-20 收口时决定是否统一 |
 | 按对象筛选 sheet 的停用分组与已选标记 | 分组组显示停用分组但不标“停用”（统计页 AnalyticsFilterSheet 会标），行上也没有“已选中”标记；规格没要求，待定 |
 | LogsStoreStateTests.swift 超过 800 行 | 现在 810 行；S4-07 的 pick 测试已改写到 LogFilterPickerModelTests.swift。S4-08b 等后续条目再加 LogsStoreState 测试时宜新开文件，或拆分这个文件 |
+| 更多图表：.analyticsChart 非计费键转到更多图表页 | 应用内没有入口（40 §3.1），S4-14 的占位保留；如需转向，S4-20 收口时把该分支改为 AnalyticsMoreView(chart: key, topic: nil)（页面内部已自建会话） |
+| 统计会话按（范围, 筛选）保留多份缓存 | 40 §2.6 写“结果按（范围、筛选）缓存到会话结束”，S4-12 状态机每个卡键只存当前一份，切回之前的范围会重新请求；如需多份缓存另立条目 |
+| AnalyticsOpsOffCard 内 ops.disabled.empty 标识被合并 | 外层卡的 .accessibilityElement(children: .contain) + 标识把 OpsDisabledNotice 的 ops.disabled.empty 合并掉了（请求详情页同样包了一层）；S4-18 的 AnalyticsOpsTopic 如需按 ops.disabled.empty 定位，需要换一种包法 |
+| Token 使用趋势长范围性能 | 自选 366 天按天时约 1,500 个 RectangleMark，未实测滚动与点选是否掉帧，留给 S4-20 评估 |
 
 ### App 与设计 · 阶段 5
 
