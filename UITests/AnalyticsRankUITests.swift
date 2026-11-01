@@ -273,6 +273,15 @@ final class AnalyticsRankUITests: XCTestCase {
         XCTAssertTrue(text.exists, app.debugDescription)
         XCTAssertTrue(app.analyticsElement("analytics.rank.retry").exists, app.debugDescription)
         XCTAssertTrue(app.rangeSegment("7 天").exists, app.debugDescription)
+        // The failure keeps the sort menu: a sort that fails too (it is remembered at once) can be changed back.
+        let sort = app.analyticsElement("analytics.rank.sort")
+        waitForValue(sort, containing: "按实际扣费")
+        chooseSort("按请求")
+        waitForValue(sort, containing: "按请求")
+        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
+        chooseSort("按实际扣费")
+        waitForValue(sort, containing: "按实际扣费")
+        XCTAssertTrue(failure.exists, app.debugDescription)
     }
 
     @MainActor func testFullGroupRankingNarrowsWhenFilteredByGroup() {

@@ -380,6 +380,15 @@ enum AnalyticsRankCardPlan {
         }
     }
 
+    /// The card's registered read (S4D2b-02 ②⑤): nothing is read while the segment shown is the filter's own dimension, yet a
+    /// refresh still drops the other two, or their old success would hold the subtitle back and show the old window when picked.
+    @MainActor static func read(_ session: AnalyticsSessionState, showing: AnalyticsRankDimension, refresh: Bool,
+                                load: @MainActor () async -> Void) async {
+        if refresh { dropHidden(session, showing: showing) }
+        guard !showing.isNarrowed(by: session.filter) else { return }
+        await load()
+    }
+
     @MainActor private static func isReading(_ dimension: AnalyticsRankDimension, in session: AnalyticsSessionState) -> Bool {
         let key = key(for: dimension)
         return switch dimension {
