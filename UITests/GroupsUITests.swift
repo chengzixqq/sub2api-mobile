@@ -1,7 +1,151 @@
 import XCTest
 
+/// 50 §1 (S5-04): the group list on the `-ui-testing` site — eleven groups whose buckets are counted from the demo accounts
+/// (GroupFixtures). Timed windows run an hour longer so GLM 组's overload holds for the whole test. Creating, editing and
+/// deleting still go through the old editor and detail, entered from the new list.
 final class GroupsUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
+
+    private enum Fixture {
+        static let listFailure = "-ui-group-list-failure"
+        static let refreshFailure = "-ui-group-refresh-failure"
+        static let usageFailure = "-ui-group-usage-failure"
+        static let empty = "-ui-group-empty"
+        static let segment = "-ui-group-segment"
+        static let withoutCapabilities = "-ui-without-capabilities"
+    }
+
+    @MainActor func testListSplitsIntoAttentionNormalAndOffInOrder() {
+        launchAndOpenGroups()
+        defer { diagnostics("groups-list-sections-final") }
+        XCTAssertEqual(element("groups.section.attention").label, "需处理 6")
+        XCTAssertTrue(text(containing: "· 5 个分组无可用账号").waitForExistence(timeout: 10), app.debugDescription)
+        // none before low; the same share by sort_order.
+        assertOrder([4, 7, 9, 10, 11, 2])
+        let normal = element("groups.section.normal")
+        app.scrollUntilExists(normal)
+        XCTAssertEqual(normal.label, "正常 4")
+        // The available share ascending.
+        assertOrder([1, 3, 5, 8])
+        let off = element("groups.section.off")
+        app.scrollUntilExists(off)
+        XCTAssertEqual(off.label, "停用 1")
+        app.scrollUntilExists(row(6))
+        XCTAssertTrue(element("groups.footnote").exists, app.debugDescription)
+    }
+
+    @MainActor func testRowsShowAvailabilityBreakdownBillingAndToday() {
+        launchAndOpenGroups()
+        defer { diagnostics("groups-list-rows-final") }
+        assertLabel(row(4), contains: ["企业专线", "OpenAI", "专属", "无可用账号", "可用 0 / 1", "错误 1", "费率倍数 ×1.2 · 订阅计费", "今日 $0.00"])
+        assertLabel(row(10), contains: ["Antigravity 组", "没有账号", "可用 0 / 0", "今日 $0.00"])
+        assertLabel(row(2), contains: ["标准组", "可用偏低", "可用 1 / 2", "错误 1"])
+        assertLabel(row(1), contains: ["高级组", "Anthropic", "可用 2 / 3", "受限 1", "费率倍数 ×0.8 · 标准计费", "今日 $933.30"])
+        for word in ["专属", "可用偏低", "无可用账号", "没有账号", "已停用"] { XCTAssertFalse(row(1).label.contains(word), row(1).label) }
+        assertLabel(row(6), contains: ["测试组", "Gemini", "已停用", "暂停·停用 1", "今日 $10.80"])
+    }
+
+    @MainActor func testSearchFiltersByNameOrPlatformAndShowsNoMatch() {
+        launchAndOpenGroups()
+        defer { diagnostics("groups-list-search-final") }
+        let field = app.searchFields["分组名称或平台"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), app.debugDescription)
+        field.tap()
+        field.typeText("智谱")
+        XCTAssertTrue(row(7).waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(row(4).waitForNonExistence(timeout: 5), app.debugDescription)
+        field.typeText(deletes(2) + "anthropic")
+        XCTAssertTrue(row(1).waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(row(5).exists, app.debugDescription)
+        XCTAssertFalse(row(2).exists, app.debugDescription)
+        XCTAssertFalse(row(7).exists, app.debugDescription)
+        field.typeText(deletes(9) + "不存在的分组")
+        let none = element("groups.search.empty")
+        XCTAssertTrue(none.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(none.label, "没有匹配的分组")
+        field.typeText(deletes(6))
+        XCTAssertTrue(row(4).waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(none.exists, app.debugDescription)
+    }
+
+    @MainActor func testUsageFailureShowsDashOnEveryRow() {
+        launchAndOpenGroups(arguments: [Fixture.usageFailure])
+        defer { diagnostics("groups-list-usage-failure-final") }
+        waitForLabel(row(4), contains: "今日无数据")
+        XCTAssertFalse(row(4).label.contains("今日 $"), row(4).label)
+        app.scrollUntilExists(row(1))
+        waitForLabel(row(1), contains: "今日无数据")
+        XCTAssertFalse(element("groups.refresh.retry").exists, app.debugDescription)
+        XCTAssertFalse(element("groups.list.failure").exists, app.debugDescription)
+    }
+
+    @MainActor func testListFailureShowsErrorStateAndRetryLoads() {
+        launchAndOpenGroups(arguments: [Fixture.listFailure], waitsForRows: false)
+        defer { diagnostics("groups-list-failure-final") }
+        let failure = element("groups.list.failure")
+        XCTAssertTrue(failure.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(row(4).exists, app.debugDescription)
+        app.buttons["groups.list.retry"].tap()
+        XCTAssertTrue(row(4).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(failure.waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testRefreshFailureKeepsRowsUnderBanner() {
+        launchAndOpenGroups(arguments: [Fixture.refreshFailure])
+        defer { diagnostics("groups-list-refresh-failure-final") }
+        app.pullToRefresh(from: row(4))
+        let strip = app.buttons["groups.refresh.retry"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(strip.label.contains("刷新失败"), strip.label)
+        XCTAssertTrue(row(4).exists, app.debugDescription)
+        XCTAssertFalse(element("groups.list.failure").exists, app.debugDescription)
+    }
+
+    @MainActor func testOldServerCountsErrorsFromAccountsAndJudgesShortageLocally() {
+        launchAndOpenGroups(arguments: [Fixture.withoutCapabilities, "groups.account_buckets,accounts.status_summary"])
+        defer { diagnostics("groups-list-old-server-final") }
+        // F04's fallback counts 企业专线's error account; without it the account would read 暂停·停用.
+        waitForLabel(row(4), contains: "错误 1")
+        XCTAssertFalse(row(4).label.contains("暂停·停用"), row(4).label)
+        let normal = element("groups.section.normal")
+        app.scrollUntilExists(normal)
+        XCTAssertEqual(normal.label, "正常 5")
+        // The local half rule: 1 of 2 is not short.
+        app.scrollUntilExists(row(2))
+        XCTAssertFalse(row(2).label.contains("可用偏低"), row(2).label)
+        XCTAssertGreaterThan(row(2).frame.minY, normal.frame.minY)
+    }
+
+    @MainActor func testEmptySiteOffersNewGroup() {
+        launchAndOpenGroups(arguments: [Fixture.empty], waitsForRows: false)
+        defer { diagnostics("groups-list-empty-final") }
+        let empty = element("groups.empty")
+        XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(empty.label, "还没有分组")
+        let create = app.buttons["groups.empty.create"]
+        XCTAssertTrue(create.isEnabled, app.debugDescription)
+        create.tap()
+        XCTAssertTrue(element("group-editor.name").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["创建分组"].exists, app.debugDescription)
+    }
+
+    @MainActor func testReadOnlyTokenGreysNewGroup() {
+        launchAndOpenGroups(arguments: ["-ui-readonly-token"], accessToken: "sat_fixture-readonly")
+        defer { diagnostics("groups-list-read-only-final") }
+        let create = app.buttons["groups.create"]
+        XCTAssertTrue(create.exists, app.debugDescription)
+        XCTAssertFalse(create.isEnabled, app.debugDescription)
+        waitForLabel(row(4), contains: "今日 $0.00")
+    }
+
+    @MainActor func testSegmentRouteScrollsToSection() {
+        launchAndOpenGroups(arguments: [Fixture.segment, "off"], waitsForRows: false)
+        defer { diagnostics("groups-list-segment-final") }
+        let target = row(6)
+        let reached = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"), object: target)
+        XCTAssertEqual(XCTWaiter().wait(for: [reached], timeout: 10), .completed, app.debugDescription)
+        XCTAssertTrue(element("groups.section.off").isHittable, app.debugDescription)
+    }
 
     @MainActor func testCreateEditStatusAndDeleteGroup() {
         launchAndOpenGroups()
@@ -12,8 +156,13 @@ final class GroupsUITests: XCTestCase {
         set("1.25", field: "group-editor.rate")
         set("90", field: "group-editor.rpm")
         confirmEditor()
-        XCTAssertTrue(app.buttons["group.12"].waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["group.12"].tap()
+        // A new group has no account yet: 需处理, “没有账号”.
+        let created = row(12)
+        XCTAssertTrue(created.waitForExistence(timeout: 10), app.debugDescription)
+        app.scrollUntilExists(created)
+        XCTAssertTrue(created.label.contains("没有账号"), created.label)
+        XCTAssertGreaterThan(created.frame.minY, element("groups.section.attention").frame.minY)
+        created.tap()
         reveal(app.buttons["group.edit"])
         app.buttons["group.edit"].tap()
         set("移动分组更新", field: "group-editor.name", towardBottom: false)
@@ -34,8 +183,8 @@ final class GroupsUITests: XCTestCase {
         app.buttons["group.delete"].tap()
         confirmDialog()
         XCTAssertTrue(app.buttons["groups.create"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertFalse(app.buttons["group.12"].exists, app.debugDescription)
-        XCTAssertTrue(app.buttons["group.10"].exists)
+        XCTAssertTrue(created.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(row(4).exists, app.debugDescription)
     }
 
     @MainActor func testGroupValidationAndStatisticsNavigation() {
@@ -53,22 +202,57 @@ final class GroupsUITests: XCTestCase {
         reveal(element("group-editor.result"))
         XCTAssertTrue(element("group-editor.result").label.contains("倍率"), app.debugDescription)
         app.buttons["group-editor.close"].tap()
-        app.buttons["group.10"].tap()
+        let premium = row(1)
+        app.scrollUntilExists(premium)
+        premium.tap()
         reveal(app.buttons["group.analytics"])
         app.buttons["group.analytics"].tap()
         XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    @MainActor private func launchAndOpenGroups() {
+    // MARK: - Helpers
+
+    /// Password sign-in, or the access-token method for `accessToken` (`-ui-readonly-token` makes it read-only); then 搜索 →
+    /// 资源 · 分组.
+    @MainActor private func launchAndOpenGroups(arguments: [String] = [], accessToken: String? = nil, waitsForRows: Bool = true) {
         continueAfterFailure = false
-        app = XCUIApplication(); app.launchArguments = ["-ui-testing"]; app.launchQuietly()
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-accounts-long-windows"] + arguments; app.launchQuietly()
         set("分组管理验收", field: "login.name", towardBottom: false)
         set("https://groups-ui.example.invalid", field: "login.url")
-        set("admin@example.com", field: "login.email")
-        set("fixture-password", field: "login.password")
+        if let accessToken {
+            let method = app.buttons["login.method.adminKey"]
+            reveal(method); method.tap()
+            set(accessToken, field: "login.key")
+        } else {
+            set("admin@example.com", field: "login.email")
+            set("fixture-password", field: "login.password")
+        }
         reveal(app.buttons["login.submit"]); app.buttons["login.submit"].tap()
         app.openSearchItem("search.item.groups")
-        XCTAssertTrue(app.buttons["group.10"].waitForExistence(timeout: 10), app.debugDescription)
+        if waitsForRows { XCTAssertTrue(row(4).waitForExistence(timeout: 10), app.debugDescription) }
+    }
+    @MainActor private func row(_ id: Int) -> XCUIElement { app.buttons["group.row.\(id)"] }
+    /// Each row above the next; the lower one is scrolled between the bars first.
+    @MainActor private func assertOrder(_ ids: [Int], file: StaticString = #filePath, line: UInt = #line) {
+        for (upper, lower) in zip(ids, ids.dropFirst()) {
+            let below = row(lower), above = row(upper)
+            app.scrollUntilExists(below, file: file, line: line)
+            XCTAssertTrue(above.exists, "group.row.\(upper) missing\n\(app.debugDescription)", file: file, line: line)
+            XCTAssertLessThan(above.frame.minY, below.frame.minY, "group.row.\(upper) should come before group.row.\(lower)", file: file, line: line)
+        }
+    }
+    @MainActor private func assertLabel(_ item: XCUIElement, contains parts: [String], file: StaticString = #filePath, line: UInt = #line) {
+        app.scrollUntilExists(item, file: file, line: line)
+        for part in parts { XCTAssertTrue(item.label.contains(part), "“\(part)” missing in “\(item.label)”", file: file, line: line) }
+    }
+    @MainActor private func waitForLabel(_ item: XCUIElement, contains text: String, file: StaticString = #filePath, line: UInt = #line) {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: item)
+        XCTAssertEqual(XCTWaiter().wait(for: [expectation], timeout: 10), .completed, "\(item.label) ∌ \(text)\n\(app.debugDescription)",
+                       file: file, line: line)
+    }
+    private func deletes(_ count: Int) -> String { String(repeating: XCUIKeyboardKey.delete.rawValue, count: count) }
+    @MainActor private func text(containing part: String) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", part)).firstMatch
     }
     @MainActor private func confirmEditor() {
         reveal(app.buttons["group-editor.prepare"]); app.buttons["group-editor.prepare"].tap()

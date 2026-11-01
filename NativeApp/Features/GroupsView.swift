@@ -1,163 +1,51 @@
 import SwiftUI
-import Observation
 import Sub2Core
 
-@MainActor @Observable
-private final class GroupWorkspace {
-    var revision = 0
-    var fixtureGroups = [
-        AdminGroup(id: 10, name: "标准分组", description: "按量使用", rateMultiplier: Decimal(string: "1.2"), accountCount: 2, activeAccountCount: 2),
-        AdminGroup(id: 11, name: "高级分组", description: "订阅用户", platform: "anthropic", isExclusive: true, subscriptionType: "subscription", dailyLimitUSD: 20, weeklyLimitUSD: 100, monthlyLimitUSD: 300, rpmLimit: 60, accountCount: 1, activeAccountCount: 1)
-    ]
-    func list(context: SessionContext, fixture: Bool, page: Int, search: String, platform: String, status: String) async throws -> Page<AdminGroup> {
-        if !fixture { return try await context.client.groups(page: page, search: search, platform: platform.isEmpty ? nil : platform, status: status.isEmpty ? nil : status) }
-        let rows = fixtureGroups.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && (platform.isEmpty || $0.platform == platform) && (status.isEmpty || $0.status == status) }
-        return Page(items: page == 1 ? rows : [], total: rows.count, page: page, pageSize: 20, pages: rows.isEmpty ? 0 : 1)
-    }
-    func get(_ id: Int, context: SessionContext, fixture: Bool) async throws -> AdminGroup {
-        if !fixture { return try await context.client.group(id: id) }
-        guard let group = fixtureGroups.first(where: { $0.id == id }) else { throw APIError.server(status: 404, reason: nil) }
-        return group
-    }
-    func create(_ input: GroupCreateRequest, operation: GroupWriteOperation, context: SessionContext, fixture: Bool) async throws -> AdminGroup {
-        if !fixture { let result = try await context.client.createGroup(operation).value; revision += 1; return result }
-        try input.validate()
-        let row = AdminGroup(id: (fixtureGroups.map(\.id).max() ?? 11) + 1, name: input.name, description: input.description,
-            platform: input.platform, rateMultiplier: input.rateMultiplier, isExclusive: input.isExclusive, subscriptionType: input.subscriptionType,
-            dailyLimitUSD: value(input.dailyLimitUSD), weeklyLimitUSD: value(input.weeklyLimitUSD), monthlyLimitUSD: value(input.monthlyLimitUSD), rpmLimit: input.rpmLimit, accountCount: 0, activeAccountCount: 0)
-        fixtureGroups.insert(row, at: 0); revision += 1; return row
-    }
-    func update(_ id: Int, input: GroupUpdateRequest, operation: GroupWriteOperation, context: SessionContext, fixture: Bool) async throws -> AdminGroup {
-        if !fixture { let result = try await context.client.updateGroup(operation).value; revision += 1; return result }
-        try input.validate(); var row = try await get(id, context: context, fixture: true)
-        if let name = input.name { row.name = name }; if let description = input.description { row.description = description }
-        if let rate = input.rateMultiplier { row.rateMultiplier = rate }; if let exclusive = input.isExclusive { row.isExclusive = exclusive }
-        if let status = input.status { row.status = status }; if let subscription = input.subscriptionType { row.subscriptionType = subscription }
-        if let rpm = input.rpmLimit { row.rpmLimit = rpm }
-        if let limit = input.dailyLimitUSD { row.dailyLimitUSD = value(limit) }; if let limit = input.weeklyLimitUSD { row.weeklyLimitUSD = value(limit) }
-        if let limit = input.monthlyLimitUSD { row.monthlyLimitUSD = value(limit) }
-        if let index = fixtureGroups.firstIndex(where: { $0.id == id }) { fixtureGroups[index] = row }
-        revision += 1; return row
-    }
-    func delete(_ id: Int, operation: GroupWriteOperation, context: SessionContext, fixture: Bool) async throws -> GroupDeleteResult {
-        if !fixture { let result = try await context.client.deleteGroup(operation).value; revision += 1; return result }
-        fixtureGroups.removeAll { $0.id == id }; revision += 1; return .deleted
-    }
-    private func value(_ change: GroupLimitChange) -> Decimal? { switch change { case .unlimited: nil; case .amount(let value): value } }
-}
-
-struct GroupsView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.sessionContext) private var session
-    @State private var workspace = GroupWorkspace()
-    @State private var groups: [AdminGroup] = []
-    @State private var search = ""
-    @State private var platform = ""
-    @State private var status = ""
-    @State private var page = 0
-    @State private var hasMore = false
-    @State private var loading = false
-    @State private var error: String?
-    @State private var failedPage: Int?
-    @State private var ticket = UUID()
-    @State private var pageTask: Task<Void, Never>?
-    @State private var editor: GroupEditorTarget?
-    private var query: String { search + "|" + platform + "|" + status }
-
-    var body: some View {
-        List {
-            Section("筛选") {
-                Picker("平台", selection: $platform) {
-                    Text("全部平台").tag("")
-                    ForEach(GroupPlatform.values, id: \.self) { Text(GroupPlatform.title($0)).tag($0) }
-                }.accessibilityIdentifier("groups.platform")
-                Picker("状态", selection: $status) {
-                    Text("全部状态").tag(""); Text("启用").tag("active"); Text("停用").tag("inactive")
-                }.accessibilityIdentifier("groups.status")
-            }
-            Section("分组") {
-                ForEach(groups) { group in
-                    NavigationLink {
-                        GroupDetailView(initial: group).environment(workspace)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(group.name).font(.headline)
-                            Text("\(GroupPlatform.title(group.platform)) · \(group.status == "active" ? "启用" : "停用") · \(group.subscriptionType == "subscription" ? "订阅" : "按量")").font(.caption).foregroundStyle(.secondary)
-                            Text("倍率 \(group.rateMultiplier.map { NSDecimalNumber(decimal: $0).stringValue } ?? DisplayFormat.missing) · 账号 \(DisplayFormat.grouped(group.accountCount ?? 0)) · RPM 限额 \(group.rpmLimit.map { $0 == 0 ? "不限制" : DisplayFormat.grouped($0) } ?? DisplayFormat.missing)").font(.caption).foregroundStyle(.secondary)
-                            if let description = group.description, !description.isEmpty { Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                        }.padding(.vertical, 4)
-                    }.accessibilityIdentifier("group.\(group.id)")
-                }
-                if groups.isEmpty && !loading && error == nil { Text("没有符合条件的分组").foregroundStyle(.secondary) }
-                if hasMore { Button("加载更多分组") { startLoad(page + 1) }.disabled(loading).frame(minHeight: 44).accessibilityIdentifier("groups.more") }
-                if loading { ProgressView("正在加载分组…") }
-                if let error {
-                    Text(error).foregroundStyle(.red)
-                    Button("重试") { startLoad(failedPage ?? 1, replace: (failedPage ?? 1) == 1) }.frame(minHeight: 44)
-                }
-            }
-        }
-        .navigationTitle("分组")
-        .searchable(text: $search, prompt: "搜索分组名称")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) {
-            Button("创建分组", systemImage: "plus") {
-                if let session, session.generation == model.sessionGeneration {
-                    editor = GroupEditorTarget(group: nil, context: session, siteName: model.activeProfile?.name ?? "")
-                }
-            }.accessibilityIdentifier("groups.create")
-        } }
-        .sheet(item: $editor, onDismiss: { startLoad(1, replace: true) }) { GroupEditorView(target: $0).environment(workspace) }
-        .refreshable { await load(1, replace: true) }
-        // A load cancelled by going to the background ends silently; reload on return (D18).
-        .onChange(of: model.foregroundRevision) { _, _ in startLoad(1, replace: true) }
-        .task(id: query) {
-            pageTask?.cancel()
-            ticket = UUID(); loading = false; groups = []; page = 0; hasMore = false; error = nil; failedPage = nil
-            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
-            await load(1, replace: true)
-        }
-        .task(id: workspace.revision) {
-            guard workspace.revision > 0 else { return }
-            await load(1, replace: true)
-        }
-        .onDisappear { pageTask?.cancel(); ticket = UUID(); loading = false }
-    }
-    private func startLoad(_ page: Int, replace: Bool = false) {
-        guard !loading else { return }
-        pageTask?.cancel(); pageTask = Task { await load(page, replace: replace) }
-    }
-    private func load(_ nextPage: Int, replace: Bool = false) async {
-        guard !loading, let context = session, context.generation == model.sessionGeneration else { return }
-        let current = UUID(); let querySnapshot = query; ticket = current; loading = true; error = nil
-        defer { if ticket == current { loading = false } }
-        do {
-            let result = try await workspace.list(context: context, fixture: model.isUITesting, page: nextPage, search: search, platform: platform, status: status)
-            guard context.generation == model.sessionGeneration, ticket == current, query == querySnapshot, !Task.isCancelled else { return }
-            groups = replace ? result.items : groups + result.items.filter { next in !groups.contains { $0.id == next.id } }
-            page = result.page; hasMore = result.hasMore; failedPage = nil
-        } catch {
-            guard context.generation == model.sessionGeneration, ticket == current, query == querySnapshot, !(error is CancellationError), !Task.isCancelled else { return }
-            self.error = error.localizedDescription; failedPage = nextPage
-        }
-    }
-}
-
-/// `.group(id:)` until 50 §2 rewrites the detail page; kept in this file for the file-private workspace and detail.
+/// `.group(id:)` until S5-06 rewrites the detail page; the group is read through the session's GroupStore.
 struct GroupDestination: View {
     @Environment(AppModel.self) private var model
-    @State private var workspace = GroupWorkspace()
     let id: Int
 
     var body: some View {
-        LoadingDestination(loadingText: "正在读取分组…") { session in
-            try await workspace.get(id, context: session, fixture: model.isUITesting)
-        } content: { GroupDetailView(initial: $0).environment(workspace) }
+        LoadingDestination(loadingText: "正在读取分组…") { _ in
+            guard let store = model.groupStore else { throw CancellationError() }
+            return try await store.fetch(id: id)
+        } content: { GroupDetailView(initial: $0) }
+    }
+}
+
+/// `.groupEdit(id:)` until S5-10's sheet (S5-04): nil opens the old editor for a new group, an id the GroupStore has edits that
+/// group, and an id it does not have says so instead of turning into a new group.
+struct LegacyGroupEditSheet: View {
+    let id: Int?
+    @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        if let session, session.generation == model.sessionGeneration {
+            if let id {
+                if let group = model.groupStore?.group(id: id) { GroupEditorView(target: target(group, session: session)) } else { missing }
+            } else {
+                GroupEditorView(target: target(nil, session: session))
+            }
+        }
+    }
+    private func target(_ group: AdminGroup?, session: SessionContext) -> GroupEditorTarget {
+        GroupEditorTarget(group: group, context: session, siteName: model.activeProfile?.name ?? "")
+    }
+    private var missing: some View {
+        NavigationStack {
+            ContentUnavailableView("找不到这个分组", systemImage: "questionmark.folder", description: Text("返回列表刷新后再试"))
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.accessibilityIdentifier("sheet.close") }
+                }
+        }
     }
 }
 
 private struct GroupDetailView: View {
     @Environment(AppModel.self) private var model
-    @Environment(GroupWorkspace.self) private var workspace
     @Environment(\.sessionContext) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var group: AdminGroup
@@ -172,6 +60,7 @@ private struct GroupDetailView: View {
     @State private var uncertainAction: GroupDetailAction?
     @State private var editor: GroupEditorTarget?
     init(initial: AdminGroup) { _group = State(initialValue: initial) }
+    private var store: GroupStore? { model.groupStore }
     var body: some View {
         List {
             Section("分组信息") {
@@ -235,7 +124,7 @@ private struct GroupDetailView: View {
         .task { await refreshCapacity() }
         .refreshable { await refresh(); await refreshCapacity() }
         .onChange(of: model.foregroundRevision) { _, _ in Task { await refresh(); await refreshCapacity() } }
-        .sheet(item: $editor, onDismiss: { Task { await refresh() } }) { GroupEditorView(target: $0).environment(workspace) }
+        .sheet(item: $editor, onDismiss: { Task { await refresh() } }) { GroupEditorView(target: $0) }
         .confirmationDialog(confirmAction?.title ?? "确认操作", isPresented: Binding(get: { confirmAction != nil }, set: { if !$0 { confirmAction = nil } }), titleVisibility: .visible) {
             if let action = confirmAction { Button("确认发送", role: .destructive) { Task { await perform(action) } } }
         } message: {
@@ -247,10 +136,10 @@ private struct GroupDetailView: View {
         return "\(DisplayFormat.grouped(used)) / \(DisplayFormat.grouped(max))"
     }
     private func refresh() async {
-        guard !busy, let context = session, context.generation == model.sessionGeneration else { return }
+        guard !busy, let store, let context = session, context.generation == model.sessionGeneration else { return }
         let ticket = UUID(); readTicket = ticket
         do {
-            let result = try await workspace.get(group.id, context: context, fixture: model.isUITesting)
+            let result = try await store.fetch(id: group.id)
             guard context.generation == model.sessionGeneration, readTicket == ticket, !Task.isCancelled else { return }
             group = result
         } catch {
@@ -271,7 +160,7 @@ private struct GroupDetailView: View {
         }
     }
     private func perform(_ action: GroupDetailAction) async {
-        guard !busy, uncertainAction == nil, let context = session, context.generation == model.sessionGeneration else { return }
+        guard !busy, uncertainAction == nil, let store, let context = session, context.generation == model.sessionGeneration else { return }
         // 60 §3.4: a delete is verified after its confirmation; a failed or cancelled check sends nothing.
         if action == .delete {
             guard await model.biometricGate.authorize(.delete), !busy, context.generation == model.sessionGeneration else { return }
@@ -285,11 +174,11 @@ private struct GroupDetailView: View {
             case .delete:
                 // Deleted or already gone (50 §0.8): either way the group is no longer there.
                 let operation = try GroupWriteOperation.delete(groupID: group.id, serverID: context.serverID, identity: identity, sendsIdempotencyKey: keyed)
-                _ = try await workspace.delete(group.id, operation: operation, context: context, fixture: model.isUITesting)
+                _ = try await store.legacyDelete(id: group.id, operation: operation, context: context)
             case .status(let status):
                 let input = GroupUpdateRequest(status: status)
                 let operation = try GroupWriteOperation.update(groupID: group.id, input, serverID: context.serverID, identity: identity, sendsIdempotencyKey: keyed)
-                let result = try await workspace.update(group.id, input: input, operation: operation, context: context, fixture: model.isUITesting)
+                let result = try await store.legacyUpdate(id: group.id, input, operation: operation, context: context)
                 guard context.generation == model.sessionGeneration else { return }; group = result
             }
             guard context.generation == model.sessionGeneration else { return }
@@ -301,10 +190,10 @@ private struct GroupDetailView: View {
         }
     }
     private func reconcile() async {
-        guard !busy, let action = uncertainAction, let context = session, context.generation == model.sessionGeneration else { return }
+        guard !busy, let action = uncertainAction, let store, let context = session, context.generation == model.sessionGeneration else { return }
         busy = true; defer { busy = false }
         do {
-            let result = try await workspace.get(group.id, context: context, fixture: model.isUITesting)
+            let result = try await store.fetch(id: group.id)
             guard context.generation == model.sessionGeneration, !Task.isCancelled else { return }
             group = result
             if case .status(let value) = action, result.status == value { uncertainAction = nil; error = "服务器当前状态已与目标一致。" }
@@ -332,7 +221,6 @@ private struct GroupEditorTarget: Identifiable {
 private struct GroupEditorView: View {
     let target: GroupEditorTarget
     @Environment(AppModel.self) private var model
-    @Environment(GroupWorkspace.self) private var workspace
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var description = ""
@@ -352,6 +240,7 @@ private struct GroupEditorView: View {
     @State private var message: String?
     @State private var discardAlert = false
     private var isCurrent: Bool { target.context.generation == model.sessionGeneration && target.context.serverID == model.activeProfile?.id }
+    private var store: GroupStore? { model.groupStore }
     init(target: GroupEditorTarget) {
         self.target = target
         if let group = target.group {
@@ -469,14 +358,14 @@ private struct GroupEditorView: View {
         } catch { message = error.localizedDescription }
     }
     private func send() async {
-        guard !busy, !uncertain, isCurrent, var draft = prepared else { return }
+        guard !busy, !uncertain, isCurrent, let store, var draft = prepared else { return }
         busy = true; defer { busy = false }
         do {
             // Saved before sending, so an unconfirmed result keeps this number and these bytes.
             let operation = try draft.confirmedOperation(); prepared = draft
             switch draft.intent {
-            case .create(let input): _ = try await workspace.create(input, operation: operation, context: target.context, fixture: model.isUITesting)
-            case .update(let id, let input): _ = try await workspace.update(id, input: input, operation: operation, context: target.context, fixture: model.isUITesting)
+            case .create(let input): _ = try await store.legacyCreate(input, operation: operation, context: target.context)
+            case .update(let id, let input): _ = try await store.legacyUpdate(id: id, input, operation: operation, context: target.context)
             }
             guard isCurrent else { return }; self.prepared = nil; dismiss()
         } catch {
@@ -488,19 +377,19 @@ private struct GroupEditorView: View {
         }
     }
     private func reconcile() async {
-        guard !busy, uncertain, isCurrent, let prepared else { return }
+        guard !busy, uncertain, isCurrent, let store, let prepared else { return }
         busy = true; defer { busy = false }
         do {
             switch prepared.intent {
             case .update(let id, let input):
-                let result = try await workspace.get(id, context: target.context, fixture: model.isUITesting)
+                let result = try await store.fetch(id: id)
                 guard isCurrent, !Task.isCancelled else { return }
                 if input.matches(result) { message = "服务器当前字段已与本次修改一致，可关闭此页。"; uncertain = false; reconciled = true; self.prepared = nil }
                 else { message = "服务器当前字段与目标仍不一致。原请求可能仍在处理，请在本站 Web 后台核对；本页不会重发。" }
             case .create(let input):
-                let result = try await workspace.list(context: target.context, fixture: model.isUITesting, page: 1, search: input.name, platform: input.platform, status: "")
+                let result = try await store.legacySearch(name: input.name, platform: input.platform, context: target.context)
                 guard isCurrent, !Task.isCancelled else { return }
-                let exact = result.items.filter { $0.name == input.name }.map { "#\($0.id) \($0.name)" }.joined(separator: "、")
+                let exact = result.filter { $0.name == input.name }.map { "#\($0.id) \($0.name)" }.joined(separator: "、")
                 message = exact.isEmpty ? "当前查询尚未发现同名分组，仍无法确认原创建请求是否完成。请在 Web 核对后再操作。" : "查询到同名分组：\(exact)。同名不能证明是本次创建，请在 Web 核对；本页不会重复创建。"
             }
         } catch { guard isCurrent, !(error is CancellationError) else { return }; message = "核对未完成。\(error.localizedDescription)" }
@@ -522,5 +411,47 @@ private func groupKeyedFailureMessage(_ failure: KeyedWriteFailure) -> String {
     case .needsNewKey: "请求未执行，请重新核对并确认。\n\(failure.localizedDescription)"
     case .unconfirmed(.storeUnavailable, _): "服务器暂时无法受理，结果待确认。请稍后读取服务器状态核对。"
     case .unconfirmed: "结果待确认：服务器可能已执行。请先读取服务器状态核对；本页不会再发送这次请求。"
+    }
+}
+
+/// The old detail's and editor's writes (S5-04), deleted with this file (S5-10). Fixtures write through GroupFixtures' entry
+/// points; a success lands in the list and the group directory, and the list reads again when it next appears.
+extension GroupStore {
+    func legacyCreate(_ input: GroupCreateRequest, operation: GroupWriteOperation, context: SessionContext) async throws -> AdminGroup {
+        try requireLive(context)
+        let created: AdminGroup
+        if let fixture = fixtureContext { created = try fixture.fixtures.createGroup(input, accounts: fixture.accounts, now: fixture.now) }
+        else { created = try await context.client.createGroup(operation).value }
+        try requireLive(context)
+        upsert(created); setNeedsRefresh()
+        return created
+    }
+    func legacyUpdate(id: Int, _ input: GroupUpdateRequest, operation: GroupWriteOperation, context: SessionContext) async throws -> AdminGroup {
+        try requireLive(context)
+        let updated: AdminGroup
+        if let fixture = fixtureContext { updated = try fixture.fixtures.updateGroup(id: id, input, accounts: fixture.accounts, now: fixture.now) }
+        else { updated = try await context.client.updateGroup(operation).value }
+        try requireLive(context)
+        upsert(updated); setNeedsRefresh()
+        return updated
+    }
+    /// Deleted or already gone (50 §0.8): either way the group leaves the list.
+    func legacyDelete(id: Int, operation: GroupWriteOperation, context: SessionContext) async throws -> GroupDeleteResult {
+        try requireLive(context)
+        let result: GroupDeleteResult
+        if let fixture = fixtureContext { fixture.fixtures.removeGroup(id: id); result = .deleted }
+        else { result = try await context.client.deleteGroup(operation).value }
+        try requireLive(context)
+        remove(id: id); setNeedsRefresh()
+        return result
+    }
+    /// The creation check: groups of that platform whose name or description contains the name.
+    func legacySearch(name: String, platform: String, context: SessionContext) async throws -> [AdminGroup] {
+        try requireLive(context)
+        if let fixture = fixtureContext { return fixture.fixtures.searchGroups(name: name, platform: platform, accounts: fixture.accounts, now: fixture.now) }
+        return try await context.client.groups(page: 1, search: name, platform: platform).items
+    }
+    private func requireLive(_ context: SessionContext) throws {
+        guard context.generation == generation, isLive else { throw CancellationError() }
     }
 }

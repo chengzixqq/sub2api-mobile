@@ -8,7 +8,7 @@ struct GroupRouteDestination: View {
     var body: some View {
         switch route {
         // .groups：S5-04
-        case .groups: GroupsView()
+        case .groups(let segment): GroupListView(segment: segment)
         // .group：S5-06
         case .group(let id): GroupDestination(id: id)
         // .groupBatch：S5-09
@@ -29,7 +29,7 @@ struct GroupSheetDestination: View {
     var body: some View {
         switch sheet {
         // .groupEdit：S5-04（临时接旧编辑器）→ S5-10
-        case .groupEdit: ComingSoonSheet(title: sheet.placeholderTitle)
+        case .groupEdit(let id): LegacyGroupEditSheet(id: id)
         // .groupPick：S5-08
         case .groupPick: ComingSoonSheet(title: sheet.placeholderTitle)
         // 其他区域：SheetDestination 不会分派到这里

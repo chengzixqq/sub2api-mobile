@@ -32,7 +32,7 @@ extension DemoData {
         static let removed = "-ui-account-removed"
         /// `GET :id` answers eight seconds late, so something covering the detail meanwhile cancels it (S2-08).
         static let slowDetail = "-ui-account-detail-slow"
-        /// OpenAI-主力-01 and OpenAI-备用-A also belong to group 10, which the group page's old fixture lists (GroupsView), so its
+        /// OpenAI-主力-01 and OpenAI-备用-A also belong to group 10 (Antigravity 组 on the group list), so the old group detail's
         /// transitional “查看与管理分组账号” has rows (S2-08).
         static let groupTransition = "-ui-account-group-transition"
         /// The detail's first `GET :id/today-stats` answers 429 with retry_after 8 (S2-09); later reads work.
@@ -98,14 +98,15 @@ extension DemoData {
         }
     }
 
-    /// The design's DEMO.groups and 11 Codex 专线 (S3D1-15): the App's only group fixture (X11). Member counts follow the demo
-    /// accounts; S5-04 only adds the fields S5-01 brings.
+    /// The design's DEMO.groups and 11 Codex 专线 (S3D1-15): the App's only group fixture (X11). These counts are only read outside a
+    /// session; in one, the group directory and the group pages count the demo accounts live (GroupFixtures, S5-04).
     static let accountGroups: [AdminGroup] = [
         demoGroup(1, "高级组", "anthropic", rate: "0.8", members: 3, active: 3, rateLimited: 1),
-        demoGroup(2, "标准组", "openai", rate: "0.8", rpm: 600, members: 2, active: 1),
+        demoGroup(2, "标准组", "openai", rate: "0.8", rpm: 600, members: 2, active: 1, error: 1),
         demoGroup(3, "默认组", "deepseek", rate: "0.8", members: 1, active: 1),
-        demoGroup(4, "企业专线", "openai", rate: "1.2", exclusive: true, subscription: "subscription", rpm: 120, limits: (20, 100, 300), members: 1, active: 0),
-        demoGroup(5, "Claude Code 组", "anthropic", rate: "0.8", exclusive: true, rpm: 60, members: 2, active: 2),
+        demoGroup(4, "企业专线", "openai", rate: "1.2", exclusive: true, subscription: "subscription", rpm: 120, limits: (20, 100, 300), members: 1, active: 0,
+                  error: 1),
+        demoGroup(5, "Claude Code 组", "anthropic", rate: "0.8", exclusive: true, rpm: 60, members: 2, active: 2, claudeCodeOnly: true, fallback: 1),
         demoGroup(6, "测试组", "gemini", rate: "0.6", status: "inactive", members: 1, active: 1),
         demoGroup(7, "GLM 组", "zhipu", rate: "0.8", members: 1, active: 1),
         demoGroup(8, "Kimi 组", "kimi", rate: "0.8", members: 1, active: 1),
@@ -116,11 +117,12 @@ extension DemoData {
 
     private static func demoGroup(_ id: Int, _ name: String, _ platform: String, rate: String, status: String = "active", exclusive: Bool = false,
                                   subscription: String = "standard", rpm: Int = 0, limits: (Decimal, Decimal, Decimal)? = nil, members: Int,
-                                  active: Int, rateLimited: Int = 0) -> AdminGroup {
+                                  active: Int, rateLimited: Int = 0, error: Int = 0, claudeCodeOnly: Bool = false, fallback: Int? = nil) -> AdminGroup {
         AdminGroup(id: id, name: name, description: "", platform: platform, status: status, rateMultiplier: Decimal(string: rate), isExclusive: exclusive,
                    subscriptionType: subscription, dailyLimitUSD: limits?.0, weeklyLimitUSD: limits?.1, monthlyLimitUSD: limits?.2, rpmLimit: rpm,
                    accountCount: members, activeAccountCount: active, rateLimitedAccountCount: rateLimited, billingLocked: false,
-                   createdAt: "2026-07-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z", sortOrder: id)
+                   createdAt: "2026-07-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z", sortOrder: id, errorAccountCount: error,
+                   idleAccountCount: max(0, members - active - rateLimited - error), claudeCodeOnly: claudeCodeOnly, fallbackGroupID: fallback)
     }
 
     /// The design's DEMO.accounts (ids 1–5, 7–12), decoded from the backend's wire keys. Windows are offsets from `base`, the
