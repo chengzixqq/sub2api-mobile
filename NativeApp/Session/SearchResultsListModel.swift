@@ -27,10 +27,12 @@ extension SearchHit {
 }
 
 /// 60 §2.3 / §2.6: page 1 on appearance and on pull, the next page when the last row shows. A failed refresh keeps the rows;
-/// nothing is read during a 429 wait (00 §2.7.2); a page that lands after a newer page 1 was asked for is dropped. No polling.
+/// nothing is read during a 429 wait, which ends in one read of what it held back (00 §2.7.2); a read the suspend cut off goes
+/// out again on return (00 §4.6, D18); a page that lands after a newer page 1 was asked for is dropped. No polling.
 @MainActor @Observable
 final class SearchResultsListModel {
     enum NextPage: Equatable, Sendable { case idle, loading, failed }
+    private enum Read { case firstPage, nextPage }
 
     let kind: SearchResultKind
     let query: GlobalSearchQuery
@@ -42,6 +44,8 @@ final class SearchResultsListModel {
     @ObservationIgnored private let now: @MainActor () -> Date
     /// Changes with every page-1 read; a reply carrying an older one is dropped.
     @ObservationIgnored private var ticket = UUID()
+    /// Reads the suspend cancelled, sent again by `foregroundResumed()`.
+    @ObservationIgnored private var cutOff: Set<Read> = []
 
     init(kind: SearchResultKind, query: GlobalSearchQuery, fetch: @escaping @Sendable (Int) async throws -> SearchHitPage,
          now: @escaping @MainActor () -> Date = { Date() }) {
@@ -59,6 +63,7 @@ final class SearchResultsListModel {
         guard refresh.allowsRequest(at: now()) else { return }
         let ticket = UUID()
         self.ticket = ticket
+        cutOff = []
         nextPage = .idle
         state = state.withLoading()
         let result = await Self.capture(fetch, page: 1)
@@ -69,6 +74,7 @@ final class SearchResultsListModel {
             refresh = refresh.recordingSuccess()
         case .failure(let error) where error is CancellationError:
             state = state.withCancelledLoad()
+            cutOff.insert(.firstPage)
         case .failure(let error):
             state = state.withFailure(error.localizedDescription)
             refresh = refresh.recordingFailure(error, at: now())
@@ -84,10 +90,22 @@ final class SearchResultsListModel {
         guard nextPage == .failed else { return }
         await readNextPage()
     }
+    /// Back from the background: only what the suspend cut off goes out again; nothing else is read on return (60 §2.6).
+    func foregroundResumed() async {
+        if cutOff.contains(.firstPage) { return await load() }
+        if cutOff.contains(.nextPage), nextPage == .idle { await readNextPage() }
+    }
+    /// A 429 wait ended: page 1 or the next page it held back is read once (“N 秒后自动重试”).
+    func resumeAfterWait() async {
+        guard refresh.notBefore != nil, refresh.allowsRequest(at: now()) else { return }
+        if state.failureReason != nil { return await load() }
+        if nextPage == .failed { await readNextPage() }
+    }
 
     private func readNextPage() async {
-        guard case .loaded(let snapshot, _) = state, let page = snapshot.nextPage else { return }
+        guard case .loaded(let snapshot, _) = state, let page = snapshot.nextPage, refresh.allowsRequest(at: now()) else { return }
         let ticket = self.ticket
+        cutOff.remove(.nextPage)
         nextPage = .loading
         let result = await Self.capture(fetch, page: page)
         guard ticket == self.ticket else { return }
@@ -95,8 +113,13 @@ final class SearchResultsListModel {
         case .success(let next):
             state = state.updatingValue { $0.appending(next) }
             nextPage = .idle
+            refresh = refresh.recordingSuccess()
+        case .failure(let error) where error is CancellationError:
+            nextPage = .idle
+            cutOff.insert(.nextPage)
         case .failure(let error):
-            nextPage = error is CancellationError ? .idle : .failed
+            nextPage = .failed
+            refresh = refresh.recordingFailure(error, at: now())
         }
     }
     private nonisolated static func capture(_ fetch: @Sendable (Int) async throws -> SearchHitPage, page: Int) async -> Result<SearchHitPage, any Error> {

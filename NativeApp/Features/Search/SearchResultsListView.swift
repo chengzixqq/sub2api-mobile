@@ -3,7 +3,8 @@ import Sub2Core
 
 /// 60 §2.3 “查看全部” (`.searchResults(kind:query:)`): one kind's search 20 a page on the search tab's own stack, with the rows and
 /// destinations of the results. Page 1 on entering and on pull, the next page at the end; no polling (60 §2.6). A query the
-/// search could not send shows the two-character hint and reads nothing (S6D2b-04).
+/// search could not send shows the two-character hint and reads nothing (S6D2b-04). A 429 shows its countdown and reads again
+/// when it ends (00 §2.7.2); a read the suspend cut off goes out again on return (D18).
 struct SearchResultsListView: View {
     let kind: SearchResultKind
     let text: String
@@ -22,6 +23,8 @@ struct SearchResultsListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .task(id: session?.generation) { await start() }
             .task { await loadNames() }
+            .task(id: list?.refresh.notBefore) { await retryAfterWait() }
+            .onChange(of: model.foregroundRevision) { _, _ in Task { await list?.foregroundResumed() } }
     }
 
     private var query: GlobalSearchQuery? { GlobalSearchQuery(text) }
@@ -35,8 +38,12 @@ struct SearchResultsListView: View {
             case .placeholder, .disabled:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityIdentifier("search.list.loading")
             case .failed(let reason):
-                FailureView(message: list.throttleMessage() ?? reason ?? "") { Task { await list.load() } }
-                    .accessibilityElement(children: .contain).accessibilityIdentifier("search.list.failure")
+                // No 重试 during a 429 wait; the page reads again on its own when it ends.
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    let throttle = list.refresh.throttleMessage(at: timeline.date)
+                    FailureView(message: throttle ?? reason ?? "", retry: throttle == nil ? { Task { await list.load() } } : nil)
+                }
+                .accessibilityElement(children: .contain).accessibilityIdentifier("search.list.failure")
             case .value(let snapshot, _, _, let updateFailed):
                 rows(snapshot, list: list, updateFailed: updateFailed)
             }
@@ -70,21 +77,25 @@ struct SearchResultsListView: View {
     /// The next page loading or “加载失败 · 重试”; after a failed pull the rows stay and the same line reads page 1 again.
     @ViewBuilder private func footer(_ list: SearchResultsListModel, updateFailed: Bool) -> some View {
         if updateFailed {
-            retryRow(id: "search.list.refresh.retry", throttle: list.throttleMessage()) { await list.load() }
+            retryRow(id: "search.list.refresh.retry", list: list) { await list.load() }
         } else {
             switch list.nextPage {
             case .loading: ProgressView().frame(maxWidth: .infinity, minHeight: 44).accessibilityIdentifier("search.list.more.loading")
-            case .failed: retryRow(id: "search.list.more.retry", throttle: nil) { await list.retryNextPage() }
+            case .failed: retryRow(id: "search.list.more.retry", list: list) { await list.retryNextPage() }
             case .idle: EmptyView()
             }
         }
     }
-    private func retryRow(id: String, throttle: String?, action: @escaping @MainActor () async -> Void) -> some View {
-        Button(throttle ?? GlobalSearchCopy.nextPageFailure) { Task { await action() } }
-            .font(.subheadline)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .disabled(throttle != nil)
-            .accessibilityIdentifier(id)
+    /// During a 429 wait the countdown, every second, instead of the button (00 §2.7.2).
+    private func retryRow(id: String, list: SearchResultsListModel, action: @escaping @MainActor () async -> Void) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            let throttle = list.refresh.throttleMessage(at: timeline.date)
+            Button(throttle ?? GlobalSearchCopy.nextPageFailure) { Task { await action() } }
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .disabled(throttle != nil)
+                .accessibilityIdentifier(id)
+        }
     }
 
     /// Page 1 once: back from a row's detail the pages stay; a read cancelled before it landed goes out again.
@@ -94,6 +105,14 @@ struct SearchResultsListView: View {
         list = current
         guard case .idle = current.state else { return }
         await current.load()
+    }
+    /// “请求过于频繁，N 秒后自动重试”: once the wait is over, what it held back is read once (00 §2.7.2).
+    private func retryAfterWait() async {
+        guard let list, let notBefore = list.refresh.notBefore else { return }
+        let wait = notBefore.timeIntervalSinceNow
+        if wait > 0 { do { try await Task.sleep(for: .seconds(wait)) } catch { return } }
+        // Not part of this task: the read clearing the wait restarts it, which must not stop the read.
+        Task { await list.resumeAfterWait() }
     }
     private func makeList(session: SessionContext, query: GlobalSearchQuery) -> SearchResultsListModel {
         let source = model.globalSearchSource(for: session), kind = self.kind

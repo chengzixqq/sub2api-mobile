@@ -22,6 +22,8 @@ struct SearchHomeView: View {
         // On the root inside the tab, not on the TabView: the field opens the keyboard only when tapped (60 §1.1).
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索全部对象")
         .onChange(of: query) { _, text in searchTextChanged(text) }
+        // Sections the suspend cut off go out again on return (D18).
+        .onChange(of: model.foregroundRevision) { _, _ in search?.foregroundResumed() }
     }
 
     /// Every change, clearing included, goes to the session (debounce, cancelling and the cache are its own, S6-20).

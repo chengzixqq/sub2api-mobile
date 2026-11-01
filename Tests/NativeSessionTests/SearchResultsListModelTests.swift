@@ -184,3 +184,90 @@ private func decoded<Value: Decodable>(_ type: Value.Type, _ json: String) throw
         #expect(id == 13 && initial.value.id == 13)
     } else { Issue.record("error route") }
 }
+
+// MARK: - Suspend and 429 (00 §4.6 D18, 00 §2.7.2)
+
+private let rateLimited = APIError.server(status: 429, envelope: nil, retryAfter: 5)
+
+@MainActor private final class TestClock {
+    var now = Date(timeIntervalSince1970: 1_800_000_000)
+    func advance(_ seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
+}
+@MainActor private func makeModel(_ stub: PageStub, clock: TestClock) -> SearchResultsListModel {
+    SearchResultsListModel(kind: .users, query: query("example"), fetch: { try await stub.page($0) }, now: { clock.now })
+}
+
+@MainActor @Test func searchListFirstPageCutOffGoesOutAgainOnForeground() async {
+    let stub = PageStub([1: [.failure(CancellationError()), .success(firstPage)]])
+    let model = makeModel(stub)
+    await model.load()
+    guard case .placeholder = model.state.display else { Issue.record("not back to the placeholder"); return }
+
+    await model.foregroundResumed()
+    #expect(model.hits.count == 20)
+    #expect(await stub.asked == [1, 1])
+}
+
+@MainActor @Test func searchListNextPageCutOffGoesOutAgainOnForeground() async {
+    let stub = PageStub([1: [.success(firstPage)], 2: [.failure(CancellationError()), .success(secondPage)]])
+    let model = makeModel(stub)
+    await model.load()
+    await model.loadNextPage()
+    #expect(model.nextPage == .idle)
+
+    await model.foregroundResumed()
+    #expect(model.hits.count == 26)
+    #expect(await stub.asked == [1, 2, 2])
+}
+
+@MainActor @Test func searchListForegroundReadsNothingWithoutACutOffRead() async {
+    let stub = PageStub([1: [.success(firstPage)], 2: [.failure(failure)]])
+    let model = makeModel(stub)
+    await model.load()
+    await model.loadNextPage()
+
+    await model.foregroundResumed()
+    #expect(model.nextPage == .failed)
+    #expect(await stub.asked == [1, 2])
+}
+
+@MainActor @Test func searchListFirstPage429WaitsThenReadsOnce() async {
+    let clock = TestClock()
+    let stub = PageStub([1: [.failure(rateLimited), .success(firstPage)]])
+    let model = makeModel(stub, clock: clock)
+    await model.load()
+    #expect(model.throttleMessage() == "请求过于频繁，5 秒后自动重试")
+
+    await model.load()
+    await model.resumeAfterWait()
+    #expect(await stub.asked == [1])
+
+    clock.advance(5)
+    await model.resumeAfterWait()
+    #expect(model.hits.count == 20)
+    #expect(model.throttleMessage() == nil)
+    await model.resumeAfterWait()
+    #expect(await stub.asked == [1, 1])
+}
+
+@MainActor @Test func searchListNextPage429HoldsEveryReadUntilTheWaitEnds() async {
+    let clock = TestClock()
+    let stub = PageStub([1: [.success(firstPage)], 2: [.failure(rateLimited), .success(secondPage)]])
+    let model = makeModel(stub, clock: clock)
+    await model.load()
+    await model.loadNextPage()
+    #expect(model.nextPage == .failed)
+    #expect(model.throttleMessage() == "请求过于频繁，5 秒后自动重试")
+
+    await model.retryNextPage()
+    await model.load()
+    await model.resumeAfterWait()
+    #expect(await stub.asked == [1, 2])
+    #expect(model.hits.count == 20)
+
+    clock.advance(5)
+    await model.resumeAfterWait()
+    #expect(model.hits.count == 26)
+    #expect(model.nextPage == .idle)
+    #expect(await stub.asked == [1, 2, 2])
+}
