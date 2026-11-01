@@ -149,12 +149,29 @@ private func stats(accountCost: String?) -> HTTPResponse {
     #expect(read.cost(for: buckets[0]) == 4 && read.cost(for: buckets[3]) == 4)
     #expect(read.cost(for: buckets[1]) == nil && read.cost(for: buckets[2]) == nil)
     #expect(Set(read.segments.keys) == [buckets[0].wireKey, buckets[3].wireKey])
+    // A 500 is that segment's alone: nothing holds the rest back.
+    #expect(read.rateLimit == nil)
 }
 
 @Test func profitSegmentCostsStopsSendingAfterA429() async throws {
-    let transport = ScriptedTransport { _ in errorReply(429) }
+    let transport = ScriptedTransport { _ in errorReply(429, headers: ["Retry-After": "120"]) }
     let query = AnalyticsQuery(start: today.start, end: today.end, granularity: .hour, timeZone: shanghai)
     let read = try await segmentClient(transport).profitSegmentCosts(query, buckets: Array(today.buckets[0..<6]))
     #expect(await transport.requests(path: "admin/usage/stats").count == AnalyticsFanOut.maxConcurrent)
     #expect(read.segments.isEmpty)
+    // The 429 comes back with its Retry-After, so the block waits it out (00 §2.7.2).
+    #expect(read.rateLimit?.statusCode == 429 && read.rateLimit?.retryAfter == 120)
+}
+
+@Test func profitSegmentCostsKeepWhatWasReadBeforeA429() async throws {
+    let buckets = Array(today.buckets[0..<4])
+    let limited = ServerTime.utcTimestamp(buckets[1].start)
+    let transport = ScriptedTransport { request in
+        sentItems(request)["start_time"] == limited ? errorReply(429, headers: ["Retry-After": "45"]) : stats(accountCost: "2.00")
+    }
+    let query = AnalyticsQuery(start: today.start, end: today.end, granularity: .hour, timeZone: shanghai)
+    let read = try await segmentClient(transport).profitSegmentCosts(query, buckets: buckets)
+    #expect(read.cost(for: buckets[0]) == 2 && read.cost(for: buckets[2]) == 2 && read.cost(for: buckets[3]) == 2)
+    #expect(read.cost(for: buckets[1]) == nil)
+    #expect(read.rateLimit?.retryAfter == 45)
 }

@@ -198,6 +198,8 @@ extension AnalyticsFixtures {
         /// The trend has no `account_cost` (the totals do): the card reads each bucket's `usage/stats`, and the third bucket from
         /// the end fails.
         static let legacyTrend = "-ui-analytics-legacy-trend"
+        /// With `legacyTrend`, the failing segment's read gets a 429 (Retry-After 300 seconds): the card counts down (00 §2.7.2).
+        static let throttledSegments = "-ui-analytics-throttled-segments"
     }
 
     /// $50.00 in cents.
@@ -207,7 +209,9 @@ extension AnalyticsFixtures {
     @MainActor static func profitSegments(_ session: AnalyticsSession, buckets: [AnalyticsBucket]) async throws -> ProfitSegmentCosts {
         let costs = Dictionary(trendPoints(session, withAccountCost: true).map { ($0.date, $0.accountCost) }, uniquingKeysWith: { _, later in later })
         let failing = max(0, session.range.buckets.count - 3)
-        return ProfitSegmentCosts(buckets, costs: buckets.map { $0.index == failing ? nil : costs[$0.wireKey] ?? nil })
+        let throttled = ProcessInfo.processInfo.arguments.contains(ProfitArgument.throttledSegments) && buckets.contains { $0.index == failing }
+        return ProfitSegmentCosts(buckets, costs: buckets.map { $0.index == failing ? nil : costs[$0.wireKey] ?? nil },
+                                  rateLimit: throttled ? APIError.server(status: 429, envelope: nil, retryAfter: 300) : nil)
     }
 
     /// -ui-analytics-loss: nil without it, or when no bucket can take the loss.
