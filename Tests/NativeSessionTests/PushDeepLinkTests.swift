@@ -176,9 +176,37 @@ private func payload(_ type: String?, site: String? = siteA.id.uuidString.lowerc
     let coordinator = makePushCoordinator(store.records)
     let navigator = PushStubNavigator(active: siteA.id, profiles: [siteA, siteB])
     await coordinator.openTap(PushDeepLink.parse(payload("account.error", site: siteB.id.uuidString, ["account_id": 7])), navigator: navigator)
-    #expect(navigator.opened == [siteB.id])
+    // Site A's tabs switch, once no sheet is in use.
+    #expect(navigator.opened.isEmpty)
     #expect(coordinator.pendingTarget?.serverID == siteB.id)
+    await coordinator.openPendingSite(from: AppRouter(), navigator: navigator)
+    #expect(navigator.opened == [siteB.id])
     #expect(coordinator.takeTarget(for: siteB.id) == .account(id: 7))
+
+    // Without a connected site there are no tabs to wait for.
+    let idle = PushStubNavigator(active: nil, profiles: [siteA, siteB])
+    await coordinator.openTap(PushDeepLink.parse(payload("ops_alert.fired", site: siteB.id.uuidString, ["alert_event_id": 41])), navigator: idle)
+    #expect(idle.opened == [siteB.id])
+    #expect(coordinator.takeTarget(for: siteB.id) == .alert(id: 41))
+}
+
+/// S6D2b-07 for another site: switching rebuilds the tabs and cancels site A's requests, so a write in the sheet would be lost.
+@MainActor @Test func otherSiteTapWaitsForTheOpenSheet() async {
+    let store = PushTestDefaults(); defer { store.clear() }
+    let coordinator = makePushCoordinator(store.records)
+    let navigator = PushStubNavigator(active: siteA.id, profiles: [siteA, siteB])
+    await coordinator.openTap(PushDeepLink.parse(payload("account.error", site: siteB.id.uuidString, ["account_id": 7])), navigator: navigator)
+    let pending = coordinator.pendingTarget
+    let router = AppRouter()
+    router.present(.balanceKeypad(userID: 1, mode: .topup))
+    #expect(!coordinator.deliverPending(to: router, activeServerID: siteA.id, showsTestResult: { _ in false }))
+    await coordinator.openPendingSite(from: router, navigator: navigator)
+    #expect(navigator.opened.isEmpty)
+    #expect(coordinator.pendingTarget == pending)
+    router.presentedSheet = nil
+    await coordinator.openPendingSite(from: router, navigator: navigator)
+    #expect(navigator.opened == [siteB.id])
+    #expect(coordinator.pendingTarget == pending)
 }
 
 @MainActor @Test func openTapCredentialClearedWaitsForLogin() async {
@@ -186,11 +214,30 @@ private func payload(_ type: String?, site: String? = siteA.id.uuidString.lowerc
     let coordinator = makePushCoordinator(store.records)
     let navigator = PushStubNavigator(active: siteA.id, profiles: [siteA, siteB], opening: .loginPage)
     await coordinator.openTap(PushDeepLink.parse(payload("push.test", site: siteB.id.uuidString)), navigator: navigator)
+    await coordinator.openPendingSite(from: AppRouter(), navigator: navigator)
     #expect(navigator.opened == [siteB.id])
     #expect(coordinator.pendingTarget?.serverID == siteB.id)
-    // Site A's tabs stay up under B's login page and take nothing.
+    // Site A's tabs stay up under B's login page and take nothing; closing a sheet later does not bring the login page back.
     #expect(coordinator.takeTarget(for: siteA.id) == nil)
+    await coordinator.openPendingSite(from: AppRouter(), navigator: navigator)
+    #expect(navigator.opened == [siteB.id])
+    // Site A's session ending keeps the target for B's login.
+    coordinator.siteDidConnect(pushSite(siteA.id, api: PushStubAPI()))
+    coordinator.siteDidEnd(serverID: siteA.id)
     #expect(coordinator.takeTarget(for: siteB.id) == .pushSettings)
+}
+
+@MainActor @Test func otherSiteTargetStillWaitingEndsWithTheSession() async {
+    let store = PushTestDefaults(); defer { store.clear() }
+    let coordinator = makePushCoordinator(store.records)
+    let navigator = PushStubNavigator(active: siteA.id, profiles: [siteA, siteB])
+    coordinator.siteDidConnect(pushSite(siteA.id, api: PushStubAPI()))
+    await coordinator.openTap(PushDeepLink.parse(payload("account.error", site: siteB.id.uuidString, ["account_id": 7])), navigator: navigator)
+    coordinator.siteDidEnd(serverID: siteA.id)
+    #expect(coordinator.pendingTarget == nil)
+    navigator.activeServerID = nil
+    await coordinator.openPendingSite(from: nil, navigator: navigator)
+    #expect(navigator.opened.isEmpty)
 }
 
 @MainActor @Test func openTapFailedSwitchOrNoMatchDropsTarget() async {
@@ -198,7 +245,14 @@ private func payload(_ type: String?, site: String? = siteA.id.uuidString.lowerc
     let coordinator = makePushCoordinator(store.records)
     let navigator = PushStubNavigator(active: siteA.id, profiles: [siteA, siteB], opening: .failed)
     await coordinator.openTap(PushDeepLink.parse(payload("account.error", site: siteB.id.uuidString, ["account_id": 7])), navigator: navigator)
+    await coordinator.openPendingSite(from: AppRouter(), navigator: navigator)
     #expect(coordinator.pendingTarget == nil)
+    // A site deleted while its target waited.
+    await coordinator.openTap(PushDeepLink.parse(payload("account.error", site: siteB.id.uuidString, ["account_id": 7])), navigator: navigator)
+    navigator.profiles = [siteA]
+    await coordinator.openPendingSite(from: AppRouter(), navigator: navigator)
+    #expect(coordinator.pendingTarget == nil)
+    navigator.profiles = [siteA, siteB]
     let tap = PushDeepLink.parse(payload("ops_alert.fired", ["alert_event_id": 41]))
     await coordinator.openTap(tap, navigator: navigator)
     let first = coordinator.pendingTarget

@@ -24,7 +24,7 @@
 | B08 dashboard 筛选 400 的稳定 reason 与 stream 校验统一 | 参数校验 400 仍是 `response.BadRequest` 纯文案，没有 reason；传了 request_type 时，user-breakdown 以外的 dashboard 接口（以及 `/admin/usage`）仍忽略非法 stream | 统一要把 8 个调用点改成 infraerrors，并推翻 TestDashboardTrendRequestTypePriority / TestDashboardModelStatsRequestTypePriority 锁定的行为 | 维护者决定是否需要 App 按 reason 分支、是否统一严格校验 stream |
 | B04 可选项 | users-ranking 按 cost / account_cost / 利润排序；user-breakdown 响应补 username、total_users 与范围合计 | 设计稿只要求按实际扣费 / 请求 / Tokens 排；users-ranking 已带成本与用户总数，user-breakdown 替代方案已被取代 | App 需要按成本或利润排行时，在 userSpendingRankingOrder 白名单加一项即可 |
 | B12 可选项 | snapshot-v2 增加 users_trend_metric（默认 tokens），users_trend 按所选指标取人 | App 与 Web 调 snapshot-v2 时都固定传 include_users_trend=false，没有使用方 | 有客户端要在 snapshot-v2 里取按实际扣费排名的用户趋势时再做：解析参数、加进 dashboardSnapshotV2CacheKey、改调 GetUserUsageTrendWithFiltersByMetric |
-| B03 补漏：dashboard/groups 的 model_source 不生效（高优先级） | getGroupStatsWithFilters 写死 ModelSourceRequested（`repository/usage_log_repo_trend.go:616`），dashboard/groups 与 snapshot-v2 的 groups 带 model_source=upstream / mapping 时仍按请求模型匹配；B03 只测了 handler 透传，没发现 | 不属于 B05 范围，单独修，免得混进 B05 的提交 | 把 filters.ModelFilterSource（空时按 requested）传进 getGroupStatsWithFilters，补 sqlmock 与集成测试 |
+| B03 补漏：dashboard/groups 的 model_source 不生效（高优先级） | getGroupStatsWithFilters 写死 ModelSourceRequested（`repository/usage_log_repo_trend.go:616`），dashboard/groups 与 snapshot-v2 的 groups 带 model_source=upstream / mapping 时仍按请求模型匹配；B03 只测了 handler 透传，没发现 | 不属于 B05 范围，单独修，免得混进 B05 的提交 | 把 filters.ModelFilterSource（空时按 requested）传进 getGroupStatsWithFilters，补 sqlmock 与集成测试；后端 `dd80618fe` 已修，App 无需改动（S4-15 核对） |
 | B05 对 vendor 开放 | dashboard/request-types 目前只给站长；SQL 已施加账号白名单，但 cost / actual_cost / account_cost 没按监控档裁剪 | App 面向站长，vendor 没有使用方 | 决定 vendor 是否需要后：登记 vendorAllowedRoutes 与 vendorUsageScopedRoutes，并在 service 层按监控档裁剪金额 |
 | B06 可选项 | 带 model 时 throughput-trend 的 by_platform / top_groups 也按模型过滤（目前直接不返回）；dashboard/rates 与 ops realtime-traffic 加 model 筛选 | 文档允许“过滤或跳过”，选了改动最小的跳过；rates / realtime-traffic 不在 B06 的 7 个接口内 | App 需要看某模型的平台 / 分组分布或某模型的实时速率时：给 getThroughputBreakdownByPlatform / getThroughputTopGroupsByPlatform 加模型条件（复用 buildUsageWhere / buildErrorWhere 的模型表达式），并为 ops_error_logs 评估按模型的表达式索引 |
 | B07 可选 | openai-token-stats 自定义范围按请求 timezone 回显 start_time / end_time（或响应加 timezone 字段），以及支持 start_date / end_date 日粒度参数 | 文档只要求 start_time / end_time；现在回显 UTC 时刻，App 按 RFC3339 解析即可；不支持日粒度参数可保证旧请求零变化 | App 确实需要按本地时区原样回显或日粒度参数时再做 |
@@ -533,6 +533,10 @@
 | 利润增减行两边都为 0 | 沿用 S4-09 的 DisplayFormat.profitChange 写“$0.00 · 比昨天同时”，设计稿 AxDelta 写“比昨天同时 —”，截图评审时确认；要改只改 DisplayFormat+AmountChange.swift 并同步 S4-09 测试 |
 | S4-06 回前台一拍与计数补取 | S4-06 把 foregroundResumed 改成“自动刷新中立即一拍”（增量，不读第 1 页）时，这个分支要调 counter.resumeInterrupted(listReadsAgain: false, holdingBack: …)，可以直接用 LogsStoreState 里的 resumeCounts(listReadsAgain: false)。否则被后台打断第 1 页的当前错误段，计数会一直只显示段名（S4-05b 审查修正 799e1f0）。 |
 | LogsStoreStateTests.swift 超过 800 行 | S4-05b 之后已有 810 行。S4-06、S4-07、S4-08b 的新单测宜放进各自的新文件（审查修正已把计数用例放在 LogsStoreCountTests.swift），或者顺手拆分这个文件。 |
+| 排行卡刷新时丢弃隐藏段缓存（S4-15，S4D2b-20） | 40 §1.3 写“结果缓存到范围或筛选改变为止”；实现为下拉 / 60 秒 / 回前台刷新时丢弃另两段的缓存（正在被读的不丢），切回时按需重读，避免显示旧窗口的数据、拖住副标题“N 分钟前更新”。需用户拍板。 |
+| AnalyticsCardFoot 的 meta 为空时读屏仍带“ · ” | S4-15 的“全部 9 个分组 ›”“查看前 50 位用户 ›”按规格没有 meta，传空串后 accessibilityLabel 为“全部 9 个分组 · ”。组件在 AnalyticsCards.swift（归 S4-13，X44 本条不改），建议 S4-20 收口时让 meta 为空时不拼“ · ”。 |
+| B03 补漏行备注（S4-15 核对） | 后端 dd80618fe（fix(dashboard): dashboard/groups 的模型筛选按 model_source 匹配）已修；App 的排行只发 requested，无需改动。请在 BACKLOG 的“B03 补漏：dashboard/groups 的 model_source 不生效”一行备注“后端 dd80618fe 已修，App 无需改动”。 |
+| 排行卡 / 全部排行的规格空白处按默认实现（S4-15） | 用户卡底在旧站点（没有 total_users）按取回满 5 行判断；构成条不足 3 行写“前 2 占 100.0%”；未分组不可点；分组名为空用目录名或“#id”；模型名为空写“未命名”不可点；映射口径未映射的行也写“→ 同名”。需用户确认。 |
 
 ### App 与设计 · 阶段 5
 
@@ -549,6 +553,8 @@
 | 跨 Tab 跳转撤不掉视图式推入的页面 | 补充：分组列表改为 NavigationLink(value: .group(id:))，旧列表的视图式推入已删除（S5-04）；旧详情里的“查看与管理分组账号 / 统计分析 / 请求记录”仍是视图式推入，由 S5-06 删除旧详情时处理 |
 | 分组 shortage 失败时的口径 | S5-04 按 50 §1.5 与 scope，在 status-summary 失败或 403 时退回本地 50% 判定（不像 usage 那样保留旧值）；短暂失败会让“可用偏低”在告警规则判定和本地判定之间跳动，是否也改为保留旧值待定 |
 | 分组列表 usage-summary / status-summary 自身 429 的区块等待 | S5-04 审查修正后各区块独立读取，但 usage-summary 与 status-summary 收到 429 时还没有各自的 BlockRefresh 等待（00 §2.7.2“这期间不再发这个块的请求”），下拉或回前台仍会照常再发；轮询按列表的节奏走，不受影响。可以给这两个块各加一个 BlockRefresh，等待期间跳过。 |
+| 分组动作的“用同一编号重试”只在 4.2 秒回执里出现 | 回执错过后，列表已静默刷新、显示服务器真实状态。停用、启用、删除再操作一次（新编号）语义上无害；复制再点一次可能多出一个副本（可以删）。是否需要常驻的“待核对”入口，待用户决定 |
+| 从详情删除遇 KEY_CONFLICT 时“重试”无处弹确认 | 删除先出栈再发送；若服务器要求换编号，回执“重试”会重新走 requestDelete，但发起的详情页已经出栈，删除确认不会出现。S5-06 新详情接入后复核，可改为由列表宿主接管，或改为直接用新编号重发 |
 
 ### App 与设计 · 阶段 6
 
@@ -620,3 +626,5 @@
 | 推送真机验收（S6-23） | 需要用户提供付费 Apple Team 的签名（站点 p8 私钥必须来自同一 Team）、真机和站点 APNs 配置。生成脚本不保留 DEVELOPMENT_TEAM，真机构建要在 Xcode 里选 Team，或命令行传 DEVELOPMENT_TEAM；免费个人 Team 签不了带 aps-environment 的构建。验收清单：打开本机推送能拿到真实令牌并登记成功（Debug 请求体带 environment sandbox，Release / TestFlight 不带）；站点 ready 后能收到告警；P0 / P1 告警以时效通知送达；App 在前台时显示横幅，告警列表、账号列表随之刷新；冷启动点按和后台点按都跳到正确页面；跨站点点按先切站，凭据已清除时先进登录页、登录后再跳；退出后再登录自动恢复本机推送；打开添加接收方式 / APNs 配置 sheet 并填写后切到后台，App 切换器里看不到地址、Key、私钥（S6D2b-10） |
 | 推送点按的待跳转目标不过期 | 跨站点点按进入该站点登录页后，如果用户放弃登录，目标会一直挂在 PushCoordinator 里，以后登录该站点时才跳转。规格没写过期；如果觉得意外，可在 takeTarget 加约 10 分钟过期（S6-23 未做） |
 | 全局搜索回到前台补发需视图接线 | S6-20 审查修正 c8680b9 新增了 GlobalSearchSession.foregroundResumed()。持有会话的 SearchHomeView（S6-21，线 B 的 93131e5 尚未合入，也还没接）要加 `.onChange(of: model.foregroundRevision) { _, _ in search?.foregroundResumed() }`；不接的话，进后台时被截断的那几路会一直显示“搜索中…”，直到改输入。合入 S6-21 时或它的审查修正里补上。 |
+| 切站时上一站点在途的推送登记 | 切站会对上一站点的 client 调 cancelAll，正在发的 POST /admin/push/devices 结果不明，服务端可能已经建了设备行。下次连接该站点时会用同一令牌重新登记，拿回 id 后自愈；但在那之前删除该站点，收尾候选里没有这台设备，它会留在服务端。退出和删除当前站点已经改为先等在途登记（最多 10 秒，S6-23 审查修正）；超过 10 秒的登记仍会被取消。 |
+| 跨站点推送点按只等 AppRouter 的全局 sheet | S6-23 审查修正后，点按其他站点的通知时，要等当前站点的全局 sheet（router.presentedSheet）关闭才切站。RootView 层的登录页 sheet（添加站点）和安全验证窗口不在等待条件里：这时点按仍会立刻切站，正在进行的登录会被取消、表单关闭，等待二次验证的写也会被放弃（这些写还没发出）。 |

@@ -2,7 +2,8 @@ import Foundation
 import Observation
 import Sub2Core
 
-// A cancelled or late request cannot replace a newer foreground load.
+// A cancelled or late request cannot replace a newer foreground load. An answer a 429 cut short (RateLimitedAnswer) shows as
+// the value of a failed refresh and waits out the 429.
 @MainActor @Observable
 final class LoadState<Value: Sendable> {
     private(set) var state: BlockState<Value> = .idle
@@ -49,6 +50,11 @@ final class LoadState<Value: Sendable> {
                 try await current.value
             } onCancel: { current.cancel() }
             guard requestID == id, isCurrent(), !Task.isCancelled else { return }
+            if let limit = (result as? any RateLimitedAnswer)?.rateLimit {
+                state = .failed(reason: limit.localizedDescription, previous: result, at: Date())
+                refresh = refresh.recordingFailure(limit, at: Date()); lastError = limit; lastErrorAt = Date()
+                return
+            }
             state = .loaded(result, at: Date()); refresh = refresh.recordingSuccess()
             lastError = nil; lastErrorAt = nil
         } catch {

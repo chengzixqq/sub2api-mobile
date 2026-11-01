@@ -14,7 +14,7 @@ struct AnalyticsRouteDestination: View {
         // .analyticsChart：S4-14
         case .analyticsChart: ComingSoonView(title: route.placeholderTitle)
         // .analyticsRank：S4-15
-        case .analyticsRank: ComingSoonView(title: route.placeholderTitle)
+        case .analyticsRank(let dimension): AnalyticsRankView(dimension: dimension)
         // .analyticsModel：S4-19
         case .analyticsModel: ComingSoonView(title: route.placeholderTitle)
         // 其他区域：RouteDestination 不会分派到这里

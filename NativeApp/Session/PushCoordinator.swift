@@ -12,6 +12,8 @@ final class PushCoordinator {
     nonisolated static let tokenTimeout: Duration = .seconds(20)
     /// 60 §7.4 ② when the system never answers (offline, APNs unreachable); the spec has no text for it (S6-23).
     nonisolated static let tokenTimeoutMessage = "没有拿到推送令牌，请检查网络后再试"
+    /// How long signing out or deleting the connected site waits for a registration already sent (siteWillEnd).
+    nonisolated static let endWait: Duration = .seconds(10)
     private(set) var authorization: PushAuthorization = .notDetermined
     /// The switch is being turned on or off.
     private(set) var isUpdating = false
@@ -35,6 +37,11 @@ final class PushCoordinator {
     @ObservationIgnored private var endedGenerations: [UUID] = []
     @ObservationIgnored private var tokenWaiters: [UUID: CheckedContinuation<TokenReply, Never>] = [:]
     @ObservationIgnored private var lastRefresh: [PushForegroundRefresh: Date] = [:]
+    /// The pending target whose site was opened: a login page closed meanwhile is not brought back by the tabs.
+    @ObservationIgnored private var openedTarget: UUID?
+    /// Registration POSTs out now, and who waits for them to end.
+    @ObservationIgnored private var posts = 0
+    @ObservationIgnored private var postWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     private static let log = Logger(subsystem: "com.chengzixqq.sub2mobile", category: "push")
     private struct RegistrationKey: Equatable { let generation: UUID; let token: String }
@@ -114,13 +121,29 @@ final class PushCoordinator {
     }
 
     /// The session ended (signed out, deleted, invalidated). The token and the permission stay; a registration still running
-    /// queues its device for deletion, and the site's tapped target is dropped.
+    /// queues its device for deletion. The site's tapped target is dropped, and so is another site's still waiting for these
+    /// tabs' sheet.
     func siteDidEnd(serverID: UUID) {
         guard let site, site.serverID == serverID else { return }
         endedGenerations = Array((endedGenerations + [site.generation]).suffix(8))
         self.site = nil
         lastAttempt = nil
-        if pendingTarget?.serverID == serverID { pendingTarget = nil }
+        if let pending = pendingTarget, pending.serverID == serverID || pending.id != openedTarget { pendingTarget = nil }
+    }
+
+    /// Before signing out or deleting the connected site cancels its client: the session ends here, so nothing new is sent,
+    /// and a registration already sent gets up to `endWait` to answer. Cancelled, it may still have created the device, whose
+    /// id the teardown would then miss; answered, the id is queued for deletion and the teardown deletes it.
+    func siteWillEnd(serverID: UUID) async {
+        siteDidEnd(serverID: serverID)
+        guard posts > 0 else { return }
+        let id = UUID()
+        let timer = Task { [weak self, sleep] in
+            do { try await sleep(Self.endWait) } catch { return }
+            self?.postWaiters.removeValue(forKey: id)?.resume()
+        }
+        defer { timer.cancel() }
+        await withCheckedContinuation { postWaiters[id] = $0 }
     }
 
     /// Revoking this App's token deleted its device first while the session goes on (BACKLOG “吊销本机令牌失败后的推送设备”).
@@ -158,16 +181,27 @@ final class PushCoordinator {
 
     // MARK: - 通知点按（00 §7.5）
 
-    /// The target waits here for its site's tabs; another site is switched to first, and one that cannot be opened drops it.
+    /// The target waits here for its site's tabs; another site is switched to first, by the connected site's tabs once no
+    /// sheet is in use, at once without a connected site.
     func openTap(_ tap: PushTap, navigator: any PushSiteNavigating) async {
         switch PushDeepLink.decision(for: tap, activeServerID: navigator.activeServerID, profiles: navigator.profiles) {
         case .openOnly: pendingTarget = nil
         case .current(let serverID, let target): pendingTarget = PushPendingTarget(serverID: serverID, target: target)
         case .otherSite(let profile, let target):
-            let pending = PushPendingTarget(serverID: profile.id, target: target)
-            pendingTarget = pending
-            if await navigator.openSite(profile) == .failed, pendingTarget == pending { pendingTarget = nil }
+            pendingTarget = PushPendingTarget(serverID: profile.id, target: target)
+            if navigator.activeServerID == nil { await openPendingSite(from: nil, navigator: navigator) }
         }
+    }
+
+    /// Another site's target waits for the sheet like this site's (S6D2b-07): switching rebuilds the tabs and cancels the
+    /// connected site's requests, a write in the sheet included. Its site is opened once; one that cannot be opened, or is
+    /// gone, drops it.
+    func openPendingSite(from router: AppRouter?, navigator: any PushSiteNavigating) async {
+        guard router?.presentedSheet == nil, let pending = pendingTarget, pending.id != openedTarget,
+              pending.serverID != navigator.activeServerID else { return }
+        openedTarget = pending.id
+        guard let profile = navigator.profiles.first(where: { $0.id == pending.serverID }) else { pendingTarget = nil; return }
+        if await navigator.openSite(profile) == .failed, pendingTarget == pending { pendingTarget = nil }
     }
 
     func takeTarget(for serverID: UUID) -> PushTarget? {
@@ -238,6 +272,8 @@ final class PushCoordinator {
         guard !hasEnded(site) else { return .failure(CancellationError()) }
         let registration = PushDeviceRegistration.ios(apnsToken: token, bundleID: device.bundleID, deviceName: device.deviceName(),
                                                       timezone: device.timeZone(), siteID: site.serverID, sandbox: device.sandbox)
+        posts += 1
+        defer { posts -= 1; if posts == 0 { endPostWaits() } }
         do {
             let id = try await site.api.registerPushDevice(registration).device.id
             keep(id, of: site)
@@ -258,6 +294,12 @@ final class PushCoordinator {
             records.resolvePendingDeletions([id], serverID: site.serverID)
         }
         revision += 1
+    }
+
+    private func endPostWaits() {
+        let waiting = Array(postWaiters.values)
+        postWaiters.removeAll()
+        for continuation in waiting { continuation.resume() }
     }
 
     private func forget(_ serverID: UUID) {

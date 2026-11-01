@@ -527,4 +527,20 @@ final class AnalyticsUITests: XCTestCase {
         XCTAssertTrue(profitBars.contains { $0.label.contains("，利润 无数据") }, app.debugDescription)
         diagnostics("analytics-profit-legacy")
     }
+
+    /// 00 §2.7.2: a 429 among an old server's segments counts down on the card with 重试本项 held back; what was read still shows.
+    @MainActor func testLegacyTrendProfitSegmentsCutShortByA429CountDown() {
+        launch(["-ui-analytics-legacy-trend", "-ui-analytics-throttled-segments"])
+        defer { diagnostics("analytics-profit-throttled-final") }
+        app.openAnalyticsFromSearch()
+        revealProfitCard()
+        app.waitForLabel(profitRow(4), containing: "，账号成本 无数据，利润 无数据")
+        app.waitForLabel(profitRow(5), containing: "，利润 " + ProfitExpected.weekRows[1])
+        let failure = element("analytics.profit.segments.stale.failure")
+        let notice = failure.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "请求过于频繁，")).firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 10) && notice.label.hasSuffix("秒后自动重试"), app.debugDescription)
+        let retry = element("analytics.profit.segments.stale.retry")
+        XCTAssertTrue(retry.exists && !retry.isEnabled, app.debugDescription)
+        diagnostics("analytics-profit-throttled")
+    }
 }
