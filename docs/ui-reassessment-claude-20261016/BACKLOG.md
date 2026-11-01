@@ -24,7 +24,7 @@
 | B08 dashboard 筛选 400 的稳定 reason 与 stream 校验统一 | 参数校验 400 仍是 `response.BadRequest` 纯文案，没有 reason；传了 request_type 时，user-breakdown 以外的 dashboard 接口（以及 `/admin/usage`）仍忽略非法 stream | 统一要把 8 个调用点改成 infraerrors，并推翻 TestDashboardTrendRequestTypePriority / TestDashboardModelStatsRequestTypePriority 锁定的行为 | 维护者决定是否需要 App 按 reason 分支、是否统一严格校验 stream |
 | B04 可选项 | users-ranking 按 cost / account_cost / 利润排序；user-breakdown 响应补 username、total_users 与范围合计 | 设计稿只要求按实际扣费 / 请求 / Tokens 排；users-ranking 已带成本与用户总数，user-breakdown 替代方案已被取代 | App 需要按成本或利润排行时，在 userSpendingRankingOrder 白名单加一项即可 |
 | B12 可选项 | snapshot-v2 增加 users_trend_metric（默认 tokens），users_trend 按所选指标取人 | App 与 Web 调 snapshot-v2 时都固定传 include_users_trend=false，没有使用方 | 有客户端要在 snapshot-v2 里取按实际扣费排名的用户趋势时再做：解析参数、加进 dashboardSnapshotV2CacheKey、改调 GetUserUsageTrendWithFiltersByMetric |
-| B03 补漏：dashboard/groups 的 model_source 不生效（高优先级） | getGroupStatsWithFilters 写死 ModelSourceRequested（`repository/usage_log_repo_trend.go:616`），dashboard/groups 与 snapshot-v2 的 groups 带 model_source=upstream / mapping 时仍按请求模型匹配；B03 只测了 handler 透传，没发现 | 不属于 B05 范围，单独修，免得混进 B05 的提交 | 把 filters.ModelFilterSource（空时按 requested）传进 getGroupStatsWithFilters，补 sqlmock 与集成测试 |
+| B03 补漏：dashboard/groups 的 model_source 不生效（高优先级） | getGroupStatsWithFilters 写死 ModelSourceRequested（`repository/usage_log_repo_trend.go:616`），dashboard/groups 与 snapshot-v2 的 groups 带 model_source=upstream / mapping 时仍按请求模型匹配；B03 只测了 handler 透传，没发现 | 不属于 B05 范围，单独修，免得混进 B05 的提交 | 把 filters.ModelFilterSource（空时按 requested）传进 getGroupStatsWithFilters，补 sqlmock 与集成测试；后端 `dd80618fe` 已修，App 无需改动（S4-15 核对） |
 | B05 对 vendor 开放 | dashboard/request-types 目前只给站长；SQL 已施加账号白名单，但 cost / actual_cost / account_cost 没按监控档裁剪 | App 面向站长，vendor 没有使用方 | 决定 vendor 是否需要后：登记 vendorAllowedRoutes 与 vendorUsageScopedRoutes，并在 service 层按监控档裁剪金额 |
 | B06 可选项 | 带 model 时 throughput-trend 的 by_platform / top_groups 也按模型过滤（目前直接不返回）；dashboard/rates 与 ops realtime-traffic 加 model 筛选 | 文档允许“过滤或跳过”，选了改动最小的跳过；rates / realtime-traffic 不在 B06 的 7 个接口内 | App 需要看某模型的平台 / 分组分布或某模型的实时速率时：给 getThroughputBreakdownByPlatform / getThroughputTopGroupsByPlatform 加模型条件（复用 buildUsageWhere / buildErrorWhere 的模型表达式），并为 ops_error_logs 评估按模型的表达式索引 |
 | B07 可选 | openai-token-stats 自定义范围按请求 timezone 回显 start_time / end_time（或响应加 timezone 字段），以及支持 start_date / end_date 日粒度参数 | 文档只要求 start_time / end_time；现在回显 UTC 时刻，App 按 RFC3339 解析即可；不支持日粒度参数可保证旧请求零变化 | App 确实需要按本地时区原样回显或日粒度参数时再做 |
@@ -533,6 +533,10 @@
 | 利润增减行两边都为 0 | 沿用 S4-09 的 DisplayFormat.profitChange 写“$0.00 · 比昨天同时”，设计稿 AxDelta 写“比昨天同时 —”，截图评审时确认；要改只改 DisplayFormat+AmountChange.swift 并同步 S4-09 测试 |
 | S4-06 回前台一拍与计数补取 | S4-06 把 foregroundResumed 改成“自动刷新中立即一拍”（增量，不读第 1 页）时，这个分支要调 counter.resumeInterrupted(listReadsAgain: false, holdingBack: …)，可以直接用 LogsStoreState 里的 resumeCounts(listReadsAgain: false)。否则被后台打断第 1 页的当前错误段，计数会一直只显示段名（S4-05b 审查修正 799e1f0）。 |
 | LogsStoreStateTests.swift 超过 800 行 | S4-05b 之后已有 810 行。S4-06、S4-07、S4-08b 的新单测宜放进各自的新文件（审查修正已把计数用例放在 LogsStoreCountTests.swift），或者顺手拆分这个文件。 |
+| 排行卡刷新时丢弃隐藏段缓存（S4-15，S4D2b-20） | 40 §1.3 写“结果缓存到范围或筛选改变为止”；实现为下拉 / 60 秒 / 回前台刷新时丢弃另两段的缓存（正在被读的不丢），切回时按需重读，避免显示旧窗口的数据、拖住副标题“N 分钟前更新”。需用户拍板。 |
+| AnalyticsCardFoot 的 meta 为空时读屏仍带“ · ” | S4-15 的“全部 9 个分组 ›”“查看前 50 位用户 ›”按规格没有 meta，传空串后 accessibilityLabel 为“全部 9 个分组 · ”。组件在 AnalyticsCards.swift（归 S4-13，X44 本条不改），建议 S4-20 收口时让 meta 为空时不拼“ · ”。 |
+| B03 补漏行备注（S4-15 核对） | 后端 dd80618fe（fix(dashboard): dashboard/groups 的模型筛选按 model_source 匹配）已修；App 的排行只发 requested，无需改动。请在 BACKLOG 的“B03 补漏：dashboard/groups 的 model_source 不生效”一行备注“后端 dd80618fe 已修，App 无需改动”。 |
+| 排行卡 / 全部排行的规格空白处按默认实现（S4-15） | 用户卡底在旧站点（没有 total_users）按取回满 5 行判断；构成条不足 3 行写“前 2 占 100.0%”；未分组不可点；分组名为空用目录名或“#id”；模型名为空写“未命名”不可点；映射口径未映射的行也写“→ 同名”。需用户确认。 |
 
 ### App 与设计 · 阶段 5
 
