@@ -542,6 +542,9 @@
 | S4-06 条目 files 补登 | 实际改动还涉及 Tests/NativeSessionTests/LogsStoreRefreshTests.swift（新建，LogsStoreStateTests.swift 已超 800 行）和 Tests/NativeSessionTests/LogsStoreCountTests.swift（一个用例随回前台行为变化改写）；条件项 Sources/Sub2Core/LogListPolicy+Refresh.swift、NativeApp/Session/LogsStoreState+Refresh.swift 没有建 |
 | 利润明细未对齐时的说明只写前半句 | S4-14：旧服务端逐段有失败（ProfitBreakdown.isReconciled 为 false）时，单图页利润表说明只写“每小时（每天）的利润 = 这段的实际扣费 − 账号成本。”，不写“逐段相加等于合计”（S4D2b-09 ③），待 UI 审查确认 |
 | AnalyticsUITests 旧用例仍接受占位标题“图表” | S4-13 的 testBillingFootOpensTheBillingDetail 与 S4-13b 的 testProfitCardShowsTotalLatestFourRowsAndSelection 仍允许导航栏标题为“图表”（S4-14 之前的占位）；S4-14 之后只会是“计费明细 / 利润明细”，S4-20 收口时可收紧断言并删去“图表 until S4-14”注释 |
+| 路由参数在旧页面上不生效（X39）补记 | .analytics 的 metric 自 S4-16 起生效：概览 RPM / TPM 格进入时优先并写回记忆，只在第一次出现时生效；focus 的滚动由 S4-13 处理。整行留到 S4-20 收口。 |
+| RPM / TPM 性能明细的残桶写法（待用户确认） | 现在照规格写“只覆盖 N 秒”（如“只覆盖 240 秒”），设计稿写的是“只覆盖 N 分钟”；如改成整分钟时写分钟，只需改 PerfTrendPresentation 里的 coverage 一处。卡底桶数取实际点数，近 1 小时永远是 60 桶。 |
+| RPM / TPM 卡在 404 宽限期内的卡头小字 | 刚开启运维的 30 秒内，LiveOpsStore 还认为开着，接口却可能回 404 OPS_DISABLED。这时卡体显示“运维监控未开启”组件并每 30 秒以上重读，但卡头小字仍写“截至现在 · 运维监控”（卡头只读 analyticsOpsDisabled）。如要一致，需要让卡头也读到卡片状态。 |
 
 ### App 与设计 · 阶段 5
 
