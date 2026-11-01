@@ -360,6 +360,25 @@ private func readUsers(_ transport: SessionTransport, sortBy: AnalyticsRankMetri
     #expect(session.hasValue(.rankGroups))
 }
 
+@MainActor @Test func aRefreshOnTheFiltersOwnSegmentReadsNothingYetDropsTheHiddenOnes() async {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let session = makeSession(scratch)
+    session.setFilter(.group(id: 3))
+    await fill(session, .rankModels(.requested), breakdown(twelveModels))
+    await fill(session, .rankCardUsers, users(rangeUsers))
+    var reads = 0
+    await AnalyticsRankCardPlan.read(session, showing: .group, refresh: false) { reads += 1 }
+    #expect(reads == 0)
+    #expect(session.hasValue(.rankModels(.requested)) && session.hasValue(.rankCardUsers))
+    await AnalyticsRankCardPlan.read(session, showing: .group, refresh: true) { reads += 1 }
+    #expect(reads == 0)
+    #expect(!session.hasValue(.rankModels(.requested)))
+    #expect(!session.hasValue(.rankCardUsers))
+    #expect(session.earliestUpdate == nil)
+    await AnalyticsRankCardPlan.read(session, showing: .user, refresh: false) { reads += 1 }
+    #expect(reads == 1)
+}
+
 @MainActor @Test func rankChoiceReadsTheRememberedSortAndSource() {
     let scratch = ScratchDefaults(); defer { scratch.remove() }
     let memory = AnalyticsMemory(defaults: scratch.defaults)

@@ -50,9 +50,9 @@ struct RankCard: View {
             }
         }
         .analyticsCardLoading("rank", session: session, trigger: dimension) { [session, dimension, supportsSort] refresh in
-            guard !dimension.isNarrowed(by: session.filter) else { return }
-            if refresh { AnalyticsRankCardPlan.dropHidden(session, showing: dimension) }
-            await AnalyticsRankRequests.load(session, dimension: dimension, supportsSort: supportsSort, refresh: refresh)
+            await AnalyticsRankCardPlan.read(session, showing: dimension, refresh: refresh) {
+                await AnalyticsRankRequests.load(session, dimension: dimension, supportsSort: supportsSort, refresh: refresh)
+            }
         }
     }
 
