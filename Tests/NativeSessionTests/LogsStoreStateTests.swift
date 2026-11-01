@@ -38,6 +38,9 @@ private actor LogsStub {
 /// The store's clock, session flag, ops switch and what it reported to LiveOpsStore (“nil” for a success).
 @MainActor private final class Harness {
     var now = Date(timeIntervalSince1970: 1_800_000_000)
+    /// Server minus phone time, as ServerClock keeps it; `phone` moves with `now`.
+    var serverOffset: TimeInterval = 0
+    var phone: Date { now.addingTimeInterval(-serverOffset) }
     var isCurrent = true
     var opsOff = false
     private(set) var reports: [String] = []
@@ -45,7 +48,8 @@ private actor LogsStub {
 
     func store(_ route: LogsRoute = LogsRoute(), stub: LogsStub, legacyServer: Bool = false) -> LogsStoreState {
         LogsStoreState(route: route, generation: generation, source: stub.source, timeZone: liveOpsZone, legacyServer: legacyServer,
-                       supportsModelSource: true, isCurrent: { self.isCurrent }, now: { self.now }, opsDisabled: { self.opsOff },
+                       supportsModelSource: true, isCurrent: { self.isCurrent }, now: { self.now }, phoneNow: { self.phone },
+                       opsDisabled: { self.opsOff },
                        reportOps: { error in self.reports.append(error.map { ($0 as? APIError)?.reason ?? "other" } ?? "nil") })
     }
     func advance(_ seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
@@ -446,7 +450,7 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     })
     let store = harness.store(stub: stub)
     await store.appeared()
-    #expect(store.refresh.notBefore == harness.now.addingTimeInterval(30))
+    #expect(store.refresh.notBefore == harness.phone.addingTimeInterval(30))
     #expect(store.failure?.page == 1)
     await store.reload()
     await store.retry()
@@ -455,6 +459,27 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(store.failure?.page == 1)
     await store.select(.usage)
     harness.advance(31)
+    await store.retry()
+    #expect(await stub.reads.count == 2)
+    #expect(store.failure == nil)
+}
+
+/// The failure row counts the wait down and reads again on the phone's clock (BlockFailureRow); a site clock behind the
+/// phone's (the Date header is cut to the second) must not hold that read back.
+@MainActor @Test func throttleWaitRunsOnThePhoneClockLikeTheFailureRow() async throws {
+    let harness = Harness()
+    harness.serverOffset = -1
+    let limited = APIError(kind: .rateLimited, statusCode: 429, message: "请求过于频繁", retryAfter: 30)
+    let stub = LogsStub(usage: { call, read in
+        if call == 1 { throw limited }
+        return usagePage([], page: read.page)
+    })
+    let store = harness.store(stub: stub)
+    await store.appeared()
+    let notBefore = try #require(store.refresh.notBefore)
+    #expect(notBefore == harness.phone.addingTimeInterval(30))
+    // ResendAfterWait sleeps `notBefore.timeIntervalSinceNow`, then the row calls retry.
+    harness.advance(notBefore.timeIntervalSince(harness.phone))
     await store.retry()
     #expect(await stub.reads.count == 2)
     #expect(store.failure == nil)
