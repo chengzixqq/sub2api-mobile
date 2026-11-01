@@ -7,7 +7,7 @@ struct SearchRouteDestination: View {
     var body: some View {
         switch route {
         // .searchResults：S6-21
-        case .searchResults: ComingSoonView(title: route.placeholderTitle)
+        case .searchResults(let kind, let query): SearchResultsListView(kind: kind, query: query)
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }
