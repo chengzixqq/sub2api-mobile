@@ -555,6 +555,8 @@
 | 统计会话按（范围, 筛选）保留多份缓存 | 40 §2.6 写“结果按（范围、筛选）缓存到会话结束”，S4-12 状态机每个卡键只存当前一份，切回之前的范围会重新请求；如需多份缓存另立条目 |
 | AnalyticsOpsOffCard 内 ops.disabled.empty 标识被合并 | 外层卡的 .accessibilityElement(children: .contain) + 标识把 OpsDisabledNotice 的 ops.disabled.empty 合并掉了（请求详情页同样包了一层）；S4-18 的 AnalyticsOpsTopic 如需按 ops.disabled.empty 定位，需要换一种包法 |
 | Token 使用趋势长范围性能 | 自选 366 天按天时约 1,500 个 RectangleMark，未实测滚动与点选是否掉帧，留给 S4-20 评估 |
+| 后端 resolved_by_user_name 是邮箱、resolve 不回处理时间与人 | ops_repo.go 里 resolved_by_user_name 取的是 COALESCE(u2.email, '')，请求详情的“已处理 · 人 · 时间”显示的是邮箱，不是用户名；PUT …/resolve 只回 {ok:true}，本机标记后要等下次读详情才有时间和处理人。建议后端改成用户名优先（COALESCE(NULLIF(username,''), email)），并在 resolve 的响应里返回 resolved_at 和处理人（交后端维护者） |
+| 使用记录列表夹具不随已处理表变化 | -ui-testing 下标记已处理只改 LogFixtures+Detail 的 resolutions 表和内存里的列表行；下拉刷新后列表夹具仍是原值（X44：LogFixtures.swift 只由 S4-05 / S4-05b 改），目前列表行也不显示已处理状态，暂无影响 |
 
 ### App 与设计 · 阶段 5
 
