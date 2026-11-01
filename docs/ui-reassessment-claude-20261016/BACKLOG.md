@@ -522,6 +522,10 @@
 | 请求详情分区编号 | 按已定设计稿：头部状态卡与按钮行不编号，耗时从“壹”起；40 §7.1 字面从头部卡开始编号，待用户确认（S4D2a-14；若按规格只改 RequestDetailLayout.sections / ordinal 与对应单测） |
 | 请求详情 UI 夹具按请求 ID 查使用记录 | LogFixtures+Detail 的 requestUsageRecord 目前一律返回 nil：UI 夹具里已恢复请求的退路查不到成功那次。S6-20 / S6-21 用请求 ID 搜索进入 .usageRequestID 时在该文件补脚本 |
 | 请求详情 429 等待的时钟与失败行不一致 | 线 B 的 S4-08（aa67dc3/0e333d3）里，RequestDetailModel 的 detailRefresh 也用 client.serverClock.now() 记录和判定 429 等待（RequestDetailModel.swift:184/222），RequestDetailView 又把它交给 BlockFailureRow，按设备时钟倒计时和自动重发。这和 S4-05 审查修正 cf34f8f 修的是同一个问题：服务器时钟偏慢时，等待结束后的自动重发会被挡掉。应在 S4-08 的修正里照 LogsStoreState 的做法改用设备时钟（phoneNow）。 |
+| 使用记录分段计数的读屏 | SwiftUI 分段 Picker（UISegmentedControl）的逐项 accessibilityLabel 通常不生效，“用量明细 —”会读成破折号，读不成 C-0.5 的“无数据”；S4-05b 没换控件。要逐项读屏，得改成自定义分段控件，或接受现状 |
+| 模型胶囊置灰的 UI 用例 | modelSource ≠ requested 时错误段模型胶囊置灰、用量段第三种置灰（S4D2a-13），目前没有入口能进到这个状态，只有单测覆盖；S4-19 接入模型页“这个模型的使用记录”后在它的 UI 用例里补 |
+| 使用记录 400 参数错误给“清除筛选”的口径 | S4-05b 按“有生效条件”给“清除筛选”（和空态同一口径；置灰条件不参与请求，清掉也不会让 400 消失），没有生效条件时给“重试”、失败行标题“请求参数无效”；规格 40 §6.5 只写了“请求参数无效 · 清除筛选”，需要用户确认 |
+| 请求详情按请求 ID 查使用记录遇 429 不记录等待 | RequestDetailModel.lookUpUsage（.usageRequestID 路由，阶段 6 请求 ID 搜索才会接入，现在还没有入口）失败时只设 pageError 和 page = .failed，不往 detailRefresh 里记 429 等待。整页失败行因此不显示“N 秒后自动重试”，等待期间也能立即重试再发请求，不符合 00 §2.7.2。接入搜索入口时要为这次查询记录 BlockRefresh（用设备时钟），并让失败行用上它。 |
 
 ### App 与设计 · 阶段 5
 
