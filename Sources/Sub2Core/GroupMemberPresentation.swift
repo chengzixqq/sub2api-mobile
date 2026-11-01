@@ -57,6 +57,8 @@ public enum GroupMemberPresentation {
 
 /// 4.3 底部坞 of the sheet opened on a group.
 public struct GroupPickerDock: Sendable, Equatable {
+    /// Nothing picked yet: 加入 is greyed.
+    public static let empty = GroupPickerDock(preview: "选择要加入的账号", buttonTitle: "加入", isEnabled: false)
     public let preview: String
     public let buttonTitle: String
     public let isEnabled: Bool
@@ -121,7 +123,7 @@ public enum GroupPickerPresentation {
     /// x = the group's available now, y = x plus the picked accounts it would schedule now (S5-02's availableAfter), z = the
     /// members after joining.
     public static func dock(selected: [UpstreamAccount], group: AdminGroup, now: Date) -> GroupPickerDock {
-        guard !selected.isEmpty else { return GroupPickerDock(preview: "选择要加入的账号", buttonTitle: "加入", isEnabled: false) }
+        guard !selected.isEmpty else { return .empty }
         let before = group.activeAccountCount ?? 0
         let after = before + GroupPresentation.availableAfter(members: selected, platform: group.platform, now: now)
         let total = (group.accountCount ?? 0) + selected.count

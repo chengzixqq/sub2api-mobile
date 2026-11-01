@@ -5,7 +5,8 @@ import Sub2Core
 /// unavailable first, 今日 on the right, then the U38 footnote. The members read on their own: a failed first read says
 /// “成员加载失败 · 重试” while the status card keeps the group's counts (2.5); a failed refresh keeps the rows under the header's
 /// 更新失败. Rows end in a tail that reads the next page. S5-08: each row's swipe and long press (2.4), a row swiped out stays
-/// hidden while its removal is out, and a vendor reads U37's footnote.
+/// hidden while its removal is out, “添加 <平台> 账号” ends the section where members may be changed (4.1), and a vendor reads
+/// U37's footnote.
 struct GroupMembersSection: View {
     let group: AdminGroup
     let members: LoadState<GroupMemberList>
@@ -21,6 +22,7 @@ struct GroupMembersSection: View {
     let memberActions: GroupMemberActions?
     let permissions: GroupPermissions
     let hidden: Set<Int>
+    let onAddAccounts: @MainActor () -> Void
     @Environment(\.sessionContext) private var session
 
     var body: some View {
@@ -46,7 +48,7 @@ struct GroupMembersSection: View {
 
     @ViewBuilder private func rows(_ list: GroupMemberList) -> some View {
         let rows = list.rows.filter { !hidden.contains($0.id) }
-        if rows.isEmpty {
+        if rows.isEmpty, !permissions.canEditMembers(group).isShown {
             Text(GroupDetailCopy.membersEmpty).font(.subheadline).foregroundStyle(Palette.ink2)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .accessibilityIdentifier("group.members.empty")
@@ -58,7 +60,21 @@ struct GroupMembersSection: View {
                     .onAppear { if index == rows.count - 1, list.hasMore { onLoadMore() } }
             }
             tail
+            if permissions.canEditMembers(group).isShown { addRow }
         }
+    }
+    /// 4.1 直接打开: “添加 Anthropic 账号”, or “添加账号” for a composite group (design GvAddRow).
+    private var addRow: some View {
+        Button(action: onAddAccounts) {
+            Label(GroupCopy.addAccountsRow(platform: group.platform, catalog: catalog), systemImage: "plus")
+                .font(.body.weight(.semibold)).foregroundStyle(Palette.accent)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("group.members.add")
+        .readOnlyGate()
+        .listRowBackground(Palette.surface)
     }
     private func memberRow(_ account: UpstreamAccount, rail: RailPosition?, now: Date) -> some View {
         Button { onOpen(account) } label: {

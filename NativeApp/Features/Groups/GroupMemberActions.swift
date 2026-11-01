@@ -104,8 +104,11 @@ extension AppModel: GroupMemberWriteSource {
         groupStore?.noteMemberChange(change)
         accountListSignal.bump()
     }
-    /// The group leaves the list and the group directory.
-    func groupWentAway(id: Int) { groupStore?.remove(id: id) }
+    /// The group leaves the list and the group directory; its detail reads it again and shows 这个分组已删除.
+    func groupWentAway(id: Int) {
+        groupStore?.remove(id: id)
+        groupStore?.noteMemberChange(GroupMemberChange(groupID: id, counts: nil))
+    }
 
     private func memberFixture(groupID: Int, _ request: GroupMemberBatchRequest, generation: UUID, legacy: Bool) throws -> GroupMemberBatchResult {
         guard generation == sessionGeneration, let fixtures = groupStore?.fixtures else { throw CancellationError() }

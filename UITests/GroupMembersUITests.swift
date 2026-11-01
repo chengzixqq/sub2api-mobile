@@ -65,7 +65,151 @@ final class GroupMembersUITests: XCTestCase {
         XCTAssertTrue(swipeButton(of: 1, action: "status", titled: "停止调度").waitForExistence(timeout: 5), app.debugDescription)
     }
 
+    // MARK: - 添加账号（4）
+
+    /// 4.3 底部坞 and 0.4.3: one account into 企业专线 from the members section's row; 撤销 takes it out again.
+    @MainActor func testAddingAccountShowsAvailabilityAndUndoTakesItBack() {
+        openGroup(4)
+        defer { diagnostics("group-members-add-undo-final") }
+        openPickerFromMembers(title: "添加 OpenAI 账号")
+        XCTAssertTrue(app.navigationBars["添加到「企业专线」"].waitForExistence(timeout: 10), app.debugDescription)
+        let main = pickRow(4)
+        XCTAssertTrue(main.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(main.label.contains("可调度"), main.label)
+        XCTAssertFalse(pickRow(7).exists, app.debugDescription)
+        XCTAssertEqual(element("group.pick.preview").label, "选择要加入的账号")
+        XCTAssertFalse(app.buttons["group.pick.submit"].isEnabled, app.debugDescription)
+        main.tap()
+        XCTAssertTrue(element("group.pick.preview").poll(NSPredicate(format: "label == %@", "加入后可用 0 → 1 / 2"), timeout: 5), app.debugDescription)
+        submitPicks(titled: "加入 1 个账号")
+        waitForReceipt("已加入 1 个账号 · 可用 0 → 1")
+        XCTAssertTrue(member(4).poll(timeout: 3), app.debugDescription)
+        tapReceiptAction(titled: "撤销")
+        XCTAssertTrue(member(4).pollGone(timeout: 10), app.debugDescription)
+        XCTAssertTrue(member(7).exists, app.debugDescription)
+    }
+
+    /// 4.3 空态: every Anthropic account is already in 高级组 (opened from ⋯); the footnote names the platform.
+    @MainActor func testPremiumGroupPickerSaysEveryAnthropicAccountIsAMember() {
+        openGroup(1)
+        defer { diagnostics("group-members-premium-empty-final") }
+        app.buttons["group.more"].tap()
+        let item = menuItem("添加账号")
+        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
+        item.tap()
+        let empty = element("group.pick.empty")
+        XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(empty.label, "Anthropic 账号都已在这个分组里")
+        XCTAssertTrue(element("group.pick.note").label.hasPrefix("只列出 Anthropic 账号："), element("group.pick.note").label)
+        XCTAssertEqual(app.buttons["group.pick.submit"].label, "加入")
+        XCTAssertFalse(app.buttons["group.pick.submit"].isEnabled, app.debugDescription)
+    }
+
+    /// 4.3 排序 and the search: schedulable first; the search narrows the list, then finds nothing.
+    @MainActor func testPickerSearchFiltersCandidates() {
+        openGroup(11)
+        defer { diagnostics("group-members-search-final") }
+        let add = app.buttons["group.action.addAccounts"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10), app.debugDescription)
+        add.tap()
+        let main = pickRow(4), spare = pickRow(7)
+        XCTAssertTrue(spare.waitForExistence(timeout: 10) && main.exists, app.debugDescription)
+        XCTAssertLessThan(main.frame.minY, spare.frame.minY, app.debugDescription)
+        XCTAssertTrue(main.label.contains("已在 标准组"), main.label)
+        let search = app.searchFields.matching(NSPredicate(format: "placeholderValue == %@", "搜索 OpenAI 账号")).firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5), app.debugDescription)
+        search.tap()
+        search.typeText("主力")
+        XCTAssertTrue(spare.pollGone(timeout: 10), app.debugDescription)
+        XCTAssertTrue(main.exists, app.debugDescription)
+        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2) + "不存在")
+        let empty = element("group.pick.empty")
+        XCTAssertTrue(empty.poll(NSPredicate(format: "label == %@", "没有匹配的账号"), timeout: 10), app.debugDescription)
+    }
+
+    /// -ui-group-batch-partial: 7 is missing, 4 goes in; 查看 opens the per-item results (S5-09's page later).
+    @MainActor func testBatchFailureReceiptOffersResults() {
+        openGroup(11, arguments: [Fixture.batchPartial])
+        defer { diagnostics("group-members-partial-final") }
+        app.buttons["group.action.addAccounts"].tap()
+        XCTAssertTrue(pickRow(7).waitForExistence(timeout: 10), app.debugDescription)
+        pickRow(4).tap(); pickRow(7).tap()
+        submitPicks(titled: "加入 2 个账号")
+        waitForReceipt("已加入 1 个，1 个失败")
+        tapReceiptAction(titled: "查看")
+        XCTAssertTrue(app.navigationBars["逐项结果"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 0.8: a member write lost after its one resend says so with 重试; nothing changed.
+    @MainActor func testRequestFailureReceiptOffersRetry() {
+        openGroup(4, arguments: [Fixture.batchOffline])
+        defer { diagnostics("group-members-offline-final") }
+        openPickerFromMembers(title: "添加 OpenAI 账号")
+        XCTAssertTrue(pickRow(4).waitForExistence(timeout: 10), app.debugDescription)
+        pickRow(4).tap()
+        submitPicks(titled: "加入 1 个账号")
+        waitForReceipt("成员改动未确认")
+        XCTAssertTrue(app.buttons["receipt.action"].poll(NSPredicate(format: "label == %@", "重试"), timeout: 3), app.debugDescription)
+        app.scrollUntilExists(member(7))
+        XCTAssertFalse(member(4).exists, app.debugDescription)
+    }
+
+    /// 0.4.4: without `groups.member_batch` the sheet warns and the accounts go one by one; no counts come back.
+    @MainActor func testLegacyServerAddsAccountsOneByOne() {
+        openGroup(4, arguments: [Fixture.withoutCapabilities, "groups.member_batch"])
+        defer { diagnostics("group-members-legacy-final") }
+        openPickerFromMembers(title: "添加 OpenAI 账号")
+        let notice = element("group.pick.legacy")
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(notice.label, "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改。")
+        pickRow(4).tap()
+        submitPicks(titled: "加入 1 个账号")
+        waitForReceipt("已加入 1 个账号")
+        app.scrollUntilExists(member(4))
+        XCTAssertTrue(member(4).exists, app.debugDescription)
+    }
+
+    /// 1.4: the list's right swipe offers 添加账号 on an active group only.
+    @MainActor func testListLeadingSwipeOffersAddOnlyForActiveGroups() {
+        launchAndOpenGroups()
+        defer { diagnostics("group-members-list-swipe-final") }
+        row(4).swipeRight()
+        let add = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "group.swipe.addAccounts", "添加账号")).firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 5), app.debugDescription)
+        add.tap()
+        XCTAssertTrue(app.navigationBars["添加到「企业专线」"].waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["group.pick.cancel"].tap()
+        XCTAssertTrue(app.navigationBars["添加到「企业专线」"].waitForNonExistence(timeout: 10), app.debugDescription)
+        let stopped = row(6)
+        app.scrollUntilExists(stopped)
+        stopped.swipeRight()
+        XCTAssertFalse(add.waitForExistence(timeout: 2), app.debugDescription)
+    }
+
     // MARK: - Helpers
+
+    enum Fixture {
+        static let batchPartial = "-ui-group-batch-partial"
+        static let batchOffline = "-ui-group-batch-offline"
+        static let withoutCapabilities = "-ui-without-capabilities"
+    }
+    @MainActor func pickRow(_ id: Int) -> XCUIElement { app.buttons["group.pick.\(id)"] }
+    /// The members section's 添加 row, below the members.
+    @MainActor func openPickerFromMembers(title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let add = element("group.members.add")
+        app.scrollUntilExists(add)
+        XCTAssertEqual(add.label, title, file: file, line: line)
+        add.tap()
+    }
+    @MainActor func submitPicks(titled title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let submit = app.buttons["group.pick.submit"]
+        XCTAssertTrue(submit.poll(NSPredicate(format: "label == %@ AND isEnabled == true", title), timeout: 5), app.debugDescription, file: file, line: line)
+        submit.tap()
+    }
+    /// A menu item by title, apart from the button row's button of the same title.
+    @MainActor func menuItem(_ title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'group.action.')", title)).firstMatch
+    }
 
     /// Password sign-in, then 搜索 → 资源 · 分组.
     @MainActor func launchAndOpenGroups(arguments: [String] = []) {

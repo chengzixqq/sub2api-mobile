@@ -95,7 +95,7 @@ private struct GroupDetailContent: View {
                                     isLoadingMore: detail.isLoadingMoreMembers, loadMoreFailed: detail.loadMoreFailed, catalog: detail.catalog,
                                     groupName: groupName, onOpen: open, onRetry: { Task { await detail.retryMembers() } },
                                     onLoadMore: { Task { await detail.loadMoreMembers() } }, memberActions: memberActions, permissions: permissions,
-                                    hidden: detail.hiddenMemberIDs)
+                                    hidden: detail.hiddenMemberIDs, onAddAccounts: { openPicker(group) })
                 GroupDetailSections(detail: detail, group: group, buckets: buckets, permissions: permissions, fallbackName: fallbackName(group),
                                     onEdit: { openEditor(group) }, onOpenWeb: { detail.sections.openGroupsInWeb(using: openURL) })
             } else {
@@ -113,7 +113,7 @@ private struct GroupDetailContent: View {
         VStack(alignment: .leading, spacing: 14) {
             GroupStatusCard(group: group, buckets: buckets, health: health, members: detail.members.value == nil ? nil : detail.memberSnapshots,
                             totalAPIKeys: detail.keyCounts.value?.totalAPIKeys)
-            let buttons = permissions.buttonRow(for: group, health: health).filter { $0.action != .addAccounts }
+            let buttons = permissions.buttonRow(for: group, health: health)
             if !buttons.isEmpty {
                 GroupDetailButtonRowView(buttons: buttons, isRunning: isActionRunning) { perform($0, on: group) }
             }
@@ -132,10 +132,11 @@ private struct GroupDetailContent: View {
 
     // MARK: - Actions (50 §2.4)
 
-    /// 50 §2.1 ⋯: S5-05's items by permission (添加账号 once S5-08 passes it), each greyed for a read-only token.
+    /// 50 §2.1 ⋯: S5-05's items by permission, 添加账号 included, each greyed for a read-only token.
     private func moreMenu(_ group: AdminGroup, actions: GroupActions) -> some View {
         Menu {
-            GroupActionMenuItems(group: group, actions: actions, permissions: permissions) { openEditor(group) }
+            GroupActionMenuItems(group: group, actions: actions, permissions: permissions, onEdit: { openEditor(group) },
+                                 onAddAccounts: { openPicker(group) })
         } label: {
             Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44)
         }
@@ -148,10 +149,13 @@ private struct GroupDetailContent: View {
             guard let actions else { return }
             Task { await actions.enable(group) }
         case .edit: openEditor(group)
+        case .addAccounts: openPicker(group)
         default: break
         }
     }
     private func openEditor(_ group: AdminGroup) { router.present(.groupEdit(id: group.id)) }
+    /// 50 §4 添加账号 (S5-08): the button row, ⋯ and the members section's row.
+    private func openPicker(_ group: AdminGroup) { router.present(.groupPick(groupID: group.id)) }
     private func openAlert(_ id: Int) {
         awaitingAlertReturn = true
         router.push(.alert(id: id))
