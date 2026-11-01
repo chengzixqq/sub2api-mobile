@@ -11,6 +11,8 @@ struct GroupListView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var searchText = ""
     @State private var visible = false
+    /// 50 §0.5's actions of the rows (S5-05); made once the page shows, with the session's tabs.
+    @State private var actions: GroupActions?
     private let segment: GroupListSegment?
 
     init(segment: GroupListSegment? = nil) { self.segment = segment }
@@ -28,6 +30,8 @@ struct GroupListView: View {
 
     var body: some View {
         content
+            .groupActionsHost(actions)
+            .task { if actions == nil { actions = GroupActions(model: model, router: router) } }
             .navigationTitle("分组")
             .navigationBarTitleDisplayMode(.inline)
             .navigationSubtitle(subtitle)
@@ -43,7 +47,8 @@ struct GroupListView: View {
 
     @ViewBuilder private var content: some View {
         if let store = model.groupStore {
-            GroupListContent(store: store, permissions: permissions, query: searchText, segment: targetSegment, onCreate: openCreate)
+            GroupListContent(store: store, permissions: permissions, query: searchText, segment: targetSegment, actions: actions,
+                             onCreate: openCreate, onEdit: openEdit)
                 .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: GroupListSections.searchPrompt)
                 .refreshable { await store.refreshAll() }
                 .task { await store.loadIfNeeded() }
@@ -59,6 +64,7 @@ struct GroupListView: View {
 
     /// 50 §1.4: + and the empty state's 新建分组 open the group editor (S5-10 replaces the old one behind it).
     private func openCreate() { router.present(.groupEdit(id: nil)) }
+    private func openEdit(_ id: Int) { router.present(.groupEdit(id: id)) }
     /// Checks again on waking: a refresh that ended during the sleep or a new failure moved the next one (00 §4.6); a list read
     /// already out (the pull, the foreground) is not followed by another.
     private func poll(_ store: GroupStore) async {
@@ -75,7 +81,9 @@ private struct GroupListContent: View {
     let permissions: GroupPermissions
     let query: String
     let segment: GroupListSegment?
+    let actions: GroupActions?
     let onCreate: () -> Void
+    let onEdit: (Int) -> Void
     @State private var scrolledToSegment = false
 
     private static let rowInsets = EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16)
@@ -121,6 +129,10 @@ private struct GroupListContent: View {
                 .accessibilityIdentifier(Self.rowID(item.id))
                 .listRowInsets(Self.rowInsets)
                 .id(Self.rowID(item.id))
+                .groupActionSwipe(item.group, actions: actions, permissions: permissions) { onEdit(item.id) }
+                .contextMenu {
+                    if let actions { GroupActionMenuItems(group: item.group, actions: actions, permissions: permissions) { onEdit(item.id) } }
+                }
         }
     }
     /// 50 §1.5 有缓存时刷新失败: the rows stay under one thin line; during a 429 wait it counts down instead.
