@@ -610,3 +610,15 @@ extension LogsStoreState {
         if next != conditions { conditions = next }
     }
 }
+
+// MARK: - S4-08b 标记已处理（40 §7.4）
+
+extension LogsStoreState {
+    /// A request detail's 标记已处理 landed: the row of that id takes it in place in both error segments (one table, so an id can
+    /// be in both). Nothing is read; paging, counts and each segment's phase stay.
+    func applyResolved(_ record: RequestErrorRecord) {
+        if let list = errors.list.settingResolved(record.resolved, id: record.id) { errors = errors.replacingList(list) }
+        if let list = upstream.list.settingResolved(record.resolved, id: record.id) { upstream = upstream.replacingList(list) }
+        refreshSections()
+    }
+}
