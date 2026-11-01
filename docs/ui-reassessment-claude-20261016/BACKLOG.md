@@ -526,6 +526,11 @@
 | 模型胶囊置灰的 UI 用例 | modelSource ≠ requested 时错误段模型胶囊置灰、用量段第三种置灰（S4D2a-13），目前没有入口能进到这个状态，只有单测覆盖；S4-19 接入模型页“这个模型的使用记录”后在它的 UI 用例里补 |
 | 使用记录 400 参数错误给“清除筛选”的口径 | S4-05b 按“有生效条件”给“清除筛选”（和空态同一口径；置灰条件不参与请求，清掉也不会让 400 消失），没有生效条件时给“重试”、失败行标题“请求参数无效”；规格 40 §6.5 只写了“请求参数无效 · 清除筛选”，需要用户确认 |
 | 请求详情按请求 ID 查使用记录遇 429 不记录等待 | RequestDetailModel.lookUpUsage（.usageRequestID 路由，阶段 6 请求 ID 搜索才会接入，现在还没有入口）失败时只设 pageError 和 page = .failed，不往 detailRefresh 里记 429 等待。整页失败行因此不显示“N 秒后自动重试”，等待期间也能立即重试再发请求，不符合 00 §2.7.2。接入搜索入口时要为这次查询记录 BlockRefresh（用设备时钟），并让失败行用上它。 |
+| 利润亏损的固定演示状态 | （补充已有行）统计分析部分由 AnalyticsFixtures 的 -ui-analytics-loss 兑现（倒数第 2 个有用量的桶利润 −$50.00，合计不变，S4-13b，AnalyticsUITests.testProfitLossBucketDrawsBelowZeroAndReadsNegative）；首页部分已由 S1-09 兑现，本行两部分都已处理 |
+| 缺失值“—”的读屏 | （补充）统计分析利润明细卡的大数、最近 4 段表各格与每根柱的缺失值都读“无数据”（S4-13b） |
+| 旧站点逐段利润的重读 | 没有 trend account_cost 的站点按 40 §1.3 逐段读 usage/stats；刷新时只重读窗口变了的桶（正在进行的桶、读时还在进行的桶）与缺失的桶，过去的段到范围或筛选改变才重读（S4D2b-09 ⑥，S4-13b），待用户确认；如要每次全部重读，只改 ProfitBreakdown.segmentsToRefresh / AnalyticsSession.loadProfitSegments 一处 |
+| 利润明细“空”的判定 | 默认每个桶的实际扣费与账号成本都为 0 才写“这个范围内没有扣费”；规格字面只看扣费，会把倍率为 0 的分组的整段亏损藏掉（S4D2b-09 ②，S4-13b），待用户确认；只改 ProfitBreakdown.isEmpty 一处 |
+| 利润增减行两边都为 0 | 沿用 S4-09 的 DisplayFormat.profitChange 写“$0.00 · 比昨天同时”，设计稿 AxDelta 写“比昨天同时 —”，截图评审时确认；要改只改 DisplayFormat+AmountChange.swift 并同步 S4-09 测试 |
 
 ### App 与设计 · 阶段 5
 
@@ -541,6 +546,7 @@
 | 缺失值“—”的读屏 | 补充：分组列表行的“今日 —”读作“今日无数据”（S5-04，GroupRowSpeech） |
 | 跨 Tab 跳转撤不掉视图式推入的页面 | 补充：分组列表改为 NavigationLink(value: .group(id:))，旧列表的视图式推入已删除（S5-04）；旧详情里的“查看与管理分组账号 / 统计分析 / 请求记录”仍是视图式推入，由 S5-06 删除旧详情时处理 |
 | 分组 shortage 失败时的口径 | S5-04 按 50 §1.5 与 scope，在 status-summary 失败或 403 时退回本地 50% 判定（不像 usage 那样保留旧值）；短暂失败会让“可用偏低”在告警规则判定和本地判定之间跳动，是否也改为保留旧值待定 |
+| 分组列表 usage-summary / status-summary 自身 429 的区块等待 | S5-04 审查修正后各区块独立读取，但 usage-summary 与 status-summary 收到 429 时还没有各自的 BlockRefresh 等待（00 §2.7.2“这期间不再发这个块的请求”），下拉或回前台仍会照常再发；轮询按列表的节奏走，不受影响。可以给这两个块各加一个 BlockRefresh，等待期间跳过。 |
 
 ### App 与设计 · 阶段 6
 
@@ -609,3 +615,6 @@
 | 新建类写入结果未确认、关闭 sheet 后不拦截再次新建 | 00 §2.5.4 第 4 条要求核对完成前不发起同类写入。代理、公告、分组等新建类写入没有本机记录，sheet 关闭后编号也随之丢失。代理 sheet 目前只在关闭前提示，关闭后重读列表，不拦截再次添加。如果要拦截，需要给新建类写入加会话内的待核对记录，是否这样做由各模块决定。 |
 | 全局搜索 vendor 发送规则只有单测 | U01 首版拒绝 vendor 登录，S6-20 的 vendor 发送矩阵与底部说明“当前身份看不到用户与错误请求”只由 GlobalSearchTests 覆盖；放开 vendor 登录时需补夹具与 UI 用例 |
 | AppNavigationUITests.testSearchDirectoryOpensErrorLogs 偶发卡死 | 2026-11-01 线 C 一次 check 中该用例超 10 分钟执行时限（没有断言失败，runner 重启后其余用例通过），单独重跑与再次整类 check 都通过；再现时考虑登记进 UI 测试基线或查错误日志页在夹具下的卡死 |
+| 推送真机验收（S6-23） | 需要用户提供付费 Apple Team 的签名（站点 p8 私钥必须来自同一 Team）、真机和站点 APNs 配置。生成脚本不保留 DEVELOPMENT_TEAM，真机构建要在 Xcode 里选 Team，或命令行传 DEVELOPMENT_TEAM；免费个人 Team 签不了带 aps-environment 的构建。验收清单：打开本机推送能拿到真实令牌并登记成功（Debug 请求体带 environment sandbox，Release / TestFlight 不带）；站点 ready 后能收到告警；P0 / P1 告警以时效通知送达；App 在前台时显示横幅，告警列表、账号列表随之刷新；冷启动点按和后台点按都跳到正确页面；跨站点点按先切站，凭据已清除时先进登录页、登录后再跳；退出后再登录自动恢复本机推送；打开添加接收方式 / APNs 配置 sheet 并填写后切到后台，App 切换器里看不到地址、Key、私钥（S6D2b-10） |
+| 推送点按的待跳转目标不过期 | 跨站点点按进入该站点登录页后，如果用户放弃登录，目标会一直挂在 PushCoordinator 里，以后登录该站点时才跳转。规格没写过期；如果觉得意外，可在 takeTarget 加约 10 分钟过期（S6-23 未做） |
+| 全局搜索回到前台补发需视图接线 | S6-20 审查修正 c8680b9 新增了 GlobalSearchSession.foregroundResumed()。持有会话的 SearchHomeView（S6-21，线 B 的 93131e5 尚未合入，也还没接）要加 `.onChange(of: model.foregroundRevision) { _, _ in search?.foregroundResumed() }`；不接的话，进后台时被截断的那几路会一直显示“搜索中…”，直到改输入。合入 S6-21 时或它的审查修正里补上。 |

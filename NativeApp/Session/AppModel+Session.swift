@@ -132,6 +132,8 @@ extension AppModel {
                 .run(using: context.client)
         }
         if let report = outcome.pushReport { pushRecords.apply(report, serverID: context.serverID) }
+        // The device went first but the session goes on: this phone registers again (S6-23).
+        if outcome.pushReport != nil, outcome.kind != .revokedCurrent, context.generation == sessionGeneration { pushCoordinator.registerAgain() }
         guard outcome.kind == .revokedCurrent else { return outcome }
         if context.generation == sessionGeneration {
             await forgetActiveSession(notice: AccessTokenRevocation.currentRevokedNotice)
@@ -170,6 +172,11 @@ extension AppModel {
     /// The server half, through a client without store or callback (D13) and within SiteTeardown.deadline. Without a
     /// credential nothing is sent and a deleted site reports what was not done. Fixture sites are not reachable.
     private func teardown(_ ended: EndedSession?, of profile: ServerProfile, mode: SiteTeardown.Mode, pushDeviceIDs: [Int]) async -> TeardownReport? {
+        await teardowns.run(address: MoneyRecordOrigin.addressKey(of: profile.baseURL)) { [self] in
+            await serverTeardown(ended, of: profile, mode: mode, pushDeviceIDs: pushDeviceIDs)
+        }
+    }
+    private func serverTeardown(_ ended: EndedSession?, of profile: ServerProfile, mode: SiteTeardown.Mode, pushDeviceIDs: [Int]) async -> TeardownReport? {
         guard !isUITesting else {
             if let delay = DemoData.teardownDelay { try? await Task.sleep(for: delay) }
             return nil
@@ -180,5 +187,17 @@ extension AppModel {
         let teardown = SiteTeardown(credential: credential, mode: mode, pushDeviceIDs: pushDeviceIDs)
         guard teardown.hasNetworkSteps else { return nil }
         return await teardown.run(using: APIClient(server: ended.profile, credential: credential, deviceID: ended.deviceID))
+    }
+
+    // MARK: - 站点收尾登记与推送（S6-23）
+
+    /// Right after `publish`: PushCoordinator deletes the site's pending push devices and registers this phone again when its
+    /// switch is on (00 §7.2, §7.6), once the teardowns of the same address have ended.
+    func pushSiteDidConnect(_ profile: ServerProfile, generation: UUID, site: SiteSession, client: APIClient) {
+        let address = MoneyRecordOrigin.addressKey(of: profile.baseURL)
+        let api: any PushDeviceAPI = isUITesting ? DemoData.pushStore : client
+        pushCoordinator.siteDidConnect(PushSite(serverID: profile.id, generation: generation, supportsPush: SettingsPresentation.showsNotifications(site.me),
+                                                api: api, waitForTeardowns: { [weak self] in await self?.teardowns.waitForTeardowns(address: address) }))
+        if isUITesting { DemoData.deliverPushTapFixture(after: profile, model: self) }
     }
 }

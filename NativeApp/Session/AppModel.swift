@@ -137,6 +137,11 @@ final class AppModel {
 
     // MARK: - 阶段 6 · App 级状态
     // 阶段 6 的条目在这里追加
+    /// 00 §7, 60 §7.4: the APNs token, each site's push device and a tapped notification's target, so app-level (X03): a tap
+    /// of another site switches first and keeps its target across the rebuilt tabs (S6-23).
+    let pushCoordinator: PushCoordinator
+    /// Site teardowns in progress by address; registering a push device waits for its address's (S6-23).
+    let teardowns = SiteTeardownTracker()
 
     // MARK: - 连接与会话
     var sessionContext: SessionContext? {
@@ -171,6 +176,9 @@ final class AppModel {
         // 阶段 5 的条目在这里追加
         // MARK: - 阶段 6 · App 级状态
         // 阶段 6 的条目在这里追加
+        pushCoordinator = isUITesting ? DemoData.pushCoordinator(records: PushDeviceRecords(defaults: defaults))
+            : PushCoordinator(records: PushDeviceRecords(defaults: defaults), authorizer: SystemNotificationAuthorizer(),
+                              registrar: SystemRemoteNotificationRegistrar(), device: .application)
         if let data = defaults.data(forKey: "profiles") { profiles = ServerProfile.storedList(from: data) }
         if let data = defaults.data(forKey: "profileArchive") { profileArchive = ServerProfile.storedArchive(from: data) }
         if let raw = defaults.string(forKey: "activeProfile") { savedActiveID = UUID(uuidString: raw) }
@@ -233,6 +241,7 @@ final class AppModel {
                                      onSessionInvalid: sessionInvalidHandler(serverID: profile.id, generation: generation),
                                      securityInterceptor: makeSecurityInterceptor(generation: generation))
         publish(profile, generation: generation, site: site, client: next, lease: store.lease)
+        pushSiteDidConnect(profile, generation: generation, site: site, client: next)
         seedPendingFixture(serverID: profile.id)
         seedPendingVariants(for: profile)
         // Not awaited: connecting ends here while the compliance sheet waits for the administrator (S0-16).
@@ -356,6 +365,7 @@ final class AppModel {
         receipts.clear()
         sessionGeneration = UUID()
         client = nil; siteSession = nil; activeProfile = nil; activeLease = nil; savedActiveID = nil
+        pushCoordinator.siteDidEnd(serverID: profile.id)
         // MARK: - 阶段 1 · 会话级状态
         // 阶段 1 的条目在这里追加
         liveOps = nil

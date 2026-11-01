@@ -111,19 +111,24 @@ extension AnalyticsFixtures {
     }
 
     @MainActor private static func billingPoints(_ session: AnalyticsSession) -> [TrendPoint] {
+        let legacy = ProcessInfo.processInfo.arguments.contains(ProfitArgument.legacyTrend)
+        return trendPoints(session, withAccountCost: !withholdsAccountCost && !legacy)
+    }
+
+    /// `withAccountCost` false: the points of a server without `account_cost` in the trend.
+    @MainActor private static func trendPoints(_ session: AnalyticsSession, withAccountCost: Bool) -> [TrendPoint] {
         guard !ProcessInfo.processInfo.arguments.contains(Argument.empty) else { return [] }
         let totals = totals(session, comparison: false), buckets = session.range.buckets
         let hourly = session.range.granularity == .hour
         let weights = buckets.indices.map { hourly && $0 == 3 ? 0 : bucketWeights[$0 % bucketWeights.count] }
         let actual = allocate(totals.actual, weights), standard = allocate(totals.standard, weights)
-        let account = allocate(totals.account, weights), requests = allocate(totals.requests, weights)
-        let tokens = allocate(totals.tokens, weights)
-        let withholdsAccountCost = withholdsAccountCost
+        let account = lossAccount(totals.account, actual: actual, weights: weights) ?? allocate(totals.account, weights)
+        let requests = allocate(totals.requests, weights), tokens = allocate(totals.tokens, weights)
         return buckets.indices.compactMap { index in
             guard weights[index] > 0 else { return nil }
             let kinds = allocate(tokens[index], tokenShares)
             return TrendPoint(date: buckets[index].wireKey, requests: requests[index], totalTokens: tokens[index], cost: money(standard[index]),
-                              actualCost: money(actual[index]), accountCost: withholdsAccountCost ? nil : money(account[index]),
+                              actualCost: money(actual[index]), accountCost: withAccountCost ? money(account[index]) : nil,
                               inputTokens: kinds[0], outputTokens: kinds[1], cacheCreationTokens: kinds[3], cacheReadTokens: kinds[2])
         }
     }
@@ -178,6 +183,44 @@ extension AnalyticsFixtures {
     private static var upstreamEndpoints: [[String: Any]] {
         [["endpoint": "/v1/messages", "requests": 12_740, "total_tokens": 67_480_000, "cost": "892.63", "actual_cost": "714.10"],
          ["endpoint": "/v1/chat/completions", "requests": 5_460, "total_tokens": 28_920_000, "cost": "382.50", "actual_cost": "306.00"]]
+    }
+}
+
+// MARK: - 利润（S4-13b）
+
+/// 利润明细 (40 §1.3 / §1.4): a loss bucket and an old server's trend. The totals never change, so the card's profit stays the
+/// billing card's 利润; every amount is whole cents and each column adds up to its total, so the rows show the fixture's numbers.
+extension AnalyticsFixtures {
+    enum ProfitArgument {
+        /// The last bucket with usage but one costs its actual charge plus $50.00 (利润 −$50.00); the other buckets share the rest
+        /// of the account cost.
+        static let loss = "-ui-analytics-loss"
+        /// The trend has no `account_cost` (the totals do): the card reads each bucket's `usage/stats`, and the third bucket from
+        /// the end fails.
+        static let legacyTrend = "-ui-analytics-legacy-trend"
+    }
+
+    /// $50.00 in cents.
+    private static let lossMargin = 5_000
+
+    /// The segments' account costs as the default trend has them, without the failing one.
+    @MainActor static func profitSegments(_ session: AnalyticsSession, buckets: [AnalyticsBucket]) async throws -> ProfitSegmentCosts {
+        let costs = Dictionary(trendPoints(session, withAccountCost: true).map { ($0.date, $0.accountCost) }, uniquingKeysWith: { _, later in later })
+        let failing = max(0, session.range.buckets.count - 3)
+        return ProfitSegmentCosts(buckets, costs: buckets.map { $0.index == failing ? nil : costs[$0.wireKey] ?? nil })
+    }
+
+    /// -ui-analytics-loss: nil without it, or when no bucket can take the loss.
+    private static func lossAccount(_ total: Int, actual: [Int], weights: [Int]) -> [Int]? {
+        let used = weights.indices.filter { weights[$0] > 0 }
+        guard ProcessInfo.processInfo.arguments.contains(ProfitArgument.loss), used.count > 1 else { return nil }
+        let index = used[used.count - 2], cost = actual[index] + lossMargin
+        guard cost <= total else { return nil }
+        var others = weights
+        others[index] = 0
+        var account = allocate(total - cost, others)
+        account[index] = cost
+        return account
     }
 }
 

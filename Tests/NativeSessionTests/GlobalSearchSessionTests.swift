@@ -396,6 +396,70 @@ private func settle() async { try? await Task.sleep(for: .milliseconds(60)) }
     #expect(await stub.requests.count == 4)
 }
 
+// MARK: Suspend (00 §4.6, D18)
+
+@MainActor @Test func aReadCutOffByTheSuspendGoesOutAgainInTheForeground() async throws {
+    let stub = SearchStub(scripts: [.users: [.failure(CancellationError()), .success(userHits(1))]]), sleeper = ManualSleeper()
+    let search = makeSession(stub, sleeper)
+    search.update(text: "alice")
+    #expect(await waitForSleeps(sleeper, count: 1))
+    await sleeper.wake(0)
+    #expect(await eventually { await search.results?.status(of: .accounts) == .found(0) })
+    await settle()
+    #expect(search.results?.status(of: .users) == .searching && search.results?.failedSections.isEmpty == true)
+    #expect(search.results?.failureMessage == nil && search.results?.isSettled == false)
+    search.retryFailed()
+    await settle()
+    #expect(await stub.requests.count == 4)
+    search.foregroundResumed()
+    #expect(await eventually { await search.results?.status(of: .users) == .found(1) })
+    let plan = try #require(search.plan)
+    #expect(await stub.requests.count == 5)
+    #expect(await stub.requests.last == plan.request(for: .users))
+    #expect(await sleeper.requests.count == 1)
+    // The round now ended without a failure, so it is cached; a second resume sends nothing.
+    search.foregroundResumed()
+    search.update(text: "")
+    search.update(text: "alice")
+    await settle()
+    #expect(await stub.requests.count == 5)
+    #expect(search.results?.status(of: .users) == .found(1))
+}
+
+@MainActor @Test func everySectionCutOffIsNoFailurePage() async {
+    let cut: [SearchSection: [Result<SearchHits, any Error>]] = Dictionary(uniqueKeysWithValues: SearchSection.allCases.map {
+        ($0, [.failure(CancellationError()), .success(emptyHits($0))])
+    })
+    let stub = SearchStub(scripts: cut), sleeper = ManualSleeper()
+    let search = makeSession(stub, sleeper)
+    search.update(text: requestIDText)
+    #expect(await waitForSleeps(sleeper, count: 1))
+    await sleeper.wake(0)
+    #expect(await eventually { await stub.requests.count == 6 })
+    await settle()
+    #expect(search.results?.phase == .results && search.results?.failureMessage == nil)
+    #expect(SearchSection.allCases.allSatisfy { search.results?.status(of: $0) == .searching })
+    search.foregroundResumed()
+    #expect(await eventually { await search.results?.isSettled == true })
+    #expect(await stub.requests.count == 12)
+    #expect(search.results?.phase == .empty)
+}
+
+@MainActor @Test func newInputDropsTheCutOffSectionsOfTheRoundBefore() async {
+    let stub = SearchStub(scripts: [.users: [.failure(CancellationError()), .success(userHits(1))]]), sleeper = ManualSleeper()
+    let search = makeSession(stub, sleeper)
+    search.update(text: "alice")
+    #expect(await waitForSleeps(sleeper, count: 1))
+    await sleeper.wake(0)
+    #expect(await eventually { await stub.requests.count == 4 })
+    await settle()
+    search.update(text: "bob")
+    search.foregroundResumed()
+    await settle()
+    #expect(await stub.requests.count == 4)
+    #expect(search.query?.text == "bob" && search.results?.status(of: .users) == .searching)
+}
+
 // MARK: The client source (S4D1-06)
 
 @Test func clientSourceSendsKeyViewOnlyWithTheMaskedViewCapability() async throws {

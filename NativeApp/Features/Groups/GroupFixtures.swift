@@ -14,6 +14,8 @@ final class GroupFixtures {
         static let refreshFailure = "-ui-group-refresh-failure"
         /// Every usage-summary answers 502.
         static let usageFailure = "-ui-group-usage-failure"
+        /// Every usage-summary answers only after `slowUsageDelay` (an aggregate that takes long).
+        static let usageSlow = "-ui-group-usage-slow"
         /// The site has no group.
         static let empty = "-ui-group-empty"
         /// Followed by attention, normal or off: the list opened without a segment scrolls to that section (X39).
@@ -29,6 +31,8 @@ final class GroupFixtures {
     /// 标准组 has a group-availability alert rule at 60%, so its 1 of 2 reads 可用偏低; the others use the site default 50%.
     static let alertRuleGroupID = 2
     static let alertRuleRatio = 0.6
+    /// Longer than the list page's 60-second refresh and any wait of a test that uses `-ui-group-usage-slow`.
+    static let slowUsageDelay: Duration = .seconds(300)
 
     /// This session's groups without live counts; writes and later items' extensions change it.
     var groups: [AdminGroup]
@@ -85,7 +89,8 @@ final class GroupFixtures {
         return counted(group, accounts: accounts, now: now)
     }
     /// `GET admin/groups/usage-summary`: a row for every group, as the backend's LEFT JOIN gives.
-    func usageSummary() throws -> [GroupUsageSummary] {
+    func usageSummary() async throws -> [GroupUsageSummary] {
+        if arguments.contains(Argument.usageSlow) { try await Task.sleep(for: Self.slowUsageDelay) }
         if arguments.contains(Argument.usageFailure) { throw Self.failure }
         return groups.map { group in
             let row = Self.usage[group.id] ?? (0, 0, 0)
