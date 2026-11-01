@@ -10,6 +10,7 @@ final class GroupsUITests: XCTestCase {
         static let listFailure = "-ui-group-list-failure"
         static let refreshFailure = "-ui-group-refresh-failure"
         static let usageFailure = "-ui-group-usage-failure"
+        static let usageSlow = "-ui-group-usage-slow"
         static let empty = "-ui-group-empty"
         static let segment = "-ui-group-segment"
         static let withoutCapabilities = "-ui-without-capabilities"
@@ -208,6 +209,27 @@ final class GroupsUITests: XCTestCase {
         reveal(app.buttons["group.analytics"])
         app.buttons["group.analytics"].tap()
         XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 00 §4.6: a slow usage-summary does not hold back 重试; the list is read again at once.
+    @MainActor func testListRetryDoesNotWaitForSlowUsage() {
+        launchAndOpenGroups(arguments: [Fixture.listFailure, Fixture.usageSlow], waitsForRows: false)
+        defer { diagnostics("groups-list-retry-slow-usage-final") }
+        XCTAssertTrue(element("groups.list.failure").waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["groups.list.retry"].tap()
+        XCTAssertTrue(row(4).waitForExistence(timeout: 10), app.debugDescription)
+        // usage-summary is still out.
+        XCTAssertTrue(row(4).label.contains("今日无数据"), row(4).label)
+    }
+
+    /// 00 §4.6: a pull while usage-summary is still out reads the list again too.
+    @MainActor func testPullReadsListAgainWhileUsageIsSlow() {
+        launchAndOpenGroups(arguments: [Fixture.refreshFailure, Fixture.usageSlow])
+        defer { diagnostics("groups-list-pull-slow-usage-final") }
+        app.pullToRefresh(from: row(4))
+        let strip = app.buttons["groups.refresh.retry"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row(4).exists, app.debugDescription)
     }
 
     // MARK: - Helpers

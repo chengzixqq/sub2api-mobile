@@ -2,7 +2,8 @@ import Foundation
 
 /// Per site in UserDefaults (00 §7.6, §9.6; not secret): the push device this App registered and the ones whose deletion
 /// failed. Signing out and deleting a site read them here; stage 6's PushCoordinator registers devices and retries
-/// pending deletions on the next login.
+/// pending deletions on the next login. The switch “在本机接收推送” is kept apart from the id: signing out clears the id but
+/// not the switch, so the next login registers again (00 §7.6); deleting the site clears both.
 @MainActor
 struct PushDeviceRecords {
     let defaults: UserDefaults
@@ -23,14 +24,27 @@ struct PushDeviceRecords {
             if !deleted.contains(id) && !kept.contains(id) { kept.append(id) }
         }
         setRegisteredDeviceID(nil, serverID: serverID)
-        if pending.isEmpty { defaults.removeObject(forKey: Self.pendingKey(serverID)) } else { defaults.set(pending, forKey: Self.pendingKey(serverID)) }
+        setPendingDeletions(pending, serverID: serverID)
+    }
+    func isLocalPushOn(serverID: UUID) -> Bool { defaults.bool(forKey: Self.enabledKey(serverID)) }
+    func setLocalPushOn(_ isOn: Bool, serverID: UUID) {
+        if isOn { defaults.set(true, forKey: Self.enabledKey(serverID)) } else { defaults.removeObject(forKey: Self.enabledKey(serverID)) }
+    }
+    /// Deleted at last, or registered again by this phone (the server keeps one device per token).
+    func resolvePendingDeletions(_ ids: [Int], serverID: UUID) {
+        setPendingDeletions(pendingDeletions(serverID: serverID).filter { !ids.contains($0) }, serverID: serverID)
     }
     /// A deleted site has no next login to retry on; the receipt points to the Web instead.
     func removeAll(serverID: UUID) {
         defaults.removeObject(forKey: Self.deviceKey(serverID))
         defaults.removeObject(forKey: Self.pendingKey(serverID))
+        defaults.removeObject(forKey: Self.enabledKey(serverID))
     }
 
+    private func setPendingDeletions(_ ids: [Int], serverID: UUID) {
+        if ids.isEmpty { defaults.removeObject(forKey: Self.pendingKey(serverID)) } else { defaults.set(ids, forKey: Self.pendingKey(serverID)) }
+    }
     private static func deviceKey(_ serverID: UUID) -> String { "push.device." + serverID.uuidString }
     private static func pendingKey(_ serverID: UUID) -> String { "push.pendingDeletion." + serverID.uuidString }
+    private static func enabledKey(_ serverID: UUID) -> String { "push.enabled." + serverID.uuidString }
 }
