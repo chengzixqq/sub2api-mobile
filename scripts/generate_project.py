@@ -7,6 +7,9 @@ import plistlib
 import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
+# 60 §7.7 (S6-23): the app's push entitlements per configuration. Debug signs with the development aps-environment and
+# compiles APNS_SANDBOX, so it registers for the sandbox; Release follows the site's apns_environment.
+ENTITLEMENTS = {"Debug": ("NativeApp/Sub2Mobile-Debug.entitlements", "development"), "Release": ("NativeApp/Sub2Mobile.entitlements", "production")}
 
 
 def identity(name):
@@ -66,7 +69,9 @@ def generate():
             if target != "project":
                 settings.update({"PRODUCT_NAME": "$(TARGET_NAME)", "TARGETED_DEVICE_FAMILY": "1,2", "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator", "SUPPORTS_MACCATALYST": "NO", "GENERATE_INFOPLIST_FILE": "YES", "CODE_SIGN_STYLE": "Automatic", "CURRENT_PROJECT_VERSION": "1", "MARKETING_VERSION": "1.0.0"})
             if target == "app":
-                settings.update({"PRODUCT_BUNDLE_IDENTIFIER": "com.chengzixqq.sub2mobile", "INFOPLIST_FILE": "NativeApp/Resources/Info.plist", "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon", "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES", "INFOPLIST_KEY_UILaunchScreen_Generation": "YES", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks"})
+                settings.update({"PRODUCT_BUNDLE_IDENTIFIER": "com.chengzixqq.sub2mobile", "INFOPLIST_FILE": "NativeApp/Resources/Info.plist", "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon", "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES", "INFOPLIST_KEY_UILaunchScreen_Generation": "YES", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks", "CODE_SIGN_ENTITLEMENTS": ENTITLEMENTS[name][0]})
+                if name == "Debug":
+                    settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] = "DEBUG APNS_SANDBOX"
             elif target == "test":
                 settings.update({"PRODUCT_BUNDLE_IDENTIFIER": "com.chengzixqq.sub2mobile.uitests", "TEST_TARGET_NAME": "Sub2Mobile", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"})
             body = " ".join(f"{k} = {quoted(v)};" for k, v in sorted(settings.items()))
@@ -103,6 +108,10 @@ def generate():
     info = {"CFBundleDisplayName": "Sub2 Mobile", "LSRequiresIPhoneOS": True, "ITSAppUsesNonExemptEncryption": False, "NSFaceIDUsageDescription": "用于确认删除、批量操作、更换账号凭据和超过门槛的资金操作", "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"], "UISupportedInterfaceOrientations~ipad": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]}
     with (ROOT / "NativeApp/Resources/Info.plist").open("wb") as stream:
         plistlib.dump(info, stream)
+    # P0 / P1 alerts are sent time-sensitive (push_sources.go), which needs its own entitlement.
+    for path, environment in ENTITLEMENTS.values():
+        with (ROOT / path).open("wb") as stream:
+            plistlib.dump({"aps-environment": environment, "com.apple.developer.usernotifications.time-sensitive": True}, stream)
     print(f"Generated {project_dir} ({len(objects)} objects)")
 
 

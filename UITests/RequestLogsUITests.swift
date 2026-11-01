@@ -62,7 +62,8 @@ final class RequestLogsUITests: XCTestCase {
         let empty = element("logs.empty")
         XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(empty.label, "近 24 小时内，这些条件下没有记录")
-        XCTAssertFalse(element("logs.empty.clear").exists, app.debugDescription)
+        // S4-05b: an applied condition puts 清除筛选 under it.
+        XCTAssertTrue(app.buttons["logs.empty.clear"].exists, app.debugDescription)
     }
 
     /// 40 §6.3: the badge is the status code, a retried upstream row shows the code it hit, and errors have no amount.
@@ -261,5 +262,133 @@ final class RequestLogsUITests: XCTestCase {
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
+    }
+
+    // MARK: - S4-05b 分段计数、条件胶囊、清除筛选与参数无效
+
+    /// LogFixtures' counts follow the table at the top of LogFixtures.swift: all 40 / 6 / 6, user 1 Alice 10 / 0 / 1.
+    private enum CountFixture {
+        static let legacyServer = "-ui-logs-legacy-server"
+        static let countFails = "-ui-logs-count-fails"
+        static let countTicks = "-ui-logs-count-ticks"
+        static let badRequest = "-ui-logs-bad-request"
+    }
+
+    /// 40 §6.3 / §6.4 / §6.6: the counts come on entry and stay when switching segments; a pull asks them again, the shown
+    /// error segment taking its list's total (`-ui-logs-count-ticks` adds one per ask).
+    @MainActor func testSegmentCountsShowOnEntryAndStayWhenSwitching() {
+        launchLogs(arguments: [CountFixture.countTicks])
+        defer { diagnostics("logs-counts") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        expectSegments(["用量明细 40", "错误请求 6", "上游错误 6"])
+        segment("错误请求").tap()
+        let newest = row("errors", 2006)
+        XCTAssertTrue(newest.waitForExistence(timeout: 10), app.debugDescription)
+        expectSegments(["用量明细 40", "错误请求 6", "上游错误 6"])
+        app.pullToRefresh(from: newest)
+        expectSegments(["用量明细 41", "错误请求 6", "上游错误 7"])
+    }
+
+    /// 40 §6.5: with ops monitoring off both error counts read “—”; usage still counts, and no 30-day notice shows.
+    @MainActor func testErrorCountsReadDashWhenOpsMonitoringIsOff() {
+        launchLogs(arguments: [Fixture.opsDisabled])
+        defer { diagnostics("logs-counts-ops-off") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        expectSegments(["用量明细 40", "错误请求 —", "上游错误 —"])
+        segment("错误请求").tap()
+        XCTAssertTrue(element("ops.disabled.empty").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("logs.retention").exists, app.debugDescription)
+    }
+
+    /// 40 §6.3 “拿不到写 —”: a failed usage/stats leaves the list and the other counts alone.
+    @MainActor func testUsageCountReadsDashWhenStatsFail() {
+        launchLogs(arguments: [CountFixture.countFails])
+        defer { diagnostics("logs-count-fails") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        expectSegments(["用量明细 —", "错误请求 6", "上游错误 6"])
+        XCTAssertTrue(row("usage", 1039).exists, app.debugDescription)
+    }
+
+    /// 40 §6.3: a tap on the chip drops its condition; the list and the counts start again and the time stays.
+    @MainActor func testRemovingConditionChipReloadsListAndCounts() {
+        launchUserLogs(1)
+        defer { diagnostics("logs-remove-chip") }
+        let chip = app.buttons["logs.chip.user"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(chip.label.hasPrefix("用户：Alice"), chip.label)
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(row("usage", 1039).exists, app.debugDescription)
+        expectSegments(["用量明细 10", "错误请求 0", "上游错误 1"])
+        chip.tap()
+        XCTAssertTrue(chip.waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row("usage", 1039).waitForExistence(timeout: 10), app.debugDescription)
+        expectSegments(["用量明细 40", "错误请求 6", "上游错误 6"])
+        XCTAssertTrue(element("logs.time").label.contains("近 24 小时"), element("logs.time").label)
+    }
+
+    /// 40 §6.4: on a server without D03 the upstream segment greys the user chip, says why under the chips, and lists everyone.
+    @MainActor func testUpstreamGreysUserChipWithReasonOnOldServer() {
+        launchUserLogs(1, arguments: [CountFixture.legacyServer])
+        defer { diagnostics("logs-greyed-chip") }
+        let chip = app.buttons["logs.chip.user"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertNotEqual(chip.value as? String, "未生效")
+        let reason = element("logs.chips.reason")
+        XCTAssertFalse(reason.exists, app.debugDescription)
+        expectSegments(["用量明细 10", "错误请求 0", "上游错误 6"])
+        segment("上游错误").tap()
+        XCTAssertTrue(row("upstream", 3005).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(chip.poll(NSPredicate(format: "value == %@", "未生效"), timeout: 5), "\(String(describing: chip.value))")
+        XCTAssertTrue(reason.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(reason.label, "上游错误不能按模型、用户筛选，这里显示全部")
+        expectSegments(["上游错误 6"])
+        segment("用量明细").tap()
+        XCTAssertTrue(reason.waitForNonExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 40 §6.5 empty with conditions: 清除筛选 drops them all; the time and the segment stay.
+    @MainActor func testEmptyWithConditionsClearsFiltersAndKeepsTime() {
+        launchUserLogs(1)
+        defer { diagnostics("logs-clear-filters") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        segment("错误请求").tap()
+        let empty = element("logs.empty")
+        XCTAssertTrue(empty.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(empty.label, "近 24 小时内，这些条件下没有记录")
+        expectSegments(["错误请求 0"])
+        let clear = app.buttons["logs.empty.clear"]
+        XCTAssertTrue(clear.exists, app.debugDescription)
+        clear.tap()
+        XCTAssertTrue(row("errors", 2006).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("logs.chip.user").exists, app.debugDescription)
+        XCTAssertFalse(empty.exists || clear.exists, app.debugDescription)
+        XCTAssertTrue(segment("错误请求").isSelected, app.debugDescription)
+        expectSegments(["用量明细 40", "错误请求 6", "上游错误 6"])
+        XCTAssertTrue(element("logs.time").label.contains("近 24 小时"), element("logs.time").label)
+    }
+
+    /// 40 §6.5 “400 其他（参数）”: 请求参数无效 with 清除筛选, and the count it could not get reads “—”.
+    @MainActor func testBadRequestShowsInvalidParametersAndClearsFilters() {
+        launchUserLogs(1, arguments: [CountFixture.badRequest])
+        defer { diagnostics("logs-bad-request") }
+        let invalid = element("logs.invalid")
+        XCTAssertTrue(invalid.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(invalid.label, "请求参数无效")
+        XCTAssertFalse(app.buttons["logs.list.retry"].exists, app.debugDescription)
+        expectSegments(["用量明细 —"])
+        app.buttons["logs.invalid.clear"].tap()
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(invalid.waitForNonExistence(timeout: 5), app.debugDescription)
+        expectSegments(["用量明细 40"])
+    }
+
+    /// Each label as a whole, e.g. “用量明细 40”; the segment is found by the title before the count.
+    @MainActor private func expectSegments(_ labels: [String], file: StaticString = #filePath, line: UInt = #line) {
+        for label in labels {
+            let title = label.components(separatedBy: " ").first ?? label
+            let item = segment(title)
+            XCTAssertTrue(item.poll(NSPredicate(format: "label == %@", label), timeout: 10), "\(label)：\(item.label)", file: file, line: line)
+        }
     }
 }

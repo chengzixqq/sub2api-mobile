@@ -522,6 +522,10 @@
 | 请求详情分区编号 | 按已定设计稿：头部状态卡与按钮行不编号，耗时从“壹”起；40 §7.1 字面从头部卡开始编号，待用户确认（S4D2a-14；若按规格只改 RequestDetailLayout.sections / ordinal 与对应单测） |
 | 请求详情 UI 夹具按请求 ID 查使用记录 | LogFixtures+Detail 的 requestUsageRecord 目前一律返回 nil：UI 夹具里已恢复请求的退路查不到成功那次。S6-20 / S6-21 用请求 ID 搜索进入 .usageRequestID 时在该文件补脚本 |
 | 请求详情 429 等待的时钟与失败行不一致 | 线 B 的 S4-08（aa67dc3/0e333d3）里，RequestDetailModel 的 detailRefresh 也用 client.serverClock.now() 记录和判定 429 等待（RequestDetailModel.swift:184/222），RequestDetailView 又把它交给 BlockFailureRow，按设备时钟倒计时和自动重发。这和 S4-05 审查修正 cf34f8f 修的是同一个问题：服务器时钟偏慢时，等待结束后的自动重发会被挡掉。应在 S4-08 的修正里照 LogsStoreState 的做法改用设备时钟（phoneNow）。 |
+| 使用记录分段计数的读屏 | SwiftUI 分段 Picker（UISegmentedControl）的逐项 accessibilityLabel 通常不生效，“用量明细 —”会读成破折号，读不成 C-0.5 的“无数据”；S4-05b 没换控件。要逐项读屏，得改成自定义分段控件，或接受现状 |
+| 模型胶囊置灰的 UI 用例 | modelSource ≠ requested 时错误段模型胶囊置灰、用量段第三种置灰（S4D2a-13），目前没有入口能进到这个状态，只有单测覆盖；S4-19 接入模型页“这个模型的使用记录”后在它的 UI 用例里补 |
+| 使用记录 400 参数错误给“清除筛选”的口径 | S4-05b 按“有生效条件”给“清除筛选”（和空态同一口径；置灰条件不参与请求，清掉也不会让 400 消失），没有生效条件时给“重试”、失败行标题“请求参数无效”；规格 40 §6.5 只写了“请求参数无效 · 清除筛选”，需要用户确认 |
+| 请求详情按请求 ID 查使用记录遇 429 不记录等待 | RequestDetailModel.lookUpUsage（.usageRequestID 路由，阶段 6 请求 ID 搜索才会接入，现在还没有入口）失败时只设 pageError 和 page = .failed，不往 detailRefresh 里记 429 等待。整页失败行因此不显示“N 秒后自动重试”，等待期间也能立即重试再发请求，不符合 00 §2.7.2。接入搜索入口时要为这次查询记录 BlockRefresh（用设备时钟），并让失败行用上它。 |
 
 ### App 与设计 · 阶段 5
 
@@ -537,6 +541,7 @@
 | 缺失值“—”的读屏 | 补充：分组列表行的“今日 —”读作“今日无数据”（S5-04，GroupRowSpeech） |
 | 跨 Tab 跳转撤不掉视图式推入的页面 | 补充：分组列表改为 NavigationLink(value: .group(id:))，旧列表的视图式推入已删除（S5-04）；旧详情里的“查看与管理分组账号 / 统计分析 / 请求记录”仍是视图式推入，由 S5-06 删除旧详情时处理 |
 | 分组 shortage 失败时的口径 | S5-04 按 50 §1.5 与 scope，在 status-summary 失败或 403 时退回本地 50% 判定（不像 usage 那样保留旧值）；短暂失败会让“可用偏低”在告警规则判定和本地判定之间跳动，是否也改为保留旧值待定 |
+| 分组列表 usage-summary / status-summary 自身 429 的区块等待 | S5-04 审查修正后各区块独立读取，但 usage-summary 与 status-summary 收到 429 时还没有各自的 BlockRefresh 等待（00 §2.7.2“这期间不再发这个块的请求”），下拉或回前台仍会照常再发；轮询按列表的节奏走，不受影响。可以给这两个块各加一个 BlockRefresh，等待期间跳过。 |
 
 ### App 与设计 · 阶段 6
 
@@ -605,3 +610,5 @@
 | 新建类写入结果未确认、关闭 sheet 后不拦截再次新建 | 00 §2.5.4 第 4 条要求核对完成前不发起同类写入。代理、公告、分组等新建类写入没有本机记录，sheet 关闭后编号也随之丢失。代理 sheet 目前只在关闭前提示，关闭后重读列表，不拦截再次添加。如果要拦截，需要给新建类写入加会话内的待核对记录，是否这样做由各模块决定。 |
 | 全局搜索 vendor 发送规则只有单测 | U01 首版拒绝 vendor 登录，S6-20 的 vendor 发送矩阵与底部说明“当前身份看不到用户与错误请求”只由 GlobalSearchTests 覆盖；放开 vendor 登录时需补夹具与 UI 用例 |
 | AppNavigationUITests.testSearchDirectoryOpensErrorLogs 偶发卡死 | 2026-11-01 线 C 一次 check 中该用例超 10 分钟执行时限（没有断言失败，runner 重启后其余用例通过），单独重跑与再次整类 check 都通过；再现时考虑登记进 UI 测试基线或查错误日志页在夹具下的卡死 |
+| 推送真机验收（S6-23） | 需要用户提供付费 Apple Team 的签名（站点 p8 私钥必须来自同一 Team）、真机和站点 APNs 配置。生成脚本不保留 DEVELOPMENT_TEAM，真机构建要在 Xcode 里选 Team，或命令行传 DEVELOPMENT_TEAM；免费个人 Team 签不了带 aps-environment 的构建。验收清单：打开本机推送能拿到真实令牌并登记成功（Debug 请求体带 environment sandbox，Release / TestFlight 不带）；站点 ready 后能收到告警；P0 / P1 告警以时效通知送达；App 在前台时显示横幅，告警列表、账号列表随之刷新；冷启动点按和后台点按都跳到正确页面；跨站点点按先切站，凭据已清除时先进登录页、登录后再跳；退出后再登录自动恢复本机推送；打开添加接收方式 / APNs 配置 sheet 并填写后切到后台，App 切换器里看不到地址、Key、私钥（S6D2b-10） |
+| 推送点按的待跳转目标不过期 | 跨站点点按进入该站点登录页后，如果用户放弃登录，目标会一直挂在 PushCoordinator 里，以后登录该站点时才跳转。规格没写过期；如果觉得意外，可在 takeTarget 加约 10 分钟过期（S6-23 未做） |

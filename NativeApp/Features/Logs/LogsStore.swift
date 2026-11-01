@@ -12,10 +12,11 @@ extension LogsStoreState {
         let client = context.client, generation = context.generation, site = context.site
         let settingOff = site.me.features.opsMonitoringEnabled == false
         self.init(route: route, generation: generation, source: model.logsSource(for: context), timeZone: site.serverTimeZone,
-                  legacyServer: site.me.isLegacyServer, supportsModelSource: context.has(.usageModelSource),
+                  legacyServer: model.logsLegacyServer(for: context), supportsModelSource: context.has(.usageModelSource),
                   isCurrent: { [weak model] in model?.sessionGeneration == generation }, now: { client.serverClock.now() },
                   opsDisabled: { [weak model] in model?.liveOps?.opsDisabled ?? settingOff },
-                  reportOps: { [weak model] error in await model?.liveOps?.recordOpsResponse(error) })
+                  reportOps: { [weak model] error in await model?.liveOps?.recordOpsResponse(error) },
+                  countSource: model.logsCountSource(for: context))
     }
 }
 
@@ -25,5 +26,16 @@ extension AppModel {
         guard isUITesting else { return .live(session.client, site: session.site) }
         return LogFixtures.source(arguments: ProcessInfo.processInfo.arguments, base: session.client.serverClock.now(),
                                   timeZone: session.site.serverTimeZone)
+    }
+    /// `usage/stats` and the error lists' totals, or under `-ui-testing` LogFixtures' counts (S4-05b).
+    func logsCountSource(for session: SessionContext) -> LogCountSource {
+        guard isUITesting else { return .client(session.client) }
+        return LogFixtures.countSource(arguments: ProcessInfo.processInfo.arguments, base: session.client.serverClock.now(),
+                                       timeZone: session.site.serverTimeZone)
+    }
+    /// admin/me's, or under `-ui-testing` also `-ui-logs-legacy-server`.
+    func logsLegacyServer(for session: SessionContext) -> Bool {
+        guard isUITesting else { return session.site.me.isLegacyServer }
+        return LogFixtures.isLegacyServer(session.site, arguments: ProcessInfo.processInfo.arguments)
     }
 }

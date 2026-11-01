@@ -46,11 +46,13 @@ private actor LogsStub {
     private(set) var reports: [String] = []
     let generation = UUID()
 
-    func store(_ route: LogsRoute = LogsRoute(), stub: LogsStub, legacyServer: Bool = false) -> LogsStoreState {
+    func store(_ route: LogsRoute = LogsRoute(), stub: LogsStub, legacyServer: Bool = false,
+               counts: LogCountSource = .unavailable) -> LogsStoreState {
         LogsStoreState(route: route, generation: generation, source: stub.source, timeZone: liveOpsZone, legacyServer: legacyServer,
                        supportsModelSource: true, isCurrent: { self.isCurrent }, now: { self.now }, phoneNow: { self.phone },
                        opsDisabled: { self.opsOff },
-                       reportOps: { error in self.reports.append(error.map { ($0 as? APIError)?.reason ?? "other" } ?? "nil") })
+                       reportOps: { error in self.reports.append(error.map { ($0 as? APIError)?.reason ?? "other" } ?? "nil") },
+                       countSource: counts)
     }
     func advance(_ seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
     func lastDay() -> LogTimeWindow { .range(now.addingTimeInterval(-86_400), now) }
@@ -608,4 +610,201 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(replaced.nextPage == 3 && replaced.window == window && replaced.phase == .failed(page: 3))
     #expect(replaced.lastError?.statusCode == 500 && replaced.lastErrorAt == Date(timeIntervalSince1970: 30))
     #expect(replaced.opsOff().rows.isEmpty && replaced.opsOff().nextPage == nil && replaced.opsOff().window == window)
+}
+
+// MARK: - S4-05b 计数、条件与参数无效
+
+/// The usage query and the two error filters a round asks over `window` without conditions.
+private func plainCountRequests(_ window: LogTimeWindow) -> Set<LogCountRequest> {
+    guard case .range(let start, let end) = window else { return [] }
+    let filter = RequestLogFilter(time: window)
+    return [.usage(AnalyticsQuery(start: start, end: end, granularity: .day, timeZone: liveOpsZone)), .errors(filter, .request),
+            .errors(filter, .upstream)]
+}
+@MainActor private func segmentCounts(_ store: LogsStoreState) -> [LogCount] { LogScope.allCases.map { store.counter.count(for: $0) } }
+
+@MainActor @Test func countsAreAskedOnEntryPullTimeAndConditionsOnly() async throws {
+    let harness = Harness()
+    let rows = try usageRows([3, 2], now: harness.now)
+    let counts = LogCountStub(usage: { _, _ in 40 }, errors: { _, _, kind in kind == .request ? 6 : 5 })
+    let store = harness.store(stub: LogsStub(usage: { _, read in usagePage(rows, page: read.page, hasMore: read.page == 1) }),
+                              counts: counts.source)
+    await store.appeared()
+    await store.counter.settled()
+    #expect(Set(await counts.calls) == plainCountRequests(harness.lastDay()))
+    #expect(segmentCounts(store) == [.value(40), .value(6), .value(5)])
+    await store.loadMoreIfNeeded(after: 2)
+    await store.select(.errors)
+    await store.select(.usage)
+    store.disappeared()
+    await store.appeared()
+    await store.counter.settled()
+    #expect(await counts.calls.count == 3)
+    harness.advance(60)
+    await store.reload()
+    await store.counter.settled()
+    #expect(await counts.calls.count == 6)
+    #expect(Set(await counts.calls.suffix(3)) == plainCountRequests(harness.lastDay()))
+    await store.setTime(.lastHour)
+    await store.counter.settled()
+    await store.setConditions(LogConditions(account: LogFilterObject(id: 3)))
+    await store.counter.settled()
+    #expect(await counts.calls.count == 12)
+    #expect(await counts.calls.suffix(3).allSatisfy { request in
+        switch request {
+        case .usage(let query): query.accountID == 3 && query.end.timeIntervalSince(query.start) == 3_600
+        case .errors(let filter, _): filter.accountID == 3 && filter.pageSize == 100
+        }
+    })
+}
+
+@MainActor @Test func shownErrorSegmentCountsFromItsFirstPage() async throws {
+    let harness = Harness()
+    let rows = [try errorRecord(6, at: harness.now.addingTimeInterval(-60)), try errorRecord(5, at: harness.now.addingTimeInterval(-120))]
+    let counts = LogCountStub(usage: { _, _ in 40 }, errors: { _, _, _ in 9 })
+    let store = harness.store(LogsRoute(scope: .errors), stub: LogsStub(errors: { _, read in errorPage(rows, page: read.page) }),
+                              counts: counts.source)
+    await store.appeared()
+    await store.counter.settled()
+    #expect(segmentCounts(store) == [.value(40), .value(2), .value(9)])
+    #expect(await counts.calls.count == 2)
+    #expect(!(await counts.calls.contains(.errors(RequestLogFilter(time: harness.lastDay()), .request))))
+    await store.select(.upstream)
+    await store.select(.errors)
+    await store.counter.settled()
+    #expect(await counts.calls.count == 2)
+    #expect(store.counter.count(for: .errors) == .value(2))
+}
+
+@MainActor @Test func leavingTheShownErrorSegmentEarlyAsksItsCount() async throws {
+    let gate = SessionGate()
+    let harness = Harness()
+    let counts = LogCountStub(errors: { _, _, kind in kind == .request ? 4 : 1 })
+    let store = harness.store(LogsRoute(scope: .errors), stub: LogsStub(errors: { _, read in
+        if read.kind == .request { await gate.wait() }
+        return errorPage([], page: read.page)
+    }), counts: counts.source)
+    let task = Task { await store.appeared() }
+    #expect(await eventually { await gate.arrived })
+    await store.select(.usage)
+    await store.counter.settled()
+    #expect(store.counter.count(for: .errors) == .value(4))
+    await gate.open()
+    await task.value
+    #expect(store.counter.count(for: .errors) == .value(4))
+}
+
+@MainActor @Test func opsOffAndOpsDisabledCountsReadDash() async {
+    let harness = Harness()
+    harness.opsOff = true
+    let counts = LogCountStub(usage: { _, _ in 40 }, errors: { _, _, _ in throw opsOffReply })
+    let store = harness.store(stub: LogsStub(), counts: counts.source)
+    await store.appeared()
+    await store.counter.settled()
+    #expect(segmentCounts(store) == [.value(40), .unavailable, .unavailable])
+    #expect(await counts.calls.count == 1)
+    #expect(harness.reports.isEmpty)
+    harness.opsOff = false
+    await store.reload()
+    await store.counter.settled()
+    #expect(store.counter.count(for: .errors) == .unavailable)
+    #expect(harness.reports == ["OPS_DISABLED", "OPS_DISABLED"])
+}
+
+@MainActor @Test func foregroundResumesInterruptedCountsWithoutANewRound() async throws {
+    let harness = Harness()
+    let counts = LogCountStub(usage: { call, _ in
+        if call == 1 { throw CancellationError() }
+        return 40
+    }, errors: { _, _, _ in 6 })
+    let store = harness.store(stub: LogsStub(), counts: counts.source)
+    await store.appeared()
+    await store.counter.settled()
+    #expect(store.counter.count(for: .usage) == .pending)
+    await store.foregroundResumed()
+    await store.counter.settled()
+    #expect(store.counter.count(for: .usage) == .value(40))
+    #expect(await counts.calls.count == 4)
+}
+
+@MainActor @Test func removingAChipReloadsWithoutItAndCountsAgain() async {
+    let harness = Harness()
+    let stub = LogsStub()
+    let counts = LogCountStub()
+    let route = LogsRoute(scope: .usage, account: RouteObject(id: 3, name: "Claude-官方-03"), user: RouteObject(id: 1, name: "Alice"),
+                          model: "gpt-4.1", modelSource: .upstream)
+    let store = harness.store(route, stub: stub, counts: counts.source)
+    await store.appeared()
+    await store.counter.settled()
+    await store.removeCondition(.user)
+    await store.counter.settled()
+    let read = await stub.reads.last
+    #expect(read?.page == 1 && read?.kind == nil && read?.filter.userID == nil && read?.filter.accountID == 3)
+    #expect(store.conditions == LogConditions(account: LogFilterObject(id: 3, name: "Claude-官方-03"), model: "gpt-4.1",
+                                             modelSource: .upstream))
+    let calls = await counts.calls
+    #expect(calls.count == 6)
+    #expect(calls.suffix(3).contains { if case .usage(let query) = $0 { query.userID == nil && query.accountID == 3 } else { false } })
+    await store.removeCondition(.model)
+    #expect(store.conditions == LogConditions(account: LogFilterObject(id: 3, name: "Claude-官方-03")))
+    #expect(store.hasAppliedConditions)
+}
+
+@MainActor @Test func clearingConditionsKeepsTimeAndSegment() async {
+    let harness = Harness()
+    let stub = LogsStub()
+    let store = harness.store(LogsRoute(scope: .upstream, group: RouteObject(id: 2, name: "标准组"), user: RouteObject(id: 1)), stub: stub)
+    await store.appeared()
+    await store.setTime(.last7Days)
+    await store.clearConditions()
+    let read = await stub.reads.last
+    #expect(read?.kind == .upstream && read?.filter.groupID == nil && read?.filter.userID == nil)
+    #expect(read?.filter.time == .range(harness.now.addingTimeInterval(-7 * 86_400), harness.now))
+    #expect(store.conditions == LogConditions() && store.time == .last7Days && store.scope == .upstream)
+    #expect(!store.hasAppliedConditions)
+    #expect(store.emptyMessage == "近 7 天内没有记录")
+}
+
+@MainActor @Test func greyedOnlyConditionsCountAsNone() async {
+    let harness = Harness()
+    let store = harness.store(LogsRoute(scope: .upstream, user: RouteObject(id: 1, name: "Alice")), stub: LogsStub(), legacyServer: true)
+    await store.appeared()
+    #expect(!store.hasAppliedConditions)
+    #expect(store.emptyMessage == "近 24 小时内没有记录")
+    await store.select(.usage)
+    #expect(store.hasAppliedConditions)
+}
+
+@Test func invalidParametersFrom400AndLocalValidation() {
+    let failures: [APIError] = [
+        .server(status: 400, reason: nil), .server(status: 400, reason: "INVALID_TIME_RANGE"),
+        APIError(kind: .validation, message: "请选择一年以内的有效时间范围，并填写正整数对象 ID。"),
+    ]
+    for error in failures { #expect(LogListFailure(page: 1, error: error, occurredAt: nil).isInvalidParameters, "\(error)") }
+}
+
+@Test func sinceIDAndOtherFailuresAreNotParameterErrors() {
+    let failures: [APIError?] = [
+        .server(status: 400, reason: "INVALID_SINCE_ID"), .server(status: 400, reason: "SINCE_ID_WITH_PAGE"), opsOffReply,
+        .server(status: 500, reason: nil), APIError(kind: .transport, message: "无法连接站点"), nil,
+    ]
+    for error in failures {
+        #expect(!LogListFailure(page: 2, error: error, occurredAt: nil).isInvalidParameters, "\(String(describing: error))")
+    }
+}
+
+@MainActor @Test func retentionNoticeOnlyOnErrorSegmentsOverLongRanges() async {
+    let harness = Harness()
+    let store = harness.store(stub: LogsStub())
+    let longAgo = LogTimePreset.custom(start: harness.now.addingTimeInterval(-45 * 86_400), end: harness.now.addingTimeInterval(-86_400))
+    await store.appeared()
+    await store.setTime(longAgo)
+    #expect(store.retentionNote == nil)
+    await store.select(.errors)
+    #expect(store.retentionNote == "运维错误日志默认只保留 30 天，更早的可能已清理")
+    await store.setTime(.last30Days)
+    #expect(store.retentionNote == nil)
+    await store.setTime(longAgo)
+    harness.opsOff = true
+    #expect(store.retentionNote == nil)
 }

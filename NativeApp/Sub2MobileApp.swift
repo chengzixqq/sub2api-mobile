@@ -3,6 +3,8 @@ import SwiftUI
 @main
 struct Sub2MobileApp: App {
     @State private var model = AppModel()
+    /// 60 §7.7: the system's push token and notification callbacks (S6-23).
+    @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
     /// Read in the App, the phase covers all windows: one iPad window going to the background leaves the shared client
     /// running while another is still active.
     @Environment(\.scenePhase) private var scenePhase
@@ -10,7 +12,7 @@ struct Sub2MobileApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
-                .task { await model.restore() }
+                .task { await model.restore(); pushDelegate.attach(model) }
         }
         // The only scene-phase handler in the App (D18).
         .onChange(of: scenePhase) { _, phase in model.sceneDidChange(to: AppActivity(phase)) }
@@ -95,6 +97,9 @@ struct MainTabs: View {
         .tint(Palette.accent)
         .sheet(item: $router.presentedSheet) { SheetDestination(sheet: $0) }
         .environment(router)
+        // 00 §7.5: a tapped notification's page, once no sheet is in use (S6-23, S6D2b-07).
+        .onChange(of: model.pushCoordinator.pendingTarget, initial: true) { model.openPendingPushTarget(in: router) }
+        .onChange(of: router.presentedSheet) { _, sheet in if sheet == nil { model.openPendingPushTarget(in: router) } }
     }
 
     private func stack(_ tab: MainTab, @ViewBuilder root: () -> some View) -> some View {

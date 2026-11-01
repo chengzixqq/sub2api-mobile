@@ -97,6 +97,7 @@ private struct LogsList: View {
             Section {
                 segments
                 capsules
+                notes
             }
             if store.showsOpsNotice {
                 OpsDisabledNotice(style: .emptyState, notesDataGap: true)
@@ -112,26 +113,23 @@ private struct LogsList: View {
         .refreshable { await store.reload() }
     }
 
+    /// “用量明细 1,284 · 错误请求 3 · 上游错误 —” (40 §6.3); a count still asked shows the name alone.
     private var segments: some View {
         Picker("记录类型", selection: Binding(get: { store.scope }, set: { scope in Task { await store.select(scope) } })) {
-            ForEach(LogScope.allCases, id: \.self) { Text($0.title).tag($0) }
+            ForEach(LogScope.allCases, id: \.self) { Text(store.counter.count(for: $0).segmentTitle($0.title)).tag($0) }
         }
         .pickerStyle(.segmented)
         .accessibilityIdentifier("logs.mode")
         .listRowInsets(Self.controlInsets).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
     }
-    /// 40 §6.3: the time menu, then the conditions as they apply (S4-05b makes them removable).
+    /// 40 §6.3: the time menu, then the conditions, each removed by a tap.
     private var capsules: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 LogTimeMenu(title: store.timeTitle(), selection: store.time,
                             onPick: { preset in Task { await store.setTime(preset) } }, onCustom: onPickRange)
                 ForEach(store.chips.chips) { chip in
-                    LogChipLabel(chip.isMonospaced ? chip.kind.label + "：" : chip.text, monospacedValue: chip.isMonospaced ? chip.value : nil,
-                                 isOn: true)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(chip.text)
-                        .accessibilityIdentifier("logs.chip.\(chip.kind.rawValue)")
+                    LogConditionChip(chip) { Task { await store.removeCondition(chip.kind) } }
                 }
                 // S4-07：“+ 筛选”接在这里。
             }
@@ -139,13 +137,23 @@ private struct LogsList: View {
         }
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 4, trailing: 0)).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
     }
+    /// Why a chip is greyed (40 §6.4), then the 30-day notice of the error segments (40 §6.5).
+    @ViewBuilder private var notes: some View {
+        if let note = store.chips.note {
+            LogChipReasons(note).listRowInsets(Self.controlInsets).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
+        }
+        if let retention = store.retentionNote {
+            LogRetentionNote(retention).listRowInsets(Self.controlInsets).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
+        }
+    }
 
     @ViewBuilder private var rows: some View {
         if store.isFirstLoading {
             ProgressView(LogsView.loadingText).frame(maxWidth: .infinity, minHeight: 120)
                 .accessibilityIdentifier("logs.loading").listRowSeparator(.hidden).listRowBackground(Palette.canvas)
         } else if let message = store.emptyMessage {
-            LogsEmptyState(message: message).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
+            LogsEmptyState(message: message, clear: store.hasAppliedConditions ? clearConditions : nil)
+                .listRowSeparator(.hidden).listRowBackground(Palette.canvas)
         } else {
             let lastID = store.sections.last?.rows.last?.id
             ForEach(store.sections) { section in
@@ -183,7 +191,8 @@ private struct LogsList: View {
         .listRowSeparatorTint(Palette.hairline)
     }
 
-    /// The next page loading, or “加载失败 · 重试” at the end; the rows already shown stay (40 §6.5).
+    /// The next page loading, or “加载失败 · 重试” at the end; the rows already shown stay (40 §6.5). A 400 says 请求参数无效,
+    /// with 清除筛选 while a condition applies and 重试 otherwise.
     @ViewBuilder private var footer: some View {
         if store.isLoadingMore || store.failure != nil {
             Section {
@@ -191,8 +200,13 @@ private struct LogsList: View {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 44).accessibilityIdentifier("logs.more.loading")
                 }
                 if let failure = store.failure {
-                    BlockFailureRow(error: failure.error, occurredAt: failure.occurredAt, refresh: store.refresh, id: "logs.list") {
-                        Task { await store.retry() }
+                    if failure.isInvalidParameters, store.hasAppliedConditions {
+                        LogInvalidParametersRow(clear: clearConditions)
+                    } else {
+                        BlockFailureRow(title: failure.isInvalidParameters ? LogListCopy.invalidParameters : BlockStatusPresentation.loadFailed,
+                                        error: failure.error, occurredAt: failure.occurredAt, refresh: store.refresh, id: "logs.list") {
+                            Task { await store.retry() }
+                        }
                     }
                     if store.hasRows {
                         Text(LogsView.keptRowsNote).font(.footnote).foregroundStyle(Palette.ink3).accessibilityIdentifier("logs.list.kept")
@@ -202,21 +216,26 @@ private struct LogsList: View {
             .listRowInsets(Self.controlInsets).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
         }
     }
+    private func clearConditions() { Task { await store.clearConditions() } }
 }
 
-/// 40 §6.5: a large “—” over the sentence. S4-05b adds “清除筛选” under it.
+/// 40 §6.5: a large “—” over the sentence, and “清除筛选” under it while a condition applies.
 private struct LogsEmptyState: View {
     let message: String
+    let clear: (@MainActor () -> Void)?
 
     var body: some View {
         VStack(spacing: 6) {
-            Text(DisplayFormat.missing).font(.system(size: 28, weight: .medium)).foregroundStyle(Palette.ink3).accessibilityHidden(true)
-            Text(message).font(.subheadline).foregroundStyle(Palette.ink2).multilineTextAlignment(.center)
+            VStack(spacing: 6) {
+                Text(DisplayFormat.missing).font(.system(size: 28, weight: .medium)).foregroundStyle(Palette.ink3).accessibilityHidden(true)
+                Text(message).font(.subheadline).foregroundStyle(Palette.ink2).multilineTextAlignment(.center)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(message)
+            .accessibilityIdentifier("logs.empty")
+            if let clear { LogClearFiltersButton(id: "logs.empty.clear", action: clear) }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 26)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(message)
-        .accessibilityIdentifier("logs.empty")
     }
 }

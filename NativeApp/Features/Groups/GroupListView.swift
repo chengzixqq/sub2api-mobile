@@ -59,12 +59,13 @@ struct GroupListView: View {
 
     /// 50 §1.4: + and the empty state's 新建分组 open the group editor (S5-10 replaces the old one behind it).
     private func openCreate() { router.present(.groupEdit(id: nil)) }
-    /// Checks again on waking: a refresh that ended during the sleep or a new failure moved the next one (00 §4.6).
+    /// Checks again on waking: a refresh that ended during the sleep or a new failure moved the next one (00 §4.6); a list read
+    /// already out (the pull, the foreground) is not followed by another.
     private func poll(_ store: GroupStore) async {
         guard shouldPoll else { return }
         while !Task.isCancelled {
             do { try await Task.sleep(for: .seconds(max(1, store.nextAutoRefreshDelay(now: Date())))) } catch { return }
-            if store.nextAutoRefreshDelay(now: Date()) <= 0 { await store.refreshAll() }
+            if store.nextAutoRefreshDelay(now: Date()) <= 0, !store.list.isLoading { await store.refreshAll() }
         }
     }
 }
