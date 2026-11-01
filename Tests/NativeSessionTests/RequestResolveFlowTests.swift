@@ -250,15 +250,40 @@ func refusalRollsBackWithItsWords(_ refusal: ResolveRefusal, marking: Bool) asyn
     #expect(!bench.flow.canToggle)
     await bench.flow.toggle()
     #expect(await bench.recorder.calls.isEmpty)
-    bench.flow.adopt(try resolveRecord())
+    bench.flow.adopt(try resolveRecord(), readAt: bench.flow.writeEpoch)
     #expect(bench.flow.canToggle && !bench.flow.isResolved)
     let task = Task { await bench.flow.toggle() }
     #expect(await eventually { await bench.recorder.writes == [true] })
-    bench.flow.adopt(try resolveRecord())
+    bench.flow.adopt(try resolveRecord(), readAt: bench.flow.writeEpoch)
     #expect(bench.flow.isResolved)
     await gate.open()
     await task.value
     #expect(bench.flow.isResolved && bench.flow.record?.resolvedAt == nil)
-    bench.flow.adopt(try resolveRecord(resolved: true))
+    bench.flow.adopt(try resolveRecord(resolved: true), readAt: bench.flow.writeEpoch)
     #expect(bench.flow.record?.resolvedAt != nil && bench.flow.record?.resolvedByUserName == "admin@example.invalid")
+}
+
+/// A detail read that went out before the write, or while it was on its way, and arrives after it landed is older than the
+/// write: it changes nothing, and 撤销 still sends resolved=false. A read after the write is taken.
+@MainActor @Test func detailReadAcrossTheWriteIsNotAdopted() async throws {
+    let bench = ResolveBench(record: try resolveRecord())
+    let before = bench.flow.writeEpoch
+    await bench.flow.toggle()
+    bench.flow.adopt(try resolveRecord(), readAt: before)
+    #expect(bench.flow.isResolved && bench.flow.canToggle)
+    bench.tapReceiptButton()
+    #expect(await eventually { await bench.recorder.writes == [true, false] && !bench.flow.isSending })
+    #expect(!bench.flow.isResolved && bench.settled == [true, false])
+
+    let gate = Gate()
+    let slow = ResolveBench(record: try resolveRecord(), write: { _, _ in await gate.wait() })
+    let task = Task { await slow.flow.toggle() }
+    #expect(await eventually { await slow.recorder.writes == [true] })
+    let during = slow.flow.writeEpoch
+    await gate.open()
+    await task.value
+    slow.flow.adopt(try resolveRecord(), readAt: during)
+    #expect(slow.flow.isResolved && slow.flow.record?.resolvedAt == nil && slow.settled == [true])
+    slow.flow.adopt(try resolveRecord(resolved: true), readAt: slow.flow.writeEpoch)
+    #expect(slow.flow.isResolved && slow.flow.record?.resolvedByUserName == "admin@example.invalid")
 }

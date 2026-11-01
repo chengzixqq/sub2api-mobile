@@ -19,7 +19,7 @@ struct RequestDetailView: View {
     var body: some View {
         Group {
             if let session {
-                RequestDetailScreen(make: { makeModel(session) }, makeResolve: { makeResolve(session) },
+                RequestDetailScreen(make: { makeModel(session, resolve: $0) }, makeResolve: { makeResolve(session) },
                                     timeZone: session.site.serverTimeZone.timeZone).id(session.generation)
             } else {
                 ProgressView()
@@ -29,8 +29,9 @@ struct RequestDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// Ops off as LiveOpsStore has it, admin/me's until then (S4D2a-17); its outcomes go back to the store (S1D1-02).
-    private func makeModel(_ session: SessionContext) -> RequestDetailModel {
+    /// Ops off as LiveOpsStore has it, admin/me's until then (S4D2a-17); its outcomes go back to the store (S1D1-02). Each detail
+    /// read keeps `resolve`'s write epoch, so 标记已处理 takes no detail read across its write.
+    private func makeModel(_ session: SessionContext, resolve: RequestResolveFlow?) -> RequestDetailModel {
         let model = model, client = session.client, generation = session.generation
         let settingOff = session.site.me.features.opsMonitoringEnabled == false
         return RequestDetailModel(route: route, source: .app(model, session: session, row: route.initialErrorRow),
@@ -38,7 +39,7 @@ struct RequestDetailView: View {
                                   isOpsEnabled: { [weak model] in !(model?.liveOps?.opsDisabled ?? settingOff) },
                                   isCurrent: { [weak model] in model?.sessionGeneration == generation },
                                   onOpsResponse: { [weak model] error in await model?.liveOps?.recordOpsResponse(error) },
-                                  now: { client.serverClock.now() })
+                                  now: { client.serverClock.now() }, writeEpoch: { [weak resolve] in resolve?.writeEpoch ?? 0 })
     }
     /// The failed looks' 标记已处理, for the lists of the tab the page was pushed in (S4-08b).
     private func makeResolve(_ session: SessionContext) -> RequestResolveFlow? {
@@ -67,9 +68,10 @@ private struct RequestDetailScreen: View {
     let timeZone: TimeZone
     private static let cardInsets = EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)
 
-    init(make: () -> RequestDetailModel, makeResolve: () -> RequestResolveFlow?, timeZone: TimeZone) {
-        _detail = State(initialValue: make())
-        _resolve = State(initialValue: makeResolve())
+    init(make: (RequestResolveFlow?) -> RequestDetailModel, makeResolve: () -> RequestResolveFlow?, timeZone: TimeZone) {
+        let resolve = makeResolve()
+        _resolve = State(initialValue: resolve)
+        _detail = State(initialValue: make(resolve))
         self.timeZone = timeZone
     }
 
@@ -88,7 +90,7 @@ private struct RequestDetailScreen: View {
                 await detail.load()
             }
             .onChange(of: detail.detailRevision) {
-                if let record = detail.record { resolve?.adopt(record) }
+                if let record = detail.record { resolve?.adopt(record, readAt: detail.detailEpoch) }
             }
             .toolbar {
                 if detail.page == .content, !menuIdentifiers.isEmpty {
