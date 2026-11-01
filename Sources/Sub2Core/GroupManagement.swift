@@ -220,6 +220,10 @@ public struct GroupCapacitySummary: Codable, Sendable, Identifiable {
     public let sessionsMax: Int?
     public let rpmUsed: Int?
     public let rpmMax: Int?
+    public init(groupID: Int, concurrencyUsed: Int?, concurrencyMax: Int?, sessionsUsed: Int?, sessionsMax: Int?, rpmUsed: Int?, rpmMax: Int?) {
+        self.groupID = groupID; self.concurrencyUsed = concurrencyUsed; self.concurrencyMax = concurrencyMax
+        self.sessionsUsed = sessionsUsed; self.sessionsMax = sessionsMax; self.rpmUsed = rpmUsed; self.rpmMax = rpmMax
+    }
     enum CodingKeys: String, CodingKey {
         case groupID = "group_id", concurrencyUsed = "concurrency_used", concurrencyMax = "concurrency_max"
         case sessionsUsed = "sessions_used", sessionsMax = "sessions_max", rpmUsed = "rpm_used", rpmMax = "rpm_max"

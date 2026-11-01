@@ -4,7 +4,7 @@ import Sub2Core
 
 /// 50 §2.2: every read of the group detail, so `-ui-testing` swaps them as a whole (GroupFixtures+Detail). The group itself
 /// goes through the session's GroupStore (S5D2a-10), the members, their today and D02 through AppModel+Accounts (R19), the
-/// key counts through S5-01. S5-07 adds its blocks' reads here.
+/// key counts through S5-01. S5-07's blocks read through GroupDetailSectionsSource.
 struct GroupDetailSource: Sendable {
     var group: @MainActor @Sendable (_ id: Int) async throws -> AdminGroup
     var members: @MainActor @Sendable (_ page: Int, _ query: AccountListQuery) async throws -> AccountListPage
@@ -53,6 +53,8 @@ final class GroupDetailModel {
     /// D02's row for this group; a nil value means D02 had none and the local rule decides.
     let shortage = LoadState<AccountStatusGroupSummary.Shortage?>()
     let keyCounts = LoadState<GroupKeyCounts>()
+    /// S5-07: the alert banner, 贰 and 叁's counts, read with every refresh here.
+    let sections: GroupDetailSectionsModel
     private(set) var isLoadingMoreMembers = false
     private(set) var loadMoreFailed = false
     /// Parsed once per member change; the status card only passes a new `now` (S5D2a-02).
@@ -68,12 +70,13 @@ final class GroupDetailModel {
     @ObservationIgnored private var lastCountdownTarget: Date?
     @ObservationIgnored private var refreshesAfterAction = false
 
-    init(app: AppModel, groupID: Int, source: GroupDetailSource? = nil) {
+    init(app: AppModel, groupID: Int, source: GroupDetailSource? = nil, sectionsSource: GroupDetailSectionsSource? = nil) {
         self.app = app
         self.groupID = groupID
         self.source = source ?? .make(app)
         generation = app.sessionGeneration
         group = app.groupStore?.group(id: groupID)
+        sections = GroupDetailSectionsModel(app: app, groupID: groupID, generation: app.sessionGeneration, source: sectionsSource)
     }
 
     var page: GroupDetailPageState {
@@ -101,11 +104,13 @@ final class GroupDetailModel {
     func refresh(_ trigger: GroupDetailTrigger) async {
         guard isCurrent else { return }
         let blocks = due(GroupDetailRefreshPlan.blocks(for: trigger, unread: unread), polling: trigger == .poll)
+        let showsUsageAndCapacity = app?.sessionContext.map { permissions($0).showsUsageAndCapacity } ?? true
         async let groupDone: Void = loadGroup(if: blocks.contains(.group))
         async let membersDone: Void = loadMembers(if: blocks.contains(.members), thenToday: blocks.contains(.memberToday))
         async let shortageDone: Void = loadShortage(if: blocks.contains(.shortage))
+        async let sectionsDone: Void = sections.refresh(trigger, showsUsageAndCapacity: showsUsageAndCapacity)
         await loadKeyCounts(if: blocks.contains(.stats))
-        _ = await (groupDone, membersDone, shortageDone)
+        _ = await (groupDone, membersDone, shortageDone, sectionsDone)
         // 00 §4.6: the next round counts from the end; one the page cancelled (a sheet, the background) does not count.
         if !Task.isCancelled { lastRefresh = .now }
     }
@@ -263,7 +268,7 @@ final class GroupDetailModel {
     /// 50 §0.8: the page turns into “这个分组已删除” and the group leaves the list and the directory.
     private func markDeleted() {
         isDeleted = true
-        members.cancel(); memberToday.cancel(); shortage.cancel(); keyCounts.cancel()
+        members.cancel(); memberToday.cancel(); shortage.cancel(); keyCounts.cancel(); sections.cancel()
         app?.groupStore?.remove(id: groupID)
     }
     private func due(_ blocks: Set<GroupDetailBlock>, polling: Bool) -> Set<GroupDetailBlock> {

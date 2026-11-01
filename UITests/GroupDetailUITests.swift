@@ -245,4 +245,209 @@ final class GroupDetailUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
     }
+
+    // MARK: - S5-07 告警横幅、贰 · 用量与容量、叁 · 记录与关联、肆 · 配置
+
+    private enum SectionsFixture {
+        static let opsDisabled = "-ui-ops-disabled"
+        static let usageFailure = "-ui-group-usage-failure"
+    }
+
+    /// 2.3 告警横幅 above the card opens #41; back from the alert the banner is read again, so a manual resolve ends it (2.4).
+    @MainActor func testStandardGroupAlertBannerOpensAlertAndLeavesOnceResolved() {
+        openGroup(2)
+        defer { diagnostics("group-detail-banner-final") }
+        let banner = element("group.detail.alert")
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(banner.label, "P1 告警中 · 标准组错误率 5.2%")
+        let detail = banner.value as? String ?? ""
+        let pattern = "^错误率 > 5\\.0%（5 分钟） · ([0-9]{2}/[0-9]{2} )?[0-9]{2}:[0-9]{2} 起$"
+        XCTAssertNotNil(detail.range(of: pattern, options: .regularExpression), detail)
+        XCTAssertLessThanOrEqual(banner.frame.maxY, element("group.detail.card").frame.minY, app.debugDescription)
+        banner.tap()
+        XCTAssertTrue(element("alert.detail.status").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(element("alert.detail.ruleName").label, "标准组错误率")
+        goBack()
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
+
+        banner.tap()
+        let resolve = element("alert.detail.resolve")
+        XCTAssertTrue(resolve.waitForExistence(timeout: 10), app.debugDescription)
+        resolve.tap()
+        let dialog = app.alerts["手动解决这条告警？"]
+        XCTAssertTrue(dialog.waitForExistence(timeout: 5), app.debugDescription)
+        dialog.buttons["手动解决"].firstMatch.tap()
+        waitForReceipt("已手动解决")
+        goBack()
+        XCTAssertTrue(app.navigationBars["标准组"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(banner.pollGone(timeout: 5), app.debugDescription)
+
+        // 高级组's only alert (#35) has ended.
+        goBack()
+        openListedGroup(1)
+        XCTAssertFalse(banner.waitForExistence(timeout: 3), app.debugDescription)
+    }
+
+    /// 贰: the list's usage-summary, dashboard/groups' line and capacity counted like the backend. 高级组 and Claude Code 组 both
+    /// schedule Claude-官方-01 and -02 (-03 is rate limited); 标准组 has only a concurrency ceiling.
+    @MainActor func testUsageAmountsTodayLineAndCapacityLines() {
+        openGroup(2)
+        defer { diagnostics("group-detail-usage-final") }
+        expectValue("group.capacity.concurrency", "2/8")
+        app.scrollUntilExists(element("group.records.header"))
+        XCTAssertFalse(element("group.capacity.sessions").exists, app.debugDescription)
+        XCTAssertFalse(element("group.capacity.rpm").exists, app.debugDescription)
+
+        goBack()
+        openListedGroup(1)
+        let header = element("group.usage.header")
+        app.scrollUntilExists(header)
+        XCTAssertEqual(header.value as? String, "按 Key 所属分组 · 00:00 切分")
+        for (id, value) in [("today", "$933.30"), ("yesterday", "$2,985.60"), ("total", "$186,420.55")] { expectValue("group.usage.\(id)", value) }
+        expectValue("group.usage.todayLine", "请求 10,194，Tokens 62.9M，账号成本 $370.27")
+        expectPremiumCapacity()
+
+        goBack()
+        openListedGroup(5)
+        expectPremiumCapacity()
+    }
+
+    /// 容量 — with why: nothing schedulable (企业专线), no members (Antigravity 组), a stopped group (测试组).
+    @MainActor func testCapacityNotesForUnschedulableEmptyAndStoppedGroups() {
+        openGroup(4)
+        defer { diagnostics("group-detail-capacity-notes-final") }
+        expectCapacityNote("没有可调度的账号")
+        goBack()
+        openListedGroup(10)
+        expectCapacityNote("没有成员账号")
+        goBack()
+        openListedGroup(6)
+        expectCapacityNote("停用的分组不统计容量")
+        XCTAssertFalse(element("group.capacity.concurrency").exists, app.debugDescription)
+    }
+
+    /// 2.5: usage-summary and dashboard/groups fail (a first read, so “—”); capacity and the card do not depend on them.
+    @MainActor func testUsageFailureShowsDashesAndKeepsCapacity() {
+        openGroup(1, arguments: [SectionsFixture.usageFailure])
+        defer { diagnostics("group-detail-usage-failure-final") }
+        XCTAssertEqual(element("group.detail.card.figure").label, "2 / 3 个账号可用")
+        for id in ["today", "yesterday", "total", "todayLine"] { expectValue("group.usage.\(id)", "无数据") }
+        expectValue("group.capacity.concurrency", "5/8")
+    }
+
+    /// 叁: the 24-hour counts, the logs filtered by the group (either log page), the group's keys and subscriptions.
+    @MainActor func testRecordRowsCountTheLastDayAndOpenTheirPages() {
+        openGroup(4)
+        defer { diagnostics("group-detail-records-final") }
+        expectValue("group.records.subscriptions", "生效中 12 个")
+        element("group.records.subscriptions").tap()
+        XCTAssertTrue(app.navigationBars["订阅"].waitForExistence(timeout: 10), app.debugDescription)
+        goBack()
+        XCTAssertTrue(app.navigationBars["企业专线"].waitForExistence(timeout: 10), app.debugDescription)
+
+        goBack()
+        openListedGroup(2)
+        expectValue("group.records.errors", "近 24 小时 37 条")
+        expectValue("group.records.upstream", "近 24 小时 9 条")
+        XCTAssertTrue(element("group.records.usage").exists, app.debugDescription)
+        element("group.records.errors").tap()
+        waitForLogsPage()
+        goBack()
+        XCTAssertTrue(app.navigationBars["标准组"].waitForExistence(timeout: 10), app.debugDescription)
+        expectValue("group.records.keys", "64 个")
+        element("group.records.keys").tap()
+        XCTAssertTrue(app.navigationBars["API 密钥"].waitForExistence(timeout: 10), app.debugDescription)
+        goBack()
+
+        goBack()
+        openListedGroup(1)
+        expectValue("group.records.errors", "近 24 小时 0 条")
+        expectValue("group.records.keys", "38 个")
+        XCTAssertFalse(element("group.records.subscriptions").exists, app.debugDescription)
+    }
+
+    /// 2.5 ops 关闭: no banner, both counts say so and still open the logs.
+    @MainActor func testOpsDisabledHidesBannerAndSaysMonitoringOff() {
+        openGroup(2, arguments: [SectionsFixture.opsDisabled])
+        defer { diagnostics("group-detail-ops-disabled-final") }
+        expectValue("group.records.errors", "运维监控未开启")
+        expectValue("group.records.upstream", "运维监控未开启")
+        element("group.records.errors").tap()
+        waitForLogsPage()
+        goBack()
+        app.scrollUntilExists(element("group.detail.card"), towardBottom: false)
+        XCTAssertFalse(element("group.detail.alert").exists, app.debugDescription)
+    }
+
+    /// 肆: a subscription group's limits, 高级组's plain rows, Claude Code 组's fallback by name; rate opens the editor and the Web
+    /// row only shows its receipt under -ui-testing.
+    @MainActor func testConfigRowsLimitsFallbackEditorAndWebRow() {
+        openGroup(4)
+        defer { diagnostics("group-detail-config-final") }
+        let limits = element("group.config.limits")
+        app.scrollUntilExists(limits)
+        let spoken = limits.value as? String ?? ""
+        for amount in ["每日 $20", "每周 $100", "每月 $300"] { XCTAssertTrue(spoken.contains(amount), spoken) }
+
+        goBack()
+        openListedGroup(1)
+        expectValue("group.config.rpm", "不限")
+        expectValue("group.config.client", "所有客户端")
+        expectValue("group.config.fallback", "无数据")
+
+        goBack()
+        openListedGroup(5)
+        for (id, value) in [("rate", "×0.8"), ("rpm", "60"), ("exclusive", "专属"), ("client", "仅限 Claude Code"), ("fallback", "高级组")] {
+            expectValue("group.config.\(id)", value)
+        }
+        XCTAssertFalse(element("group.config.description").exists, app.debugDescription)
+        let rate = element("group.config.rate")
+        app.scrollUntilExists(rate, towardBottom: false)
+        rate.tap()
+        let name = element("group-editor.name")
+        XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["group-editor.close"].tap()
+        XCTAssertTrue(name.waitForNonExistence(timeout: 10), app.debugDescription)
+        let web = element("group.config.web")
+        app.scrollUntilExists(web)
+        XCTAssertTrue(web.label.contains("模型白名单、组合路由、图片计费"), web.label)
+        web.tap()
+        waitForReceipt("已打开 Web 分组管理")
+    }
+
+    /// Back on the list: the row, then the detail once its card shows.
+    @MainActor private func openListedGroup(_ id: Int) {
+        let target = row(id)
+        app.scrollUntilExists(target)
+        target.tap()
+        XCTAssertTrue(element("group.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+    }
+    /// Scrolls to the item, then waits for its accessibility value.
+    @MainActor private func expectValue(_ identifier: String, _ expected: String, file: StaticString = #filePath, line: UInt = #line) {
+        let item = element(identifier)
+        app.scrollUntilExists(item, file: file, line: line)
+        XCTAssertTrue(item.poll(NSPredicate(format: "value == %@", expected), timeout: 10),
+                      "\(identifier): \(String(describing: item.value)) ≠ \(expected)\n\(app.debugDescription)", file: file, line: line)
+    }
+    @MainActor private func expectPremiumCapacity(file: StaticString = #filePath, line: UInt = #line) {
+        for (id, value) in [("concurrency", "5/8"), ("sessions", "5/6"), ("rpm", "26/120")] {
+            expectValue("group.capacity.\(id)", value, file: file, line: line)
+        }
+    }
+    @MainActor private func expectCapacityNote(_ note: String, file: StaticString = #filePath, line: UInt = #line) {
+        expectValue("group.capacity.empty", "无数据", file: file, line: line)
+        let item = element("group.capacity.note")
+        app.scrollUntilExists(item, file: file, line: line)
+        XCTAssertEqual(item.label, note, file: file, line: line)
+    }
+    /// S5D2a-16: the old log page or S4-05's, whichever this build has.
+    @MainActor private func waitForLogsPage(file: StaticString = #filePath, line: UInt = #line) {
+        let titles = ["使用记录", "请求与错误日志"]
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if titles.contains(where: { app.navigationBars[$0].exists || app.navigationBars.staticTexts[$0].exists }) { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTFail("no log page\n\(app.debugDescription)", file: file, line: line)
+    }
 }
