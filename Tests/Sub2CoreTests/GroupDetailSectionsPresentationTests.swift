@@ -74,12 +74,22 @@ private let stamp = Date(timeIntervalSince1970: 1_800_000_000)
 
 @Test func bannerKeepsLastEventOnFailedRefresh() {
     let shown = event()
-    #expect(GroupAlertBannerContent.shownEvent(.loaded(shown, at: stamp)) == shown)
-    #expect(GroupAlertBannerContent.shownEvent(.loaded(nil, at: stamp)) == nil)
-    #expect(GroupAlertBannerContent.shownEvent(.failed(reason: "x", previous: shown, at: stamp)) == shown)
-    #expect(GroupAlertBannerContent.shownEvent(.failed(reason: "x", previous: nil, at: nil)) == nil)
-    #expect(GroupAlertBannerContent.shownEvent(.loading(previous: shown, at: stamp)) == shown)
-    #expect(GroupAlertBannerContent.shownEvent(.idle) == nil)
+    func shownEvent(_ state: BlockState<AlertEvent?>) -> AlertEvent? { GroupAlertBannerContent.shownEvent(state, opsKnownDisabled: false) }
+    #expect(shownEvent(.loaded(shown, at: stamp)) == shown)
+    #expect(shownEvent(.loaded(nil, at: stamp)) == nil)
+    #expect(shownEvent(.failed(reason: "x", previous: shown, at: stamp)) == shown)
+    #expect(shownEvent(.failed(reason: "x", previous: nil, at: nil)) == nil)
+    #expect(shownEvent(.loading(previous: shown, at: stamp)) == shown)
+    #expect(shownEvent(.idle) == nil)
+}
+
+/// 50 §2.5, S5D2a-15: once the session knows ops monitoring is off (another page turned it off, the 60-second refresh skips the
+/// read), the event read before leaves at once.
+@Test func bannerLeavesOnceOpsIsKnownOff() {
+    let shown = event()
+    for state: BlockState<AlertEvent?> in [.loaded(shown, at: stamp), .failed(reason: "x", previous: shown, at: stamp), .loading(previous: shown, at: stamp)] {
+        #expect(GroupAlertBannerContent.shownEvent(state, opsKnownDisabled: true) == nil)
+    }
 }
 
 // MARK: 2.6 刷新
@@ -170,14 +180,23 @@ private let stamp = Date(timeIntervalSince1970: 1_800_000_000)
 // MARK: 叁 · 记录与关联
 
 @Test func logCountTrailingCoversOpsAndFailure() {
-    #expect(GroupRecordValues.logCount(.loaded(.count(37), at: stamp)) == "近 24 小时 37 条")
-    #expect(GroupRecordValues.logCount(.loaded(.count(1_234), at: stamp)) == "近 24 小时 1,234 条")
-    #expect(GroupRecordValues.logCount(.loaded(.count(0), at: stamp)) == "近 24 小时 0 条")
-    #expect(GroupRecordValues.logCount(.loaded(.opsDisabled, at: stamp)) == "运维监控未开启")
-    #expect(GroupRecordValues.logCount(.failed(reason: "x", previous: nil, at: nil)) == "—")
-    #expect(GroupRecordValues.logCount(.idle) == nil)
-    #expect(GroupRecordValues.logCount(.loading(previous: nil, at: nil)) == nil)
-    #expect(GroupRecordValues.logCount(.failed(reason: "x", previous: .count(37), at: stamp)) == "近 24 小时 37 条")
+    func logCount(_ state: BlockState<GroupLogCount>) -> String? { GroupRecordValues.logCount(state, opsKnownDisabled: false) }
+    #expect(logCount(.loaded(.count(37), at: stamp)) == "近 24 小时 37 条")
+    #expect(logCount(.loaded(.count(1_234), at: stamp)) == "近 24 小时 1,234 条")
+    #expect(logCount(.loaded(.count(0), at: stamp)) == "近 24 小时 0 条")
+    #expect(logCount(.loaded(.opsDisabled, at: stamp)) == "运维监控未开启")
+    #expect(logCount(.failed(reason: "x", previous: nil, at: nil)) == "—")
+    #expect(logCount(.idle) == nil)
+    #expect(logCount(.loading(previous: nil, at: nil)) == nil)
+    #expect(logCount(.failed(reason: "x", previous: .count(37), at: stamp)) == "近 24 小时 37 条")
+}
+
+/// 50 §2.5: both rows say so while the session knows ops monitoring is off, whatever the last read counted.
+@Test func logCountSaysMonitoringOffOnceOpsIsKnownOff() {
+    for state: BlockState<GroupLogCount> in [.loaded(.count(37), at: stamp), .failed(reason: "x", previous: .count(9), at: stamp),
+                                             .failed(reason: "x", previous: nil, at: nil), .idle] {
+        #expect(GroupRecordValues.logCount(state, opsKnownDisabled: true) == "运维监控未开启")
+    }
 }
 
 @Test func opsDisabledIsOnly404WithReason() {

@@ -54,9 +54,12 @@ public struct GroupAlertBannerContent: Equatable, Sendable {
         detail = parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// The last event read, kept through a failed refresh (S5D2a-15); a first read that failed shows nothing. The reader turns
-    /// OPS_DISABLED into a nil event, so the banner leaves at once.
-    public static func shownEvent(_ state: BlockState<AlertEvent?>) -> AlertEvent? { state.value ?? nil }
+    /// The last event read, kept through a failed refresh (S5D2a-15); a first read that failed shows nothing. OPS_DISABLED leaves
+    /// at once (2.5): the reader turns it into a nil event, and once the session knows ops monitoring is off (another page read
+    /// it; the 60-second refresh then skips the banner) the event read before is no longer shown.
+    public static func shownEvent(_ state: BlockState<AlertEvent?>, opsKnownDisabled: Bool) -> AlertEvent? {
+        opsKnownDisabled ? nil : state.value ?? nil
+    }
     /// HH:mm on the server's today, otherwise MM/dd HH:mm (another year yyyy/MM/dd HH:mm), then “ 起” (S5D2a-14).
     public static func firedText(_ firedAt: Date?, now: Date, timeZone: ServerTimeZone) -> String? {
         guard let firedAt else { return nil }
@@ -167,13 +170,15 @@ public enum GroupRecordRow: String, CaseIterable, Sendable {
     }
 }
 
-/// 叁's right-hand words. While a first read is out there is none (no flashing “—”).
+/// 叁's right-hand words. While a first read is out there is none (no flashing “—”); while the session knows ops monitoring is
+/// off the two counts say so whatever was read before (2.5).
 public enum GroupRecordValues {
     public static let title = "记录与关联"
     public static let ordinal = ChineseOrdinal.text(3)
 
-    public static func logCount(_ state: BlockState<GroupLogCount>) -> String? {
-        switch state.display {
+    public static func logCount(_ state: BlockState<GroupLogCount>, opsKnownDisabled: Bool) -> String? {
+        guard !opsKnownDisabled else { return GroupCopy.opsDisabled }
+        return switch state.display {
         case .placeholder: nil
         case .value(.count(let count), _, _, _): GroupCopy.last24Hours(count)
         case .value(.opsDisabled, _, _, _): GroupCopy.opsDisabled

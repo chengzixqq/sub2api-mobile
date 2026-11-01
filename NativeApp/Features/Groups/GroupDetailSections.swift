@@ -13,13 +13,13 @@ struct GroupDetailSections: View {
     let onOpenWeb: () -> Void
 
     var body: some View {
-        let sections = detail.sections, keys = detail.keyCounts.state
+        let sections = detail.sections, keys = detail.keyCounts.state, opsOff = sections.opsKnownDisabled
         let capacity = GroupCapacityDisplay.make(sections.capacity.state, group: group, buckets: buckets)
         GroupUsageSection(usage: sections.usage.state, today: sections.todayUsage.state, capacity: permissions.showsUsageAndCapacity ? capacity : nil)
         GroupRecordsSection(group: RouteObject(id: group.id, name: group.name), showsKeys: permissions.showsKeysAndSubscriptions,
                             showsSubscriptions: permissions.showsKeysAndSubscriptions && GroupRecordValues.showsSubscriptions(group),
-                            trailing: .init(errors: GroupRecordValues.logCount(sections.requestErrors.state),
-                                            upstream: GroupRecordValues.logCount(sections.upstreamErrors.state),
+                            trailing: .init(errors: GroupRecordValues.logCount(sections.requestErrors.state, opsKnownDisabled: opsOff),
+                                            upstream: GroupRecordValues.logCount(sections.upstreamErrors.state, opsKnownDisabled: opsOff),
                                             keys: GroupRecordValues.apiKeys(keys), subscriptions: GroupRecordValues.activeSubscriptions(keys)))
         GroupConfigSection(rows: GroupConfigDisplay.rows(group, fallbackName: fallbackName, showsBilling: permissions.showsBillingRow),
                            opensEditor: permissions.canEdit == .enabled, onEdit: onEdit, onOpenWeb: onOpenWeb)

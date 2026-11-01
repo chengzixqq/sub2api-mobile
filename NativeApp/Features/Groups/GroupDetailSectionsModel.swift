@@ -80,11 +80,14 @@ final class GroupDetailSectionsModel {
         self.source = source ?? .make(app)
     }
 
+    /// LiveOpsStore's latest signal, whichever page read it: the banner and both counts follow it at once (50 §2.5).
+    var opsKnownDisabled: Bool { app?.liveOps?.opsDisabled ?? false }
+
     /// The blocks GroupDetailSectionReads picks for `trigger`, side by side.
     func refresh(_ trigger: GroupDetailTrigger, showsUsageAndCapacity: Bool) async {
         guard isCurrent else { return }
         let blocks = GroupDetailSectionReads.reads(for: trigger, showsUsageAndCapacity: showsUsageAndCapacity,
-                                                   opsKnownDisabled: app?.liveOps?.opsDisabled ?? false, due: blockDue, unread: unread, now: Date())
+                                                   opsKnownDisabled: opsKnownDisabled, due: blockDue, unread: unread, now: Date())
         async let capacityDone: Void = loadCapacity(if: blocks.contains(.capacity))
         async let usageDone: Void = loadUsage(if: blocks.contains(.usage), reusingList: GroupDetailSectionReads.reusesListUsage(trigger))
         async let todayDone: Void = loadToday(if: blocks.contains(.todayUsage))
