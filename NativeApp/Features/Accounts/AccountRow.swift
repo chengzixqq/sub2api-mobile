@@ -110,8 +110,9 @@ struct AccountStatusBadge: View {
     }
 }
 
-/// Design BaseGlyph: an 8pt dot for 正常, a 17pt symbol otherwise, in the state's tone.
-private struct AccountStateGlyph: View {
+/// Design BaseGlyph: an 8pt dot for 正常, a 17pt symbol otherwise, in the state's tone. The logs filter sheet's account rows
+/// use it too (S4-07).
+struct AccountStateGlyph: View {
     let state: AccountScheduleState
     @ScaledMetric(relativeTo: .body) private var symbolSize = 17.0
     @ScaledMetric(relativeTo: .body) private var dotSize = 8.0

@@ -475,4 +475,133 @@ final class RequestLogsUITests: XCTestCase {
         }
         return tops.sorted { $0.value < $1.value }.map(\.key)
     }
+
+    // MARK: - S4-07 按对象筛选
+
+    /// The groups fail through the session's group directory (S2-03); search-users through LogFixtures+Picker.swift.
+    private enum PickerFixture {
+        static let groupsError = "-ui-account-groups-error"
+        static let usersError = "-ui-logs-picker-users-error"
+    }
+
+    /// 40 §6.4: the first six accounts by name, then the groups, no users; a keyword narrows the accounts; the pick filters the
+    /// list by that account (1040 is account 1's, 1039 account 4's) and its chip takes it off again.
+    @MainActor func testPickerSearchesAccountFiltersListAndChipRemoves() {
+        launchLogs()
+        defer { diagnostics("logs-picker-account") }
+        XCTAssertTrue(row("usage", 1039).waitForExistence(timeout: 10), app.debugDescription)
+        let field = openPicker("logs.picker.open")
+        XCTAssertTrue(app.staticTexts["按对象筛选"].exists || app.navigationBars["按对象筛选"].exists, app.debugDescription)
+        for id in [1, 2, 3, 8, 11, 5] {
+            XCTAssertTrue(pickerRow("account", id).waitForExistence(timeout: 10), "\(id)\n\(app.debugDescription)")
+        }
+        XCTAssertFalse(pickerRow("account", 10).exists, app.debugDescription)
+        // The groups follow below the fold; the list makes only the rows near the screen.
+        XCTAssertTrue(pickerRow("group", 1).waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(anyPickerRow("user").exists, app.debugDescription)
+        search(field, "官方-01")
+        XCTAssertTrue(pickerRow("account", 2).pollGone(timeout: 10), app.debugDescription)
+        let claude = pickerRow("account", 1)
+        XCTAssertTrue(claude.exists && claude.label.contains("Claude-官方-01") && claude.label.contains("#1"), claude.label)
+        pick("account", 1)
+        let chip = app.buttons["logs.chip.account"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(chip.label, "账号：Claude-官方-01")
+        XCTAssertTrue(row("usage", 1039).pollGone(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        chip.tap()
+        XCTAssertTrue(chip.waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row("usage", 1039).waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 40 §6.4: groups match by name in the directory's order, four at most; a pick replaces the condition of its kind and keeps
+    /// the others; a deleted user is marked; 关闭 changes nothing.
+    @MainActor func testPickerReplacesSameKindForGroupAndUser() {
+        launchLogs()
+        defer { diagnostics("logs-picker-replace") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        search(openPicker("logs.chip.add"), "组")
+        for id in [1, 2, 3, 5] { XCTAssertTrue(pickerRow("group", id).waitForExistence(timeout: 10), "\(id)\n\(app.debugDescription)") }
+        XCTAssertFalse(pickerRow("group", 4).exists || pickerRow("group", 7).exists, app.debugDescription)
+        pick("group", 1)
+        let group = app.buttons["logs.chip.group"]
+        XCTAssertTrue(group.poll(NSPredicate(format: "label == %@", "分组：高级组"), timeout: 10), app.debugDescription)
+        search(openPicker("logs.picker.open"), "标准")
+        XCTAssertTrue(pickerRow("account", 1).pollGone(timeout: 10), app.debugDescription)
+        pick("group", 2)
+        XCTAssertTrue(group.poll(NSPredicate(format: "label == %@", "分组：标准组"), timeout: 10), group.label)
+        XCTAssertEqual(app.buttons.matching(identifier: "logs.chip.group").count, 1, app.debugDescription)
+        search(openPicker("logs.picker.open"), "xm.wang")
+        pick("user", 3)
+        let user = app.buttons["logs.chip.user"]
+        XCTAssertTrue(user.poll(NSPredicate(format: "label == %@", "用户：xm.wang@example.com"), timeout: 10), app.debugDescription)
+        search(openPicker("logs.picker.open"), "alice")
+        pick("user", 1)
+        XCTAssertTrue(user.poll(NSPredicate(format: "label == %@", "用户：alice@example.com"), timeout: 10), user.label)
+        XCTAssertEqual(app.buttons.matching(identifier: "logs.chip.user").count, 1, app.debugDescription)
+        XCTAssertEqual(group.label, "分组：标准组")
+        search(openPicker("logs.picker.open"), "former")
+        let deleted = pickerRow("user", 27)
+        XCTAssertTrue(deleted.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(deleted.label.contains("former.ops@example.com") && deleted.label.contains("已删除"), deleted.label)
+        closePicker()
+        XCTAssertEqual(user.label, "用户：alice@example.com")
+        XCTAssertEqual(group.label, "分组：标准组")
+    }
+
+    /// 40 §6.4: each group fails on its own: the groups' failure row stays while the accounts come, and a keyword brings the
+    /// users' failure row next to the matching accounts.
+    @MainActor func testPickerGroupsFailAloneAndUsersRetry() {
+        launchLogs(arguments: [PickerFixture.groupsError, PickerFixture.usersError])
+        defer { diagnostics("logs-picker-failures") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        let field = openPicker("logs.picker.open")
+        XCTAssertTrue(pickerRow("account", 1).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("logs.picker.groups.failure").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["logs.picker.groups.retry"].exists, app.debugDescription)
+        XCTAssertFalse(element("logs.picker.users.failure").exists, app.debugDescription)
+        XCTAssertFalse(anyPickerRow("group").exists || anyPickerRow("user").exists, app.debugDescription)
+        search(field, "Claude")
+        XCTAssertTrue(element("logs.picker.users.failure").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["logs.picker.users.retry"].exists, app.debugDescription)
+        for id in [1, 2, 3] { XCTAssertTrue(pickerRow("account", id).waitForExistence(timeout: 10), "\(id)\n\(app.debugDescription)") }
+        XCTAssertTrue(pickerRow("account", 8).pollGone(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("logs.picker.groups.failure").exists, app.debugDescription)
+    }
+
+    /// The sheet's search field, found by its prompt.
+    @MainActor private var pickerField: XCUIElement { app.searchFields["账号名、邮箱或分组"] }
+    /// The bar's filter button or the “+ 筛选” chip; returns the sheet's search field.
+    @MainActor private func openPicker(_ identifier: String) -> XCUIElement {
+        let button = app.buttons[identifier]
+        XCTAssertTrue(button.waitForExistence(timeout: 10), app.debugDescription)
+        button.tap()
+        XCTAssertTrue(pickerField.waitForExistence(timeout: 10), app.debugDescription)
+        return pickerField
+    }
+    @MainActor private func search(_ field: XCUIElement, _ text: String) { field.tap(); field.typeText(text) }
+    @MainActor private func pickerRow(_ kind: String, _ id: Int) -> XCUIElement { app.buttons["logs.picker.\(kind).\(id)"] }
+    @MainActor private func anyPickerRow(_ kind: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "logs.picker.\(kind).")).firstMatch
+    }
+    /// Picks the row once it is there and on screen; the sheet closes.
+    @MainActor private func pick(_ kind: String, _ id: Int) {
+        let item = pickerRow(kind, id)
+        XCTAssertTrue(item.waitForExistence(timeout: 10), app.debugDescription)
+        reveal(item)
+        item.tap()
+        XCTAssertTrue(pickerField.pollGone(timeout: 10), app.debugDescription)
+    }
+    /// 关闭. While the search is active the bar shows the field's own close button (no identifier) instead; it comes first.
+    @MainActor private func closePicker() {
+        let close = app.buttons["sheet.close"]
+        if !(close.exists && close.isHittable) {
+            let labels = ["关闭", "Close", "取消", "Cancel"]
+            let endSearch = app.buttons.matching(NSPredicate(format: "identifier == '' AND label IN %@", labels)).firstMatch
+            if endSearch.exists { endSearch.tap() }
+        }
+        XCTAssertTrue(close.waitForExistence(timeout: 5), app.debugDescription)
+        close.tap()
+        XCTAssertTrue(pickerField.pollGone(timeout: 10), app.debugDescription)
+    }
 }

@@ -224,7 +224,7 @@ private func query(_ request: URLRequest?) -> [String: String] {
     #expect(ops.records.count == 2)
 }
 
-@MainActor @Test func perfNoticeAndPollingFollowTheOpsSwitch() async {
+@MainActor @Test func perfNoticeAndPollingFollowTheOpsSwitch() async throws {
     let scratch = ScratchDefaults(); defer { scratch.remove() }
     let reply = Reply(emptyThroughput)
     let transport = SessionTransport { _ in reply.current }
@@ -241,8 +241,7 @@ private func query(_ request: URLRequest?) -> [String: String] {
     reply.set(sessionFailure(404, reason: "OPS_DISABLED"))
     await state.load(refresh: true)
     #expect(!state.isOpsDisabled && state.showsOpsNotice)
-    let delay = state.pollDelay(now: Date())
-    #expect(delay != nil && delay! >= 30)
+    #expect(state.pollDelay(now: try #require(state.loadState?.lastErrorAt)) == 30)
 }
 
 @MainActor @Test func perfPollDelayStopsFor400And403AndWaitsFromTheLastRead() async throws {
@@ -316,4 +315,33 @@ private func query(_ request: URLRequest?) -> [String: String] {
     #expect(state.trend != nil)
     session.setFilter(.group(id: 1))
     #expect(state.loadState?.value == nil)
+}
+
+@MainActor @Test func perfReadsAgainAtOnceWhenOpsIsBackOnOverAKeptValue() async throws {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let reply = Reply(emptyThroughput)
+    let transport = SessionTransport { _ in reply.current }
+    let ops = OpsProbe()
+    let state = makeState(scratch, session: makeSession(scratch, transport: transport, isUITesting: false), ops: ops)
+    await state.load(refresh: false)
+    // The 30-second read finds ops turned off elsewhere; the failure keeps the value and the store now says off.
+    reply.set(sessionFailure(404, reason: "OPS_DISABLED"))
+    await state.load(refresh: true)
+    ops.isDisabled = true
+    #expect(state.trend != nil && state.showsOpsNotice)
+    // Turned on in the card: the loader's read (not a refresh) still goes out; another instance not caught up yet answers 404.
+    ops.isDisabled = false
+    await state.load(refresh: false)
+    #expect(await transport.requests.count == 3)
+    #expect(state.showsOpsNotice)
+    // Meanwhile it reads every 30 seconds, without backing off.
+    let failedAt = try #require(state.loadState?.lastErrorAt)
+    #expect(state.pollDelay(now: failedAt) == 30)
+    await state.load(refresh: true)
+    #expect(state.pollDelay(now: try #require(state.loadState?.lastErrorAt)) == 30)
+    // Once it answers, the chart is back.
+    reply.set(emptyThroughput)
+    await state.load(refresh: false)
+    #expect(await transport.requests.count == 5)
+    #expect(!state.showsOpsNotice && state.trend != nil)
 }
