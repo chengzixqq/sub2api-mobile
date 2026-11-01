@@ -519,6 +519,9 @@
 | 自定义范围日历的“今天”高亮按手机时区（核对结果） | S4-13 在模拟器上设手机时区 America/Los_Angeles、站点 Asia/Shanghai 截图核对：图形日历的“今天”标在站点日期（11月1日），因为 DatePicker 已注入站点 timeZone / calendar，没有错位；这一行可以关闭 |
 | S4-20 清理清单补充：旧趋势页的残留 | LegacyTrendPage 删除后，AppModel.dashboardTrend() 及其 -ui-trend-long-series / -ui-dashboard-detail-errors 夹具分支、DemoData.longHourlyTrend 已没有调用方（PerformanceTrendView 与 dashboardPerformanceTrend(hours:) 归 S4-16）；docs/API_COMPATIBILITY.md:32 仍写“过渡页 LegacyTrendPage”，需要随 S4-20 改写 |
 | 卡内失败行偏重 | 计费卡合计与趋势同时失败时，卡内出现两组“加载失败 · 重试本项 + 详情”，各管一个读取；是否合并成一行留给 UI 审查 |
+| 请求详情分区编号 | 按已定设计稿：头部状态卡与按钮行不编号，耗时从“壹”起；40 §7.1 字面从头部卡开始编号，待用户确认（S4D2a-14；若按规格只改 RequestDetailLayout.sections / ordinal 与对应单测） |
+| 请求详情 UI 夹具按请求 ID 查使用记录 | LogFixtures+Detail 的 requestUsageRecord 目前一律返回 nil：UI 夹具里已恢复请求的退路查不到成功那次。S6-20 / S6-21 用请求 ID 搜索进入 .usageRequestID 时在该文件补脚本 |
+| 请求详情 429 等待的时钟与失败行不一致 | 线 B 的 S4-08（aa67dc3/0e333d3）里，RequestDetailModel 的 detailRefresh 也用 client.serverClock.now() 记录和判定 429 等待（RequestDetailModel.swift:184/222），RequestDetailView 又把它交给 BlockFailureRow，按设备时钟倒计时和自动重发。这和 S4-05 审查修正 cf34f8f 修的是同一个问题：服务器时钟偏慢时，等待结束后的自动重发会被挡掉。应在 S4-08 的修正里照 LogsStoreState 的做法改用设备时钟（phoneNow）。 |
 
 ### App 与设计 · 阶段 5
 
