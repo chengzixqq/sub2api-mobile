@@ -115,7 +115,7 @@
 | H06 可选：公告已读汇总缓存 | 每次 read-summary / include_read_stats 都实时全表扫 users，文档提示可按 announcement_id 加 30–60 秒进程内缓存 | 响应已带 computed_at，几万用户量级毫秒到百毫秒，先不引入缓存失效问题 | 生产库实测汇总耗时，超过可接受范围再加缓存 |
 | H06 可选：公告列表 include_read_stats 批量汇总 | 带 include_read_stats 时每条公告一次汇总查询（page_size 最大 1000 时最多 1000 次全表扫）；可让 targeting 为空的公告共用一次 COUNT，或单条语句算出整页 | 只对站长开放、Web 不带这个参数，App 列表默认 20 条 | App 确实在大页列表上带这个参数、实测变慢时再做 |
 | H06 可选：Web 已读弹窗接入 read_state / eligible 筛选与 read-summary | 后端已支持，Web 弹窗仍只用 search / sort_by / sort_order | 条目没有要求改 Web | 维护者决定是否给 Web 加已读筛选与汇总 |
-| H06 发现：老路径 read-status 搜索会命中已软删除的 API Key | `userRepo.ListWithFilters` 的 search 用 ent `HasAPIKeysWith(KeyContainsFold)`，软删除拦截器不下沉到子查询，已删除 Key 的明文仍能搜出用户；/admin/users 等 Web 搜索同理。H06 新路径已排除 | 改老路径会改变 /admin/users 等既有 Web 搜索的语义，不在本条范围 | 维护者决定是否让用户搜索统一排除已删除 Key（加 `apikey.DeletedAtIsNil()`） |
+| H06 发现：老路径 read-status 搜索会命中已软删除的 API Key | `userRepo.ListWithFilters` 的 search 用 ent `HasAPIKeysWith(KeyContainsFold)`，软删除拦截器不下沉到子查询，已删除 Key 的明文仍能搜出用户；/admin/users 等 Web 搜索同理。H06 新路径已排除。全局搜索的用户分区同样受影响。S6-21 的“· Key 片段匹配”无法区分已删除的 Key，用户可能只因一把已删除 Key 的片段被搜到，点进去却找不到这把 Key。 | 改老路径会改变 /admin/users 等既有 Web 搜索的语义，不在本条范围 | 维护者决定是否让用户搜索统一排除已删除 Key（加 `apikey.DeletedAtIsNil()`） |
 | E06 可选：Key 列表按 effective_status 筛选 | 现在 status 筛选按库里原值精确匹配：status=inactive 筛不到历史 disabled 行，status=expired 筛不到运行时过期的 active 行；App 只能拿到列表后按 effective_status 自己统计 | 文档没要求；涉及按服务器时间判断过期和额度，要改 SQL | 维护者决定是否给用户 / 分组 Key 列表加 effective_status 筛选参数 |
 | E06 可选：Web 前端 ApiKey 类型补 effective_status、用户侧 PUT 接受 disabled | Web 不读该字段，用户侧也从不发 disabled；文档只要求管理端归一 | 不影响现有功能 | Web 需要显示“已过期 / 额度耗尽”徽章时再加 |
 | E11 可选：管理端 Key 列表 concurrency_available | Redis 读失败时 current_concurrency 为 0，App 无法区分“0 个并发”和“读不到”；ConcurrencyService.GetAPIKeyConcurrencyBatch 会吞掉错误并返回全 0 | 新增一个返回可用性的批量读取方法（最好与 C15 的账号侧可用性口径一起定），再在三个管理端 Key 读取接口加 concurrency_available |
@@ -198,7 +198,7 @@
 | 覆盖层窗口的外观与读屏 | S0-13 的全局 sheet 在覆盖层 UIWindow 里，S0-15 起每次弹出时按 App 的外观设置取 overrideUserInterfaceStyle（不再复制主窗口）；VoiceOver 焦点进入与离开覆盖层窗口需要真机核对 |
 | 读类 POST 的安全重发 | S0-13 的钩子只对 RequestClass.isRead 的请求在验证通过后自动重发；reveal（POST admin/api-keys/:id/reveal）等语义是读的 POST 在阶段 3 / 6 实现时要显式声明请求类别，或发送前先调用 ensureStepUp（30 §7 本来就先主动判断） |
 | 站点标题菜单与大标题 | S0-14 在 iOS 27 模拟器上实测：大标题与 `.toolbarTitleDisplayMode(.inlineLarge)` 都打不开 `.toolbarTitleMenu`（标题只是静态文字），所以概览与账号 Tab 的标题改为 inline 显示（系统画下拉箭头，点开就是站点菜单）。10 §0.7-5 要的是“大标题就是站点菜单”，需 iOS 26 / 27 实机确认；要恢复大标题时只改 `NativeApp/Views/SiteMenu.swift` 的 `siteTitleMenu()`（例如 iOS 26 的 `ToolbarItem(placement: .largeTitle)` 放一个以站点名为标签的 `Menu`） |
-| 搜索 Tab 在实机上的样子 | S0-14 在 iOS 27 模拟器上：`Tab(role: .search)` 显示为 Tab 栏里的第五项（没有分离成独立玻璃按钮），选中时不自动弹键盘，搜索框在导航栏抽屉里，与 60 §1.1 一致。U40 要求 iOS 26 / 27 实机各验一次 |
+| 搜索 Tab 在实机上的样子 | S0-14 在 iOS 27 模拟器上：`Tab(role: .search)` 显示为 Tab 栏里的第五项（没有分离成独立玻璃按钮），选中时不自动弹键盘，搜索框在导航栏抽屉里，与 60 §1.1 一致。U40 要求 iOS 26 / 27 实机各验一次。S6-21 的全局搜索结果视图、“查看全部”页与 dismissSearch（清除搜索）只在 iOS 27 模拟器验证过，U40 要求的 iOS 26 / 27 实机仍未验证，S6-26 收口时复核。 |
 | 路由参数在旧页面上不生效 | S0-14 把路由映射到现有页面时，现有页面不支持的参数没有传：`.logs` 的 user / model / modelSource、`.analytics` 的 range / focus / metric（目录进统计仍从“今天”开始，40 §1.1 要近 7 天）、`.groups` 的 segment、`.account` 的 focus（`.settings` 的 focus 已由 S0-15 接上）。各阶段换新页面时生效；`.groupBatch` 的 items 等阶段 5 定义结果类型再加 |
 | 跨 Tab 跳转撤不掉视图式推入的页面 | `AppRouter.select` 只清空目标 Tab 的 path；现有页面用 `NavigationLink { 目标 }` 推入的页面不在 path 里，会留在栈上。阶段 0 只有目录“告警事件”切到监控 Tab，监控 Tab 没有这类页面；概览、账号重写时改用 `NavigationLink(value: AppRoute)` |
 | Face ID 金额门槛 sheet 的键盘 | S0-15 的门槛 sheet 用大字显示 + 系统 numberPad（D22），S0-18 只把逐键过滤换成 KeypadInput；是否换成阶段 3 KeypadSheet 的大数字键盘界面，阶段 3 做用户余额键盘时一并决定（标识 settings.threshold.field / settings.threshold.save 不变） |
@@ -531,6 +531,8 @@
 | 旧站点逐段利润的重读 | 没有 trend account_cost 的站点按 40 §1.3 逐段读 usage/stats；刷新时只重读窗口变了的桶（正在进行的桶、读时还在进行的桶）与缺失的桶，过去的段到范围或筛选改变才重读（S4D2b-09 ⑥，S4-13b），待用户确认；如要每次全部重读，只改 ProfitBreakdown.segmentsToRefresh / AnalyticsSession.loadProfitSegments 一处 |
 | 利润明细“空”的判定 | 默认每个桶的实际扣费与账号成本都为 0 才写“这个范围内没有扣费”；规格字面只看扣费，会把倍率为 0 的分组的整段亏损藏掉（S4D2b-09 ②，S4-13b），待用户确认；只改 ProfitBreakdown.isEmpty 一处 |
 | 利润增减行两边都为 0 | 沿用 S4-09 的 DisplayFormat.profitChange 写“$0.00 · 比昨天同时”，设计稿 AxDelta 写“比昨天同时 —”，截图评审时确认；要改只改 DisplayFormat+AmountChange.swift 并同步 S4-09 测试 |
+| S4-06 回前台一拍与计数补取 | S4-06 把 foregroundResumed 改成“自动刷新中立即一拍”（增量，不读第 1 页）时，这个分支要调 counter.resumeInterrupted(listReadsAgain: false, holdingBack: …)，可以直接用 LogsStoreState 里的 resumeCounts(listReadsAgain: false)。否则被后台打断第 1 页的当前错误段，计数会一直只显示段名（S4-05b 审查修正 799e1f0）。 |
+| LogsStoreStateTests.swift 超过 800 行 | S4-05b 之后已有 810 行。S4-06、S4-07、S4-08b 的新单测宜放进各自的新文件（审查修正已把计数用例放在 LogsStoreCountTests.swift），或者顺手拆分这个文件。 |
 
 ### App 与设计 · 阶段 5
 
