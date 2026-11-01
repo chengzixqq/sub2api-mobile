@@ -127,19 +127,21 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(segments.segment("概况").isSelected, app.debugDescription)
     }
 
-    @MainActor func testSearchTextShowsPlaceholder() {
+    /// S6-21: typing shows the results (60 §2); “zzqq” matches nothing in the fixtures, so the empty state shows.
+    @MainActor func testSearchTextShowsResultsAndClearingReturnsToDirectory() {
         launchAndLogin(name: "搜索站点", url: "https://search.example.invalid")
         defer { diagnostics("search-text-final") }
         app.openSearchTab()
         let field = app.searchFields["搜索全部对象"]
         XCTAssertTrue(field.waitForExistence(timeout: 5), app.debugDescription)
         field.tap()
-        field.typeText("abc")
-        XCTAssertTrue(element("search.placeholder").waitForExistence(timeout: 5), app.debugDescription)
+        field.typeText("zzqq")
+        XCTAssertTrue(element("search.empty").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("search.placeholder").exists)
         XCTAssertFalse(app.buttons["search.item.usage"].exists)
-        diagnostics("search-placeholder")
+        diagnostics("search-results")
         let clear = field.buttons.firstMatch
-        if clear.exists { clear.tap() } else { field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3)) }
+        if clear.exists { clear.tap() } else { field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4)) }
         XCTAssertTrue(app.buttons["search.item.usage"].waitForExistence(timeout: 5), app.debugDescription)
     }
 
