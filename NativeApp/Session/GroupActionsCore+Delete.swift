@@ -56,15 +56,17 @@ extension GroupActions {
     private struct Deletion: Sendable {
         let group: AdminGroup
         let operation: GroupWriteOperation
+        /// The list that asked is still there to ask again; a detail has left before the DELETE.
+        let pageStays: Bool
     }
 
     /// Called by `performDelete`; pages must not call it.
-    func startDelete(_ group: AdminGroup, session: GroupWriteSession) async -> GroupActionOutcome {
+    func startDelete(_ group: AdminGroup, session: GroupWriteSession, pageStays: Bool) async -> GroupActionOutcome {
         guard let identity = await identity(session),
               let operation = try? GroupWriteOperation.delete(groupID: group.id, serverID: session.serverID, identity: identity,
                                                               sendsIdempotencyKey: session.idempotentWrites, id: makeKey())
         else { return .ignored }
-        return await sendDelete(Deletion(group: group, operation: operation), session: session)
+        return await sendDelete(Deletion(group: group, operation: operation, pageStays: pageStays), session: session)
     }
     /// Deleted and already gone end alike (Core maps 404); 409 GROUP_NOT_EMPTY keeps the group.
     private func sendDelete(_ deletion: Deletion, session: GroupWriteSession) async -> GroupActionOutcome {
@@ -81,7 +83,7 @@ extension GroupActions {
                 show(GroupActionCopy.failed(.delete, reason: reason))
                 return .failed
             case .reconfirm:
-                show(GroupActionCopy.reconfirm(.delete)) { Task { await self.requestDelete(deletion.group) } }
+                show(GroupActionCopy.reconfirm(.delete), action: deleteAgain(deletion.group, deletion, session))
                 return .reconfirm
             case .unconfirmed(let notBefore): return await verifyDelete(deletion, notBefore: notBefore, session: session)
             }
@@ -96,7 +98,7 @@ extension GroupActions {
                               systemImage: "trash"))
         return .succeeded
     }
-    /// 404 on the read-back is deleted; a group still there offers the same number, or without keys a new request id.
+    /// 404 on the read-back is deleted; a group still there offers the same number, or without keys asks again.
     private func verifyDelete(_ deletion: Deletion, notBefore: Date?, session: GroupWriteSession) async -> GroupActionOutcome {
         let id = deletion.group.id
         switch await readBack(id, session: session) {
@@ -104,7 +106,7 @@ extension GroupActions {
         case .success(let fresh)?:
             store()?.upsert(fresh)
             guard deletion.operation.sendsIdempotencyKey else {
-                show(GroupActionCopy.notApplied(.delete)) { self.relaunch(id, session) { await $0.startDelete(fresh, session: session) } }
+                show(GroupActionCopy.notApplied(.delete), action: deleteAgain(fresh, deletion, session))
                 return .notApplied
             }
             show(notBefore == nil ? GroupActionCopy.unconfirmedRetry(.delete) : GroupActionCopy.storeUnavailable(.delete)) {
@@ -122,6 +124,15 @@ extension GroupActions {
                 }
                 return .unconfirmed
             }
+        }
+    }
+    /// A DELETE under a new number passes the typed name or Face ID again (R05, 60 §3.4), so only a page still there can offer
+    /// it; after a detail has left, the group's menu is the way back.
+    private func deleteAgain(_ group: AdminGroup, _ deletion: Deletion, _ session: GroupWriteSession) -> (@MainActor @Sendable () -> Void)? {
+        guard deletion.pageStays else { return nil }
+        return {
+            guard self.isCurrent(session) else { return }
+            Task { await self.requestDelete(group) }
         }
     }
 }
