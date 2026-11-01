@@ -235,7 +235,7 @@ final class LogsStoreState {
     }
     /// The last row appeared: the next page, joined by id (40 §6.4).
     func loadMoreIfNeeded(after id: Int) async {
-        guard isPollable, let next = shown.nextPage, sections.last?.rows.last?.id == id else { return }
+        guard isSettled, let next = shown.nextPage, sections.last?.rows.last?.id == id else { return }
         await load(scope, page: next, window: nextPageWindow())
     }
     /// A failed poll polls again (S4-06); a failed read reads its page again.
@@ -437,12 +437,14 @@ extension LogsStoreState {
         return max(0, BlockRefresh.nextRefreshInterval(base: pollInterval, consecutiveFailures: refresh.consecutiveFailures) - elapsed)
     }
     /// One poll of the shown segment (40 §6.6): new rows join on top and the counts stay. has_more, more than one page and
-    /// since_id's two 400s read page 1 again without a word; other failures keep the rows and say so at the list's end.
+    /// since_id's two 400s read page 1 again without a word; other failures keep the rows and say so at the list's end. A page 1
+    /// that failed over its rows is read again (00 §4.6); a failed later page waits for 重试 while the top polls on.
     func refreshTick() async {
         guard autoRefreshes, isVisible, isPollable, !isPolling, isCurrent(), refresh.allowsRequest(at: phoneClock()) else { return }
         let scope = self.scope
         isPolling = true
         defer { isPolling = false; lastPolls[scope] = phoneClock() }
+        if phase == .failed(page: 1) { return await loadFirstPage(scope) }
         switch scope {
         case .usage:
             await poll(scope, current: { usage }, update: { usage = $0 }, page: source.usage, since: source.usageSince)
@@ -467,8 +469,13 @@ extension LogsStoreState {
     }
     func rowDisappeared(_ id: Int) { visibleRows.remove(id) }
 
-    /// Loaded, its last poll perhaps failed: nothing of the segment is on its way.
-    private var isPollable: Bool { phase == .loaded || phase == .refreshFailed }
+    /// Loaded, its last poll perhaps failed: no page read of the segment is on its way or has failed.
+    private var isSettled: Bool { phase == .loaded || phase == .refreshFailed }
+    /// Settled, or a read failed over the rows it kept: the next poll still goes (00 §4.6), back from the background too.
+    private var isPollable: Bool {
+        if case .failed = phase { return hasRows }
+        return isSettled
+    }
 
     private func poll<Record: IncrementalRecord & Decodable>(
         _ scope: LogScope, current: () -> LogSegment<Record>, update: (LogSegment<Record>) -> Void,

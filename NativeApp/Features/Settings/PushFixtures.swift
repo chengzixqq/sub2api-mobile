@@ -104,8 +104,20 @@ actor PushDemoStore: PushDeviceAPI {
     private var stored: [PushDevice] = []
     private var identities: [Int: Identity] = [:]
     private var nextID = 9001
+    // S6-24: the push page's launch arguments and the site's APNs settings (its MARK section at the end of the file).
+    private let arguments: [String]
+    private var config: PushAPNsConfig
+
+    init(arguments: [String] = ProcessInfo.processInfo.arguments) {
+        self.arguments = arguments
+        config = PushFixture.config(arguments: arguments)
+        let targets = PushFixture.otherTargets
+        stored = targets.map(\.0)
+        identities = Dictionary(uniqueKeysWithValues: targets.compactMap { device, registration in Self.identity(of: registration).map { (device.id, $0) } })
+    }
 
     func registerPushDevice(_ registration: PushDeviceRegistration) async throws -> (device: PushDevice, created: Bool) {
+        if arguments.contains(PushFixture.registerFailsArgument) { throw PushFixture.limitReached }
         try registration.validate()
         let fields = try Self.fields(of: registration)
         let identity = Identity(platform: registration.platform, siteTag: registration.siteTag, key: fields.key)
@@ -144,4 +156,148 @@ actor PushDemoStore: PushDeviceAPI {
                    lastErrorAt: device.lastErrorAt, credentialsEncrypted: device.credentialsEncrypted, subscription: device.subscription,
                    createdAt: device.createdAt, updatedAt: Date())
     }
+}
+
+// MARK: - S6-24 推送设置页与接收方式详情
+
+/// The push page's launch arguments and ids. `-ui-push-denied` and `-ui-push-no-capability` are S6-23's.
+enum PushFixture {
+    /// APNs not enabled and no private key: `ready` false.
+    static let notReadyArgument = "-ui-push-not-ready"
+    /// `GET admin/push/config` answers 403 FORBIDDEN.
+    static let configFailsArgument = "-ui-push-config-fails"
+    /// This phone's target 11 is registered and on, last delivered a day ago.
+    static let localOnArgument = "-ui-push-local-on"
+    /// This phone's target 11 is registered but stopped as `unregistered`.
+    static let localUnregisteredArgument = "-ui-push-local-unregistered"
+    /// Every subscription PUT answers 500.
+    static let subscriptionFailsArgument = "-ui-push-subscription-fails"
+    /// Every test answers 502 PUSH_DELIVERY_FAILED (BadDeviceToken, 400) and stops the target as `bad_device_token`.
+    static let testFailsArgument = "-ui-push-test-fails"
+    /// Every registration answers 409 PUSH_DEVICE_LIMIT_REACHED (max 20), on every platform (S6D2b-06).
+    static let registerFailsArgument = "-ui-push-register-fails"
+    /// Every list read answers 503 SERVICE_UNAVAILABLE.
+    static let listFailsArgument = "-ui-push-list-fails"
+    /// A device whose deletion failed when signing out waits for the next login (00 §7.6).
+    static let pendingDeletionArgument = "-ui-push-pending-deletion"
+    static let localID = 11
+    static let barkID = 12
+    static let webhookID = 13
+    static let pendingDeletionID = 99
+
+    static let limitReached = APIError.server(status: 409, envelope: ErrorEnvelope(reason: "PUSH_DEVICE_LIMIT_REACHED", metadata: ["max": "20"]))
+    static let notFound = APIError.server(status: 404, reason: PushWriteFailure.notFoundReason)
+    static let providerRefusal = APIError.server(status: 502, envelope: ErrorEnvelope(reason: "PUSH_DELIVERY_FAILED",
+                                                                                      metadata: ["provider_reason": "BadDeviceToken", "provider_status": "400"]))
+
+    static func config(arguments: [String]) -> PushAPNsConfig {
+        guard arguments.contains(notReadyArgument) else {
+            return PushAPNsConfig(enabled: true, teamID: "ABCDE12345", keyID: "KEY1234567", privateKeyConfigured: true, encryptionKeyConfigured: true,
+                                  ready: true)
+        }
+        return PushAPNsConfig(enabled: false, teamID: "ABCDE12345", keyID: "KEY1234567", encryptionKeyConfigured: true, ready: false)
+    }
+    /// 我的 Bark (on) and a nameless Webhook the provider stopped (`endpoint_gone`); neither carries a site tag.
+    static var otherTargets: [(PushDevice, PushDeviceRegistration)] {
+        let created = Date(timeIntervalSince1970: 1_790_000_000)
+        let bark = PushDeviceRegistration.bark(deviceKey: "fixturek3y9", deviceName: "我的 Bark", timezone: "Asia/Shanghai")
+        let webhook = PushDeviceRegistration.webhook(endpoint: "https://hooks.example.com/sub2", secret: nil, deviceName: "", timezone: "Asia/Shanghai")
+        return [(PushDevice(id: barkID, platform: .bark, tokenHint: "k3y9", endpointHost: "api.day.app", deviceName: "我的 Bark",
+                            timezone: "Asia/Shanghai", subscription: .default, createdAt: created, updatedAt: created), bark),
+                (PushDevice(id: webhookID, platform: .webhook, endpointHost: "hooks.example.com", timezone: "Asia/Shanghai", enabled: false,
+                            disabledReason: .endpointGone, disabledAt: created, subscription: .default, createdAt: created, updatedAt: created), webhook)]
+    }
+}
+
+extension PushDemoStore: PushSettingsSource {
+    func pushDevices() async throws -> [PushDevice] {
+        if arguments.contains(PushFixture.listFailsArgument) { throw APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE") }
+        return devices()
+    }
+    func pushConfig() async throws -> PushAPNsConfig {
+        if arguments.contains(PushFixture.configFailsArgument) { throw APIError.server(status: 403, reason: "FORBIDDEN") }
+        return config
+    }
+    /// Stored as the backend normalizes it and echoed.
+    func updatePushSubscription(id: Int, _ subscription: PushSubscription) async throws -> PushDevice {
+        if arguments.contains(PushFixture.subscriptionFailsArgument) { throw APIError.server(status: 500, reason: nil) }
+        try subscription.validate()
+        guard let index = stored.firstIndex(where: { $0.id == id }) else { throw PushFixture.notFound }
+        let device = stored[index]
+        stored[index] = Self.revised(device, subscription: subscription.normalized, disabledReason: device.disabledReason,
+                                     lastSuccessAt: device.lastSuccessAt, lastError: device.lastError, lastErrorAt: device.lastErrorAt)
+        return stored[index]
+    }
+    /// Delivered: the target is enabled again with a new delivery time (MarkDeviceSuccess).
+    func testPushDevice(id: Int) async throws -> PushTestResult {
+        guard let index = stored.firstIndex(where: { $0.id == id }) else { throw PushFixture.notFound }
+        let device = stored[index], now = Date()
+        if arguments.contains(PushFixture.testFailsArgument) {
+            stored[index] = Self.revised(device, subscription: device.subscription, disabledReason: .badDeviceToken, lastSuccessAt: device.lastSuccessAt,
+                                         lastError: "HTTP 400: BadDeviceToken", lastErrorAt: now)
+            throw PushFixture.providerRefusal
+        }
+        stored[index] = Self.revised(device, subscription: device.subscription, disabledReason: nil, lastSuccessAt: now,
+                                     lastError: device.lastError, lastErrorAt: device.lastErrorAt)
+        return PushTestResult(delivered: true, providerStatus: 200)
+    }
+    /// This phone's target as S6-23's fixture registrar would have registered it for the site, so turning the switch on
+    /// again answers the same id (S6D2b-06).
+    func seedLocalDevice(id: Int, serverID: UUID, tokenHex: String, disabledReason: PushDisabledReason?) {
+        let registration = PushDeviceRegistration.ios(apnsToken: tokenHex, bundleID: "com.chengzixqq.sub2mobile", deviceName: "UI 测试 iPhone",
+                                                      timezone: "Asia/Shanghai", siteID: serverID, sandbox: false)
+        let now = Date()
+        let device = PushDevice(id: id, platform: .ios, tokenHint: String(tokenHex.suffix(4)), bundleID: registration.bundleID,
+                                deviceName: registration.deviceName, locale: PushDeviceRegistration.locale, timezone: registration.timezone,
+                                siteTag: registration.siteTag, enabled: disabledReason == nil, disabledReason: disabledReason,
+                                disabledAt: disabledReason == nil ? nil : now, lastSuccessAt: now.addingTimeInterval(-86_400),
+                                subscription: .default, createdAt: now.addingTimeInterval(-7 * 86_400), updatedAt: now)
+        seed(device, registeredAs: registration)
+    }
+
+    private func seed(_ device: PushDevice, registeredAs registration: PushDeviceRegistration) {
+        stored.removeAll { $0.id == device.id }
+        stored.append(device)
+        identities[device.id] = Self.identity(of: registration)
+    }
+    private static func identity(of registration: PushDeviceRegistration) -> Identity? {
+        (try? fields(of: registration)).map { Identity(platform: registration.platform, siteTag: registration.siteTag, key: $0.key) }
+    }
+    private static func revised(_ device: PushDevice, subscription: PushSubscription?, disabledReason: PushDisabledReason?, lastSuccessAt: Date?,
+                                lastError: String?, lastErrorAt: Date?) -> PushDevice {
+        PushDevice(id: device.id, platform: device.platform, rawPlatform: device.rawPlatform, tokenHint: device.tokenHint, endpointHost: device.endpointHost,
+                   bundleID: device.bundleID, environment: device.environment, deviceName: device.deviceName, locale: device.locale,
+                   timezone: device.timezone, siteTag: device.siteTag, enabled: disabledReason == nil, disabledReason: disabledReason,
+                   disabledAt: disabledReason == nil ? nil : device.disabledAt ?? Date(), lastSuccessAt: lastSuccessAt, lastError: lastError,
+                   lastErrorAt: lastErrorAt, credentialsEncrypted: device.credentialsEncrypted, subscription: subscription,
+                   createdAt: device.createdAt, updatedAt: Date())
+    }
+}
+
+extension DemoData {
+    /// The push page's source. Under `-ui-testing` each site's records are seeded once per launch — the pending deletion
+    /// first, as `apply` clears the registered id — and this phone's target 11 is put in the store; callers read the records
+    /// after this returns (S6D2b-06).
+    @MainActor static func pushSettingsSource(serverID: UUID, records: PushDeviceRecords) async -> any PushSettingsSource {
+        if let seeding = pushSeeds[serverID] { await seeding.value; return pushStore }
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains(PushFixture.pendingDeletionArgument) {
+            records.apply(TeardownReport(failedPushDeviceIDs: [PushFixture.pendingDeletionID]), serverID: serverID)
+        }
+        let unregistered = arguments.contains(PushFixture.localUnregisteredArgument)
+        let seedsLocal = unregistered || arguments.contains(PushFixture.localOnArgument)
+        if seedsLocal {
+            records.setRegisteredDeviceID(PushFixture.localID, serverID: serverID)
+            records.setLocalPushOn(true, serverID: serverID)
+        }
+        let seeding = Task {
+            guard seedsLocal else { return }
+            await pushStore.seedLocalDevice(id: PushFixture.localID, serverID: serverID, tokenHex: FixtureRemoteRegistrar.fixedTokenHex,
+                                            disabledReason: unregistered ? .unregistered : nil)
+        }
+        pushSeeds[serverID] = seeding
+        await seeding.value
+        return pushStore
+    }
+    @MainActor private static var pushSeeds: [UUID: Task<Void, Never>] = [:]
 }

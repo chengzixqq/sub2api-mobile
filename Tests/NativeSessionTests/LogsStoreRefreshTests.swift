@@ -334,6 +334,19 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(merged.phase == .loaded && merged.lastError == nil && merged.lastErrorAt == nil && merged.nextPage == 2)
 }
 
+/// A trim moves a failed 加载更多 to the trim's page, so 重试 reads on from the rows that stay; a failed page 1 stays page 1.
+@Test func trimMovesAFailedLaterPageToTheTrimsPage() throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let list = IncrementalList(items: try usageRows([10, 9, 8], now: now))
+    let trim = try #require(LogListPolicy(limit: 2, pageSize: 2).trimmed(list, firstVisibleIndex: nil))
+    let error = APIError.server(status: 502, reason: nil)
+    let laterPage = LogSegment<UsageRequestRecord>(list: list, nextPage: 4, phase: .loaded).failing(page: 4, error: error, at: now)
+    let trimmed = laterPage.trimmed(trim)
+    #expect(trimmed.phase == .failed(page: 2) && trimmed.nextPage == 2 && trimmed.lastError?.statusCode == 502)
+    let firstPage = LogSegment<UsageRequestRecord>(list: list, nextPage: 2, phase: .loaded).failing(page: 1, error: error, at: now)
+    #expect(firstPage.trimmed(trim).phase == .failed(page: 1))
+}
+
 /// 00 §4.6 / §2.7.2: the wait counts from the end of the last read; a 429 holds every poll back until it is over.
 @MainActor @Test func nextPollCountsFromTheLastReadAndWaitsOutA429() async throws {
     let harness = PollHarness()
@@ -404,6 +417,69 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(store.failure?.page == 1 && !store.autoRefreshes)
     await store.refreshTick()
     #expect(await stub.reads.count == 1)
+}
+
+/// 00 §4.6 / D18: a 加载更多 that failed keeps its row at the list's end and waits for 重试, while the top polls on, on the
+/// timer and back from the background.
+@MainActor @Test func failedLoadMoreKeepsPollingTheTop() async throws {
+    let harness = PollHarness()
+    let first = try usageRows([10, 9, 8], now: harness.now), older = try usageRows([7, 6], now: harness.now)
+    let newer = try usageRows([11], now: harness.now), newest = try usageRows([12], now: harness.now)
+    let stub = PollStub(usage: { call, read in
+        switch read.kind {
+        case .page(1): return pollPage(first, hasMore: true)
+        case .page(let page):
+            if call == 2 { throw APIError.server(status: 502, reason: nil) }
+            return pollPage(older, page: page)
+        case .since: return pollPage(call == 3 ? newer : newest)
+        }
+    })
+    let store = harness.store(stub: stub)
+    await store.appeared()
+    await store.loadMoreIfNeeded(after: 8)
+    #expect(store.phase == .failed(page: 2) && store.autoRefreshes)
+    harness.advance(120)
+    #expect(store.nextAutoRefreshDelay() == 0)
+    await store.refreshTick()
+    #expect(store.usage.rows.map(\.id) == [11, 10, 9, 8])
+    #expect(store.phase == .failed(page: 2) && store.failure?.error?.statusCode == 502)
+    await store.foregroundResumed()
+    #expect(store.usage.rows.map(\.id) == [12, 11, 10, 9, 8])
+    await store.retry()
+    #expect(await stub.kinds == [.page(1), .page(2), .since(9), .since(10), .page(2)])
+    #expect(store.phase == .loaded && store.usage.rows.map(\.id) == [12, 11, 10, 9, 8, 7, 6])
+}
+
+/// 00 §4.6 / D18: a page 1 that failed over the rows it kept (a pull, or a poll's reload) is read again on the next poll, and
+/// back from the background, without a new round of counts.
+@MainActor @Test func failedPageOneOverKeptRowsIsReadAgainByThePoll() async throws {
+    let harness = PollHarness()
+    let first = try usageRows([10, 9, 8], now: harness.now), reloaded = try usageRows([30, 29], now: harness.now)
+    let stub = PollStub(usage: { call, _ in
+        switch call {
+        case 1: return pollPage(first)
+        case 2, 4: throw APIError.server(status: 502, reason: nil)
+        default: return pollPage(reloaded)
+        }
+    })
+    let counts = LogCountStub()
+    let store = harness.store(stub: stub, counts: counts)
+    await store.appeared()
+    await store.reload()
+    #expect(store.phase == .failed(page: 1) && store.usage.rows.map(\.id) == [10, 9, 8] && store.autoRefreshes)
+    await store.counter.settled()
+    let asked = await counts.calls.count
+    harness.advance(120)
+    #expect(store.nextAutoRefreshDelay() == 0)
+    await store.refreshTick()
+    #expect(store.phase == .loaded && store.failure == nil && store.usage.rows.map(\.id) == [30, 29])
+    await store.counter.settled()
+    #expect(await counts.calls.count == asked)
+    await store.reload()
+    #expect(store.phase == .failed(page: 1))
+    await store.foregroundResumed()
+    #expect(await stub.kinds == Array(repeating: .page(1), count: 5))
+    #expect(store.phase == .loaded && store.usage.rows.map(\.id) == [30, 29])
 }
 
 /// One poll at a time; a pull that lands while it is out drops its reply, as does an ended session.

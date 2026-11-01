@@ -57,8 +57,6 @@ public enum SettingsPresentation {
     public static let sessionBindingAdvice = "可请站长把原生客户端绑定方式设为 device"
 
     public static func thresholdText(_ value: Decimal) -> String { DisplayFormat.money(value, digits: 0) }
-    /// 60 §3.3 通知; “已停用” needs stage 6's device list.
-    public static func pushStatus(isRegistered: Bool) -> String { isRegistered ? "已开启" : "未开启" }
 
     /// “admin@example.com · 管理员”; “—” while admin/me has no email (60 §3.5).
     public static func identityLine(email: String?, role: String?) -> String {
