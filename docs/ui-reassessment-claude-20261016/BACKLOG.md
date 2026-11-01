@@ -548,6 +548,9 @@
 | 模型页速度区在旧服务端只支持请求口径 | 没有 ops.dashboard_model_filter 能力时，上游 / 映射口径的速度三格写 —（全站 top_n 行按请求模型分组，对不上上游模型名和“a -> b”）。规格“top_n=10 找同名行”的写法需要按后端实际分组修订（S4D2b-20）。 |
 | LogFixtures 零点边界 | RequestLogsUITests.testScrollingToEndLoadsNextPageOnce 在 Mac 本地时间 00:00 后约 1 分钟内运行时必定失败。原因：LogFixtureClock.today 把“今天”的行夹到 dayStart + rank*2 秒，零点刚过时这些行晚于当前时刻被滤掉，用量明细只剩 19 行。夹具注释只提到零点前两分钟的边界，零点后这一段没覆盖。gate 碰巧跨零点时会误报。 |
 | 模型页速度夹具不认 -ui-analytics-ops-gone | S4D2b-12 ② 要求所有运维图表在 -ui-analytics-ops-gone 下抛 404 OPS_DISABLED，但 AnalyticsFixtures.modelSpeed 不抛。所以“已读到 .opsDisabled → 重新开启运维 → 速度区恢复”这条路径只有 NativeSessionTests 单测（S4-19 审查修正 c5c84d3），没有 UI 测试。 |
+| 使用记录用户胶囊文字统一 | 从筛选 sheet 选用户时胶囊写邮箱（“用户：xm.wang@example.com”，40 §6.3 示例），从用户详情进入时写用户名（“用户：Alice”，路由带 displayName）；S4-20 收口时决定是否统一 |
+| 按对象筛选 sheet 的停用分组与已选标记 | 分组组显示停用分组但不标“停用”（统计页 AnalyticsFilterSheet 会标），行上也没有“已选中”标记；规格没要求，待定 |
+| LogsStoreStateTests.swift 超过 800 行 | 现在 810 行；S4-07 的 pick 测试已改写到 LogFilterPickerModelTests.swift。S4-08b 等后续条目再加 LogsStoreState 测试时宜新开文件，或拆分这个文件 |
 
 ### App 与设计 · 阶段 5
 
