@@ -2,9 +2,9 @@ import SwiftUI
 import Sub2Core
 
 /// 50 §2 `.group(id:)`: pushed by the group list, the home's 可用不足 row, the alert's scope, request details, the analytics
-/// ranking, global search and a copy's 查看. It opens on the list's row when there is one. Status card and button row, then
-/// 壹 · 成员账号; S5-07 adds the alert banner above the card and 贰 · 叁 · 肆 after the members. ⋯ and the button row go through
-/// S5-05's GroupActions (a delete pops this page first).
+/// ranking, global search and a copy's 查看. It opens on the list's row when there is one. The alert banner, the status card and
+/// button row, then 壹 · 成员账号 and S5-07's 贰 · 叁 · 肆. ⋯ and the button row go through S5-05's GroupActions (a delete pops
+/// this page first).
 struct GroupDetailView: View {
     @Environment(AppModel.self) private var model
     private let id: Int
@@ -26,10 +26,13 @@ private struct GroupDetailContent: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(AppRouter.self) private var router
+    @Environment(\.openURL) private var openURL
     @State private var detail: GroupDetailModel
     /// Made once the page shows, with the session's tabs (as the list does).
     @State private var actions: GroupActions?
     @State private var visible = false
+    /// Set when the banner opened its alert: back here the banner is read again (2.4).
+    @State private var awaitingAlertReturn = false
 
     init(app: AppModel, id: Int) { _detail = State(initialValue: GroupDetailModel(app: app, groupID: id)) }
 
@@ -53,7 +56,7 @@ private struct GroupDetailContent: View {
             .task(id: session?.generation) { await model.groupDirectory?.ensureLoaded() }
             .task(id: isOpen) { if isOpen { await detail.poll() } }
             .task(id: wait) { await waitForCountdown(wait) }
-            .onAppear { visible = true }
+            .onAppear { visible = true; readBannerAfterAlert() }
             .onDisappear { visible = false }
             .onChange(of: model.foregroundRevision) { _, _ in Task { await detail.refresh(.foreground) } }
             .onChange(of: model.groupStore?.revision) { _, _ in detail.storeChanged(whileActionRuns: isActionRunning) }
@@ -74,14 +77,17 @@ private struct GroupDetailContent: View {
         List {
             if case .content(let banner) = page, let group = detail.group, let buckets = detail.buckets, let health = detail.health {
                 if let banner { Section { snapshotBanner(banner) }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
-                // 告警横幅（S5-07）：状态卡上方单独一段。
+                if let alert = alertBanner {
+                    Section { GroupAlertBanner(content: alert) { openAlert(alert.eventID) } }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+                }
                 Section { top(group, buckets: buckets, health: health) }
                     .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
                 GroupMembersSection(group: group, members: detail.members, today: detail.memberToday, summary: detail.memberSummary(now: serverNow),
                                     isLoadingMore: detail.isLoadingMoreMembers, loadMoreFailed: detail.loadMoreFailed, catalog: detail.catalog,
                                     groupName: groupName, onOpen: open, onRetry: { Task { await detail.retryMembers() } },
                                     onLoadMore: { Task { await detail.loadMoreMembers() } })
-                // 贰 · 用量与容量、叁 · 记录与关联、肆 · 配置（S5-07）：成员分区之后。
+                GroupDetailSections(detail: detail, group: group, buckets: buckets, permissions: permissions, fallbackName: fallbackName(group),
+                                    onEdit: { openEditor(group) }, onOpenWeb: { detail.sections.openGroupsInWeb(using: openURL) })
             } else {
                 Section { GroupStatusCardSkeleton() }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                 Section { ForEach(0..<3, id: \.self) { _ in AccountRowSkeleton().listRowInsets(EdgeInsets()) } }
@@ -136,6 +142,16 @@ private struct GroupDetailContent: View {
         }
     }
     private func openEditor(_ group: AdminGroup) { router.present(.groupEdit(id: group.id)) }
+    private func openAlert(_ id: Int) {
+        awaitingAlertReturn = true
+        router.push(.alert(id: id))
+    }
+    /// Back from the alert the banner opened: a resolve there ends the banner here (2.4).
+    private func readBannerAfterAlert() {
+        guard awaitingAlertReturn else { return }
+        awaitingAlertReturn = false
+        Task { await detail.refresh(.alertReturn) }
+    }
     /// The row goes along, so the account's detail opens on it (20 §2.1).
     private func open(_ account: UpstreamAccount) { router.push(.account(id: account.id, preload: RoutePreload(account))) }
     /// 50 §0.5: a delete from here pops this page first; a page not on the router's stack closes itself.
@@ -173,6 +189,16 @@ private struct GroupDetailContent: View {
     private func groupName(_ id: Int) -> String? {
         guard let group = detail.group else { return model.groupDirectory?.name(for: id) }
         return GroupMemberList.groupName(id, home: group) { model.groupDirectory?.name(for: $0) }
+    }
+    /// 2.3 告警横幅: the last event read, on the server's calendar.
+    private var alertBanner: GroupAlertBannerContent? {
+        GroupAlertBannerContent(GroupAlertBannerContent.shownEvent(detail.sections.alert.state), now: serverNow,
+                                timeZone: session?.site.serverTimeZone ?? .device, latencyMetricsSupported: session?.has(.opsAlertLatencyMetrics) == true)
+    }
+    /// 肆 降级分组: the directory's name (C-10), else the list's row.
+    private func fallbackName(_ group: AdminGroup) -> String? {
+        guard let id = group.fallbackGroupID else { return nil }
+        return model.groupDirectory?.name(for: id) ?? model.groupStore?.group(id: id)?.name
     }
     private var serverNow: Date { session?.client.serverClock.now() ?? Date() }
 }
