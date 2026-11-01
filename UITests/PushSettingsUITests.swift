@@ -290,11 +290,11 @@ final class PushSettingsUITests: XCTestCase {
         let add = app.buttons["push.targets.add"]
         reveal(add)
         add.tap()
-        // S6-25 replaces the placeholder with its sheet (push.add.sheet, push.add.cancel).
-        let close = app.buttons["sheet.close"]
-        XCTAssertTrue(close.waitForExistence(timeout: 5), app.debugDescription)
-        close.tap()
-        XCTAssertTrue(close.waitForNonExistence(timeout: 5), app.debugDescription)
+        // S6-25's sheet; 取消 with nothing typed closes it at once.
+        let sheet = element("push.add.sheet")
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["push.add.cancel"].tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5), app.debugDescription)
     }
 
     @MainActor func testListFailureShowsRetryRowsAndPendingDeletionNotice() {
@@ -406,5 +406,227 @@ final class PushSettingsUITests: XCTestCase {
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
+    }
+
+    // MARK: - S6-25 添加接收方式与站点 APNs 配置
+    // `-ui-push-register-fails` (S6-24) refuses every registration with the 20-target limit; `-ui-apns-no-encryption-key`
+    // (PushEditFixture) leaves the site without its fixed encryption key. S0-13's `-ui-step-up-required` and `-ui-readonly-token`.
+
+    @MainActor func testAddNtfyTargetShowsTopicFormatErrorThenAdds() {
+        launchAndLogin()
+        defer { diagnostics("push-add-ntfy-final") }
+        openAddTarget()
+        app.segmentedControls["push.add.platform"].buttons["ntfy"].tap()
+        XCTAssertTrue(waitUntil(element("push.add.endpoint"), "value == 'https://ntfy.sh'"), app.debugDescription)
+        typeInSheet("alerts.main", into: "push.add.token")
+        app.buttons["push.add.submit"].tap()
+        let error = element("push.add.error.token")
+        XCTAssertTrue(error.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(error.label, "主题只能包含字母、数字、- 和 _，最多 64 个")
+        XCTAssertTrue(element("push.add.sheet").exists, app.debugDescription)
+        retype("sub2-alerts", replacing: "alerts.main", in: "push.add.token")
+        typeInSheet("值班 ntfy", into: "push.add.name")
+        diagnostics("push-add-ntfy-filled")
+        app.buttons["push.add.submit"].tap()
+        XCTAssertTrue(waitForReceipt("已添加接收方式「值班 ntfy」"), app.debugDescription)
+        XCTAssertTrue(element("push.add.sheet").waitForNonExistence(timeout: 10), app.debugDescription)
+        let row = element("push.targets.row.9001")
+        reveal(row)
+        XCTAssertTrue(row.label.contains("值班 ntfy") && row.label.contains("ntfy · ntfy.sh"), row.label)
+    }
+
+    @MainActor func testAddWebhookWithSigningSecret() {
+        launchAndLogin()
+        defer { diagnostics("push-add-webhook-final") }
+        openAddTarget()
+        app.segmentedControls["push.add.platform"].buttons["Webhook"].tap()
+        let note = element("push.add.signatureNote")
+        XCTAssertTrue(note.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(note.label.contains(#"X-Sub2-Signature: sha256=HMAC(secret, 时间戳 + "." + 正文)"#), note.label)
+        typeInSheet("https://hooks.example.com/oncall", into: "push.add.endpoint")
+        typeInSheet("fixture-secret", into: "push.add.secret")
+        typeInSheet("值班 Webhook", into: "push.add.name")
+        app.buttons["push.add.submit"].tap()
+        XCTAssertTrue(waitForReceipt("已添加接收方式「值班 Webhook」"), app.debugDescription)
+        XCTAssertTrue(element("push.add.sheet").waitForNonExistence(timeout: 10), app.debugDescription)
+        let row = element("push.targets.row.9001")
+        reveal(row)
+        XCTAssertTrue(row.label.contains("值班 Webhook") && row.label.contains("Webhook · hooks.example.com"), row.label)
+        // The secret is kept nowhere: the next sheet starts without it.
+        let add = app.buttons["push.targets.add"]
+        reveal(add)
+        add.tap()
+        XCTAssertTrue(element("push.add.sheet").waitForExistence(timeout: 5), app.debugDescription)
+        app.segmentedControls["push.add.platform"].buttons["Webhook"].tap()
+        let secret = element("push.add.secret")
+        XCTAssertTrue(secret.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse((secret.value as? String ?? "").contains("•"), app.debugDescription)
+    }
+
+    @MainActor func testTargetLimitReasonComesFromServer() {
+        launchAndLogin(arguments: ["-ui-push-register-fails"])
+        defer { diagnostics("push-add-limit-final") }
+        openAddTarget()
+        typeInSheet("fixtureKey123", into: "push.add.token")
+        app.buttons["push.add.submit"].tap()
+        let error = element("push.add.error")
+        XCTAssertTrue(error.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(error.label, "最多 20 个推送目标，先删除不用的")
+        XCTAssertTrue(element("push.add.sheet").exists, app.debugDescription)
+        app.buttons["push.add.cancel"].tap()
+        let discard = app.alerts.buttons["放弃修改"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5), app.debugDescription)
+        discard.tap()
+        XCTAssertTrue(element("push.add.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(element("push.targets.row.9001").exists, app.debugDescription)
+    }
+
+    @MainActor func testAPNsEditAsksForStepUpBeforeSaving() {
+        launchAndLogin(arguments: ["-ui-step-up-required"])
+        defer { diagnostics("push-apns-step-up-final") }
+        openPushSettings()
+        openAPNsEditor()
+        let environment = app.segmentedControls["apns.environment"]
+        revealInSheet(environment)
+        environment.buttons["sandbox"].tap()
+        app.buttons["apns.save"].tap()
+        let code = element("stepup.code")
+        XCTAssertTrue(code.waitForExistence(timeout: 10), app.debugDescription)
+        let instruction = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "修改站点 APNs 配置前")).firstMatch
+        XCTAssertTrue(instruction.exists && instruction.label.hasSuffix("验证通过后自动继续。"), app.debugDescription)
+        XCTAssertTrue(element("apns.sheet").exists, app.debugDescription)
+        diagnostics("push-apns-step-up")
+        code.tap()
+        code.typeText("123456")
+        // The receipt lasts 4.2 seconds: read it before waiting for the sheets to go.
+        XCTAssertTrue(waitForReceipt("已保存站点 APNs 配置"), app.debugDescription)
+        XCTAssertTrue(code.waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("apns.sheet").waitForNonExistence(timeout: 10), app.debugDescription)
+        let row = element("push.apns.environment")
+        reveal(row)
+        XCTAssertEqual(row.value as? String, "sandbox")
+    }
+
+    /// 60 §0.3: with the site's step-up off, an Admin Key saves without asking.
+    @MainActor func testAdminKeySavesAPNsDirectlyWhenStepUpIsOff() {
+        launchAndLogin(accessToken: "ui-admin-key")
+        defer { diagnostics("push-apns-admin-key-final") }
+        openPushSettings()
+        openAPNsEditor()
+        typeInSheet("com.example.sub2", into: "apns.topic")
+        app.buttons["apns.save"].tap()
+        XCTAssertTrue(waitForReceipt("已保存站点 APNs 配置"), app.debugDescription)
+        XCTAssertTrue(element("apns.sheet").waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("stepup.code").exists, app.debugDescription)
+        let topic = element("push.apns.topic")
+        reveal(topic)
+        XCTAssertEqual(topic.value as? String, "com.example.sub2")
+    }
+
+    @MainActor func testReadOnlyTokenCannotOpenAPNsEditor() {
+        launchAndLogin(arguments: ["-ui-readonly-token"], accessToken: "sat_ui-fixture")
+        defer { diagnostics("push-apns-read-only-final") }
+        openPushSettings()
+        let edit = app.buttons["push.apns.edit"]
+        reveal(edit)
+        XCTAssertFalse(edit.isEnabled, app.debugDescription)
+        edit.tap()
+        settle()
+        XCTAssertFalse(element("apns.sheet").exists, app.debugDescription)
+    }
+
+    @MainActor func testAPNsEditGreyedForAdminKeyWhenStepUpIsOn() {
+        launchAndLogin(arguments: ["-ui-step-up-required"], accessToken: "ui-admin-key")
+        defer { diagnostics("push-apns-machine-final") }
+        openPushSettings()
+        let add = app.buttons["push.targets.add"]
+        reveal(add)
+        XCTAssertTrue(add.isEnabled, app.debugDescription)
+        let edit = app.buttons["push.apns.edit"]
+        reveal(edit)
+        XCTAssertFalse(edit.isEnabled, app.debugDescription)
+        XCTAssertEqual(element("push.apns.editNote").label, "站点开启了二次验证，需要邮箱和密码登录才能修改")
+        edit.tap()
+        settle()
+        XCTAssertFalse(element("apns.sheet").exists, app.debugDescription)
+    }
+
+    @MainActor func testAPNsFieldErrorsAreMarkedAndKeyIsCleared() {
+        launchAndLogin(arguments: ["-ui-push-not-ready"])
+        defer { diagnostics("push-apns-errors-final") }
+        openPushSettings()
+        openAPNsEditor()
+        let enabled = app.switches["apns.enabled"]
+        XCTAssertTrue(enabled.waitForExistence(timeout: 5), app.debugDescription)
+        tapSwitch(enabled)
+        XCTAssertTrue(waitUntil(enabled, "value == '1'"), app.debugDescription)
+        app.buttons["apns.save"].tap()
+        let enabledError = element("apns.error.enabled")
+        XCTAssertTrue(enabledError.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(enabledError.label, "启用需要 Team ID、Key ID 与私钥")
+        // Well formed but not the fixture site's key: the server refuses it as not P-256.
+        typeInSheet("-----BEGIN PRIVATE KEY-----\nU1VCMi1PVEhFUi1LRVk=\n-----END PRIVATE KEY-----", into: "apns.privateKey")
+        XCTAssertTrue(app.buttons["apns.clearKey"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(element("apns.privateKey").exists, app.debugDescription)
+        XCTAssertEqual(element("apns.keyStatus").value as? String, "已读取新私钥，保存时上传")
+        XCTAssertFalse(enabledError.exists, app.debugDescription)
+        app.buttons["apns.save"].tap()
+        let keyError = element("apns.error.privateKey")
+        XCTAssertTrue(keyError.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(keyError.label, "私钥应为 APNs 的 .p8（P-256）文件内容")
+        XCTAssertTrue(element("apns.privateKey").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["apns.keepKey"].exists, app.debugDescription)
+        XCTAssertEqual(element("apns.keyStatus").value as? String, "未配置")
+        XCTAssertTrue(element("apns.sheet").exists, app.debugDescription)
+        diagnostics("push-apns-errors")
+        app.terminate()
+        launchAndLogin(arguments: ["-ui-apns-no-encryption-key"])
+        openPushSettings()
+        openAPNsEditor()
+        let importKey = app.buttons["apns.importKey"]
+        revealInSheet(importKey)
+        XCTAssertFalse(importKey.isEnabled, app.debugDescription)
+        XCTAssertFalse(element("apns.privateKey").exists, app.debugDescription)
+        XCTAssertEqual(element("apns.keyNote").label, "站点没有配置固定的 TOTP_ENCRYPTION_KEY，私钥不能保存")
+    }
+
+    @MainActor private func openAddTarget() {
+        openPushSettings()
+        let add = app.buttons["push.targets.add"]
+        reveal(add)
+        add.tap()
+        XCTAssertTrue(element("push.add.sheet").waitForExistence(timeout: 5), app.debugDescription)
+    }
+    @MainActor private func openAPNsEditor() {
+        let edit = app.buttons["push.apns.edit"]
+        reveal(edit)
+        XCTAssertTrue(waitUntil(edit, "isEnabled == true"), app.debugDescription)
+        edit.tap()
+        XCTAssertTrue(element("apns.sheet").waitForExistence(timeout: 5), app.debugDescription)
+    }
+    @MainActor private func typeInSheet(_ text: String, into identifier: String) {
+        let field = element(identifier)
+        revealInSheet(field)
+        field.tap()
+        field.typeText(text)
+    }
+    /// The caret is at the end after the tap: the old text is deleted key by key.
+    @MainActor private func retype(_ text: String, replacing old: String, in identifier: String) {
+        let field = element(identifier)
+        revealInSheet(field)
+        field.tap()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + text)
+        XCTAssertEqual(field.value as? String, text)
+    }
+    /// A sheet hides the page's bars: its form is dragged until the element sits above the keyboard.
+    @MainActor private func revealInSheet(_ item: XCUIElement) {
+        for _ in 0..<8 {
+            let keyboard = app.keyboards.firstMatch
+            let bottom = keyboard.exists ? keyboard.frame.minY - 12 : app.frame.maxY - 40
+            if item.exists, item.isHittable, item.frame.maxY <= bottom { item.waitUntilSettled(); return }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
+        }
+        XCTAssertTrue(item.exists && item.isHittable, app.debugDescription)
     }
 }

@@ -41,9 +41,15 @@ struct PushSettingsView: View {
             .sheet(item: $sheet) { sheet in
                 switch sheet {
                 // .addTarget：S6-25
-                case .addTarget: ComingSoonSheet(title: "添加接收方式")
+                case .addTarget:
+                    if let store { PushTargetSheet(source: store.source) { Task { await store.reloadDevices() } } }
                 // .apnsConfig：S6-25
-                case .apnsConfig: ComingSoonSheet(title: PushPresentation.apnsSectionTitle)
+                case .apnsConfig:
+                    if let store, let config = store.shownConfig {
+                        APNsConfigSheet(config: config) { saved in
+                            if let saved { store.replaceConfig(saved) } else { Task { await store.reloadConfig() } }
+                        }
+                    }
                 }
             }
     }
@@ -178,7 +184,7 @@ struct PushSettingsView: View {
     }
 }
 
-/// The push page's own sheets; S6-25 replaces the placeholders.
+/// The push page's own sheets (S6-25's PushTargetSheet and APNsConfigSheet).
 enum PushSettingsSheet: String, Identifiable {
     case addTarget, apnsConfig
     var id: String { rawValue }
