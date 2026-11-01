@@ -540,6 +540,8 @@
 | 使用记录自动刷新时菜单 / sheet 是否暂停 | 规格只要求离开页面、切 Tab、进后台时暂停，打开时间菜单或筛选 sheet 时照常刷新。UI 测试里 2 秒一拍时，时间胶囊菜单的第一次点按偶尔被列表重绘吞掉（用例已改为最多重试三次）；生产 60 秒一拍时影响小。要不要在菜单或 sheet 打开期间暂停，待用户拍板 |
 | 使用记录加载更多或下拉刷新失败时自动刷新暂停 | 列表末尾已有“加载失败 · 重试”时，自动刷新不发请求，直到用户点重试（S4-06 的取舍）。要不要改成继续轮询、并保留那一行失败提示，待定 |
 | S4-06 条目 files 补登 | 实际改动还涉及 Tests/NativeSessionTests/LogsStoreRefreshTests.swift（新建，LogsStoreStateTests.swift 已超 800 行）和 Tests/NativeSessionTests/LogsStoreCountTests.swift（一个用例随回前台行为变化改写）；条件项 Sources/Sub2Core/LogListPolicy+Refresh.swift、NativeApp/Session/LogsStoreState+Refresh.swift 没有建 |
+| 利润明细未对齐时的说明只写前半句 | S4-14：旧服务端逐段有失败（ProfitBreakdown.isReconciled 为 false）时，单图页利润表说明只写“每小时（每天）的利润 = 这段的实际扣费 − 账号成本。”，不写“逐段相加等于合计”（S4D2b-09 ③），待 UI 审查确认 |
+| AnalyticsUITests 旧用例仍接受占位标题“图表” | S4-13 的 testBillingFootOpensTheBillingDetail 与 S4-13b 的 testProfitCardShowsTotalLatestFourRowsAndSelection 仍允许导航栏标题为“图表”（S4-14 之前的占位）；S4-14 之后只会是“计费明细 / 利润明细”，S4-20 收口时可收紧断言并删去“图表 until S4-14”注释 |
 
 ### App 与设计 · 阶段 5
 
