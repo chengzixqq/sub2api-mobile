@@ -6,9 +6,9 @@ struct AnalyticsRouteDestination: View {
 
     var body: some View {
         switch route {
-        // .analytics：S1-09（focus 分流）→ S4-13
-        case .analytics(_, let focus, let metric):
-            if focus == .perf { LegacyTrendPage(metric: metric) } else { AnalyticsView() }
+        // .analytics：S4-13
+        case .analytics(let range, let focus, let metric):
+            AnalyticsView(route: AnalyticsView.Route(range: range, focus: focus, metric: metric))
         // .analyticsMore：S4-17
         case .analyticsMore: ComingSoonView(title: route.placeholderTitle)
         // .analyticsChart：S4-14
