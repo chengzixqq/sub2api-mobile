@@ -1,6 +1,6 @@
 import XCTest
 
-/// 50 §0.5 (S5-05): 停用 / 启用 / 复制 / 删除 from the group list's left swipe and long press and the old detail's 管理 section, on
+/// 50 §0.5 (S5-05): 停用 / 启用 / 复制 / 删除 from the group list's left swipe and long press and the detail's ⋯ (S5-06), on
 /// the `-ui-testing` site's group fixtures (GroupFixtures+Actions: each group's keys and subscriptions, copies, deletes and
 /// `-ui-group-write-timeout`). Menu items are tapped by title (UIMenu may drop identifiers); receipts are up for 4.2 seconds, so
 /// their buttons are tapped as soon as the words show.
@@ -95,9 +95,8 @@ final class GroupActionsUITests: XCTestCase {
         app.scrollUntilExists(target)
         target.tap()
         XCTAssertTrue(app.navigationBars["默认组"].waitForExistence(timeout: 10), app.debugDescription)
-        let delete = app.buttons["group.menu.delete"]
-        app.scrollUntilExists(delete)
-        delete.tap()
+        app.buttons["group.more"].tap()
+        tapMenuItem("删除分组…")
         let confirm = app.buttons["delete.confirm"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(confirm.label, "用 Face ID 删除")
