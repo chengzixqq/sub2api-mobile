@@ -238,6 +238,32 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(await goneSource.deviceReads == 2)
 }
 
+/// An edit made while a lost save reads the list back is sent next, not left showing as saved.
+@MainActor @Test func editWhileALostSaveReadsBackIsSentNext() async {
+    let gate = SessionGate()
+    let source = StubPushSource(devices: { call in
+        if call == 2 { await gate.wait() }
+        return sampleDevices
+    }, update: { call, id, subscription in
+        if call == 1 { throw lost }
+        return device(id, subscription: subscription.normalized)
+    })
+    let bench = makeBench(source)
+    await bench.model.reloadDevices()
+    let first = Task { await bench.model.updateSubscription(id: 11, to: resolved) }
+    #expect(await eventually { await gate.arrived })
+    #expect(bench.model.subscription(for: 11) == .default)
+    let again = PushSubscriptionEdit.setting(minSeverity: .p0, in: resolved)
+    await bench.model.updateSubscription(id: 11, to: again)
+    #expect(bench.model.subscription(for: 11) == again)
+    await gate.open()
+    await first.value
+    #expect(await source.updates == [resolved, again])
+    #expect(bench.model.pendingSubscriptions.isEmpty)
+    #expect(bench.model.subscription(for: 11) == again.normalized)
+    #expect(!bench.model.isSavingSubscription(id: 11))
+}
+
 // MARK: - 测试（7.4）
 
 @MainActor @Test func testOutcomesShowReceiptsAndReload() async {
@@ -278,6 +304,22 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(await first.value == .sent)
     #expect(bench.model.testingID == nil)
     #expect(await source.tests == 1)
+}
+
+/// A 404 whose list read back ends after the session: `.gone` would make the caller forget the next site's device.
+@MainActor @Test func goneTestReadBackOutlastingTheSessionIsCancelled() async {
+    let gate = SessionGate()
+    let source = StubPushSource(devices: { call in
+        if call == 2 { await gate.wait() }
+        return sampleDevices
+    }, test: { _ in throw notFound })
+    let bench = makeBench(source)
+    await bench.model.reloadDevices()
+    let test = Task { await bench.model.test(id: 11) }
+    #expect(await eventually { await gate.arrived })
+    bench.current.value = false
+    await gate.open()
+    #expect(await test.value == .cancelled)
 }
 
 // MARK: - 删除其他接收方式（7.4）

@@ -598,3 +598,15 @@ extension LogsStoreState {
         pollSchedules[scope] = pollSchedule(scope).recording(read)
     }
 }
+
+// MARK: - S4-07 按对象筛选（40 §6.4）
+
+extension LogsStoreState {
+    /// The sheet's row replaces the condition of its kind. The object already set only takes the row's name, so its chip reads
+    /// it; nothing is read again. Any other goes through `setConditions`, so the list and the counts start again.
+    func pick(_ pick: LogFilterPick) async {
+        let next = pick.applied(to: conditions)
+        guard pick.isSameObject(in: conditions) else { return await setConditions(next) }
+        if next != conditions { conditions = next }
+    }
+}

@@ -23,6 +23,8 @@ struct LogsView: View {
     /// X20：S4-20 删除 LegacyLogsEntry 时一并删除。
     @State private var openedRequest: RequestRoute?
     @State private var pickingRange = false
+    /// 40 §6.4 按对象筛选 (S4-07).
+    @State private var pickingObject = false
     /// Between onAppear and onDisappear: not covered by a pushed page.
     @State private var onScreen = false
 
@@ -41,6 +43,7 @@ struct LogsView: View {
             .navigationTitle(Self.title)
             .navigationBarTitleDisplayMode(.inline)
             .navigationSubtitle(subtitle)
+            .logFilterPicker(isPresented: $pickingObject) { pick in Task { await store?.pick(pick) } }
             // X20：S4-20 删除 LegacyLogsEntry 时一并删除。
             .navigationDestination(item: $openedRequest) { LogRouteDestination(route: .request($0)) }
             .sheet(isPresented: $pickingRange) { if let store { customRange(store) } }
@@ -59,7 +62,7 @@ struct LogsView: View {
 
     @ViewBuilder private var content: some View {
         if let store {
-            LogsList(store: store, onOpen: open, onPickRange: { pickingRange = true })
+            LogsList(store: store, onOpen: open, onPickRange: { pickingRange = true }, onPickObject: { pickingObject = true })
         } else {
             ProgressView(Self.loadingText).frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityIdentifier("logs.loading")
         }
@@ -115,6 +118,7 @@ private struct LogsList: View {
     let store: LogsStore
     let onOpen: @MainActor (RequestRoute) -> Void
     let onPickRange: @MainActor () -> Void
+    let onPickObject: @MainActor () -> Void
 
     private static let controlInsets = EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16)
 
@@ -148,7 +152,7 @@ private struct LogsList: View {
         .accessibilityIdentifier("logs.mode")
         .listRowInsets(Self.controlInsets).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
     }
-    /// 40 §6.3: the time menu, then the conditions, each removed by a tap.
+    /// 40 §6.3: the time menu, the conditions, each removed by a tap, then “+ 筛选”.
     private var capsules: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -157,7 +161,7 @@ private struct LogsList: View {
                 ForEach(store.chips.chips) { chip in
                     LogConditionChip(chip) { Task { await store.removeCondition(chip.kind) } }
                 }
-                // S4-07：“+ 筛选”接在这里。
+                LogFilterAddChip(action: onPickObject)
             }
             .padding(.horizontal, 16)
         }

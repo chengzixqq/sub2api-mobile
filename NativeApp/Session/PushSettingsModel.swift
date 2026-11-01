@@ -133,7 +133,8 @@ final class PushSettingsModel {
                 guard isCurrent() else { return }
                 pendingSubscriptions[id] = nil
                 await subscriptionFailed(error, id: id)
-                return
+                // An edit made while the failure read the list back goes in the next PUT.
+                guard isCurrent() else { return }
             }
         }
     }
@@ -164,7 +165,8 @@ final class PushSettingsModel {
         case .failed(let text): showFailure(text)
         case .cancelled: break
         }
-        return outcome
+        // A read back that outlasts the session: `.gone` would make the caller forget the next site's device.
+        return isCurrent() ? outcome : .cancelled
     }
 
     /// The deleted receipt is the page's (DeleteConfirmationCopy.deletedReceipt), shown as it pops.
