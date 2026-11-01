@@ -7,6 +7,9 @@ typealias AnalyticsSession = AnalyticsSessionState
 extension EnvironmentValues {
     /// Set by AnalyticsSessionScope for the page and its cards.
     @Entry var analyticsSession: AnalyticsSession? = nil
+    /// Set by `analyticsPageRefresh` (S4-13): the page's card reads, for pull to refresh, the foreground and the 60-second tick; a card
+    /// outside such a page reads without registering.
+    @Entry var analyticsCardLoaders: AnalyticsCardLoaders? = nil
 }
 
 extension AnalyticsSessionState {
@@ -58,5 +61,53 @@ struct AnalyticsSessionScope<Content: View>: View {
         session = pageStates.state(PageStateKey.analyticsSession, tab: tab, prunedBy: router) {
             AnalyticsSession(model: model, context: context, entry: entry)
         }
+    }
+}
+
+// MARK: - 计费数据（S4-13）
+
+/// 40 §1.3: the three billing reads every analytics page shares (S4D2b-01). Their value types are fixed: a key read as another type
+/// loses its value.
+extension AnalyticsCardKey {
+    /// AnalyticsSummary: `usage/stats` over the range and the filter.
+    static let billingSummary = AnalyticsCardKey("billing.summary")
+    /// AnalyticsSummary: `usage/stats` over the comparison window, with the same filter.
+    static let billingComparison = AnalyticsCardKey("billing.comparison")
+    /// DashboardTrendReply: `dashboard/trend` over the range and the filter.
+    static let billingTrend = AnalyticsCardKey("billing.trend")
+}
+
+extension AnalyticsSession {
+    func loadBillingSummary(refresh: Bool = false) async {
+        await load(.billingSummary, refresh: refresh, fixture: { try await AnalyticsFixtures.billingSummary($0) }) { client, session in
+            try await client.usageAnalysis(session.query())
+        }
+    }
+    func loadBillingComparison(refresh: Bool = false) async {
+        await load(.billingComparison, refresh: refresh, fixture: { try await AnalyticsFixtures.billingComparison($0) }) { client, session in
+            try await client.usageAnalysis(session.comparisonQuery())
+        }
+    }
+    func loadBillingTrend(refresh: Bool = false) async {
+        await load(.billingTrend, refresh: refresh, fixture: { try await AnalyticsFixtures.billingTrend($0) }) { client, session in
+            try await client.usageAnalysisTrend(session.query())
+        }
+    }
+}
+
+// MARK: - 运维开关（S4-13）
+
+/// The analytics pages' only reading of whether ops monitoring is off, and their only report of an ops read (S4D2b-06); AppModel
+/// compiles in the App target only, hence here.
+extension AppModel {
+    /// LiveOpsStore's verdict (the latest server signal, else the admin/me snapshot); admin/me's without the store.
+    var analyticsOpsDisabled: Bool { liveOps?.opsDisabled ?? (siteSession?.me.features.opsMonitoringEnabled == false) }
+    /// A new success passes nil, a new failure its error: LiveOpsStore records the signal (it reads only 404 OPS_DISABLED), and the
+    /// report that turns ops off reads admin/me again once (40 §1.4, §2.5).
+    func recordAnalyticsOpsResponse(_ error: (any Error)?) async {
+        let wasDisabled = analyticsOpsDisabled
+        await liveOps?.recordOpsResponse(error)
+        guard !wasDisabled, analyticsOpsDisabled else { return }
+        try? await reloadSiteSession()
     }
 }
