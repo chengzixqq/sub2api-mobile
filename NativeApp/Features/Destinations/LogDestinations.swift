@@ -7,9 +7,14 @@ struct LogRouteDestination: View {
     var body: some View {
         switch route {
         // .logs：S4-05
-        case .logs(let logs): RequestLogsView(accountID: logs.account?.id, groupID: logs.group?.id, scope: logs.scope)
+        case .logs(let logs): LogsView(route: logs)
         // .request：S4-05（临时接旧详情）→ S4-08
-        case .request: ComingSoonView(title: route.placeholderTitle)
+        case .request(let request):
+            switch request {
+            case .usage(let preload): UsageRequestDetailView(record: preload.value)
+            case .error(_, let kind, let initial?): RequestErrorDetailView(initial: initial.value, kind: kind)
+            default: ComingSoonView(title: route.placeholderTitle)
+            }
         // 其他区域：RouteDestination 不会分派到这里
         default: ComingSoonView(title: route.placeholderTitle)
         }

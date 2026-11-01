@@ -248,7 +248,8 @@ final class LogsStoreState {
             refresh = refresh.recordingSuccess()
             land(current().applying(reply, page: page), update: update)
             if isErrorSegment { await reportOps(nil) }
-        case .failure(let error) where error is CancellationError || Task.isCancelled:
+        // Only a read that never got its answer: a reply that came in counts, even for a caller that has gone.
+        case .failure(let error) where error is CancellationError:
             land(current().interrupted(page: page), update: update)
         case .failure(let error) where isErrorSegment && AccountUpstreamErrors.isOpsDisabled(error):
             land(current().opsOff(), update: update)
