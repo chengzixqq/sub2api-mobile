@@ -9,6 +9,11 @@ import Sub2Core
 private let notFound = APIError.server(status: 404, reason: "PUSH_DEVICE_NOT_FOUND")
 private let serverError = APIError.server(status: 500, reason: nil)
 
+@MainActor private final class PushEndLog {
+    var waits: [Duration] = []
+    func record(_ duration: Duration) { waits.append(duration) }
+}
+
 private func body(_ request: URLRequest?) throws -> [String: Any] {
     let data = try #require(request?.httpBody)
     return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -365,6 +370,53 @@ private func body(_ request: URLRequest?) throws -> [String: Any] {
     }
 }
 
+/// Signing out or deleting the connected site while its POST is out: the client's cancelAll would leave a device the server may
+/// have created without its id, so the teardown waits for it (within endWait) and deletes it.
+@MainActor @Test func siteWillEndWaitsForTheRegistrationInFlight() async {
+    let store = PushTestDefaults(); defer { store.clear() }
+    let serverID = UUID(), gate = SessionGate()
+    store.records.setLocalPushOn(true, serverID: serverID)
+    let api = PushStubAPI(registeredID: 77)
+    await api.hold(post: gate)
+    let coordinator = makePushCoordinator(store.records)
+    coordinator.didReceiveDeviceToken(pushTestToken)
+    coordinator.siteDidConnect(pushSite(serverID, api: api))
+    await waitUntil { await gate.arrived }
+    let ended = PushEndLog()
+    let ending = Task { await coordinator.siteWillEnd(serverID: serverID); ended.waits.append(.zero) }
+    for _ in 0..<50 { await Task.yield() }
+    #expect(ended.waits.isEmpty)
+    // Nothing new starts meanwhile.
+    coordinator.registerAgain()
+    await gate.open()
+    await ending.value
+    #expect(coordinator.registeredDeviceID(serverID: serverID) == nil)
+    #expect(store.records.teardownCandidates(serverID: serverID) == [77])
+    await coordinator.settle()
+    #expect(await api.posts == 1)
+    // Nothing out: at once.
+    await coordinator.siteWillEnd(serverID: serverID)
+}
+
+@MainActor @Test func siteWillEndWaitsAtMostEndWait() async {
+    let store = PushTestDefaults(); defer { store.clear() }
+    let serverID = UUID(), gate = SessionGate()
+    store.records.setLocalPushOn(true, serverID: serverID)
+    let api = PushStubAPI(registeredID: 77)
+    await api.hold(post: gate)
+    let waited = PushEndLog()
+    let coordinator = makePushCoordinator(store.records, sleep: { duration in await waited.record(duration) })
+    coordinator.didReceiveDeviceToken(pushTestToken)
+    coordinator.siteDidConnect(pushSite(serverID, api: api))
+    await waitUntil { await gate.arrived }
+    await coordinator.siteWillEnd(serverID: serverID)
+    #expect(waited.waits == [PushCoordinator.endWait])
+    #expect(store.records.teardownCandidates(serverID: serverID).isEmpty)
+    await gate.open()
+    await coordinator.settle()
+    #expect(coordinator.pendingDeletions(serverID: serverID) == [77])
+}
+
 @MainActor @Test func registerAgainAfterTokenRevocationClearedRecords() async {
     let store = PushTestDefaults(); defer { store.clear() }
     let api = PushStubAPI(), coordinator = makePushCoordinator(store.records)
@@ -425,6 +477,21 @@ private func body(_ request: URLRequest?) throws -> [String: Any] {
     records.setLocalPushOn(true, serverID: site)
     records.setLocalPushOn(false, serverID: site)
     #expect(store.defaults.object(forKey: "push.enabled." + site.uuidString) == nil)
+}
+
+/// The server keeps one device per token: another login of the connected site's address that registered the same device
+/// leaves it to the connected site when deleted.
+@MainActor @Test func teardownCandidatesKeepTheConnectedSitesDevice() {
+    let store = PushTestDefaults(); defer { store.clear() }
+    let records = store.records, removed = UUID(), connected = UUID()
+    records.setRegisteredDeviceID(5, serverID: removed)
+    records.apply(TeardownReport(failedPushDeviceIDs: [3, 5]), serverID: removed)
+    records.setRegisteredDeviceID(5, serverID: removed)
+    #expect(records.teardownCandidates(serverID: removed, keepingDeviceOf: nil) == [5, 3])
+    #expect(records.teardownCandidates(serverID: removed, keepingDeviceOf: connected) == [5, 3])
+    records.setRegisteredDeviceID(5, serverID: connected)
+    #expect(records.teardownCandidates(serverID: removed, keepingDeviceOf: connected) == [3])
+    #expect(records.teardownCandidates(serverID: connected, keepingDeviceOf: connected) == [5])
 }
 
 @MainActor @Test func teardownTrackerWaitsForSameAddressOnly() async {

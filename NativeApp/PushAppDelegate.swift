@@ -111,9 +111,12 @@ extension AppModel: PushSiteNavigating {
 }
 
 extension AppModel {
-    /// The tabs of the connected site take a tapped notification's page; a sheet in use is never closed for it (S6D2b-07).
+    /// The tabs of the connected site take a tapped notification's page, or switch to another site's; a sheet in use is
+    /// never closed for either (S6D2b-07).
     func openPendingPushTarget(in router: AppRouter) {
-        pushCoordinator.deliverPending(to: router, activeServerID: activeProfile?.id) { accountTests?.state(for: $0) != nil }
+        if pushCoordinator.deliverPending(to: router, activeServerID: activeProfile?.id, showsTestResult: { accountTests?.state(for: $0) != nil }) { return }
+        guard pushCoordinator.pendingTarget != nil, router.presentedSheet == nil else { return }
+        Task { await pushCoordinator.openPendingSite(from: router, navigator: self) }
     }
 
     /// 00 §7.5 “前台收到推送”: the alert list or the account list reads again, at most once per interval (S6D2b-08).

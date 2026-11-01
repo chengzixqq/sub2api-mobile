@@ -37,6 +37,7 @@ extension AppModel {
         guard !isSigningOut else { return }
         isSigningOut = true
         defer { isSigningOut = false }
+        if let profile = activeProfile { await pushCoordinator.siteWillEnd(serverID: profile.id) }
         guard let ended = await endActiveSession(cancelsConnection: true, then: .savedSites) else { return }
         let pushIDs = pushRecords.teardownCandidates(serverID: ended.profile.id)
         guard let report = await teardown(ended, of: ended.profile, mode: .signOut, pushDeviceIDs: pushIDs) else { return }
@@ -53,6 +54,7 @@ extension AppModel {
         let isActive = activeProfile?.id == profile.id
         if isActive { isSigningOut = true }
         defer { if isActive { isSigningOut = false } }
+        if isActive { await pushCoordinator.siteWillEnd(serverID: profile.id) }
         let ended = isActive ? await endActiveSession(cancelsConnection: true, then: .savedSites) : await storedSession(of: profile)
         // The row stays, in progress, until the server steps end (D19).
         removingSites.append(profile)
@@ -60,7 +62,7 @@ extension AppModel {
         profiles.removeAll { $0.id == profile.id }
         if loginPrompt?.profile.id == profile.id { loginPrompt = nil }
         persistProfiles()
-        let pushIDs = pushRecords.teardownCandidates(serverID: profile.id)
+        let pushIDs = pushRecords.teardownCandidates(serverID: profile.id, keepingDeviceOf: connectedSite(sharingAddressOf: profile))
         pushRecords.removeAll(serverID: profile.id)
         // An archived site's records are still checked with its request-id flag; otherwise the flag stays with the other
         // logins of its address, where the proxy still is.
@@ -190,6 +192,13 @@ extension AppModel {
     }
 
     // MARK: - 站点收尾登记与推送（S6-23）
+
+    /// The connected site when it is another login of `profile`'s address.
+    private func connectedSite(sharingAddressOf profile: ServerProfile) -> UUID? {
+        guard let active = activeProfile, active.id != profile.id,
+              MoneyRecordOrigin.sameAddressIDs(of: profile, among: [active]).contains(active.id) else { return nil }
+        return active.id
+    }
 
     /// Right after `publish`: PushCoordinator deletes the site's pending push devices and registers this phone again when its
     /// switch is on (00 §7.2, §7.6), once the teardowns of the same address have ended.

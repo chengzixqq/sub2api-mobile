@@ -17,6 +17,13 @@ struct PushDeviceRecords {
         guard let registered = registeredDeviceID(serverID: serverID) else { return pending }
         return [registered] + pending.filter { $0 != registered }
     }
+    /// Deleting another login of the connected site's address: the server keeps one device per token, so the device the
+    /// connected site registered may be this site's too, and stays with the connected site.
+    func teardownCandidates(serverID: UUID, keepingDeviceOf connected: UUID?) -> [Int] {
+        let candidates = teardownCandidates(serverID: serverID)
+        guard let connected, connected != serverID, let kept = registeredDeviceID(serverID: connected) else { return candidates }
+        return candidates.filter { $0 != kept }
+    }
     /// After signing out: nothing stays registered, failures wait for the next login.
     func apply(_ report: TeardownReport, serverID: UUID) {
         let deleted = Set(report.deletedPushDeviceIDs)
