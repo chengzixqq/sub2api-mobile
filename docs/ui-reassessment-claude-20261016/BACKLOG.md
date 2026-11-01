@@ -514,6 +514,8 @@
 | 事项 | 说明 |
 |---|---|
 | AccountsView 手写 composite 过滤改用 GroupPlatform.concrete | AccountsView.swift 约 220 行还自己写了 values.filter { $0 != "composite" }，不在 S5-01 的文件范围内；留给后续改 AccountsView 的条目，或 S5-13 收口时统一 grep 替换 |
+| 倍率的显示位数 | （补充已有行）分组一侧按 50 §0.6 定：GroupFormat.rateText 精确到 0.1 时写 1 位，否则最多 2 位（×0.8、×1.0、×1.25，DisplayFormat.decimal minFractionDigits 1 / maxFractionDigits 2）；账号一侧仍归阶段 2（AccountEditCopy.rate），用户页仍是 UserEditCopy.rateText（最多 3 位，1 写“×1”，S3D1-21）。同一个分组的默认倍率在用户页写“×1”、分组页写“×1.0”，是否统一待用户定（S5-02） |
+| 分组“最早恢复”只算开着调度的限时成员 | S5-02 的 GroupRecovery.earliest 在 S5D2a-02 口径（每个成员最晚的进行中窗口、全组取最早）之上，只算当前处于限时状态且开着调度的成员；错误、停用和停了调度的限时账号即使有未来窗口也不计入（停调度的由“其中 s 个账号…已停止调度”说明）。规格 50 §2.3 字面是“三个窗口里仍在未来的最小值”，是否认可这个过滤待用户定 |
 
 ### App 与设计 · 阶段 6
 

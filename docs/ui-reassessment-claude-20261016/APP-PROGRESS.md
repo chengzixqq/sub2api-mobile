@@ -439,6 +439,7 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
 |---|---|---|---|---|
 | S5-01 | 分组模型、读接口与带幂等键的写接口 | ✅ | `af0c7df`、`2c8f401` | 分读、写两次提交（S5D1-11）。删除遇 404 GROUP_NOT_FOUND / RESOURCE_NOT_FOUND 在 Core 映射为 alreadyGone；groupList 最多 20 页；usage-summary 与 dashboard/groups 超时 45 秒；Core 拒绝 composite；旧分组页提示去掉“用同一编号重试”；容量分批复用 readInBatches，serverFiltered 时结果按 id 升序。页面（S5-04 起）、成员批量（S5-03）、groupAPIKeys / groupSubscriptions（S5-12）不在本条。GroupsUITests 两次各 2/2 通过 |
+| S5-02 | 分组展示与权限纯函数（GroupPresentation / GroupPermissions） | ✅ | `6cf1c50`、`767f36c` | 分两次提交（S5D2a-18）：GroupPresentation + 25 个用例；GroupCopy + GroupPermissions + 17 / 12 个用例（新增 files 之外的 GroupCopyTests.swift）。取舍：最早恢复按 S5D2a-02 取“每个成员最晚的进行中窗口、再取全组最早”，并列写“恢复 n 个 · X 等”，另外只算开着调度的限时成员（错误、停用、停调度的不会因为窗口结束而恢复）；删除后果行在 stats 拿不到时写不带数字的 Key 行和“删除这个分组的全部订阅记录。”，简易模式不写成员行（S5D2a-03）；删除标题、首行和回执用 S3-00 的 DeleteConfirmationCopy，本条只给 objectNoun 和后果行；订阅限额整数写 0 位、非整数写 2 位；倍率按 0.6 写 ×1.0 / ×1.25，与用户页 ×1 并存；主按钮被隐藏时不改派；编辑时停用改回正常写“启用分组”但不确认，同时停用不算归零；详情副标题里接口没给的字段省略；GroupListSection.Kind 与 AppRoute 的 GroupListSegment raw 值一致（互转和断言归 S5-04）。纯 Core，UI 测试未运行（ui_test_classes 为空，两次 check 均为 UI_SKIPPED） |
 
 ## 阶段 6 · 其他模块
 
