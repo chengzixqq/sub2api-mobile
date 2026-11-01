@@ -109,3 +109,38 @@ private let mapping = AnalyticsModelName("claude-opus-4 -> claude-opus-4-2025051
     session.setFilter(.group(id: 2))
     #expect(session.state(key, as: Int.self)?.value == nil)
 }
+
+/// The speed reads, answering what the test sets.
+@MainActor private final class SpeedReads {
+    var count = 0
+    var answer = AnalyticsModelSpeed.opsDisabled
+    func next() -> AnalyticsModelSpeed { count += 1; return answer }
+}
+
+/// 40 §5.5: a 404 OPS_DISABLED kept as `.opsDisabled` hides the block. The page reads nothing while ops is off, so once it reads again
+/// (ops back on, the foreground, coming back) a read without refresh asks again and the block returns without a pull to refresh; a
+/// value it shows is not read again.
+@MainActor @Test func modelPageSpeedHiddenByOpsDisabledIsReadAgainWithoutRefresh() async {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let session = makeSession(scratch)
+    let reads = SpeedReads()
+    let load: @MainActor (Bool) async -> Void = { refresh in
+        await session.loadModelPageSpeed(opus, refresh: refresh, fixture: { _ in reads.next() }) { _, _ in reads.next() }
+    }
+    let speed = { session.state(.modelPage(.speed, opus), as: AnalyticsModelSpeed.self)?.value }
+
+    await load(false)
+    #expect(reads.count == 1 && speed() == .opsDisabled)
+    // Turned on under 30 seconds ago: another instance may still answer 404.
+    await load(false)
+    #expect(reads.count == 2 && speed() == .opsDisabled)
+
+    let measured = AnalyticsModelSpeed.measured(nil, window: .custom)
+    reads.answer = measured
+    await load(false)
+    #expect(reads.count == 3 && speed() == measured)
+    await load(false)
+    #expect(reads.count == 3)
+    await load(true)
+    #expect(reads.count == 4)
+}

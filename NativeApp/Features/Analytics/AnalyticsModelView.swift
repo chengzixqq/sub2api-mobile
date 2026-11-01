@@ -168,14 +168,14 @@ extension AnalyticsSession {
     }
 
     /// Nothing while ops monitoring is off, nor for a name no row can be (S4D2b-06, S4D2b-20). A 404 OPS_DISABLED is reported and
-    /// hides the block; another failure is the block's.
+    /// hides the block until a later read (`loadModelPageSpeed`); another failure is the block's.
     static func loadSpeed(_ session: AnalyticsSession, name: AnalyticsModelName, model: AppModel, options: Options, refresh: Bool) async {
         guard !model.analyticsOpsDisabled else { return }
         let plan = session.modelPageSpeedPlan(name)
         guard let query = session.modelPageOpsQuery(plan), let topN = plan.topN else { return }
         let customRange = options.customRange
-        await session.load(.modelPage(.speed, name), refresh: refresh,
-                           fixture: { AnalyticsFixtures.modelSpeed(plan, session: $0, supportsCustomRange: customRange) }) { client, session in
+        await session.loadModelPageSpeed(name, refresh: refresh,
+                                         fixture: { AnalyticsFixtures.modelSpeed(plan, session: $0, supportsCustomRange: customRange) }) { client, session in
             do {
                 let stats = try await client.opsTokenStats(query, topN: topN, supportsCustomRange: customRange,
                                                            supportsModelFilter: session.supportsOpsModelFilter)

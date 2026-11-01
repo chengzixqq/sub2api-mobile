@@ -58,6 +58,15 @@ extension AnalyticsSessionState {
     func modelPageOpsQuery(_ plan: AnalyticsModelSpeedPlan) -> OpsQuery? {
         plan.opsQuery(start: range.start, end: range.end, groupID: modelPageGroupID)
     }
+    /// 40 §5.5 the speed block, read only while ops monitoring counts as on: a kept 404 OPS_DISABLED is read again without a refresh
+    /// (ops back on, or other instances catching up within 30 seconds), so the block comes back by itself.
+    func loadModelPageSpeed(_ name: AnalyticsModelName, refresh: Bool,
+                            fixture: @escaping @MainActor @Sendable (AnalyticsSessionState) async throws -> AnalyticsModelSpeed,
+                            operation: @escaping @MainActor @Sendable (APIClient, AnalyticsSessionState) async throws -> AnalyticsModelSpeed) async {
+        let key = AnalyticsCardKey.modelPage(.speed, name)
+        let hidden = state(key, as: AnalyticsModelSpeed.self)?.value == .opsDisabled
+        await load(key, refresh: refresh || hidden, fixture: fixture, operation: operation)
+    }
 
     /// Without a filter or with a group one, 统计分析's billing total is the denominator (S4D2b-01); under a model filter the page
     /// reads its own (`modelPageDenominator`).
