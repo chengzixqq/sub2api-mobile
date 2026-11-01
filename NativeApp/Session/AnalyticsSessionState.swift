@@ -178,7 +178,7 @@ final class AnalyticsSessionState {
     /// cancelled when it pushes a chart) does not cancel it, as GroupDirectory does. A result that lands after the site session
     /// ended, or after a change of the choices the card follows, is dropped.
     func load<Value: Sendable>(_ key: AnalyticsCardKey, refresh: Bool = false,
-                               fixture: @escaping @MainActor @Sendable (AnalyticsSessionState) throws -> Value,
+                               fixture: @escaping @MainActor @Sendable (AnalyticsSessionState) async throws -> Value,
                                operation: @escaping @MainActor @Sendable (APIClient, AnalyticsSessionState) async throws -> Value) async {
         if let read = reads[key] { await read.task.value; return }
         let state = slot(key, as: Value.self)
@@ -187,7 +187,7 @@ final class AnalyticsSessionState {
         let isCurrent: @MainActor @Sendable () -> Bool = { [weak self] in self?.isCurrent(key, since: started) ?? false }
         let read: @MainActor @Sendable () async throws -> Value = { [weak self] in
             guard let self else { throw CancellationError() }
-            if usesFixture { return try fixture(self) }
+            if usesFixture { return try await fixture(self) }
             return try await operation(client, self)
         }
         let task = Task { [weak self] in

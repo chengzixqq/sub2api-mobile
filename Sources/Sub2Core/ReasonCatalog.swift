@@ -41,6 +41,12 @@ public enum ReasonCatalog {
         lookup(status: status, reason: reason, context: context, retryAfter: retryAfter)
             ?? fallback(status: status, reason: reason, bodyIsJSON: bodyIsJSON, retryAfter: retryAfter)
     }
+    /// Only stable code-like reasons are shown; anything else from the server is not echoed.
+    static func displayCode(_ reason: String?) -> String? {
+        guard let reason, (1...64).contains(reason.utf8.count),
+              reason.utf8.allSatisfy({ (65...90).contains($0) || (48...57).contains($0) || $0 == 95 }) else { return nil }
+        return reason
+    }
 }
 
 private enum Text {
@@ -122,13 +128,6 @@ private extension ReasonCatalog {
         default: Entry(category: .server, kind: .response, action: .noRetry, message: "服务器未能完成请求（HTTP \(status)）")
         }
     }
-    /// Only stable code-like reasons are shown; anything else from the server is not echoed.
-    static func displayCode(_ reason: String?) -> String? {
-        guard let reason, (1...64).contains(reason.utf8.count),
-              reason.utf8.allSatisfy({ (65...90).contains($0) || (48...57).contains($0) || $0 == 95 }) else { return nil }
-        return reason
-    }
-
     static let table: [Key: Entry] = Dictionary(uniqueKeysWithValues: [authenticationRows(), securityRows(), availabilityRows(), requestRows(), objectRows()].flatMap { $0 })
 
     static func rows(_ status: Int, _ reasons: [String], _ category: Category, _ kind: APIError.Kind, _ action: Action, _ message: String) -> [(Key, Entry)] {

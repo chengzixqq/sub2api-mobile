@@ -333,3 +333,28 @@ private func breakdowns(_ json: String) throws -> [AnalyticsBreakdown] {
     #expect(AnalyticsFilterOptions.note(kind: .model, supportsOpsModelFilter: true) == "运行类图表也只算这个模型。")
     #expect(AnalyticsFilterOptions.note(kind: .model, supportsOpsModelFilter: false) == "运行类图表（RPM / TPM、时长、错误）后端不支持按模型，仍显示全站。")
 }
+
+@MainActor @Test func fixtureMayWaitBeforeAnswering() async {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let session = AnalyticsSessionState(serverID: site, generation: UUID(), client: sessionClient(SessionTransport { _ in sessionOK("{}") }),
+                                        timeZone: shanghai, supportsModelSource: true, supportsOpsModelFilter: true,
+                                        memory: AnalyticsMemory(defaults: scratch.defaults), entry: .today, groups: nil, isUITesting: true,
+                                        clock: { morning }, isSessionCurrent: { true })
+    let gate = SessionGate(), counter = CallCounter()
+    let loading = Task { @MainActor in
+        await session.load(billing, fixture: { (_: AnalyticsSessionState) async throws -> Int in
+            await gate.wait()
+            return 7
+        }) { _, _ in
+            counter.count += 1
+            return 1
+        }
+    }
+    while !(await gate.arrived) { await Task.yield() }
+    #expect(session.state(billing, as: Int.self)?.isLoading == true)
+    #expect(counter.count == 0)
+    await gate.open()
+    await loading.value
+    #expect(session.state(billing, as: Int.self)?.value == 7)
+    #expect(counter.count == 0)
+}

@@ -512,6 +512,13 @@
 | 429 等待期间被挡住的日志读取 | 切段、换时间或下拉时还在 429 等待内，该段显示“加载失败 · 重试”的倒计时行（没有错误详情），等待结束后自动重读；规格没写这种情况，这是 S4-05 的取舍，待确认 |
 | 日志夹具在站点午夜前两分钟的边界 | LogFixtures 的“昨天”行夹在近 24 小时以内，但站点时间 23:58–24:00 之间会落到今天或窗口外，RequestLogsUITests 的“今天 / 昨天”断言可能失败；如果在 Mac 上偶发，先看失败时的站点时间（S4-05） |
 | 日志页首屏不再挂在视图的 .task 上 | 推入页面时会先消失再出现，.task 会取消在途的首屏读取，页面停在“正在读取记录…”。S4-05 改为在 onAppear 里起非结构化 Task，store 只把 CancellationError 当作中断。S4-06 加轮询任务时注意同样的问题 |
+| 路由参数在旧页面上不生效（补充） | .analytics 的 range 自 S4-13 生效，focus == .perf 的首次滚动已做，metric 由 S4-16 的 RPM / TPM 卡读取 |
+| 区块 429 倒计时文案与重试按钮（补充） | 统计分析各卡经 AnalyticsCardStatusRow 用 BlockFailureRow，按钮写“重试本项”，429 等待期间倒计时、重试禁用（S4-13 已有 UI 用例） |
+| 缺失值“—”的读屏（补充） | 统计分析计费卡的大数、账号成本 / 标准 / 利润三格、请求 · Tokens · 平均耗时的缺失值都读“无数据”（S4-13） |
+| 筛选 sheet 分组占比读取失败没有提示 | S4-13 未做（要改 S4-12 的 AnalyticsSheets.swift / AnalyticsFixtures+Filter.swift），延后到 UI 审查 |
+| 自定义范围日历的“今天”高亮按手机时区（核对结果） | S4-13 在模拟器上设手机时区 America/Los_Angeles、站点 Asia/Shanghai 截图核对：图形日历的“今天”标在站点日期（11月1日），因为 DatePicker 已注入站点 timeZone / calendar，没有错位；这一行可以关闭 |
+| S4-20 清理清单补充：旧趋势页的残留 | LegacyTrendPage 删除后，AppModel.dashboardTrend() 及其 -ui-trend-long-series / -ui-dashboard-detail-errors 夹具分支、DemoData.longHourlyTrend 已没有调用方（PerformanceTrendView 与 dashboardPerformanceTrend(hours:) 归 S4-16）；docs/API_COMPATIBILITY.md:32 仍写“过渡页 LegacyTrendPage”，需要随 S4-20 改写 |
+| 卡内失败行偏重 | 计费卡合计与趋势同时失败时，卡内出现两组“加载失败 · 重试本项 + 详情”，各管一个读取；是否合并成一行留给 UI 审查 |
 
 ### App 与设计 · 阶段 5
 
@@ -520,6 +527,9 @@
 | AccountsView 手写 composite 过滤改用 GroupPlatform.concrete | AccountsView.swift 约 220 行还自己写了 values.filter { $0 != "composite" }，不在 S5-01 的文件范围内；留给后续改 AccountsView 的条目，或 S5-13 收口时统一 grep 替换 |
 | 倍率的显示位数 | （补充已有行）分组一侧按 50 §0.6 定：GroupFormat.rateText 精确到 0.1 时写 1 位，否则最多 2 位（×0.8、×1.0、×1.25，DisplayFormat.decimal minFractionDigits 1 / maxFractionDigits 2）；账号一侧仍归阶段 2（AccountEditCopy.rate），用户页仍是 UserEditCopy.rateText（最多 3 位，1 写“×1”，S3D1-21）。同一个分组的默认倍率在用户页写“×1”、分组页写“×1.0”，是否统一待用户定（S5-02） |
 | 分组“最早恢复”只算开着调度的限时成员 | S5-02 的 GroupRecovery.earliest 在 S5D2a-02 口径（每个成员最晚的进行中窗口、全组取最早）之上，只算当前处于限时状态且开着调度的成员；错误、停用和停了调度的限时账号即使有未来窗口也不计入（停调度的由“其中 s 个账号…已停止调度”说明）。规格 50 §2.3 字面是“三个窗口里仍在未来的最小值”，是否认可这个过滤待用户定 |
+| 成员写入新增文案待确认（S5-03） | “移出失败 · n 个账号没有改动”“成员调整失败 · n 个账号没有改动”“已加入 a 个、已移出 b 个，n 个失败”“已撤销 a 个账号的改动 · b 个没有撤销”“撤销没有成功 · b 个账号没有改动”“没有完成（错误码 X），账号没有改动”“结果未确认，可以重试”，规格里没有这些文案，现按方案默认值实现（需要用户拍板第 11 条） |
+| 成员退路改用 PATCH + If-Match（S5-03） | 0.4.4 退路按规格逐账号 PUT 只带 group_ids，会按读到的快照写回账号整行，并重置该账号在其他分组的优先级；有 accounts.patch 的站点改用 PATCH + If-Match 可以避免覆盖他人同时的修改，但与规格字面不同（dag.md 第 8 节第 6 条），待用户决定 |
+| 线 A 提交 e7abfd5 待推送 | S5-03 完成时本机连不上 github.com:443，codex/native-line-a 没有推送到 origin；网络恢复后补推，或由集成者直接合入本地分支 |
 
 ### App 与设计 · 阶段 6
 

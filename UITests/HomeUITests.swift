@@ -144,14 +144,14 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(element("home.ticker").waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    @MainActor func testRPMCellOpensLegacyTrendWithRPMSelected() {
+    /// S4-13: the RPM cell opens the analytics card flow (S4-16 selects RPM on its card).
+    @MainActor func testRPMCellOpensAnalytics() {
         launchAndLogin()
         defer { diagnostics("home-rpm-final") }
         loadedCell("rpm").tap()
-        XCTAssertTrue(element("legacy.trend").waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.segmentedControls["dashboard.trend.metric"].buttons["性能指标"].isSelected, app.debugDescription)
-        XCTAssertTrue(app.segmentedControls["dashboard.performance.metric"].buttons["RPM"].isSelected, app.debugDescription)
-        XCTAssertTrue(element("dashboard.performance.chart").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("analytics.cards").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("legacy.trend").exists, app.debugDescription)
     }
 
     @MainActor func testSubtitleShowsServerDateAndFreshness() {
