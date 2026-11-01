@@ -68,7 +68,7 @@ final class PerfTrendState {
     }
     var isOpsDisabled: Bool { hooks.isDisabled() }
     /// Ops off, or a read answered 404 OPS_DISABLED while LiveOpsStore still believes it on (just turned on elsewhere).
-    var showsOpsNotice: Bool { isOpsDisabled || loadState?.lastError.map(AccountUpstreamErrors.isOpsDisabled) == true }
+    var showsOpsNotice: Bool { isOpsDisabled || answeredOpsDisabled }
 
     // MARK: Choices
 
@@ -111,13 +111,14 @@ final class PerfTrendState {
     // MARK: Reads
 
     /// `ops/dashboard/throughput-trend` over the window ending at the server's minute, with the session's filter; nothing while ops
-    /// is off. Only a result this read brought is reported: a success, or a 404 OPS_DISABLED (S4D2b-06).
+    /// is off. A kept value under a 404 OPS_DISABLED is read again (ops back on). Only a result this read brought is reported: a
+    /// success, or a 404 OPS_DISABLED (S4D2b-06).
     func load(refresh: Bool) async {
         guard !isOpsDisabled else { return }
         if trend == nil, session.hasValue(.perf) { session.reset(.perf) }
         let hours = window.hours, fixture = fixture
         let updatedBefore = loadState?.updatedAt, failedBefore = loadState?.lastErrorAt
-        await session.load(.perf, refresh: refresh, fixture: { _ in try await fixture(hours) }) { client, session in
+        await session.load(.perf, refresh: refresh || answeredOpsDisabled, fixture: { _ in try await fixture(hours) }) { client, session in
             let window = OpsQuery.trailingWindow(hours: hours, endingAt: client.serverClock.now())
             return try await client.dashboardPerformanceTrend(session.opsQuery(start: window.start, end: window.end),
                                                               supportsModelFilter: session.supportsOpsModelFilter)
@@ -130,18 +131,21 @@ final class PerfTrendState {
         }
     }
     /// How long the 30-second loop waits before reading again, from the last success or failure (a pull to refresh moves it on);
-    /// 0 when no read answered yet; nil stops it: ops off, or a 400 / 403. A 429 waits its time, failures back off.
+    /// 0 when no read answered yet; nil stops it: ops off, or a 400 / 403. A 429 waits its time, failures back off, except a 404
+    /// OPS_DISABLED with ops on: other instances catch up within 30 seconds.
     func pollDelay(now: Date) -> TimeInterval? {
         guard !isOpsDisabled else { return nil }
         guard let load = loadState else { return 0 }
         if load.error != nil, PerfTrendPresentation.stopsPolling(after: load.lastError) { return nil }
         let base = PerfTrendPresentation.refreshInterval
         if !load.refresh.allowsRequest(at: now) { return load.refresh.nextDelay(base: base, at: now) }
-        let interval = BlockRefresh.nextRefreshInterval(base: base, consecutiveFailures: load.refresh.consecutiveFailures)
+        let failures = answeredOpsDisabled ? 0 : load.refresh.consecutiveFailures
+        let interval = BlockRefresh.nextRefreshInterval(base: base, consecutiveFailures: failures)
         let last = [trend == nil ? nil : load.updatedAt, load.lastErrorAt].compactMap { $0 }.max()
         return PerfTrendPresentation.pollDelay(since: last, now: now, interval: interval)
     }
 
+    private var answeredOpsDisabled: Bool { loadState?.lastError.map(AccountUpstreamErrors.isOpsDisabled) == true }
     private var selectedIndex: Int? {
         guard let selectedDate else { return nil }
         return trend?.points.firstIndex { $0.date == selectedDate }
