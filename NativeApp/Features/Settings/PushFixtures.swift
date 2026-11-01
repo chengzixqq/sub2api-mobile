@@ -110,7 +110,7 @@ actor PushDemoStore: PushDeviceAPI {
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         self.arguments = arguments
-        config = PushFixture.config(arguments: arguments)
+        config = PushEditFixture.config(PushFixture.config(arguments: arguments), arguments: arguments)
         let targets = PushFixture.otherTargets
         stored = targets.map(\.0)
         identities = Dictionary(uniqueKeysWithValues: targets.compactMap { device, registration in Self.identity(of: registration).map { (device.id, $0) } })
@@ -118,6 +118,7 @@ actor PushDemoStore: PushDeviceAPI {
 
     func registerPushDevice(_ registration: PushDeviceRegistration) async throws -> (device: PushDevice, created: Bool) {
         if arguments.contains(PushFixture.registerFailsArgument) { throw PushFixture.limitReached }
+        if registration.platform != .ios { try Self.checkTarget(registration) }
         try registration.validate()
         let fields = try Self.fields(of: registration)
         let identity = Identity(platform: registration.platform, siteTag: registration.siteTag, key: fields.key)
@@ -300,4 +301,79 @@ extension DemoData {
         return pushStore
     }
     @MainActor private static var pushSeeds: [UUID: Task<Void, Never>] = [:]
+}
+
+// MARK: - S6-25 添加接收方式与 APNs 配置
+
+/// S6-25's launch argument and the fixture site's private key.
+enum PushEditFixture {
+    /// `encryption_key_configured` is false: a private key is refused with SECRET_ENCRYPTION_KEY_NOT_CONFIGURED.
+    static let noEncryptionKeyArgument = "-ui-apns-no-encryption-key"
+    /// The only key the fixture site takes (made-up base64, not a key); any other well-formed PEM is “not P-256”.
+    static let acceptedPrivateKey = "-----BEGIN PRIVATE KEY-----\nU1VCMi1VSS1URVNULUZJWFRVUkU=\n-----END PRIVATE KEY-----"
+
+    /// S6-24's settings with this launch's encryption key.
+    static func config(_ config: PushAPNsConfig, arguments: [String]) -> PushAPNsConfig {
+        PushAPNsConfig(enabled: config.enabled, teamID: config.teamID, keyID: config.keyID, privateKeyConfigured: config.privateKeyConfigured,
+                       topic: config.topic, environment: config.environment,
+                       encryptionKeyConfigured: !arguments.contains(noEncryptionKeyArgument), ready: config.ready)
+    }
+    static func invalidConfig(_ field: String) -> APIError {
+        .server(status: 400, envelope: ErrorEnvelope(reason: "INVALID_APNS_CONFIG", metadata: ["field": field]))
+    }
+}
+
+extension PushDemoStore {
+    /// A Bark, ntfy or Webhook address the backend refuses with push_targets' defaults: not https, or a local or private
+    /// host → 400 INVALID_PUSH_TARGET (field endpoint).
+    static func checkTarget(_ registration: PushDeviceRegistration) throws {
+        let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(registration)) as? [String: Any] ?? [:]
+        let parts = URLComponents(string: body["endpoint"] as? String ?? "")
+        guard parts?.scheme?.lowercased() == "https", let host = parts?.host?.lowercased(), !host.isEmpty, !isPrivateHost(host) else {
+            throw APIError.server(status: 400, envelope: ErrorEnvelope(reason: "INVALID_PUSH_TARGET", metadata: ["field": "endpoint"]))
+        }
+    }
+    /// PUT admin/push/config in the backend's order (push_config_service.go): the IDs, Topic and environment, then the private
+    /// key, then APNs on without all three; saved and returned with `ready` worked out again.
+    func updateConfig(_ update: PushAPNsConfigUpdate) throws -> PushAPNsConfig {
+        let current = config
+        let team = try Self.identifier(update.teamID, current: current.teamID, field: "apns_team_id")
+        let key = try Self.identifier(update.keyID, current: current.keyID, field: "apns_key_id")
+        var topic = current.topic
+        if let raw = update.topic?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            guard raw.isEmpty || APNsConfigDraft.isBundleID(raw) else { throw PushEditFixture.invalidConfig("apns_topic") }
+            topic = raw.isEmpty ? nil : raw
+        }
+        var hasKey = current.privateKeyConfigured
+        let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(update)) as? [String: Any] ?? [:]
+        if let pem = (body["apns_private_key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !pem.isEmpty {
+            guard pem == PushEditFixture.acceptedPrivateKey else { throw PushEditFixture.invalidConfig("apns_private_key") }
+            guard current.encryptionKeyConfigured else { throw APIError.server(status: 400, reason: "SECRET_ENCRYPTION_KEY_NOT_CONFIGURED") }
+            hasKey = true
+        }
+        let enabled = update.enabled ?? current.enabled, complete = team != nil && key != nil && hasKey
+        guard !enabled || complete else { throw PushEditFixture.invalidConfig("apns_enabled") }
+        config = PushAPNsConfig(enabled: enabled, teamID: team, keyID: key, privateKeyConfigured: hasKey, topic: topic,
+                                environment: update.environment ?? current.environment, encryptionKeyConfigured: current.encryptionKeyConfigured,
+                                ready: enabled && complete)
+        return config
+    }
+
+    private static func identifier(_ new: String?, current: String?, field: String) throws -> String? {
+        guard let new else { return current }
+        let value = new.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard value.isEmpty || APNsConfigDraft.isAPNsIdentifier(value) else { throw PushEditFixture.invalidConfig(field) }
+        return value.isEmpty ? nil : value
+    }
+    /// localhost, .local and the private, loopback and link-local IPv4 ranges.
+    private static func isPrivateHost(_ host: String) -> Bool {
+        if host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local") { return true }
+        let octets = host.split(separator: ".").compactMap { Int($0) }
+        guard octets.count == 4 else { return false }
+        switch (octets[0], octets[1]) {
+        case (10, _), (127, _), (169, 254), (192, 168): return true
+        case (172, let second): return (16...31).contains(second)
+        default: return false
+        }
+    }
 }
