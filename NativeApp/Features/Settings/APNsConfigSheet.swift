@@ -10,6 +10,9 @@ import Sub2Core
 /// credential or TOTP refusal reads admin/me so 编辑 greys, INVALID_APNS_CONFIG marks its field. The key leaves the form as
 /// it is sent and is never shown back once recognized; the form is covered while the App is not active (60 §0.4, S6D2b-10).
 struct APNsConfigSheet: View {
+    /// The page's settings. Read again while the form is open (after a save without an answer, or back in the foreground),
+    /// the form counts its changes from them.
+    let config: PushAPNsConfig
     /// Saved (the server's settings) or perhaps saved (nil): the page shows them, or reads them again.
     let onChanged: @MainActor (PushAPNsConfig?) -> Void
     @Environment(AppModel.self) private var model
@@ -27,6 +30,7 @@ struct APNsConfigSheet: View {
     @State private var confirmingDiscard = false
 
     init(config: PushAPNsConfig, onChanged: @escaping @MainActor (PushAPNsConfig?) -> Void) {
+        self.config = config
         self.onChanged = onChanged
         _draft = State(initialValue: APNsConfigDraft(config: config))
     }
@@ -39,6 +43,7 @@ struct APNsConfigSheet: View {
                 .toolbar { toolbar }
         }
         .interactiveDismissDisabled(isSaving || draft.hasChanges)
+        .onChange(of: config) { _, fresh in rebase(on: fresh) }
         .pushPrivacyCover(isShown: scenePhase != .active, identifier: "apns.privacyCover")
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data]) { importKey($0) }
         .alert(PushEditCopy.discardTitle, isPresented: $confirmingDiscard) {
@@ -218,6 +223,12 @@ struct APNsConfigSheet: View {
     private func show(_ outcome: APNsConfigFailure) {
         failure = outcome == .cancelled ? nil : outcome
         failedDraft = draft
+    }
+    /// A failure on show stays on show.
+    private func rebase(on fresh: PushAPNsConfig) {
+        let showsFailure = draft == failedDraft
+        draft = draft.rebased(on: fresh)
+        if showsFailure { failedDraft = draft }
     }
 
     /// Any file may be picked (.p8 has no system type): read inside its security scope, small, and a PEM block, or refused.

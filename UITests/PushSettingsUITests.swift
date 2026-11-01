@@ -629,4 +629,33 @@ final class PushSettingsUITests: XCTestCase {
         }
         XCTAssertTrue(item.exists && item.isHittable, app.debugDescription)
     }
+
+    /// A save stored without an answer: the form counts from the settings read again, so the key shows as configured,
+    /// 不更换私钥 is enough to turn APNs on, and nothing is left to save.
+    @MainActor func testUnconfirmedAPNsSaveFollowsSettingsReadAgain() {
+        launchAndLogin(arguments: ["-ui-push-not-ready", "-ui-apns-save-unconfirmed"])
+        defer { diagnostics("push-apns-unconfirmed-final") }
+        openPushSettings()
+        openAPNsEditor()
+        let enabled = app.switches["apns.enabled"]
+        XCTAssertTrue(enabled.waitForExistence(timeout: 5), app.debugDescription)
+        tapSwitch(enabled)
+        XCTAssertTrue(waitUntil(enabled, "value == '1'"), app.debugDescription)
+        typeInSheet("-----BEGIN PRIVATE KEY-----\nU1VCMi1VSS1URVNULUZJWFRVUkU=\n-----END PRIVATE KEY-----", into: "apns.privateKey")
+        XCTAssertTrue(app.buttons["apns.clearKey"].waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["apns.save"].tap()
+        let banner = element("apns.error")
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(banner.label, "没有收到保存结果，已重新读取配置，请核对后再保存")
+        XCTAssertTrue(waitUntil(element("apns.keyStatus"), "value == '已配置（不更换就不用填）'"), app.debugDescription)
+        XCTAssertTrue(banner.exists, app.debugDescription)
+        diagnostics("push-apns-unconfirmed")
+        let keep = app.buttons["apns.keepKey"]
+        revealInSheet(keep)
+        keep.tap()
+        XCTAssertTrue(keep.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(element("apns.error.privateKey").exists, app.debugDescription)
+        XCTAssertFalse(element("apns.error.enabled").exists, app.debugDescription)
+        XCTAssertFalse(app.buttons["apns.save"].isEnabled, app.debugDescription)
+    }
 }
