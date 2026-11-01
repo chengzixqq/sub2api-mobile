@@ -520,6 +520,9 @@
 | AccountsView 手写 composite 过滤改用 GroupPlatform.concrete | AccountsView.swift 约 220 行还自己写了 values.filter { $0 != "composite" }，不在 S5-01 的文件范围内；留给后续改 AccountsView 的条目，或 S5-13 收口时统一 grep 替换 |
 | 倍率的显示位数 | （补充已有行）分组一侧按 50 §0.6 定：GroupFormat.rateText 精确到 0.1 时写 1 位，否则最多 2 位（×0.8、×1.0、×1.25，DisplayFormat.decimal minFractionDigits 1 / maxFractionDigits 2）；账号一侧仍归阶段 2（AccountEditCopy.rate），用户页仍是 UserEditCopy.rateText（最多 3 位，1 写“×1”，S3D1-21）。同一个分组的默认倍率在用户页写“×1”、分组页写“×1.0”，是否统一待用户定（S5-02） |
 | 分组“最早恢复”只算开着调度的限时成员 | S5-02 的 GroupRecovery.earliest 在 S5D2a-02 口径（每个成员最晚的进行中窗口、全组取最早）之上，只算当前处于限时状态且开着调度的成员；错误、停用和停了调度的限时账号即使有未来窗口也不计入（停调度的由“其中 s 个账号…已停止调度”说明）。规格 50 §2.3 字面是“三个窗口里仍在未来的最小值”，是否认可这个过滤待用户定 |
+| 成员写入新增文案待确认（S5-03） | “移出失败 · n 个账号没有改动”“成员调整失败 · n 个账号没有改动”“已加入 a 个、已移出 b 个，n 个失败”“已撤销 a 个账号的改动 · b 个没有撤销”“撤销没有成功 · b 个账号没有改动”“没有完成（错误码 X），账号没有改动”“结果未确认，可以重试”，规格里没有这些文案，现按方案默认值实现（需要用户拍板第 11 条） |
+| 成员退路改用 PATCH + If-Match（S5-03） | 0.4.4 退路按规格逐账号 PUT 只带 group_ids，会按读到的快照写回账号整行，并重置该账号在其他分组的优先级；有 accounts.patch 的站点改用 PATCH + If-Match 可以避免覆盖他人同时的修改，但与规格字面不同（dag.md 第 8 节第 6 条），待用户决定 |
+| 线 A 提交 e7abfd5 待推送 | S5-03 完成时本机连不上 github.com:443，codex/native-line-a 没有推送到 origin；网络恢复后补推，或由集成者直接合入本地分支 |
 
 ### App 与设计 · 阶段 6
 
