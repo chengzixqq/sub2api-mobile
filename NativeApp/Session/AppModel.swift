@@ -110,6 +110,8 @@ final class AppModel {
 
     // MARK: - 阶段 5 · 会话级状态
     // 阶段 5 的条目在这里追加
+    /// 50 §1 (X03): the session's group list, usage and shortage; the group pages read and write it (S5-04). Rebuilt with the session.
+    private(set) var groupStore: GroupStore?
 
     // MARK: - 阶段 6 · 会话级状态
     // 阶段 6 的条目在这里追加
@@ -328,6 +330,7 @@ final class AppModel {
         pageStates = PageStateRegistry()
         // MARK: - 阶段 5 · 会话级状态
         // 阶段 5 的条目在这里追加
+        groupStore = GroupStore(app: self, generation: generation)
         // MARK: - 阶段 6 · 会话级状态
         // 阶段 6 的条目在这里追加
         let proxySource: any ProxySource = if isUITesting {
@@ -377,6 +380,7 @@ final class AppModel {
         pageStates = nil
         // MARK: - 阶段 5 · 会话级状态
         // 阶段 5 的条目在这里追加
+        groupStore = nil
         // MARK: - 阶段 6 · 会话级状态
         // 阶段 6 的条目在这里追加
         proxyStore = nil

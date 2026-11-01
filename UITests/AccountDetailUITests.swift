@@ -182,8 +182,9 @@ final class AccountDetailUITests: XCTestCase {
         launchAndLogin(arguments: [Fixture.groupTransition])
         defer { diagnostics("account-detail-group-transition-final") }
         app.openSearchItem("search.item.groups")
-        let group = app.buttons["group.10"]
-        XCTAssertTrue(group.waitForExistence(timeout: 10), app.debugDescription)
+        let group = app.buttons["group.row.10"]
+        XCTAssertTrue(app.buttons["group.row.4"].waitForExistence(timeout: 10), app.debugDescription)
+        app.scrollUntilExists(group)
         group.tap()
         let entry = app.buttons["group.accounts"]
         app.scrollUntilExists(entry)

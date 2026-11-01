@@ -37,13 +37,15 @@ extension AppModel {
     }
     func metaCatalog() async -> MetaCatalog { await metaCatalogResult().catalog }
 
-    /// C-10: `groups/all` with every status; `-ui-testing` reads DemoData.accountGroups (502 with `-ui-account-groups-error`).
+    /// C-10: `groups/all` with every status; `-ui-testing` reads the session's GroupFixtures with live counts, as the group pages
+    /// do (S5D2a-11; 502 with `-ui-account-groups-error`).
     func makeGroupDirectory(client: APIClient) -> GroupDirectory {
         guard isUITesting else { return GroupDirectory(load: { try await client.allGroups(platform: nil, includeInactive: true) }) }
         let fails = ProcessInfo.processInfo.arguments.contains(DemoData.AccountFixture.groupsError)
-        return GroupDirectory(load: {
+        return GroupDirectory(load: { [weak self] in
             if fails { throw APIError.server(status: 502, reason: nil) }
-            return DemoData.accountGroups
+            guard let self else { throw CancellationError() }
+            return await self.fixtureGroupDirectory()
         })
     }
 

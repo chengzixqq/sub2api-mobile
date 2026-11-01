@@ -331,12 +331,15 @@ final class AnalyticsUITests: XCTestCase {
         defer { diagnostics("analytics-stale-final") }
         app.openAnalyticsFromSearch()
         app.waitForValue(amount, equal: Expected.week)
+        app.waitForLabel(element("analytics.billing.change"), containing: Expected.weekChange)
         app.pullToRefresh(from: amount)
         let stale = element("analytics.billing.stale.failure")
         XCTAssertTrue(text(in: stale, containing: "更新失败 · 显示的是 ").waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(text(in: stale, containing: " 的数据").exists, app.debugDescription)
         XCTAssertEqual(element("analytics.billing.stale.retry").label, "重试本项")
         XCTAssertEqual(amount.value as? String, Expected.week)
+        // The comparison read again and the totals did not: no change line across the two moments.
+        XCTAssertTrue(element("analytics.billing.change").pollGone(timeout: 5), app.debugDescription)
     }
 
     @MainActor func testEmptyRangeSaysNoUsage() {
