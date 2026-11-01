@@ -83,20 +83,40 @@ struct SettingsSecurityRows: View {
     }
 }
 
-/// 60 §3.3 肆: stage 6 replaces the placeholder page and adds “已停用”.
+/// 60 §3.3 肆: 已开启 / 未开启 / 已停用 of this phone's target (S6-24). With a registered id the list is read each time the row
+/// appears, so coming back from 推送通知 shows what changed; until it answers, or when it fails, the id alone reads 已开启.
 struct SettingsNotificationRows: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var session
+    @State private var devices: [PushDevice]?
+    /// Bumped after the source is made: under `-ui-testing` that is when the records are seeded (S6D2b-06).
+    @State private var reads = 0
 
     var body: some View {
-        let registered = model.activeProfile.flatMap { model.pushRecords.registeredDeviceID(serverID: $0.id) } != nil
+        let _ = (model.pushCoordinator.revision, reads)
+        let localID = session.flatMap { model.pushCoordinator.registeredDeviceID(serverID: $0.serverID) }
+        let state = PushPresentation.localState(registeredID: localID, devices: devices)
         NavigationLink(value: AppRoute.push) {
             HStack {
                 Label("推送通知", systemImage: "bell").foregroundStyle(Palette.ink1)
                 Spacer(minLength: 8)
-                Text(SettingsPresentation.pushStatus(isRegistered: registered)).foregroundStyle(Palette.ink2)
+                Text(state.settingsTitle).foregroundStyle(Palette.ink2)
             }
         }
+        .accessibilityValue(state.settingsTitle)
         .accessibilityIdentifier("settings.push")
+        .task(id: session?.generation) { await readDevices() }
+        .onChange(of: model.pushCoordinator.revision) { _, _ in Task { await readDevices() } }
+    }
+
+    private func readDevices() async {
+        guard let session, session.generation == model.sessionGeneration else { devices = nil; return }
+        let source = await PushSettingsSources.make(model: model, context: session)
+        reads += 1
+        guard model.pushCoordinator.registeredDeviceID(serverID: session.serverID) != nil else { devices = nil; return }
+        let list = try? await source.pushDevices()
+        guard session.generation == model.sessionGeneration else { return }
+        devices = list
     }
 }
 
