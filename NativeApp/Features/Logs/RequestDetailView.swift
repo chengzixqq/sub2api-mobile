@@ -6,10 +6,12 @@ import Sub2Core
 /// 耗时, 上游尝试, Token, 关联 and 标识 numbered as they appear (RequestDetailLayout). RequestDetailModel decides what to read; this
 /// page reads on entry, on pull, back in the foreground and after compliance passed, never on a timer (D18).
 /// Identifiers: logs.detail (the list), logs.detail.loading, .gone, .back, .page.failure / .page.retry, .opsDisabled, .detailNotice,
-/// .detail.failure / .detail.retry; the card's, the buttons' and 标识's below; the other sections' in RequestDetailSections.swift.
+/// .detail.failure / .detail.retry; the card's and the buttons' below; the other sections' in RequestDetailSections.swift;
+/// 标记已处理, the ··· menu and 标识's rows in RequestResolveControls.swift (S4-08b).
 struct RequestDetailView: View {
     let route: RequestRoute
     @Environment(AppModel.self) private var model
+    @Environment(AppRouter.self) private var router
     @Environment(\.sessionContext) private var session
 
     init(route: RequestRoute) { self.route = route }
@@ -17,14 +19,14 @@ struct RequestDetailView: View {
     var body: some View {
         Group {
             if let session {
-                RequestDetailScreen(make: { makeModel(session) }, timeZone: session.site.serverTimeZone.timeZone).id(session.generation)
+                RequestDetailScreen(make: { makeModel(session) }, makeResolve: { makeResolve(session) },
+                                    timeZone: session.site.serverTimeZone.timeZone).id(session.generation)
             } else {
                 ProgressView()
             }
         }
         .navigationTitle(RequestDetailPresentation.title(kind: route.errorKind))
         .navigationBarTitleDisplayMode(.inline)
-        // S4-08b：导航栏 ··· 菜单（复制请求 ID / 上游请求 ID）接在这里。
     }
 
     /// Ops off as LiveOpsStore has it, admin/me's until then (S4D2a-17); its outcomes go back to the store (S1D1-02).
@@ -38,6 +40,12 @@ struct RequestDetailView: View {
                                   onOpsResponse: { [weak model] error in await model?.liveOps?.recordOpsResponse(error) },
                                   now: { client.serverClock.now() })
     }
+    /// The failed looks' 标记已处理, for the lists of the tab the page was pushed in (S4-08b).
+    private func makeResolve(_ session: SessionContext) -> RequestResolveFlow? {
+        guard case .error(let id, let kind, let initial) = route else { return nil }
+        return RequestResolveFlow(model: model, session: session, router: router, tab: router.selectedTab, errorID: id, kind: kind,
+                                  record: initial?.value)
+    }
 }
 
 extension RequestDetailSource {
@@ -50,6 +58,7 @@ extension RequestDetailSource {
 
 private struct RequestDetailScreen: View {
     @State private var detail: RequestDetailModel
+    @State private var resolve: RequestResolveFlow?
     /// The reason the shown values were read for; coming back from a pushed page reads nothing new.
     @State private var loadedKey: ReloadKey?
     @Environment(AppModel.self) private var model
@@ -58,8 +67,9 @@ private struct RequestDetailScreen: View {
     let timeZone: TimeZone
     private static let cardInsets = EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)
 
-    init(make: () -> RequestDetailModel, timeZone: TimeZone) {
+    init(make: () -> RequestDetailModel, makeResolve: () -> RequestResolveFlow?, timeZone: TimeZone) {
         _detail = State(initialValue: make())
+        _resolve = State(initialValue: makeResolve())
         self.timeZone = timeZone
     }
 
@@ -77,7 +87,17 @@ private struct RequestDetailScreen: View {
                 loadedKey = key
                 await detail.load()
             }
+            .onChange(of: detail.detailRevision) {
+                if let record = detail.record { resolve?.adopt(record) }
+            }
+            .toolbar {
+                if detail.page == .content, !menuIdentifiers.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) { RequestDetailMoreMenu(identifiers: menuIdentifiers) }
+                }
+            }
     }
+    /// Only over the content: not while the page loads, failed or says the record is gone.
+    private var menuIdentifiers: [RequestIdentifierRow] { RequestDetailLayout.menuIdentifiers(detail.identifiers) }
 
     @ViewBuilder private var content: some View {
         switch detail.page {
@@ -175,13 +195,13 @@ private struct RequestDetailScreen: View {
                                   message: RequestDetailPresentation.errorMessage(record: record, detail: fetched), isLoading: detail.detail.isLoading)
         }
     }
-    /// The failed looks only: 查看账号 when the row names an account, and who resolved it once the detail says so.
+    /// The failed looks only: 标记已处理, 查看账号 when the row names an account, and who resolved it once the detail says so.
     @ViewBuilder private var actions: some View {
         if let record = detail.record, detail.kind != nil {
             let accountID = record.accountID.flatMap { $0 > 0 ? $0 : nil }
-            let resolved = RequestDetailPresentation.resolvedNote(record, timeZone: timeZone)
-            if accountID != nil || resolved != nil {
-                RequestDetailActions(accountID: accountID, resolvedNote: resolved) { router.push(.account(id: $0)) }
+            let resolved = RequestDetailPresentation.resolvedNote(resolve?.record ?? record, timeZone: timeZone)
+            if resolve != nil || accountID != nil || resolved != nil {
+                RequestDetailActions(resolve: resolve, accountID: accountID, resolvedNote: resolved) { router.push(.account(id: $0)) }
             }
         }
     }
@@ -296,16 +316,17 @@ struct RequestDetailHeadCard: View {
     }
 }
 
-/// 40 §7.3 按钮行 of the failed looks: 查看账号 (`account_id` > 0) and the “已处理 · 人 · 时间” line. S4-08b puts 标记已处理 first.
-/// Identifiers logs.detail.actions, .viewAccount, .resolvedNote.
+/// 40 §7.3 按钮行 of the failed looks: 标记已处理 (S4-08b), 查看账号 (`account_id` > 0) and the “已处理 · 人 · 时间” line.
+/// Identifiers logs.detail.actions, .resolve, .viewAccount, .resolvedNote.
 struct RequestDetailActions: View {
+    let resolve: RequestResolveFlow?
     let accountID: Int?
     let resolvedNote: String?
     let openAccount: @MainActor (Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // S4-08b：“标记已处理 / 已处理”插在这里（最前面）。
+            if let resolve { RequestResolveButton(flow: resolve) }
             if let accountID {
                 Button { openAccount(accountID) } label: {
                     Label(RequestDetailCopy.viewAccount, systemImage: "server.rack").frame(maxWidth: .infinity, minHeight: 44)
@@ -323,23 +344,14 @@ struct RequestDetailActions: View {
     }
 }
 
-/// 40 §7.3 标识: the label over the ID in monospace, selectable. S4-08b swaps the rows for RequestIdentifierCopyRow (tap to copy),
-/// keeping the identifiers logs.detail.id.request / .client / .upstream.
+/// 40 §7.3 标识: one RequestIdentifierCopyRow per ID; a tap copies it (S4-08b).
 struct RequestIdentifiersSection: View {
     let rows: [RequestIdentifierRow]
     let ordinal: String?
 
     var body: some View {
         Section {
-            ForEach(rows) { row in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.label).font(.footnote).foregroundStyle(Palette.ink2)
-                    Text(row.value).font(.footnote).monospaced().foregroundStyle(Palette.ink1).textSelection(.enabled)
-                }
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("logs.detail.id." + row.kind.rawValue)
-            }
+            ForEach(rows) { RequestIdentifierCopyRow(row: $0) }
         } header: {
             NumberedSectionHeader(title: RequestDetailLayout.title(.identifiers), ordinal: ordinal, id: "logs.detail.identifiers")
         }

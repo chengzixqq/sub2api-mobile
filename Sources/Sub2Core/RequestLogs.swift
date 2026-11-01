@@ -208,7 +208,7 @@ public struct RequestErrorRecord: Decodable, Identifiable, Sendable {
     public let platform: String
     public let model: String
     public let upstreamModel: String?
-    public let resolved: Bool
+    public private(set) var resolved: Bool
     public let message: String
     public let userID: Int?
     public let accountID: Int?
@@ -232,8 +232,8 @@ public struct RequestErrorRecord: Decodable, Identifiable, Sendable {
     public let stream: Bool?
     /// The backend's number; `UsageRequestType(code:)` names it.
     public let requestType: Int16?
-    public let resolvedAt: Date?
-    public let resolvedByUserName: String?
+    public private(set) var resolvedAt: Date?
+    public private(set) var resolvedByUserName: String?
     enum CodingKeys: String, CodingKey {
         case id, phase, type, platform, model, resolved, message, severity, stream
         case requestedModel = "requested_model", upstreamModel = "upstream_model"
@@ -266,6 +266,17 @@ public struct RequestErrorRecord: Decodable, Identifiable, Sendable {
         apiKeyID = try c.decodeIfPresent(Int.self, forKey: .apiKeyID); apiKeyName = try c.nonEmptyString(.apiKeyName)
         stream = try c.decodeIfPresent(Bool.self, forKey: .stream); requestType = try c.decodeIfPresent(Int16.self, forKey: .requestType)
         resolvedAt = try c.optionalTimestamp(.resolvedAt); resolvedByUserName = try c.nonEmptyString(.resolvedByUserName)
+    }
+}
+
+extension RequestErrorRecord {
+    /// 40 §7.4: this phone's 标记已处理 or its undo. A change drops the time and the person, which only the server knows; the
+    /// “已处理 · 人 · 时间” line waits for the next detail read. The same value comes back unchanged.
+    public func settingResolved(_ resolved: Bool) -> RequestErrorRecord {
+        guard resolved != self.resolved else { return self }
+        var copy = self
+        copy.resolved = resolved; copy.resolvedAt = nil; copy.resolvedByUserName = nil
+        return copy
     }
 }
 
@@ -348,8 +359,5 @@ extension APIClient {
         let text = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
         return try await request("admin/usage/search-users", query: [URLQueryItem(name: "q", value: text)], timeout: RequestTimeout.read)
-    }
-    public func errorRecord(id: Int, kind: ErrorLogKind = .request) async throws -> RequestErrorRecord {
-        try await request("\(kind.opsPath)/\(validID(id))", timeout: RequestTimeout.read)
     }
 }

@@ -79,7 +79,7 @@ public struct RequestErrorDetail: Decodable, Identifiable, Sendable {
 }
 
 extension APIClient {
-    /// R19: the only error-log detail (40 §7.2). `errorRecord(id:kind:)` stays for the old detail page until S4-08b.
+    /// R19: the only error-log read by id (40 §7.2, §7.7); the request detail and its 标记已处理 read-back use it.
     public func errorDetail(id: Int, kind: ErrorLogKind) async throws -> RequestErrorDetail {
         try await request("\(kind.opsPath)/\(validID(id))", timeout: RequestTimeout.read)
     }

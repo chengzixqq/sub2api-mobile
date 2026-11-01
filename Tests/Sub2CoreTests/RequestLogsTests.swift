@@ -255,8 +255,8 @@ private func logClient(_ transport: ScriptedTransport) -> APIClient {
     let records = try await client.requestRecords(page: 1, filter: filter, maskedView: false)
     let errors = try await client.errorRecords(page: 1, filter: filter, kind: .request)
     let upstream = try await client.errorRecords(page: 1, filter: filter, kind: .upstream)
-    let detail = try await client.errorRecord(id: 51, kind: .upstream)
-    #expect(records.items.first?.id == 41 && records.total == nil && errors.total == 7 && !upstream.hasMore && detail.statusCode == 429)
+    let detail = try await client.errorDetail(id: 51, kind: .upstream)
+    #expect(records.items.first?.id == 41 && records.total == nil && errors.total == 7 && !upstream.hasMore && detail.record.statusCode == 429)
     #expect(ErrorLogKind.request.opsPath == "admin/ops/request-errors" && ErrorLogKind.upstream.opsPath == "admin/ops/upstream-errors")
     let requests = await transport.requests
     #expect(requests.map { $0.url!.path } == ["/api/v1/admin/usage", "/api/v1/admin/ops/request-errors", "/api/v1/admin/ops/upstream-errors", "/api/v1/admin/ops/upstream-errors/51"])

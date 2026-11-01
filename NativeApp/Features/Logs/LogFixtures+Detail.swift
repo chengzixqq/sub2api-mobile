@@ -5,7 +5,7 @@ import Sub2Core
 /// Scripted: usage 1040 (two tries), request error 2006 (two `upstream_errors`), upstream error 3005 (no client request id: its
 /// request_id answers 409 and the nearer of the two ids two tries), and account 7's 9701 (three tries, one an old event without
 /// timings, two dropped) and account 3's recovered 9703. Any other id draws its detail from the row it came with; usage 1039 and
-/// the rest have no chain (404). S4-08b adds the resolve fixtures here.
+/// the rest have no chain (404). S4-08b's 标记已处理 writes to `resolutions`, which every detail read here then shows.
 extension LogFixtures {
     enum DetailArgument {
         /// Every detail answers 404 OPS_ERROR_NOT_FOUND.
@@ -14,6 +14,27 @@ extension LogFixtures {
         static let fails = "-ui-request-detail-fails"
         /// Every detail answers 404 OPS_DISABLED while admin/me still says on.
         static let opsDisabled = "-ui-request-detail-ops-disabled"
+        /// S4-08b: 标记已处理 answers 500 without a reason.
+        static let resolveFails = "-ui-request-resolve-fails"
+        /// 标记已处理 answers 404 OPS_ERROR_NOT_FOUND.
+        static let resolveMissing = "-ui-request-resolve-missing"
+        /// 标记已处理 answers 404 OPS_DISABLED.
+        static let resolveOpsDisabled = "-ui-request-resolve-ops-disabled"
+    }
+
+    /// S4-08b: what 标记已处理 wrote in this run, by error id (each UI test launches the App afresh).
+    @MainActor static var resolutions: [Int: Bool] = [:]
+
+    /// `PUT …/:id/resolve`: the rows of LogFixtures and the two account errors; any other id is the server's 404.
+    @MainActor static func resolve(id: Int, kind: ErrorLogKind, resolved: Bool,
+                                   arguments: [String] = ProcessInfo.processInfo.arguments) throws {
+        if arguments.contains(DetailArgument.resolveFails) { throw APIError.server(status: 500, reason: nil) }
+        if arguments.contains(DetailArgument.resolveMissing) { throw APIError.server(status: 404, reason: "OPS_ERROR_NOT_FOUND") }
+        if arguments.contains(DetailArgument.resolveOpsDisabled) { throw LiveOpsFixtures.opsDisabledError }
+        guard (2_001...2_006).contains(id) || (3_001...3_006).contains(id) || accountErrorFields(id) != nil else {
+            throw APIError.server(status: 404, reason: "OPS_ERROR_NOT_FOUND")
+        }
+        resolutions[id] = resolved
     }
 
     static func requestDetailSource(arguments: [String], row: RequestErrorRecord?) -> RequestDetailSource {
@@ -35,7 +56,9 @@ extension LogFixtures {
         } else {
             throw APIError.server(status: 404, reason: "OPS_ERROR_NOT_FOUND")
         }
-        return try detailDecoded(base.merging(detailExtras(id)) { _, new in new })
+        let fields = base.merging(detailExtras(id)) { _, new in new }
+        let resolved = await resolution(id)
+        return try detailDecoded(resolving(fields, resolved: resolved))
     }
 
     /// The retry chains by the id the detail asks with; others answer 404 OPS_REQUEST_NOT_FOUND.
@@ -126,6 +149,19 @@ extension LogFixtures {
         return extras
     }
 
+    @MainActor private static func resolution(_ id: Int) -> Bool? { resolutions[id] }
+    /// A mark this run wrote, as the server answers it: resolved with a time and the administrator, or neither.
+    private static func resolving(_ fields: [String: Any], resolved: Bool?) -> [String: Any] {
+        guard let resolved else { return fields }
+        var fields = fields
+        fields["resolved"] = resolved
+        fields.removeValue(forKey: "resolved_at"); fields.removeValue(forKey: "resolved_by_user_name")
+        if resolved {
+            fields["resolved_at"] = "2026-10-16T01:52:00Z"
+            fields["resolved_by_user_name"] = "admin@example.invalid"
+        }
+        return fields
+    }
     private static func attempt(_ index: Int, account: Int, _ name: String, code: Int, ms: Int?, upstreamID: String?,
                                 outcome: String = "failed") -> [String: Any] {
         var fields: [String: Any] = ["index": index, "source": outcome == "success" ? "usage" : "upstream_error", "outcome": outcome,

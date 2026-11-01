@@ -2,7 +2,8 @@ import XCTest
 
 /// 40 §7 请求详情 over LogFixtures+Detail (NativeApp/Features/Logs/LogFixtures+Detail.swift): U1 = usage 1040 (two tries), U2 = 1039
 /// (no chain), E1 = request error 2006 (two upstream events), R1 = upstream error 3005 (409, then the nearer id: two tries) and
-/// account 7's newest upstream error 9701 (three tries, one without timings, two dropped). S4-08b adds its tests at the end.
+/// account 7's newest upstream error 9701 (three tries, one without timings, two dropped). S4-08b's tests (标记已处理, copying) are
+/// at the end, with their helpers.
 final class RequestDetailUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
 
@@ -265,5 +266,140 @@ final class RequestDetailUITests: XCTestCase {
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
+    }
+
+    // MARK: - S4-08b 标记已处理与复制标识
+
+    private enum ResolveFixture {
+        static let fails = "-ui-request-resolve-fails"
+        static let missing = "-ui-request-resolve-missing"
+        static let opsDisabled = "-ui-request-resolve-ops-disabled"
+    }
+
+    /// E1 with its detail failing, so the button can only follow the row: 标记 → 撤销 → 标记, and back in the list the row says
+    /// 已处理 when it is opened again; taking it back says nothing, and the row follows that too (40 §7.4).
+    @MainActor func testMarkResolvedUndoAndListRowFollows() {
+        launch(arguments: [Fixture.fails])
+        openLogRow("errors", 2006)
+        defer { diagnostics("request-detail-resolve") }
+        let resolve = app.buttons["logs.detail.resolve"]
+        XCTAssertTrue(resolve.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("logs.detail.message").exists, app.debugDescription)
+        waitForLabel(resolve, "标记已处理")
+        resolve.tap()
+        // 撤销 has the receipt's 4.2 seconds: tapped as soon as it shows, the label checks come straight from the tree.
+        let undo = app.buttons["receipt.action"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertEqual(element("receipt.text").label, "已标记为已处理")
+        XCTAssertEqual(resolve.label, "已处理")
+        undo.tap()
+        waitForLabel(resolve, "标记已处理")
+        resolve.tap()
+        waitForLabel(resolve, "已处理")
+        reopenErrorRow(2006)
+        XCTAssertTrue(resolve.waitForExistence(timeout: 10), app.debugDescription)
+        waitForLabel(resolve, "已处理")
+        XCTAssertTrue(element("receipt.text").waitForNonExistence(timeout: 8), app.debugDescription)
+        resolve.tap()
+        waitForLabel(resolve, "标记已处理")
+        XCTAssertFalse(element("receipt.text").exists, app.debugDescription)
+        reopenErrorRow(2006)
+        XCTAssertTrue(resolve.waitForExistence(timeout: 10), app.debugDescription)
+        waitForLabel(resolve, "标记已处理")
+    }
+
+    /// A refusal puts the button back with its words; only a gone record leaves it grey.
+    @MainActor func testResolveRefusalsRollBackOrGrey() {
+        let cases = [(ResolveFixture.fails, "标记失败，请重试", true), (ResolveFixture.missing, "记录已不存在", false),
+                     (ResolveFixture.opsDisabled, "运维监控未开启，无法标记", true)]
+        for (argument, words, staysEnabled) in cases {
+            launch(arguments: [argument])
+            openLogRow("errors", 2006)
+            let resolve = app.buttons["logs.detail.resolve"]
+            XCTAssertTrue(resolve.waitForExistence(timeout: 10), app.debugDescription)
+            waitForLabel(resolve, "标记已处理")
+            resolve.tap()
+            waitForReceipt(words)
+            waitForLabel(resolve, "标记已处理")
+            XCTAssertEqual(resolve.isEnabled, staysEnabled, "\(argument)\n\(app.debugDescription)")
+            diagnostics("request-detail-refusal" + argument)
+            app.terminate()
+        }
+    }
+
+    /// S4D1-13: a read-only access token greys 标记已处理 with “只读令牌”.
+    @MainActor func testReadOnlyTokenGreysResolve() {
+        launchWithAccessToken(arguments: ["-ui-readonly-token"])
+        openLogRow("errors", 2006)
+        defer { diagnostics("request-detail-readonly") }
+        let resolve = app.buttons["logs.detail.resolve"]
+        XCTAssertTrue(resolve.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(resolve.label, "标记已处理")
+        XCTAssertFalse(resolve.isEnabled, app.debugDescription)
+        XCTAssertTrue(element("readonly.caption").exists, app.debugDescription)
+        XCTAssertFalse(element("receipt.text").exists, app.debugDescription)
+    }
+
+    /// 标识 rows and the ··· menu copy their ID and say which (only the receipts: reading the pasteboard would ask for permission).
+    @MainActor func testCopyIdentifiersFromRowsAndMenu() {
+        launch()
+        openLogRow("usage", 1040)
+        defer { diagnostics("request-detail-copy") }
+        XCTAssertTrue(element("logs.detail.status").waitForExistence(timeout: 10), app.debugDescription)
+        let request = app.buttons["logs.detail.id.request"]
+        reveal(request)
+        request.tap()
+        waitForReceipt("已复制请求 ID")
+        let more = app.buttons["logs.detail.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10), app.debugDescription)
+        more.tap()
+        XCTAssertTrue(app.buttons["logs.detail.more.request"].waitForExistence(timeout: 5), app.debugDescription)
+        let upstream = app.buttons["logs.detail.more.upstream"]
+        XCTAssertTrue(upstream.waitForExistence(timeout: 5), app.debugDescription)
+        upstream.tap()
+        waitForReceipt("已复制上游请求 ID")
+        goBack()
+        let mode = app.segmentedControls["logs.mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 10), app.debugDescription)
+        mode.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "错误请求")).firstMatch.tap()
+        let row = app.buttons["logs.row.errors.2006"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        row.tap()
+        let client = app.buttons["logs.detail.id.client"]
+        XCTAssertTrue(app.scrollUntilExists(client), app.debugDescription)
+        reveal(client)
+        client.tap()
+        waitForReceipt("已复制服务端请求 ID")
+    }
+
+    /// The access-token method with a `sat_` key; `-ui-readonly-token` makes it read-only.
+    @MainActor private func launchWithAccessToken(arguments: [String]) {
+        continueAfterFailure = false
+        app = XCUIApplication(); app.launchArguments = ["-ui-testing"] + arguments; app.launchQuietly()
+        XCTAssertTrue(app.textFields["login.name"].waitForExistence(timeout: 10), app.debugDescription)
+        enter("请求详情令牌", field: app.textFields["login.name"])
+        enter("https://request-detail-token.example.invalid", field: app.textFields["login.url"])
+        let method = element("login.method.accessToken"); reveal(method); method.tap()
+        let key = element("login.key")
+        XCTAssertTrue(key.waitForExistence(timeout: 5), app.debugDescription)
+        enter("sat_fixture-request-detail", field: key)
+        let submit = app.buttons["login.submit"]; reveal(submit); submit.tap()
+        XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+    /// Back to the list, then the same error row again.
+    @MainActor private func reopenErrorRow(_ id: Int) {
+        goBack()
+        let row = app.buttons["logs.row.errors.\(id)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        row.tap()
+    }
+    @MainActor private func waitForLabel(_ item: XCUIElement, _ expected: String, file: StaticString = #filePath, line: UInt = #line) {
+        let matched = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", expected), object: item)
+        XCTAssertEqual(XCTWaiter().wait(for: [matched], timeout: 10), .completed, "\(item.label)\n\(app.debugDescription)", file: file, line: line)
+    }
+    @MainActor private func waitForReceipt(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
+        let receipt = element("receipt.text")
+        XCTAssertTrue(receipt.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        waitForLabel(receipt, text, file: file, line: line)
     }
 }
