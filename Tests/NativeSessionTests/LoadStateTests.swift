@@ -117,3 +117,26 @@ import Sub2Core
     await state.load(isCurrent: { true }) { throw APIError.server(status: 423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED") }
     #expect(BlockStatusPresentation.needsCompliance(state.lastError))
 }
+
+// MARK: - S4-13b · 被 429 截断的回答（RateLimitedAnswer，40 §0.6、00 §2.7.2）
+
+private struct CutShort: RateLimitedAnswer, Equatable, Sendable {
+    let read: [Int]
+    let rateLimit: APIError?
+}
+
+@MainActor @Test func answerCutShortByA429ShowsAndWaitsOutTheLimit() async {
+    let state = LoadState<CutShort>()
+    let limit = APIError.server(status: 429, envelope: nil, retryAfter: 120)
+    await state.load(isCurrent: { true }) { CutShort(read: [1, 2], rateLimit: limit) }
+    #expect(state.value == CutShort(read: [1, 2], rateLimit: limit) && state.updatedAt != nil)
+    #expect(state.error != nil && state.lastError == limit && state.lastErrorAt != nil)
+    #expect(state.refresh.throttleMessage(at: Date()) == "请求过于频繁，120 秒后自动重试")
+    let calls = TestCounter()
+    await state.load(isCurrent: { true }) { calls.count += 1; return CutShort(read: [3], rateLimit: nil) }
+    #expect(calls.count == 0 && state.value?.read == [1, 2])
+    // A whole answer is an ordinary success.
+    let whole = LoadState<CutShort>()
+    await whole.load(isCurrent: { true }) { CutShort(read: [1], rateLimit: nil) }
+    #expect(whole.error == nil && whole.refresh == BlockRefresh() && whole.lastError == nil && whole.value?.read == [1])
+}
