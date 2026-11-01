@@ -123,7 +123,12 @@ private func hour(_ range: AnalyticsRange, _ value: Int) -> AnalyticsBucket { ra
     // A segment read again without an answer is missing, not left at its older value.
     let failed = older.merging(ProfitSegmentCosts([hour(later, 9)], costs: [4]), reread: [hour(today, 8), hour(later, 9)])
     #expect(failed.cost(for: hour(today, 8)) == nil && failed.cost(for: hour(today, 7)) == 1 && failed.cost(for: hour(later, 9)) == 4)
-    #expect(ProfitSegmentCosts().segments.isEmpty)
+    #expect(ProfitSegmentCosts().segments.isEmpty && ProfitSegmentCosts().rateLimit == nil)
+    // The 429 is the newest read's: one that stopped it stays with the merge, and a read without one clears an older one.
+    let limit = APIError.server(status: 429, envelope: nil, retryAfter: 120)
+    let limited = older.merging(ProfitSegmentCosts([hour(later, 9)], costs: [nil], rateLimit: limit), reread: [hour(later, 9)])
+    #expect(limited.rateLimit == limit && limited.cost(for: hour(today, 7)) == 1 && limited.cost(for: hour(later, 9)) == nil)
+    #expect(limited.merging(ProfitSegmentCosts([hour(later, 9)], costs: [4]), reread: [hour(later, 9)]).rateLimit == nil)
 }
 
 // MARK: - 文案与读屏

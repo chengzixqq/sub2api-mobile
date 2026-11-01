@@ -3,29 +3,34 @@ import Foundation
 /// 40 §1.3 降级: an old server's trend has no `account_cost`, so each such bucket's `total_account_cost` is read on its own
 /// (`APIClient.profitSegmentCosts`). Keyed by the bucket's wireKey, with the end of the window read: the bucket still running
 /// moves its end, so its cost is read again. A segment that failed, was never sent or came back without the key is not here.
-public struct ProfitSegmentCosts: Equatable, Sendable {
+public struct ProfitSegmentCosts: Equatable, Sendable, RateLimitedAnswer {
     public struct Segment: Equatable, Sendable {
         public let end: Date
         public let cost: Decimal
     }
 
     public let segments: [String: Segment]
+    /// The 429 that stopped the last read; the segments it left unread wait out its Retry-After (00 §2.7.2).
+    public let rateLimit: APIError?
 
-    public init(segments: [String: Segment] = [:]) { self.segments = segments }
+    public init(segments: [String: Segment] = [:], rateLimit: APIError? = nil) {
+        self.segments = segments; self.rateLimit = rateLimit
+    }
     /// `costs` follow `buckets`; a nil one is left out.
-    public init(_ buckets: [AnalyticsBucket], costs: [Decimal?]) {
+    public init(_ buckets: [AnalyticsBucket], costs: [Decimal?], rateLimit: APIError? = nil) {
         let read = zip(buckets, costs).compactMap { bucket, cost in cost.map { (bucket.wireKey, Segment(end: bucket.end, cost: $0)) } }
-        segments = Dictionary(read, uniquingKeysWith: { _, later in later })
+        self.init(segments: Dictionary(read, uniquingKeysWith: { _, later in later }), rateLimit: rateLimit)
     }
 
     public func cost(for bucket: AnalyticsBucket) -> Decimal? { segments[bucket.wireKey]?.cost }
     /// Whether the bucket's window as it stands now was read.
     public func covers(_ bucket: AnalyticsBucket) -> Bool { segments[bucket.wireKey]?.end == bucket.end }
     /// The buckets `reread` take `newer`'s answer, missing where it has none (40 §1.3: a failed segment shows “—”, not an
-    /// older window's cost); the others keep this one's.
+    /// older window's cost); the others keep this one's. The 429 is `newer`'s.
     public func merging(_ newer: ProfitSegmentCosts, reread: [AnalyticsBucket]) -> ProfitSegmentCosts {
         let replaced = Set(reread.map(\.wireKey))
-        return ProfitSegmentCosts(segments: segments.filter { !replaced.contains($0.key) }.merging(newer.segments) { _, new in new })
+        return ProfitSegmentCosts(segments: segments.filter { !replaced.contains($0.key) }.merging(newer.segments) { _, new in new },
+                                  rateLimit: newer.rateLimit)
     }
 }
 

@@ -2,7 +2,7 @@ import Foundation
 
 /// 40 §0.6 降级扇出: one request per input, at most four at a time, answers in input order. A failure is that input's alone; one
 /// that `stopsAfter` matches (a 429) sends nothing more, while the requests already out finish. Only the caller's cancellation
-/// throws. The old server's profit segments use `map` (S4-13b), the request-type fallback `results` (S4-17b).
+/// throws. The old server's profit segments (S4-13b) and the request-type fallback (S4-17b) use `results`.
 public enum AnalyticsFanOut {
     public static let maxConcurrent = 4
 
@@ -48,16 +48,26 @@ public enum AnalyticsFanOut {
     }
 }
 
+/// An answer a fan-out's 429 cut short (40 §0.6): LoadState shows what was read and holds the block back until the 429's
+/// Retry-After, its countdown showing, as after a 429 of its own (00 §2.7.2).
+public protocol RateLimitedAnswer {
+    var rateLimit: APIError? { get }
+}
+
 extension APIClient {
     /// 40 §1.3: where the trend has no `account_cost` (an old server), each bucket's own `usage/stats` with the query's filter and
-    /// zone, four at a time; a 429 sends no more. A segment that failed, was never sent or came back without `total_account_cost`
-    /// is left out (its row shows “—”). Only cancellation throws.
+    /// zone, four at a time; a 429 sends no more and comes back as `rateLimit`. A segment that failed, was never sent or came back
+    /// without `total_account_cost` is left out (its row shows “—”). Only cancellation throws.
     public func profitSegmentCosts(_ query: AnalyticsQuery, buckets: [AnalyticsBucket]) async throws -> ProfitSegmentCosts {
-        let costs = try await AnalyticsFanOut.map(buckets, stopsAfter: { ($0 as? APIError)?.statusCode == 429 }) { [self] bucket in
+        let results = try await AnalyticsFanOut.results(buckets, stopsAfter: { ($0 as? APIError)?.statusCode == 429 }) { [self] bucket in
             var segment = query
             segment.start = bucket.start; segment.end = bucket.end
             return try await usageAnalysis(segment).accountCost
         }
-        return ProfitSegmentCosts(buckets, costs: costs.map { $0.flatMap { $0 } })
+        let rateLimit = results.lazy.compactMap { result -> APIError? in
+            guard case .failure(let error as APIError)? = result, error.statusCode == 429 else { return nil }
+            return error
+        }.first
+        return ProfitSegmentCosts(buckets, costs: results.map { (try? $0?.get()).flatMap { $0 } }, rateLimit: rateLimit)
     }
 }

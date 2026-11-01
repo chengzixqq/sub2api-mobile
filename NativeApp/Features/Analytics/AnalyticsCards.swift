@@ -400,7 +400,8 @@ extension AnalyticsSession {
     }
 
     /// 40 §1.3 降级: the segments the trend has no account cost for, four at a time. A refresh reads only those whose window moved
-    /// or that are still missing; the others keep their answer until the range or the filter changes (S4D2b-09 ⑥).
+    /// or that are still missing; the others keep their answer until the range or the filter changes (S4D2b-09 ⑥). A 429 among
+    /// them holds every read back until its Retry-After (LoadState, RateLimitedAnswer).
     func loadProfitSegments() async {
         guard let trend = state(.billingTrend, as: DashboardTrendReply.self)?.value else { return }
         let summary = state(.billingSummary, as: AnalyticsSummary.self)?.value
@@ -432,6 +433,7 @@ struct ProfitCard: View {
     var body: some View {
         let summary = session.state(.billingSummary, as: AnalyticsSummary.self)
         let trend = session.state(.billingTrend, as: DashboardTrendReply.self)
+        let segments = session.state(.profitSegments, as: ProfitSegmentCosts.self)
         let breakdown = session.profitBreakdown()
         AnalyticsCard(title: ProfitCardText.title, id: "analytics.profit") {
             Text(ProfitCardText.meta).font(.caption).foregroundStyle(Palette.ink3).lineLimit(1)
@@ -444,6 +446,8 @@ struct ProfitCard: View {
                 AnalyticsCardBody(trend, id: "analytics.profit.trend", minHeight: Self.bodyHeight, timeZone: zone, showsStaleLine: false,
                                   retry: retry) { _ in
                     if let breakdown {
+                        // An old server's segments a 429 cut short: the countdown, then they are read again by themselves.
+                        AnalyticsCardStatusRow(segments, id: "analytics.profit.segments", timeZone: zone, retry: retrySegments)
                         details(breakdown)
                     } else {
                         AnalyticsCardPlaceholder(height: Self.bodyHeight, id: "analytics.profit.trend")
@@ -471,6 +475,10 @@ struct ProfitCard: View {
     private func retry() {
         let session = session
         Task { await ProfitCard.load(session, refresh: true) }
+    }
+    private func retrySegments() {
+        let session = session
+        Task { await session.loadProfitSegments() }
     }
 
     /// The big number with its label (one element), the status row under it, then the change or the selected bar's line.
