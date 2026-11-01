@@ -208,3 +208,208 @@ struct AnalyticsChartLegend: View {
         .accessibilityIdentifier("analytics.legend")
     }
 }
+
+// MARK: - 堆叠柱（S4-17）
+
+/// 40 §2.3 the stacked bars (Token 使用趋势; S4-18's 错误趋势 takes no selection): one column per bucket on AnalyticsBarChart's index
+/// axis, each layer bottom-up in `order` with a 1.5pt seam the card's surface shows through, an `outlined` layer drawn as a line
+/// around its fill, ticks from the range, values on the right. With a selection the whole plot is one tap and press-and-drag area
+/// (`analyticsChartSelection`) and the other columns fade. A range without any value keeps the axes and says so. VoiceOver gets
+/// an AXChartDescriptor with a series per layer and a label per segment. Identifier `<id>`, the empty text `<id>.empty`.
+struct AnalyticsStackedBars<Layer: Hashable & Sendable>: View {
+    private let values: [[Layer: Double]]
+    private let order: [Layer]
+    private let ticks: [AnalyticsAxisTick]
+    private let columnNames: [String]
+    private let selection: Binding<AnalyticsChartSelection>?
+    private let id: String
+    private let chartTitle: String
+    private let height: CGFloat
+    private let emptyText: String?
+    private let outlined: Set<Layer>
+    private let style: (Layer) -> AnyShapeStyle
+    private let layerName: (Layer) -> String
+    private let format: @Sendable (Double) -> String
+    @State private var plotSize: CGSize = .zero
+
+    /// `values` one per column, `columnNames` how VoiceOver names each; `emptyText` nil while there is something to draw.
+    init(values: [[Layer: Double]], order: [Layer], ticks: [AnalyticsAxisTick], columnNames: [String],
+         selection: Binding<AnalyticsChartSelection>?, id: String, chartTitle: String, height: CGFloat, emptyText: String? = nil,
+         outlined: Set<Layer> = [], style: @escaping (Layer) -> AnyShapeStyle, layerName: @escaping (Layer) -> String,
+         format: @escaping @Sendable (Double) -> String) {
+        self.values = values; self.order = order; self.ticks = ticks; self.columnNames = columnNames; self.selection = selection
+        self.id = id; self.chartTitle = chartTitle; self.height = height; self.emptyText = emptyText; self.outlined = outlined
+        self.style = style; self.layerName = layerName; self.format = format
+    }
+
+    var body: some View {
+        let yMax = yMax
+        ZStack {
+            plot(yMax: yMax)
+                .frame(height: height)
+                .accessibilityChartDescriptor(AnalyticsStackedBarsDescriptor(values: values, order: order, columnNames: columnNames,
+                                                                             title: chartTitle, yMax: yMax, layerName: layerName, format: format))
+                .accessibilityIdentifier(id)
+            if let emptyText {
+                Text(emptyText).font(.footnote).foregroundStyle(Palette.ink2)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(Palette.surface.opacity(0.9), in: Capsule())
+                    .accessibilityIdentifier("\(id).empty")
+            }
+        }
+    }
+
+    private var xDomain: ClosedRange<Double> { -0.5...(Double(max(values.count, 1)) - 0.5) }
+    /// The tallest column with a tenth of room; 0…1 with nothing to draw.
+    private var yMax: Double {
+        let top = values.map { column in order.reduce(0) { $0 + max(column[$1] ?? 0, 0) } }.max() ?? 0
+        return top > 0 ? top * StackedBarsMetrics.headroom : 1
+    }
+
+    @ViewBuilder private func plot(yMax: Double) -> some View {
+        if let selection {
+            let count = values.count
+            chart(yMax: yMax).analyticsChartSelection(selection, xDomain: xDomain) { x in StackedBarsMetrics.column(atX: x, count: count) }
+        } else {
+            chart(yMax: yMax)
+        }
+    }
+
+    private func chart(yMax: Double) -> some View {
+        // Points in the chart's units: the seam and the outline keep their width at any scale.
+        let perPoint = CGSize(width: plotSize.width > 0 ? (xDomain.upperBound - xDomain.lowerBound) / plotSize.width : 0,
+                              height: plotSize.height > 0 ? yMax / plotSize.height : 0)
+        let stacks = AnalyticsSeries.stack(values, order: order, gap: StackedBarsMetrics.seam * perPoint.height)
+        let pieces = stacks.indices.flatMap { column in
+            stacks[column].map { StackPiece(column: column, segment: $0, value: values[column][$0.layer] ?? 0) }
+        }
+        let selected = selection?.wrappedValue.selected.flatMap { values.indices.contains($0) ? $0 : nil }
+        let inset = CGSize(width: StackedBarsMetrics.outline * perPoint.width, height: StackedBarsMetrics.outline * perPoint.height)
+        return Chart {
+            ForEach(pieces) { piece in marks(piece, faded: selected.map { $0 != piece.column } ?? false, inset: inset) }
+        }
+        .chartXScale(domain: xDomain)
+        .chartYScale(domain: 0...yMax)
+        .chartXAxis { xAxis }
+        .chartYAxis { yAxis }
+        .chartLegend(.hidden)
+        .chartPlotStyle { plot in
+            plot.onGeometryChange(for: CGSize.self) { $0.size } action: { plotSize = $0 }
+        }
+    }
+
+    /// An outlined layer: the line colour over the whole segment, its fill `inset` inside (none when too thin to hold one).
+    @ChartContentBuilder
+    private func marks(_ piece: StackPiece<Layer>, faded: Bool, inset: CGSize) -> some ChartContent {
+        let half = StackedBarsMetrics.barHalfWidth, x = Double(piece.column), segment = piece.segment
+        let opacity = faded ? StackedBarsMetrics.fadedOpacity : 1
+        let inner = outlined.contains(segment.layer) ? inset : .zero
+        if outlined.contains(segment.layer) {
+            rectangle(x - half, x + half, segment.lower, segment.upper)
+                .foregroundStyle(Palette.ink2)
+                .opacity(opacity)
+                .accessibilityHidden(true)
+        }
+        if half - inner.width > 0, segment.upper - segment.lower > 2 * inner.height {
+            rectangle(x - half + inner.width, x + half - inner.width, segment.lower + inner.height, segment.upper - inner.height)
+                .foregroundStyle(style(segment.layer))
+                .opacity(opacity)
+                .accessibilityLabel(spokenLabel(piece))
+                .accessibilityValue(format(piece.value))
+        }
+    }
+    private func rectangle(_ xStart: Double, _ xEnd: Double, _ yStart: Double, _ yEnd: Double) -> RectangleMark {
+        RectangleMark(xStart: .value("时段", xStart), xEnd: .value("时段", xEnd), yStart: .value("数量", yStart), yEnd: .value("数量", yEnd))
+    }
+    private func spokenLabel(_ piece: StackPiece<Layer>) -> String {
+        (columnNames.indices.contains(piece.column) ? columnNames[piece.column] + "，" : "") + layerName(piece.segment.layer)
+    }
+
+    private var xAxis: some AxisContent {
+        AxisMarks(values: ticks.map { Double($0.index) }) { value in
+            if let tick = tick(at: value.as(Double.self)) {
+                AxisValueLabel(anchor: .top) {
+                    Text(tick.label).font(.caption2).monospacedDigit().foregroundStyle(tick.isNow ? Palette.ink2 : Palette.ink3)
+                }
+            }
+        }
+    }
+    private var yAxis: some AxisContent {
+        AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
+            AxisGridLine().foregroundStyle(Palette.hairline)
+            AxisValueLabel {
+                if let amount = value.as(Double.self) {
+                    Text(format(amount)).font(.caption2).monospacedDigit().foregroundStyle(Palette.ink3)
+                }
+            }
+        }
+    }
+    private func tick(at position: Double?) -> AnalyticsAxisTick? {
+        guard let position else { return nil }
+        return ticks.first { Double($0.index) == position }
+    }
+}
+
+/// The stacked bars' measures (a generic type has no stored statics).
+private enum StackedBarsMetrics {
+    /// AnalyticsBarChart's bar width.
+    static let barHalfWidth = 0.36
+    static let seam = 1.5
+    static let outline = 1.2
+    static let fadedOpacity = 0.35
+    static let headroom = 1.1
+
+    /// The column under a continuous x: rounded and kept within the columns.
+    static func column(atX x: Double, count: Int) -> Int? {
+        guard count > 0, x.isFinite else { return nil }
+        return Int(min(max(x.rounded(), 0), Double(count - 1)))
+    }
+}
+
+private struct StackPiece<Layer: Hashable & Sendable>: Identifiable {
+    let column: Int
+    let segment: AnalyticsStackSegment<Layer>
+    let value: Double
+    var id: String { "\(column)-\(segment.lower)" }
+}
+
+/// The stacked bars for VoiceOver: one category per bucket against the value, one series per layer.
+private struct AnalyticsStackedBarsDescriptor<Layer: Hashable & Sendable>: AXChartDescriptorRepresentable {
+    let values: [[Layer: Double]]
+    let order: [Layer]
+    let columnNames: [String]
+    let title: String
+    let yMax: Double
+    let layerName: (Layer) -> String
+    let format: @Sendable (Double) -> String
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let format = format
+        let xAxis = AXCategoricalDataAxisDescriptor(title: "时段", categoryOrder: columnNames)
+        let yAxis = AXNumericDataAxisDescriptor(title: title, range: 0...yMax, gridlinePositions: []) { format($0) }
+        let series = order.map { layer in
+            let points = zip(columnNames, values).map { name, column in
+                AXDataPoint(x: name, y: column[layer] ?? 0, label: format(column[layer] ?? 0))
+            }
+            return AXDataSeriesDescriptor(name: layerName(layer), isContinuous: false, dataPoints: points)
+        }
+        return AXChartDescriptor(title: title, summary: nil, xAxis: xAxis, yAxis: yAxis, additionalAxes: [], series: series)
+    }
+}
+
+/// 缓存读's stripes as a chart fill (40 §2.3): a 1.4pt line every 3pt over the background, the colours resolved in `environment`
+/// (a view reading the environment rebuilds it for light or dark).
+enum AnalyticsStripes {
+    private static let tile = CGSize(width: 6, height: 3)
+    private static let line: CGFloat = 1.4
+
+    static func paint(ink: Color, background: Color, in environment: EnvironmentValues) -> ImagePaint {
+        let ink = Color(ink.resolve(in: environment)), background = Color(background.resolve(in: environment))
+        let tile = tile, line = line
+        let image = Image(size: tile) { context in
+            context.fill(Path(CGRect(origin: .zero, size: tile)), with: .color(background))
+            context.fill(Path(CGRect(x: 0, y: 0, width: tile.width, height: line)), with: .color(ink))
+        }
+        return ImagePaint(image: image)
+    }
+}

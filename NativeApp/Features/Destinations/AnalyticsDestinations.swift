@@ -10,7 +10,7 @@ struct AnalyticsRouteDestination: View {
         case .analytics(let range, let focus, let metric):
             AnalyticsView(route: AnalyticsView.Route(range: range, focus: focus, metric: metric))
         // .analyticsMore：S4-17
-        case .analyticsMore: ComingSoonView(title: route.placeholderTitle)
+        case .analyticsMore(let chart, let topic): AnalyticsMoreView(chart: chart, topic: topic)
         // .analyticsChart：S4-14
         case .analyticsChart(let chart):
             // 40 §3.1: the other charts have no way in; 更多图表 shows them.
