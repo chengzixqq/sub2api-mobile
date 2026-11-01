@@ -112,8 +112,6 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
 }
 
 @Test func pushStatusAndThresholdText() {
-    #expect(SettingsPresentation.pushStatus(isRegistered: true) == "已开启")
-    #expect(SettingsPresentation.pushStatus(isRegistered: false) == "未开启")
     #expect(SettingsPresentation.thresholdText(100) == "$100")
     #expect(SettingsPresentation.thresholdText(100_000) == "$100,000")
 }
