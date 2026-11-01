@@ -340,6 +340,46 @@ private let ready = PushAPNsConfig(enabled: true, teamID: "ABCDE12345", keyID: "
     #expect(!draft.needsPrivateKeyAgain)
 }
 
+@Test func unconfirmedSaveCountsChangesFromSettingsReadAgain() throws {
+    // Team ID changed to B, no answer, and the server has B: nothing is left to send, and going back to A is a change.
+    var draft = APNsConfigDraft(config: ready)
+    draft.teamID = "ZYXWV98765"
+    draft.didSubmit(draft.update)
+    let saved = PushAPNsConfig(enabled: true, teamID: "ZYXWV98765", keyID: "KEY1234567", privateKeyConfigured: true,
+                               topic: "com.example.sub2", encryptionKeyConfigured: true, ready: true)
+    var rebased = draft.rebased(on: saved)
+    #expect(rebased.original == saved); #expect(rebased.teamID == "ZYXWV98765"); #expect(!rebased.hasChanges)
+    rebased.teamID = "ABCDE12345"
+    #expect(Set(try body(rebased.update).keys) == ["apns_team_id"]); #expect(try body(rebased.update)["apns_team_id"] as? String == "ABCDE12345")
+    // Not saved after all: the form is unchanged and still sends B.
+    #expect(draft.rebased(on: ready) == draft)
+}
+
+@Test func unconfirmedKeySaveFollowsTheKeyReadAgain() {
+    // Not ready; turned on with a key, sent, no answer; the server has both.
+    var draft = APNsConfigDraft(config: PushAPNsConfig(teamID: "ABCDE12345", keyID: "KEY1234567", topic: "com.example.sub2", encryptionKeyConfigured: true))
+    draft.enabled = true
+    draft.setPrivateKey(pem)
+    draft.didSubmit(draft.update)
+    var rebased = draft.rebased(on: ready)
+    #expect(rebased.enabled); #expect(rebased.privateKeyStatus == "已配置（不更换就不用填）")
+    #expect(rebased.needsPrivateKeyAgain); #expect(rebased.issues[.privateKey] == "私钥已在提交后清空，请重新导入或粘贴")
+    rebased.keepCurrentPrivateKey()
+    #expect(rebased.issues.isEmpty); #expect(!rebased.hasChanges)
+}
+
+@Test func settingsReadAgainKeepTheFormsEditsAndFollowTheRest() throws {
+    var draft = APNsConfigDraft(config: ready)
+    draft.environment = .sandbox
+    draft.setPrivateKey(pem)
+    let changed = PushAPNsConfig(enabled: true, teamID: "ZYXWV98765", keyID: "KEY1234567", privateKeyConfigured: true,
+                                 topic: "com.example.other", encryptionKeyConfigured: true, ready: true)
+    let rebased = draft.rebased(on: changed)
+    #expect(rebased.environment == .sandbox); #expect(rebased.teamID == "ZYXWV98765"); #expect(rebased.topic == "com.example.other")
+    #expect(rebased.privateKey == pem)
+    #expect(Set(try body(rebased.update).keys) == ["apns_environment", "apns_private_key"])
+}
+
 @Test func apnsDraftDescriptionRedactsPrivateKey() {
     var draft = APNsConfigDraft(config: ready)
     draft.setPrivateKey(pem)

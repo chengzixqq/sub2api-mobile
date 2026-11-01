@@ -245,6 +245,20 @@ public struct APNsConfigDraft: Sendable, Equatable, CustomStringConvertible, Cus
     }
     /// 不更换私钥: keep the site's.
     public mutating func keepCurrentPrivateKey() { needsPrivateKeyAgain = false }
+    /// The site's settings read again (after a save without an answer, or a refresh): changes count from them. A field
+    /// changed here keeps its value, the others follow the server; a new key and the 重新导入 mark stay.
+    public func rebased(on config: PushAPNsConfig) -> APNsConfigDraft {
+        let changed = update
+        var next = APNsConfigDraft(config: config)
+        if changed.enabled != nil { next.enabled = enabled }
+        if changed.teamID != nil { next.teamID = teamID }
+        if changed.keyID != nil { next.keyID = keyID }
+        if changed.topic != nil { next.topic = topic }
+        if changed.environment != nil { next.environment = environment }
+        next.privateKey = privateKey
+        next.needsPrivateKeyAgain = needsPrivateKeyAgain
+        return next
+    }
 
     /// A PKCS#8 or SEC1 PEM block: matching BEGIN and END lines around base64. The curve is the server's to check.
     public static func isPrivateKeyPEM(_ text: String) -> Bool {

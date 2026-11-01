@@ -309,6 +309,8 @@ extension DemoData {
 enum PushEditFixture {
     /// `encryption_key_configured` is false: a private key is refused with SECRET_ENCRYPTION_KEY_NOT_CONFIGURED.
     static let noEncryptionKeyArgument = "-ui-apns-no-encryption-key"
+    /// Every APNs save is stored, then answered 502 without a reason: the App cannot tell it was saved.
+    static let saveUnconfirmedArgument = "-ui-apns-save-unconfirmed"
     /// The only key the fixture site takes (made-up base64, not a key); any other well-formed PEM is “not P-256”.
     static let acceptedPrivateKey = "-----BEGIN PRIVATE KEY-----\nU1VCMi1VSS1URVNULUZJWFRVUkU=\n-----END PRIVATE KEY-----"
 
@@ -356,6 +358,7 @@ extension PushDemoStore {
         config = PushAPNsConfig(enabled: enabled, teamID: team, keyID: key, privateKeyConfigured: hasKey, topic: topic,
                                 environment: update.environment ?? current.environment, encryptionKeyConfigured: current.encryptionKeyConfigured,
                                 ready: enabled && complete)
+        if arguments.contains(PushEditFixture.saveUnconfirmedArgument) { throw APIError.server(status: 502, reason: nil) }
         return config
     }
 
