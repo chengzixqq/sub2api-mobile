@@ -40,21 +40,28 @@ private final class MemberClientBox: Sendable {
         let client = stored.withLock { $0 }
         await client?.cancelAll()
     }
+    func suspend() async {
+        let client = stored.withLock { $0 }
+        await client?.suspend()
+    }
 }
 
 private func legacyAccountJSON(_ id: Int, groups: [Int], platform: String = "anthropic") -> String {
     #"{"id":\#(id),"name":"账号\#(id)","platform":"\#(platform)","type":"oauth","status":"active","schedulable":true,"group_ids":[\#(groups.map(String.init).joined(separator: ","))]}"#
 }
-/// GET admin/accounts/:id answers from `groups` (404 ACCOUNT_NOT_FOUND when missing); PUT answers with `put`; the mixed-channel
-/// pre-check with `precheck`.
+/// GET admin/accounts/:id runs `beforeGet`, then answers from `groups` (404 ACCOUNT_NOT_FOUND when missing); PUT answers with
+/// `put`; the mixed-channel pre-check with `precheck`.
 private func legacyTransport(groups: [Int: [Int]], platform: String = "anthropic",
+                             beforeGet: @escaping @Sendable (Int) async throws -> Void = { _ in },
                              put: @escaping @Sendable (Int, URLRequest) async throws -> HTTPResponse = { id, _ in okReply(legacyAccountJSON(id, groups: [])) },
                              precheck: @escaping @Sendable () -> HTTPResponse = { okReply(#"{"has_risk":false}"#) }) -> ScriptedTransport {
     ScriptedTransport { request in
         if request.url?.path.hasSuffix("check-mixed-channel") == true { return precheck() }
         let id = Int(request.url?.lastPathComponent ?? "") ?? 0
         switch request.httpMethod {
-        case "GET": return groups[id].map { okReply(legacyAccountJSON(id, groups: $0, platform: platform)) } ?? errorReply(404, reason: "ACCOUNT_NOT_FOUND")
+        case "GET":
+            try await beforeGet(id)
+            return groups[id].map { okReply(legacyAccountJSON(id, groups: $0, platform: platform)) } ?? errorReply(404, reason: "ACCOUNT_NOT_FOUND")
         case "PUT": return try await put(id, request)
         default: return errorReply(500)
         }
@@ -132,6 +139,40 @@ func memberBatchRetriesGatewayStatusesOnly(status: Int, reason: String?, sends: 
     #expect(await transport.requests.count == sends)
 }
 
+/// After a first send that may have run, a resend refused before the handler or answered by something other than the server's
+/// JSON says nothing about it (00 §2.5.4 step 2): the first error stands.
+@Test(arguments: [ScriptStep.fail(URLError(.timedOut)), .reply(errorReply(502))],
+      [errorReply(429, reason: "RATE_LIMITED"), errorReply(403, reason: "FORBIDDEN"), errorReply(423), errorReply(503, reason: "STEP_UP_UNAVAILABLE"),
+       HTTPResponse(statusCode: 404, data: Data("404 page not found".utf8)), HTTPResponse(statusCode: 400, data: Data("<html>".utf8))])
+func memberBatchResendThatSaysNothingKeepsFirstError(first: ScriptStep, resend: HTTPResponse) async throws {
+    let transport = ScriptedTransport(script: [first, .reply(resend)])
+    let request = try memberAdds([11])
+    let error = try #require(await thrownAPIError { _ = try await memberClient(transport).groupMemberBatch(groupID: 3, request) })
+    #expect(error.statusCode == (try? first.resolve())?.statusCode)
+    #expect(error.statusCode != nil || error.kind == .transport)
+    #expect(await transport.requests.count == 2)
+}
+
+@Test func memberBatchResendBusinessAnswerSettles() async throws {
+    let transport = ScriptedTransport(script: [.fail(URLError(.timedOut)), .reply(errorReply(404, reason: "GROUP_NOT_FOUND"))])
+    let request = try memberAdds([11])
+    let error = try #require(await thrownAPIError { _ = try await memberClient(transport).groupMemberBatch(groupID: 3, request) })
+    #expect(error.statusCode == 404 && error.reason == "GROUP_NOT_FOUND")
+}
+
+@Test func memberBatchResendThatNeverLeftKeepsFirstError() async throws {
+    // The access expires during the wait and its refresh fails for a transient reason: the resend is never sent.
+    let clock = ManualClock()
+    let transport = ScriptedTransport { _ in throw URLError(.timedOut) }
+    let client = APIClient(server: stubServer(), credential: stubTokens(expiresAt: clock.now().addingTimeInterval(120)), deviceID: stubDeviceID,
+                           transport: transport, requestClock: RequestClock(now: { clock.now() }, sleep: { _ in clock.advance(by: 200) }, jitter: { .zero }))
+    let request = try memberAdds([11])
+    let error = try #require(await thrownAPIError { _ = try await client.groupMemberBatch(groupID: 3, request) })
+    #expect(error.kind == .transport && error != .refreshDeferred)
+    #expect(await transport.requests(path: "/accounts/batch").count == 1)
+    #expect(await transport.requests.filter(isRefresh).count == 1)
+}
+
 @Test func memberBatchDoesNotRetryWhileSuspendedOrAfterSessionChange() async throws {
     let request = try memberAdds([11])
     // Already in the background: no wait starts, the first answer stands.
@@ -199,6 +240,22 @@ func memberBatchRetriesGatewayStatusesOnly(status: Int, reason: String?, sends: 
     #expect(marked.results[200..<400].allSatisfy { $0.status == .failed && $0.reason == "FORBIDDEN" })
     #expect(marked.results.suffix(50).allSatisfy { $0.reason == GroupMemberReason.notDelivered })
 
+    // Batch 2 lost, then its resend refused before the handler or answered by a proxy page: still unconfirmed.
+    for resend in [errorReply(429, reason: "RATE_LIMITED"), HTTPResponse(statusCode: 404, data: Data("404 page not found".utf8))] {
+        let sending = CallCounter()
+        let limited = ScriptedTransport { request in
+            switch sending.next() {
+            case 1: return memberEcho(request)
+            case 2: throw URLError(.timedOut)
+            default: return resend
+            }
+        }
+        let unconfirmed = try await memberClient(limited).groupMemberBatch(groupID: 3, request)
+        #expect(await limited.requests.count == 3)
+        #expect(unconfirmed.results[200..<400].allSatisfy { $0.status == .failed && $0.reason == GroupMemberReason.notConfirmed })
+        #expect(unconfirmed.results.suffix(50).allSatisfy { $0.reason == GroupMemberReason.notDelivered })
+    }
+
     // The first batch's failure is thrown as it is.
     let gone = ScriptedTransport(script: [.reply(errorReply(404, reason: "GROUP_NOT_FOUND"))])
     let error = try #require(await thrownAPIError { _ = try await memberClient(gone).groupMemberBatch(groupID: 3, request) })
@@ -223,6 +280,13 @@ func memberBatchRetriesGatewayStatusesOnly(status: Int, reason: String?, sends: 
     #expect(GroupMemberRetry.unfinishedReason(transport, mayHaveWritten: false) == GroupMemberReason.notDelivered)
     #expect(GroupMemberRetry.unfinishedReason(APIError.server(status: 500, reason: nil), mayHaveWritten: false) == GroupMemberReason.notDelivered)
     #expect(GroupMemberRetry.unfinishedReason(APIError.server(status: 503, reason: "SERVICE_UNAVAILABLE"), mayHaveWritten: false) == "SERVICE_UNAVAILABLE")
+    // A resend's error that says nothing about a first send that may have run.
+    let silent: [APIError] = [.refreshDeferred, .stationMismatch, APIError.server(status: 429, reason: "RATE_LIMITED"),
+                              APIError.server(status: 401, reason: nil), APIError.server(status: 404, envelope: nil)]
+    let telling: [APIError] = [transport, .invalidResponse, APIError.server(status: 404, reason: "GROUP_NOT_FOUND"),
+                               APIError.server(status: 400, reason: "INVALID_GROUP_ID"), APIError.server(status: 500, reason: nil)]
+    #expect(silent.allSatisfy(GroupMemberRetry.saysNothingAboutFirstSend))
+    #expect(!telling.contains(where: GroupMemberRetry.saysNothingAboutFirstSend))
 }
 
 // MARK: - 0.4.4 fallback
@@ -353,6 +417,42 @@ func memberBatchRetriesGatewayStatusesOnly(status: Int, reason: String?, sends: 
         _ = try await GroupMembersLegacyExecutor(client: client, sendsIdempotencyKey: false).run(groupID: 5, request)
     }
     #expect(await transport.requests(path: "/accounts/12").isEmpty)
+}
+
+@Test func legacyKeepsWhatChangedWhenTheBackgroundStopsARead() async throws {
+    let request = try memberAdds([11, 12, 13, 14])
+    let groups = [11: [3], 12: [], 13: [], 14: []]
+    // ① The App goes to the background while account 13's detail is in flight: the read is cancelled, the session stays.
+    let box = MemberClientBox()
+    let inFlight = legacyTransport(groups: groups, beforeGet: { id in if id == 13 { await box.suspend() } })
+    let client = memberClient(inFlight)
+    box.set(client)
+    let stopped = try await GroupMembersLegacyExecutor(client: client, sendsIdempotencyKey: false).run(groupID: 5, request)
+    #expect(stopped.results.map(\.status) == [.added, .added, .failed, .failed])
+    #expect(stopped.results.map(\.reason) == [nil, nil, GroupMemberReason.notDelivered, GroupMemberReason.notDelivered])
+    #expect(await inFlight.requests(path: "/accounts/14").isEmpty)
+
+    // ② Account 13's detail is lost in the background: its automatic read retry does not wait.
+    let quiet = MemberClientBox()
+    let lost = legacyTransport(groups: groups, beforeGet: { id in if id == 13 { throw URLError(.timedOut) } }, put: { id, _ in
+        if id == 12 { await quiet.suspend() }
+        return okReply(legacyAccountJSON(id, groups: [5]))
+    })
+    let background = memberClient(lost)
+    quiet.set(background)
+    let marked = try await GroupMembersLegacyExecutor(client: background, sendsIdempotencyKey: false).run(groupID: 5, request)
+    #expect(marked.results.map(\.reason) == [nil, nil, GroupMemberReason.notDelivered, GroupMemberReason.notDelivered])
+    #expect(await lost.requests(path: "/accounts/13").count == 1)
+
+    // ③ Nothing changed yet: the run ends as cancelled.
+    let early = MemberClientBox()
+    let first = legacyTransport(groups: groups, beforeGet: { id in if id == 11 { await early.suspend() } })
+    let idle = memberClient(first)
+    early.set(idle)
+    await #expect(throws: CancellationError.self) {
+        _ = try await GroupMembersLegacyExecutor(client: idle, sendsIdempotencyKey: false).run(groupID: 5, request)
+    }
+    #expect(await first.requests.count == 1)
 }
 
 @Test func legacyFallbackTriggerIsRepositoryUnsupportedOnly() async throws {

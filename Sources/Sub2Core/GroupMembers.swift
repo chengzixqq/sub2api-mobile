@@ -280,6 +280,13 @@ enum GroupMemberRetry {
         guard let status = error.statusCode else { return error.kind == .transport && error != .refreshDeferred }
         return status == 408 || RequestPolicy.isRetryableStatus(status, marker: error.reason)
     }
+    /// After a first send that may have run, the resend's error says nothing about it when it was refused before the handler,
+    /// is a 4xx without a reason (a router or proxy page: the handler's own refusals all carry one) or never left; the first
+    /// error then stands (00 §2.5.4 step 2, as KeyedWriteFlow).
+    static func saysNothingAboutFirstSend(_ resend: APIError) -> Bool {
+        guard let status = resend.statusCode else { return !mayHaveRun(resend) }
+        return resend.isRefusedBeforeHandler || ((400..<500).contains(status) && resend.reason == nil)
+    }
     /// The mark of the account or batch that stopped a run. `mayHaveWritten`: the failed request was the write itself, so no
     /// answer, 408, 5xx, an unreadable reply or an unconfirmed keyed write leave it unconfirmed (S5D2a-17); a refusal keeps its
     /// reason; anything that was never sent is not delivered.
@@ -321,7 +328,7 @@ extension APIClient {
     }
     /// One batch under one X-Request-ID; after GroupMemberRetry.retriesOnce it waits a second and sends the same bytes once
     /// more, in the foreground of the same session only: a wait cut short by `suspend` throws the first error, a new session
-    /// CancellationError.
+    /// CancellationError. A resend that says nothing about the first send (`saysNothingAboutFirstSend`) throws the first error.
     private func memberBatch(_ path: String, _ batch: GroupMemberBatchRequest, generation snapshot: UUID) async throws -> GroupMemberBatchResult {
         let body = try batch.requestBody(), requestID = UUID().uuidString.lowercased()
         do {
@@ -329,7 +336,8 @@ extension APIClient {
         } catch let error as APIError where GroupMemberRetry.retriesOnce(after: error) {
             do { try await pause(GroupMemberRetry.delay, generation: snapshot) }
             catch is CancellationError where currentGeneration() == snapshot && !Task.isCancelled { throw error }
-            return try await memberBatchPost(path, body: body, requestID: requestID)
+            do { return try await memberBatchPost(path, body: body, requestID: requestID) }
+            catch let resend as APIError where GroupMemberRetry.saysNothingAboutFirstSend(resend) { throw error }
         }
     }
     private func memberBatchPost(_ path: String, body: Data, requestID: String) async throws -> GroupMemberBatchResult {

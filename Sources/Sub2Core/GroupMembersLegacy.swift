@@ -56,7 +56,7 @@ extension APIClient {
         var results: [GroupMemberResultItem] = []
         for (index, key) in keys.enumerated() {
             try check(snapshot)
-            switch try await legacyMember(key, groupID: groupID, confirm: request.confirmMixedChannelRisk, makeKey: makeKey) {
+            switch try await legacyMember(key, groupID: groupID, confirm: request.confirmMixedChannelRisk, makeKey: makeKey, generation: snapshot) {
             case .done(let item):
                 results.append(item)
             case .stopped(let error, let reason):
@@ -68,12 +68,16 @@ extension APIClient {
         return GroupMemberBatchResult(groupID: groupID, results: results, counts: nil)
     }
 
-    /// GET, then PUT only when the membership changes. A missing account and a mixed-channel 409 are per-account answers.
-    private func legacyMember(_ member: GroupMemberKey, groupID: Int, confirm: Bool, makeKey: (@Sendable () -> UUID)?) async throws -> LegacyMemberStep {
+    /// GET, then PUT only when the membership changes. A missing account and a mixed-channel 409 are per-account answers. A read
+    /// that going to the background cancelled (the same session, `suspend`) stops the run like a failed read.
+    private func legacyMember(_ member: GroupMemberKey, groupID: Int, confirm: Bool, makeKey: (@Sendable () -> UUID)?,
+                              generation snapshot: UUID) async throws -> LegacyMemberStep {
         let detail: UpstreamAccount
         do { detail = try await account(id: member.accountID) }
         catch let error as APIError where Self.isMissingAccount(error) { return .done(.failed(member, reason: GroupMemberReason.accountNotFound)) }
-        catch let error where !(error is CancellationError) { return .stopped(error, reason: GroupMemberRetry.unfinishedReason(error, mayHaveWritten: false)) }
+        catch let error where !(error is CancellationError) || (currentGeneration() == snapshot && !Task.isCancelled) {
+            return .stopped(error, reason: GroupMemberRetry.unfinishedReason(error, mayHaveWritten: false))
+        }
         let current = GroupMembersLegacyPlan.currentGroupIDs(of: detail)
         guard let next = GroupMembersLegacyPlan.groupIDs(current, groupID: groupID, action: member.action) else {
             return .done(GroupMemberResultItem(accountID: member.accountID, action: member.action, status: .unchanged))
