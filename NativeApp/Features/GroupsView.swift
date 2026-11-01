@@ -47,20 +47,21 @@ struct LegacyGroupEditSheet: View {
 private struct GroupDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sessionContext) private var session
+    @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
     @State private var group: AdminGroup
     @State private var capacity: GroupCapacitySummary?
     @State private var capacityDate: Date?
     @State private var capacityError: String?
     @State private var error: String?
-    @State private var busy = false
     @State private var readTicket = UUID()
     @State private var capacityTicket = UUID()
-    @State private var confirmAction: GroupDetailAction?
-    @State private var uncertainAction: GroupDetailAction?
     @State private var editor: GroupEditorTarget?
+    /// S5-05: the 管理 section goes through GroupActions until S5-06's detail.
+    @State private var actions: GroupActions?
     init(initial: AdminGroup) { _group = State(initialValue: initial) }
     private var store: GroupStore? { model.groupStore }
+    private var permissions: GroupPermissions { GroupPermissions(me: session?.site.me, isReadOnlyToken: session?.isReadOnlyToken ?? false) }
     var body: some View {
         List {
             Section("分组信息") {
@@ -101,42 +102,35 @@ private struct GroupDetailView: View {
                 NavigationLink("请求记录") { RequestLogsView(groupID: group.id) }.accessibilityIdentifier("group.logs")
             }
             Section("管理") {
-                Button("编辑分组") {
-                    if let context = session, context.generation == model.sessionGeneration {
-                        editor = GroupEditorTarget(group: group, context: context, siteName: model.activeProfile?.name ?? "")
-                    }
-                }.frame(minHeight: 44).accessibilityIdentifier("group.edit")
-                Button(group.status == "active" ? "停用分组" : "启用分组") { confirmAction = .status(group.status == "active" ? "inactive" : "active") }
-                    .frame(minHeight: 44).accessibilityIdentifier("group.status")
-                Button("删除分组", role: .destructive) { confirmAction = .delete }.frame(minHeight: 44).accessibilityIdentifier("group.delete")
-            }.disabled(busy || uncertainAction != nil)
-            if uncertainAction != nil {
-                Section("结果待确认") {
-                    Text("本页不会再发送这次请求。先读取服务器当前状态；关闭前请在本站后台核对，避免重复操作。")
-                    Button("读取服务器状态核对") { Task { await reconcile() } }.disabled(busy).frame(minHeight: 44)
-                }
+                if let actions { GroupActionMenuItems(group: group, actions: actions, permissions: permissions, showsDivider: false, onEdit: openEditor) }
             }
-            if busy { ProgressView("正在处理…") }
             if let error { Section("处理结果") { Text(error).textSelection(.enabled).accessibilityIdentifier("group.result") } }
         }
         .navigationTitle(group.name)
+        .groupActionsHost(actions, leaving: leave)
+        .task { if actions == nil { actions = GroupActions(model: model, router: router) } }
         .task { await refresh() }
         .task { await refreshCapacity() }
         .refreshable { await refresh(); await refreshCapacity() }
         .onChange(of: model.foregroundRevision) { _, _ in Task { await refresh(); await refreshCapacity() } }
         .sheet(item: $editor, onDismiss: { Task { await refresh() } }) { GroupEditorView(target: $0) }
-        .confirmationDialog(confirmAction?.title ?? "确认操作", isPresented: Binding(get: { confirmAction != nil }, set: { if !$0 { confirmAction = nil } }), titleVisibility: .visible) {
-            if let action = confirmAction { Button("确认发送", role: .destructive) { Task { await perform(action) } } }
-        } message: {
-            Text("站点：\(model.activeProfile?.name ?? "")\n地址：\(session?.client.server.baseURL.absoluteString ?? "")\n分组：\(group.name)（#\(group.id)）\n\(confirmAction == .delete ? "删除将解除此分组的关联，关联订阅等限制由服务器校验。" : "停用会影响该分组的请求和关联用户。")")
-        }
+        // The actions' optimistic row and the written group (GroupStore) show here too.
+        .onChange(of: store?.group(id: group.id)) { _, row in if let row { group = row } }
+    }
+    private func openEditor() {
+        guard let context = session, context.generation == model.sessionGeneration else { return }
+        editor = GroupEditorTarget(group: group, context: context, siteName: model.activeProfile?.name ?? "")
+    }
+    /// 50 §0.5: a delete from here pops this page first; a page not on the router's stack closes itself.
+    private func leave() {
+        if !router.leaveGroup(id: group.id) { dismiss() }
     }
     private func ratio(_ used: Int?, _ max: Int?) -> String {
         guard let used, let max else { return DisplayFormat.missing }
         return "\(DisplayFormat.grouped(used)) / \(DisplayFormat.grouped(max))"
     }
     private func refresh() async {
-        guard !busy, let store, let context = session, context.generation == model.sessionGeneration else { return }
+        guard let store, let context = session, context.generation == model.sessionGeneration else { return }
         let ticket = UUID(); readTicket = ticket
         do {
             let result = try await store.fetch(id: group.id)
@@ -159,56 +153,6 @@ private struct GroupDetailView: View {
             capacityError = "容量刷新失败，保留上次数据。\(error.localizedDescription)"
         }
     }
-    private func perform(_ action: GroupDetailAction) async {
-        guard !busy, uncertainAction == nil, let store, let context = session, context.generation == model.sessionGeneration else { return }
-        // 60 §3.4: a delete is verified after its confirmation; a failed or cancelled check sends nothing.
-        if action == .delete {
-            guard await model.biometricGate.authorize(.delete), !busy, context.generation == model.sessionGeneration else { return }
-        }
-        busy = true; readTicket = UUID(); error = nil; defer { busy = false }
-        do {
-            let identity = await context.client.userWriteIdentity()
-            guard context.generation == model.sessionGeneration, !Task.isCancelled else { return }
-            let keyed = context.has(.adminIdempotentWrites)
-            switch action {
-            case .delete:
-                // Deleted or already gone (50 §0.8): either way the group is no longer there.
-                let operation = try GroupWriteOperation.delete(groupID: group.id, serverID: context.serverID, identity: identity, sendsIdempotencyKey: keyed)
-                _ = try await store.legacyDelete(id: group.id, operation: operation, context: context)
-            case .status(let status):
-                let input = GroupUpdateRequest(status: status)
-                let operation = try GroupWriteOperation.update(groupID: group.id, input, serverID: context.serverID, identity: identity, sendsIdempotencyKey: keyed)
-                let result = try await store.legacyUpdate(id: group.id, input, operation: operation, context: context)
-                guard context.generation == model.sessionGeneration else { return }; group = result
-            }
-            guard context.generation == model.sessionGeneration else { return }
-            if action == .delete { dismiss() } else { error = "分组状态已更新。" }
-        } catch {
-            guard context.generation == model.sessionGeneration, !(error is CancellationError) else { return }
-            self.error = (error as? KeyedWriteFailure).map(groupKeyedFailureMessage) ?? error.localizedDescription
-            if !groupWriteDefinitelyRejected(error) { uncertainAction = action }
-        }
-    }
-    private func reconcile() async {
-        guard !busy, let action = uncertainAction, let store, let context = session, context.generation == model.sessionGeneration else { return }
-        busy = true; defer { busy = false }
-        do {
-            let result = try await store.fetch(id: group.id)
-            guard context.generation == model.sessionGeneration, !Task.isCancelled else { return }
-            group = result
-            if case .status(let value) = action, result.status == value { uncertainAction = nil; error = "服务器当前状态已与目标一致。" }
-            else { error = "分组仍存在，当前状态为\(result.status == "active" ? "启用" : "停用")。原请求是否仍在处理尚不确定，请先在 Web 核对；本页不会重发。" }
-        } catch {
-            guard context.generation == model.sessionGeneration, !(error is CancellationError) else { return }
-            if action == .delete, (error as? APIError)?.statusCode == 404 { uncertainAction = nil; dismiss() }
-            else { self.error = "核对未完成。\(error.localizedDescription)" }
-        }
-    }
-}
-
-private enum GroupDetailAction: Equatable {
-    case status(String), delete
-    var title: String { switch self { case .status(let value): value == "active" ? "确认启用分组？" : "确认停用分组？"; case .delete: "确认删除分组？" } }
 }
 
 private struct GroupEditorTarget: Identifiable {

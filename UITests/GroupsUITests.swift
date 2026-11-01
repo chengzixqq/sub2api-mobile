@@ -164,25 +164,25 @@ final class GroupsUITests: XCTestCase {
         XCTAssertTrue(created.label.contains("没有账号"), created.label)
         XCTAssertGreaterThan(created.frame.minY, element("groups.section.attention").frame.minY)
         created.tap()
-        reveal(app.buttons["group.edit"])
-        app.buttons["group.edit"].tap()
+        reveal(app.buttons["group.menu.edit"])
+        app.buttons["group.menu.edit"].tap()
         set("移动分组更新", field: "group-editor.name", towardBottom: false)
         set("仅修改描述与名称", field: "group-editor.description")
         confirmEditor()
         // An Any query by the new title also matches the editor TextField's
         // value while the sheet is dismissing. Wait for the destination bar.
         XCTAssertTrue(app.navigationBars["移动分组更新"].waitForExistence(timeout: 10), app.debugDescription)
-        reveal(app.buttons["group.status"])
-        app.buttons["group.status"].tap()
-        confirmDialog()
-        let statusResult = element("group.result")
-        reveal(statusResult)
-        XCTAssertTrue(statusResult.label.contains("状态已更新"), app.debugDescription)
-        XCTAssertTrue(app.buttons["group.status"].label.contains("启用"), app.debugDescription)
+        // S5-05: 停用分组… asks first, then says so in a receipt.
+        reveal(app.buttons["group.menu.disable"])
+        app.buttons["group.menu.disable"].tap()
+        confirmDisable()
+        waitForReceipt("已停用「移动分组更新」")
+        XCTAssertTrue(app.buttons["group.menu.enable"].waitForExistence(timeout: 5), app.debugDescription)
         diagnostics("group-edit-and-status-success")
-        reveal(app.buttons["group.delete"])
-        app.buttons["group.delete"].tap()
-        confirmDialog()
+        reveal(app.buttons["group.menu.delete"])
+        app.buttons["group.menu.delete"].tap()
+        typeDeleteName("移动分组更新")
+        waitForReceipt("已删除分组「移动分组更新」")
         XCTAssertTrue(app.buttons["groups.create"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(created.waitForNonExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(row(4).exists, app.debugDescription)
@@ -320,5 +320,23 @@ final class GroupsUITests: XCTestCase {
     @MainActor private func diagnostics(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
+    }
+    /// S5-05: the disable alert's 停用分组.
+    @MainActor private func confirmDisable() {
+        let button = app.alerts.buttons["停用分组"]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), app.debugDescription); button.tap()
+    }
+    /// S5-05: the delete confirmation (Face ID off): 删除分组 only once the whole name is typed.
+    @MainActor private func typeDeleteName(_ name: String) {
+        let confirm = app.buttons["delete.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(confirm.isEnabled, app.debugDescription)
+        let input = element("delete.input"); input.tap(); input.typeText(name)
+        XCTAssertTrue(confirm.poll(NSPredicate(format: "isEnabled == true"), timeout: 5), app.debugDescription)
+        confirm.tap()
+    }
+    @MainActor private func waitForReceipt(_ text: String) {
+        let shown = app.staticTexts["receipt.text"].poll(NSPredicate(format: "label == %@", text), timeout: 10)
+        XCTAssertTrue(shown, "receipt “\(text)” not shown\n\(app.debugDescription)")
     }
 }
