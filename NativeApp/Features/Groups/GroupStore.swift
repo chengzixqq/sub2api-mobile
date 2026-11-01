@@ -38,7 +38,12 @@ final class GroupStore {
     /// Set under `-ui-testing`.
     @ObservationIgnored let fixtures: GroupFixtures?
     @ObservationIgnored private weak var app: AppModel?
-    @ObservationIgnored private var running: Task<Void, Never>?
+    /// 00 §4.6: each block reads on its own (BlockRead).
+    @ObservationIgnored private let listRead = BlockRead()
+    @ObservationIgnored private let usageRead = BlockRead()
+    @ObservationIgnored private let shortageRead = BlockRead()
+    @ObservationIgnored private let errorRead = BlockRead()
+    @ObservationIgnored private let catalogRead = BlockRead()
     @ObservationIgnored private var needsRefresh = false
     /// Local writes made while a list read is out, laid over its result.
     @ObservationIgnored private var pendingEdits: [GroupListEdit] = []
@@ -78,19 +83,17 @@ final class GroupStore {
         guard list.value == nil || needsRefresh || !GroupStoreRules.isFresh(lastRefreshAt, now: Date(), maxAge: maxAge) else { return }
         await refreshAll()
     }
-    /// 50 §1.2: the list, usage-summary and status-summary at once (and the error fallback); the list needs only its own read, the
-    /// others change only their cells. A refresh already out is awaited instead of repeated; during a 429 wait nothing is sent.
+    /// 50 §1.2: the list, usage-summary and status-summary at once (and the error fallback), each its own block (00 §4.6), so a slow
+    /// block or the list's 429 wait holds back no other; returns once the list is in, the others change their cells when they arrive.
+    /// The list, the shortage and the fallback are read no earlier than the call (once more after a read already out, so a write's
+    /// refresh gets the write); usage-summary, which no group write changes, shares a read that is out.
     func refreshAll() async {
-        if let running { await running.value; return }
-        guard isLive, listRefresh.allowsRequest(at: Date()), let session = app?.sessionContext, session.generation == generation else { return }
-        needsRefresh = false
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.readAll(session)
-        }
-        running = task
-        await task.value
-        if running == task { running = nil }
+        guard isLive, let session = app?.sessionContext, session.generation == generation else { return }
+        usageRead.start { [weak self] in await self?.readUsage(session) }
+        catalogRead.start { [weak self] in await self?.readCatalog() }
+        refreshInBackground(shortageRead) { [weak self] in await self?.readShortages(session) }
+        refreshErrorCounts(session, groups: nil)
+        await listRead.refresh { [weak self] in await self?.readListThenFallback(session) }
     }
     /// `GET admin/groups/:id`. A success replaces that row in place; errors come back as they are.
     func fetch(id: Int) async throws -> AdminGroup {
@@ -136,14 +139,15 @@ final class GroupStore {
         list = list.updatingValue { GroupStoreRules.applying([edit], to: $0) }
         revision += 1
     }
-    private func readAll(_ session: SessionContext) async {
-        async let usageRead: Void = readUsage(session)
-        async let shortageRead: Void = readShortages(session)
-        async let errorRead: Void = readErrorCounts(session, groups: nil)
-        async let catalogRead: Void = readCatalog()
+    private func refreshInBackground(_ block: BlockRead, _ read: @escaping BlockRead.Read) {
+        Task { await block.refresh(read) }
+    }
+    /// Not sent during the list's 429 wait, when a write's `setNeedsRefresh` also stays for the next appearance.
+    private func readListThenFallback(_ session: SessionContext) async {
+        guard listRefresh.allowsRequest(at: Date()) else { return }
+        needsRefresh = false
         await readList(session)
-        if session.has(.groupsAccountBuckets) { await readErrorCounts(session, groups: list.value) }
-        _ = await (usageRead, shortageRead, errorRead, catalogRead)
+        if session.has(.groupsAccountBuckets) { refreshErrorCounts(session, groups: list.value) }
     }
     private func readList(_ session: SessionContext) async {
         pendingEdits = []
@@ -175,7 +179,7 @@ final class GroupStore {
         usage = usage.withLoading()
         do {
             let rows: [GroupUsageSummary]
-            if let fixtures { rows = try fixtures.usageSummary() }
+            if let fixtures { rows = try await fixtures.usageSummary() }
             else {
                 let zone = GroupStoreRules.usageTimeZone(isVendor: permissions.isVendor, siteZone: session.site.serverTimeZone)
                 rows = try await session.client.groupUsageSummary(timezone: zone)
@@ -202,9 +206,14 @@ final class GroupStore {
             shortages = nil
         }
     }
-    /// 50 §0.1 F04 fallback: one page of error accounts counted by their group_ids.
-    private func readErrorCounts(_ session: SessionContext, groups: [AdminGroup]?) async {
-        guard let app, GroupStoreRules.needsErrorFallback(groups: groups, hasAccountBuckets: session.has(.groupsAccountBuckets)) else { return }
+    /// 50 §0.1 F04 fallback: without `groups.account_buckets` with the other blocks, with it after a list that lacks the counts.
+    private func refreshErrorCounts(_ session: SessionContext, groups: [AdminGroup]?) {
+        guard GroupStoreRules.needsErrorFallback(groups: groups, hasAccountBuckets: session.has(.groupsAccountBuckets)) else { return }
+        refreshInBackground(errorRead) { [weak self] in await self?.readErrorCounts(session) }
+    }
+    /// One page of error accounts counted by their group_ids.
+    private func readErrorCounts(_ session: SessionContext) async {
+        guard let app else { return }
         let query = GroupStoreRules.errorAccountsQuery(supportsListQuery: session.has(.accountsListQuery))
         guard let page = try? await app.managedAccounts(page: 1, query: query), isLive else { return }
         errorCounts = GroupBuckets.errorCounts(accounts: page.items)
