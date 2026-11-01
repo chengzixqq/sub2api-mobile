@@ -67,6 +67,27 @@ private func card(_ range: AnalyticsRange = today, summary: AnalyticsSummary?, c
     #expect(card(summary: nil, comparison: .loaded(try summary(actual: "1188.30"))).changeLine == nil)
 }
 
+@Test func comparisonCountsOnlyWhileNeitherReadLastFailed() throws {
+    typealias Comparison = AnalyticsBillingCard.Comparison
+    let earlier = try summary(actual: "1188.30")
+    #expect(Comparison(nil, lastReadFailed: false, totalsLastReadFailed: false) == .pending)
+    #expect(Comparison(.idle, lastReadFailed: false, totalsLastReadFailed: false) == .pending)
+    #expect(Comparison(.loading(previous: nil, at: nil), lastReadFailed: false, totalsLastReadFailed: false) == .pending)
+    #expect(Comparison(.loaded(earlier, at: morning), lastReadFailed: false, totalsLastReadFailed: false) == .loaded(earlier))
+    // The 60-second refresh keeps the line while both read again.
+    #expect(Comparison(.loading(previous: earlier, at: morning), lastReadFailed: false, totalsLastReadFailed: false) == .loaded(earlier))
+    // Today refreshed to 14:00 while the comparison failed: its earlier value stops at yesterday 09:40, so the line goes, also while
+    // it reads again, until a read succeeds.
+    #expect(Comparison(.failed(reason: "站点暂时不可用", previous: earlier, at: morning), lastReadFailed: true, totalsLastReadFailed: false)
+        == .failed)
+    #expect(Comparison(.loading(previous: earlier, at: morning), lastReadFailed: true, totalsLastReadFailed: false) == .failed)
+    #expect(Comparison(.failed(reason: nil, previous: nil, at: nil), lastReadFailed: true, totalsLastReadFailed: false) == .failed)
+    // Totals left from before a failed refresh against a comparison read since.
+    #expect(Comparison(.loaded(earlier, at: morning), lastReadFailed: false, totalsLastReadFailed: true) == .failed)
+    let stale = Comparison(.failed(reason: "站点暂时不可用", previous: earlier, at: morning), lastReadFailed: true, totalsLastReadFailed: false)
+    #expect(card(summary: try summary(), comparison: stale).changeLine == nil)
+}
+
 @Test func selectionLineShowsStandardAndRequests() throws {
     let totals = try summary()
     let points = [point("2026-10-16 09:00", actual: 229, cost: Decimal(string: "302.10")!, requests: 4_210)]
