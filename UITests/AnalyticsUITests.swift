@@ -527,4 +527,163 @@ final class AnalyticsUITests: XCTestCase {
         XCTAssertTrue(profitBars.contains { $0.label.contains("，利润 无数据") }, app.debugDescription)
         diagnostics("analytics-profit-legacy")
     }
+
+    // MARK: S4-16 RPM / TPM 趋势卡
+
+    /// AnalyticsFixtures+Perf as the card shows it (change both together): “now” is 2026-10-15 09:01:23 in Asia/Shanghai.
+    private enum PerfExpected {
+        /// The newest bucket, 09:00 (its start in Unix seconds), and the one before it in 5-minute buckets, 08:55.
+        static let newestRow = "analytics.perf.row.1792026000"
+        static let previousFiveMinuteRow = "analytics.perf.row.1792025700"
+        /// /admin/me says ops monitoring is on, the throughput reads answer 404 OPS_DISABLED.
+        static let opsGone = "-ui-analytics-ops-gone"
+    }
+
+    @MainActor private var perfAmount: XCUIElement { element("analytics.perf.amount") }
+    @MainActor private var perfNotice: XCUIElement { element("analytics.perf").descendants(matching: .any)["ops.disabled.empty"].firstMatch }
+    @MainActor private func perfSegment(_ control: String, _ title: String) -> XCUIElement {
+        app.segmentedControls[control].buttons[title].firstMatch
+    }
+    /// Scrolls the card flow until the card's foot shows, with the big number and the chart above it.
+    @MainActor private func perfRevealCard(file: StaticString = #filePath, line: UInt = #line) {
+        app.scrollUntilExists(element("analytics.perf.foot"), file: file, line: line)
+    }
+    @MainActor private func perfAssertSelected(_ control: String, _ title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let selected = perfSegment(control, title).poll(NSPredicate(format: "isSelected == true"), timeout: 5)
+        XCTAssertTrue(selected, "\(title) should be selected\n\(app.debugDescription)", file: file, line: line)
+    }
+    @MainActor private func perfSelectWindow(_ title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let segment = perfSegment("analytics.perf.window", title)
+        let isAbove = segment.exists && segment.frame.minY < app.navigationBars.firstMatch.frame.maxY
+        app.scrollUntilExists(segment, towardBottom: !isAbove, file: file, line: line)
+        segment.tap()
+        perfAssertSelected("analytics.perf.window", title, file: file, line: line)
+    }
+    @MainActor private func perfWaitUntilHittable(_ item: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: item)
+        XCTAssertEqual(XCTWaiter().wait(for: [hittable], timeout: 5), .completed, app.debugDescription, file: file, line: line)
+    }
+
+    @MainActor func testPerfCardFromTPMCellScrollsToCardAndSelectsTPM() {
+        launch()
+        defer { diagnostics("analytics-perf-tpm-final") }
+        app.openAnalyticsFromOverview("home.ticker.tpm")
+        // 40 §1.1: the page scrolls to the card once and opens it on TPM.
+        XCTAssertTrue(perfAmount.waitForExistence(timeout: 10), app.debugDescription)
+        perfWaitUntilHittable(perfAmount)
+        perfAssertSelected("analytics.perf.metric", "TPM")
+        app.waitForLabel(perfAmount, containing: "TPM · 最新一桶 09:00")
+        app.waitForValue(perfAmount, equal: "240K")
+        app.waitForLabel(element("analytics.perf.subline"), containing: "峰值 260K · 平均 220K · 近 1 小时")
+        XCTAssertEqual(element("analytics.perf.meta").label, "截至现在 · 运维监控")
+        diagnostics("analytics-perf-tpm")
+        // route.metric was remembered: entering from the search directory shows TPM too.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.openAnalyticsFromSearch()
+        perfRevealCard()
+        perfAssertSelected("analytics.perf.metric", "TPM")
+    }
+
+    @MainActor func testPerfDetailsShowPartialBucketAndRowSelectsPoint() {
+        launch()
+        defer { diagnostics("analytics-perf-details-final") }
+        app.openAnalyticsFromSearch()
+        perfRevealCard()
+        perfAssertSelected("analytics.perf.metric", "RPM")
+        app.waitForLabel(perfAmount, containing: "RPM · 最新一桶 09:00")
+        app.waitForValue(perfAmount, equal: "46")
+        app.waitForLabel(element("analytics.perf.subline"), containing: "峰值 52 · 平均 44 · 近 1 小时")
+        let foot = element("analytics.perf.foot")
+        app.waitForLabel(foot, containing: "性能明细 · 60 桶 · 最新在上")
+        app.waitForLabel(element("analytics.perf.note"), containing: "窗口从 08:01 到现在")
+        app.waitForLabel(element("analytics.perf.updated"), containing: " · 前台每 30 秒刷新")
+        // 近 6 小时 has 5-minute buckets; the window cuts the first and the newest.
+        perfSelectWindow("近 6 小时")
+        app.waitForLabel(foot, containing: "73 桶 · 最新在上")
+        app.scrollUntilExists(foot)
+        foot.tap()
+        XCTAssertTrue(app.navigationBars["性能明细"].waitForExistence(timeout: 5), app.debugDescription)
+        let close = element("analytics.perf.sheet.close")
+        XCTAssertTrue(close.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(close.label, "关闭")
+        XCTAssertLessThan(close.frame.midX, app.frame.midX, "关闭 sits at the top left")
+        app.waitForLabel(element("analytics.perf.sheet.note"), containing: "最新在上 · 近 6 小时 · 每桶 5 分钟")
+        let newest = element(PerfExpected.newestRow)
+        app.waitForLabel(newest, containing: "09:00 · 只覆盖 60 秒")
+        XCTAssertTrue(newest.label.contains("RPM 46 · TPM 240K"), newest.label)
+        let previous = element(PerfExpected.previousFiveMinuteRow)
+        XCTAssertTrue(previous.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertLessThan(newest.frame.minY, previous.frame.minY, "newest on top")
+        XCTAssertFalse(previous.label.contains("只覆盖"), previous.label)
+        diagnostics("analytics-perf-details")
+        // A row closes the sheet and selects its bucket.
+        newest.tap()
+        XCTAssertTrue(app.navigationBars["性能明细"].pollGone(timeout: 5), app.debugDescription)
+        app.waitForLabel(element("analytics.perf.subline"), containing: "09:00 · RPM 46 · 再点一下取消")
+        XCTAssertTrue(perfAmount.poll(NSPredicate(format: "label == %@", "RPM · 09:00"), timeout: 5), perfAmount.label)
+        // The window is remembered; entering again starts without a selection.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.openAnalyticsFromSearch()
+        perfRevealCard()
+        perfAssertSelected("analytics.perf.window", "近 6 小时")
+        app.waitForLabel(perfAmount, containing: "RPM · 最新一桶 09:00")
+        XCTAssertFalse(element("analytics.perf.subline").label.contains("再点一下取消"), app.debugDescription)
+    }
+
+    @MainActor func testPerfCardShowsOpsDisabledNoticeAndLoadsAfterEnabling() {
+        launch(["-ui-ops-disabled"])
+        defer { diagnostics("analytics-perf-ops-off-final") }
+        app.openAnalyticsFromSearch()
+        // 10 §7.2's OpsDisabledNotice takes the whole body (S1D1-28), the header keeps only 运维监控.
+        app.scrollUntilExists(perfNotice)
+        XCTAssertEqual(element("analytics.perf.meta").label, "运维监控")
+        XCTAssertFalse(element("analytics.perf.chart").exists, app.debugDescription)
+        XCTAssertFalse(element("analytics.perf.window").exists, app.debugDescription)
+        diagnostics("analytics-perf-ops-off")
+        let enable = element("analytics.perf").descendants(matching: .any)["ops.disabled.enable"].firstMatch
+        XCTAssertTrue(enable.waitForExistence(timeout: 5), app.debugDescription)
+        enable.tap()
+        let alert = app.alerts["开启运维监控？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), app.debugDescription)
+        alert.buttons["开启"].firstMatch.tap()
+        // The card reads as soon as ops is on.
+        XCTAssertTrue(element("analytics.perf.chart").waitForExistence(timeout: 15), app.debugDescription)
+        app.waitForLabel(perfAmount, containing: "最新一桶")
+        app.waitForLabel(element("analytics.perf.meta"), containing: "截至现在 · 运维监控")
+        XCTAssertFalse(perfNotice.exists, app.debugDescription)
+    }
+
+    @MainActor func testPerfCardTurnsIntoNoticeOn404OpsDisabled() {
+        launch([PerfExpected.opsGone])
+        defer { diagnostics("analytics-perf-ops-gone-final") }
+        app.openAnalyticsFromSearch()
+        // 40 §1.6: 404 OPS_DISABLED is not a failure of the card.
+        app.scrollUntilExists(perfNotice)
+        XCTAssertFalse(element("analytics.perf.failure").exists, app.debugDescription)
+        XCTAssertFalse(text(in: element("analytics.perf"), containing: "加载失败").exists, app.debugDescription)
+        XCTAssertFalse(element("analytics.perf.chart").exists, app.debugDescription)
+        diagnostics("analytics-perf-ops-gone")
+    }
+
+    @MainActor func testPerfCardSaysSiteWideForModelFilterWithoutCapability() {
+        launch(["-ui-without-capabilities", "ops.dashboard_model_filter"])
+        defer { diagnostics("analytics-perf-site-wide-final") }
+        app.openAnalyticsFromSearch()
+        openFilter()
+        app.segmentedControls["analytics.filter.kind"].buttons["模型"].tap()
+        let row = element("analytics.filter.row.model.claude-opus-4")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].pollGone(timeout: 5), app.debugDescription)
+        // 40 §1.2: the model cannot reach the ops charts, so the card says it shows the whole site.
+        let note = element("analytics.perf.siteWide")
+        app.scrollUntilExists(note)
+        app.waitForLabel(note, containing: "运行类图表不支持按这个模型筛选，这里显示全站")
+        app.waitForLabel(perfAmount, containing: "最新一桶")
+        diagnostics("analytics-perf-site-wide")
+        let chip = element("analytics.filter.chip")
+        app.scrollUntilExists(chip, towardBottom: false)
+        chip.tap()
+        XCTAssertTrue(note.pollGone(timeout: 5), app.debugDescription)
+    }
 }
