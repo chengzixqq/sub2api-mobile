@@ -10,6 +10,8 @@ enum LogSegmentPhase: Equatable, Sendable {
     case failed(page: Int)
     /// An error segment while ops monitoring is off: admin/me, the latest signal or a 404 OPS_DISABLED said so.
     case opsDisabled
+    /// An auto refresh failed (S4-06): the rows stay, and 重试 polls again.
+    case refreshFailed
 }
 
 /// What the page reads of a segment whatever its record type.
@@ -67,5 +69,26 @@ struct LogSegment<Record: IncrementalRecord & Decodable>: LogSegmentStatus {
     /// Only the rows change (S4-08b updates a row in place).
     func replacingList(_ list: IncrementalList<Record>) -> LogSegment {
         LogSegment(list: list, nextPage: nextPage, window: window, phase: phase, lastError: lastError, lastErrorAt: lastErrorAt)
+    }
+
+    // S4-06: an auto refresh (40 §6.6).
+
+    /// A poll merged: the rows change and the last poll's failure goes.
+    func refreshed(_ list: IncrementalList<Record>) -> LogSegment {
+        let recovered = phase == .refreshFailed
+        return LogSegment(list: list, nextPage: nextPage, window: window, phase: recovered ? .loaded : phase,
+                          lastError: recovered ? nil : lastError, lastErrorAt: recovered ? nil : lastErrorAt)
+    }
+    /// The newest N rows stay, and “加载更多” reads the trim's page next.
+    func trimmed(_ trim: LogTrim<Record>) -> LogSegment {
+        LogSegment(list: trim.list, nextPage: trim.nextPage, window: window, phase: phase, lastError: lastError, lastErrorAt: lastErrorAt)
+    }
+    /// A poll with nothing to continue from read page 1 over `window`: it lands as page 1 does.
+    func reloaded(_ reply: Page<Record>, window: LogTimeWindow) -> LogSegment {
+        LogSegment(list: list, window: window).applying(reply, page: 1)
+    }
+    /// The rows stay, and the list's end says the poll failed.
+    func refreshFailing(_ error: any Error, at date: Date) -> LogSegment {
+        LogSegment(list: list, nextPage: nextPage, window: window, phase: .refreshFailed, lastError: error as? APIError, lastErrorAt: date)
     }
 }

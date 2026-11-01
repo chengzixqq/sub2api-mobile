@@ -104,8 +104,9 @@ private func errorRows(_ ids: [Int], now: Date) throws -> [RequestErrorRecord] {
     #expect(await list.reads == 2)
 }
 
-/// Shown on return, the page reads page 1 again and its `total` is the count: the list is not asked twice.
-@MainActor @Test func shownErrorCountStoppedWhileShownComesFromPageOneAgain() async throws {
+/// Shown on return over a rolling preset, the page polls (S4-06) instead of reading page 1 again, so the count that page 1
+/// would have carried is asked as on leaving the segment.
+@MainActor @Test func shownErrorCountStoppedWhileShownIsAskedAsThePagePolls() async throws {
     let harness = CountHarness()
     let list = ListStub(errorRows: try errorRows([6, 5], now: harness.now), fail: { $0 == 2 ? CancellationError() : nil })
     let counts = LogCountStub(usage: { _, _ in 40 }, errors: { _, _, _ in 9 })
@@ -114,8 +115,9 @@ private func errorRows(_ ids: [Int], now: Date) throws -> [RequestErrorRecord] {
     await store.reload()
     await store.foregroundResumed()
     await store.counter.settled()
-    #expect(segmentCounts(store) == [.value(40), .value(2), .value(9)])
-    #expect(await counts.calls.count == 4)
+    #expect(segmentCounts(store) == [.value(40), .value(9), .value(9)])
+    #expect(await counts.calls.count == 5)
+    #expect(await counts.calls.last == .errors(RequestLogFilter(time: harness.lastDay()), .request))
     #expect(await list.reads == 3)
 }
 

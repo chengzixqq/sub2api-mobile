@@ -391,4 +391,88 @@ final class RequestLogsUITests: XCTestCase {
             XCTAssertTrue(item.poll(NSPredicate(format: "label == %@", label), timeout: 10), "\(label)：\(item.label)", file: file, line: line)
         }
     }
+
+    // MARK: - S4-06 自动刷新
+
+    /// LogFixtures+Refresh.swift: `-ui-logs-live` makes N 5 and has each poll bring a usage row newer than the rest (2001, 2002…);
+    /// the interval follows `-ui-logs-poll-interval`.
+    private enum RefreshFixture {
+        static let live = "-ui-logs-live"
+        static let interval = "-ui-logs-poll-interval"
+    }
+
+    /// 40 §6.6: the polls put the new rows on top, and past N at the top the tail goes; nothing else loads.
+    @MainActor func testAutoRefreshPutsNewRowsOnTopAndTrimsAtTheTop() {
+        launchLogs(arguments: [RefreshFixture.live, RefreshFixture.interval, "2"])
+        defer { diagnostics("logs-auto-refresh") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row("usage", 2001).waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(row("usage", 2002).waitForExistence(timeout: 20), app.debugDescription)
+        let shown = shownRowIDs("usage")
+        XCTAssertGreaterThanOrEqual(shown.first ?? 0, 2002, "\(shown)")
+        XCTAssertTrue(row("usage", 1036).pollGone(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("logs.more.loading").waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertLessThanOrEqual(shownRowIDs("usage").count, 5, app.debugDescription)
+        XCTAssertFalse(element("logs.list.failure").exists, app.debugDescription)
+    }
+
+    /// 40 §6.6: scrolled down, the poll back from the background (D18; the timer is out of reach here) keeps the tail; back at
+    /// the top the tail goes.
+    @MainActor func testAutoRefreshHoldsTheTrimWhileScrolledDown() {
+        launchLogs(arguments: [RefreshFixture.live, RefreshFixture.interval, "600"])
+        defer { diagnostics("logs-auto-refresh-scrolled") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row("usage", 1036).exists, app.debugDescription)
+        let oldest = row("usage", 1001)
+        XCTAssertTrue(app.scrollUntilExists(oldest, maxSwipes: 25))
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+        // The poll put 2001 on top, out of sight; the tail is still there.
+        XCTAssertTrue(app.scrollUntilExists(oldest, maxSwipes: 4))
+        XCTAssertTrue(app.scrollUntilExists(row("usage", 2001), towardBottom: false, maxSwipes: 20))
+        XCTAssertTrue(row("usage", 1036).pollGone(timeout: 10), app.debugDescription)
+        XCTAssertLessThanOrEqual(shownRowIDs("usage").count, 5, app.debugDescription)
+        XCTAssertEqual(shownRowIDs("usage").first, 2001, app.debugDescription)
+    }
+
+    /// 40 §6.6: a custom range is fixed, so nothing polls it.
+    @MainActor func testCustomRangeDoesNotAutoRefresh() {
+        launchLogs(arguments: [RefreshFixture.live, RefreshFixture.interval, "2"])
+        defer { diagnostics("logs-auto-refresh-custom") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        let time = app.buttons["logs.time"]
+        openCustomRange(from: time).tap()
+        XCTAssertTrue(time.poll(NSPredicate(format: "label CONTAINS %@", " – "), timeout: 10), time.label)
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        let polled = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "logs.row.usage.20")).firstMatch
+        XCTAssertFalse(polled.waitForExistence(timeout: 6), app.debugDescription)
+    }
+
+    /// The 自定义… sheet's 应用; a poll redrawing the list can swallow a tap on the menu, so it is tried again.
+    @MainActor private func openCustomRange(from time: XCUIElement) -> XCUIElement {
+        let apply = app.buttons["logs.time.custom.apply"]
+        let item = app.buttons.matching(NSPredicate(format: "identifier == '' AND label == %@", "自定义…")).firstMatch
+        for _ in 0..<3 where !apply.exists {
+            time.tap()
+            if item.waitForExistence(timeout: 3) { item.tap() }
+            _ = apply.waitForExistence(timeout: 3)
+        }
+        XCTAssertTrue(apply.exists, app.debugDescription)
+        return apply
+    }
+    /// The rows on screen, top first, read from one snapshot: the polls keep changing the list.
+    @MainActor private func shownRowIDs(_ scope: String) -> [Int] {
+        let prefix = "logs.row.\(scope)."
+        guard let tree = try? app.snapshot() else { return [] }
+        var tops: [Int: CGFloat] = [:]
+        var pending: [any XCUIElementSnapshot] = [tree]
+        while let node = pending.popLast() {
+            if node.identifier.hasPrefix(prefix), let id = Int(node.identifier.dropFirst(prefix.count)) {
+                tops[id] = min(tops[id] ?? .greatestFiniteMagnitude, node.frame.minY)
+            }
+            pending += node.children
+        }
+        return tops.sorted { $0.value < $1.value }.map(\.key)
+    }
 }

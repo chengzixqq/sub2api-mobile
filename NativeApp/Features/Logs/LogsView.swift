@@ -2,9 +2,10 @@ import SwiftUI
 import Sub2Core
 
 /// 40 §6 使用记录: the route's scope and conditions come in; LogsStore, registered for this tab and route (C-13), decides what to
-/// read. This view draws the segments, the capsules, the day sections and the states, and reports appearing, the foreground and
-/// the ops switch. A row pushes `.request` with its record. `pushesInPlace` is the old group page's entry only (LegacyLogsEntry):
-/// changing the path would pop that page, so the detail is pushed by the view and the store is not registered.
+/// read. This view draws the segments, the capsules, the day sections and the states, and reports appearing, the tab, the rows on
+/// screen, the foreground and the ops switch; it polls while the page shows in an active App (40 §6.6; D18: the scene phase is
+/// read, not observed). A row pushes `.request` with its record. `pushesInPlace` is the old group page's entry only
+/// (LegacyLogsEntry): changing the path would pop that page, so the detail is pushed by the view and the store is not registered.
 struct LogsView: View {
     static let title = "使用记录"
     static let loadingText = "正在读取记录…"
@@ -13,6 +14,7 @@ struct LogsView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
     @Environment(\.sessionContext) private var session
+    @Environment(\.scenePhase) private var scenePhase
     private let route: LogsRoute
     /// X20：S4-20 删除 LegacyLogsEntry 时一并删除。
     private let pushesInPlace: Bool
@@ -21,10 +23,20 @@ struct LogsView: View {
     /// X20：S4-20 删除 LegacyLogsEntry 时一并删除。
     @State private var openedRequest: RequestRoute?
     @State private var pickingRange = false
+    /// Between onAppear and onDisappear: not covered by a pushed page.
+    @State private var onScreen = false
+
+    /// The poll's task restarts with the store, the segment, and whether it should run (S4-06).
+    private struct AutoRefreshKey: Hashable {
+        let store: ObjectIdentifier?
+        let scope: LogScope?
+        let polls: Bool
+    }
 
     init(route: LogsRoute, pushesInPlace: Bool = false) { self.route = route; self.pushesInPlace = pushesInPlace }
 
     var body: some View {
+        let key = autoRefreshKey
         content
             .navigationTitle(Self.title)
             .navigationBarTitleDisplayMode(.inline)
@@ -32,9 +44,14 @@ struct LogsView: View {
             // X20：S4-20 删除 LegacyLogsEntry 时一并删除。
             .navigationDestination(item: $openedRequest) { LogRouteDestination(route: .request($0)) }
             .sheet(isPresented: $pickingRange) { if let store { customRange(store) } }
-            .onAppear(perform: appear)
+            .onAppear { onScreen = true; appear() }
             .onChange(of: model.sessionGeneration) { _, _ in appear() }
-            .onDisappear { store?.disappeared() }
+            .onDisappear { onScreen = false; store?.disappeared() }
+            .onChange(of: router.selectedTab) { _, selected in tabSelected(selected) }
+            .task(id: key) {
+                guard key.polls, let store else { return }
+                await store.autoRefreshPolling()
+            }
             // A read stopped by the background is read again on return (D18).
             .onChange(of: model.foregroundRevision) { _, _ in Task { await store?.foregroundResumed() } }
             .onChange(of: model.liveOps?.opsRevision) { _, _ in Task { await store?.opsAvailabilityChanged() } }
@@ -46,6 +63,10 @@ struct LogsView: View {
         } else {
             ProgressView(Self.loadingText).frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityIdentifier("logs.loading")
         }
+    }
+    private var autoRefreshKey: AutoRefreshKey {
+        let polls = store.map { $0.isVisible && $0.autoRefreshes } == true && scenePhase == .active
+        return AutoRefreshKey(store: store.map { ObjectIdentifier($0) }, scope: store?.scope, polls: polls)
     }
     private var subtitle: String {
         let site = model.activeProfile?.name ?? ""
@@ -69,6 +90,11 @@ struct LogsView: View {
         let tab = self.tab ?? router.selectedTab
         self.tab = tab
         store = pageStates.state(PageStateKey.logs(route), tab: tab, prunedBy: router, make: make)
+    }
+    /// S4D2a-06: another tab hides the page; its own tab shows it again unless a pushed page covers it.
+    private func tabSelected(_ selected: MainTab) {
+        guard let store, let tab else { return }
+        if selected != tab { store.disappeared() } else if onScreen { Task { await store.appeared() } }
     }
     private func open(_ request: RequestRoute) {
         if pushesInPlace { openedRequest = request } else { router.push(.request(request)) }
@@ -170,7 +196,11 @@ private struct LogsList: View {
         let positions = section.railPositions
         return ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
             rowButton(row, position: positions[index])
-                .onAppear { if row.id == lastID { Task { await store.loadMoreIfNeeded(after: row.id) } } }
+                .onAppear {
+                    store.rowAppeared(row.id)
+                    if row.id == lastID { Task { await store.loadMoreIfNeeded(after: row.id) } }
+                }
+                .onDisappear { store.rowDisappeared(row.id) }
         }
     }
     private func rowButton(_ row: LogRowPresentation, position: RailPosition?) -> some View {

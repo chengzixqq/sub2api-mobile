@@ -2,16 +2,33 @@ import Foundation
 import Observation
 import Sub2Core
 
-/// 40 §6.2: the page's two list reads, or the UI-test fixtures (LogFixtures).
+/// 40 §6.2: the page's two list reads and their cursor reads, or the UI-test fixtures (LogFixtures).
 struct LogsSource: Sendable {
-    let usage: @Sendable (_ page: Int, _ filter: RequestLogFilter) async throws -> Page<UsageRequestRecord>
-    let errors: @Sendable (_ page: Int, _ filter: RequestLogFilter, _ kind: ErrorLogKind) async throws -> Page<RequestErrorRecord>
+    typealias UsageRead = @Sendable (_ page: Int, _ filter: RequestLogFilter) async throws -> Page<UsageRequestRecord>
+    typealias ErrorRead = @Sendable (_ page: Int, _ filter: RequestLogFilter, _ kind: ErrorLogKind) async throws -> Page<RequestErrorRecord>
+    typealias CursorRead<Record: Decodable & Sendable> = @Sendable (_ sinceID: Int, _ filter: RequestLogFilter) async throws -> Page<Record>
+    let usage: UsageRead
+    let errors: ErrorRead
+    /// 00 §4.3 (S4-06): asked only on a site with `logs.since_id`, and never for upstream errors, which have no cursor.
+    let usageSince: CursorRead<UsageRequestRecord>
+    let errorsSince: CursorRead<RequestErrorRecord>
+
+    /// What the cursor reads answer unless given.
+    static let noCursor = APIError(kind: .unsupported, message: "这里不按游标读取。")
+
+    init(usage: @escaping UsageRead, errors: @escaping ErrorRead,
+         usageSince: @escaping CursorRead<UsageRequestRecord> = { _, _ in throw LogsSource.noCursor },
+         errorsSince: @escaping CursorRead<RequestErrorRecord> = { _, _ in throw LogsSource.noCursor }) {
+        self.usage = usage; self.errors = errors; self.usageSince = usageSince; self.errorsSince = errorsSince
+    }
 
     /// R19's methods; `key_view=masked` only with the site's `api_keys.masked_view` (S4D1-06).
     static func live(_ client: APIClient, site: SiteSession) -> LogsSource {
         let masked = site.has(.apiKeysMaskedView)
         return LogsSource(usage: { try await client.requestRecords(page: $0, filter: $1, maskedView: masked) },
-                          errors: { try await client.errorRecords(page: $0, filter: $1, kind: $2) })
+                          errors: { try await client.errorRecords(page: $0, filter: $1, kind: $2) },
+                          usageSince: { try await client.requestRecords(sinceID: $0, filter: $1, maskedView: masked) },
+                          errorsSince: { try await client.errorRecords(sinceID: $0, filter: $1) })
     }
 }
 
@@ -46,8 +63,9 @@ struct LogListFailure: Sendable {
 /// 40 §6: the usage-record page's state, registered in PageStateRegistry under `PageStateKey.logs(route)` (LogsStore). Each
 /// segment keeps its own rows and paging; the conditions and the time are shared. It reads page 1 on first appearance, on a
 /// segment, time or condition change, on pull, back from the background while shown (D18) and once ops monitoring is on again;
-/// the last row reads the next page. Nothing goes out during a 429 wait (00 §2.7.2), and the error segments send nothing while
-/// ops monitoring is off. A reply of an older read or session is dropped.
+/// the last row reads the next page. Over a rolling preset it also polls the shown segment (S4-06), back from the background
+/// too. Nothing goes out during a 429 wait (00 §2.7.2), and the error segments send nothing while ops monitoring is off. A
+/// reply of an older read or session is dropped.
 @MainActor @Observable
 final class LogsStoreState {
     let generation: UUID
@@ -75,18 +93,37 @@ final class LogsStoreState {
     @ObservationIgnored private let reportOps: @MainActor ((any Error)?) async -> Void
     /// Changes with every read and every reset; a reply carrying an older one is dropped.
     @ObservationIgnored private var ticket = UUID()
+    // S4-06 自动刷新（40 §6.6）
+    @ObservationIgnored private let supportsSinceID: Bool
+    @ObservationIgnored private let policy: LogListPolicy
+    @ObservationIgnored private let pollInterval: TimeInterval
+    /// Increments since each cursor segment's last page 1 (upstream errors are never calibrated).
+    @ObservationIgnored private var pollSchedules: [LogScope: LogPollSchedule] = [:]
+    /// When each segment's last page 1 or poll ended, on the phone's clock: 00 §4.6 counts the interval from there.
+    @ObservationIgnored private var lastPolls: [LogScope: Date] = [:]
+    @ObservationIgnored private var isPolling = false
+    /// The shown rows on screen, as LogsView's rows report appearing and going (List has no visible-row API).
+    @ObservationIgnored private var visibleRows: Set<Int> = []
+    /// A poll left more than N rows while the list was scrolled down: the tail goes once it is back near the top.
+    @ObservationIgnored private var pendingTrim = false
+
+    /// 40 §6.6: once a minute.
+    static let standardPollInterval: TimeInterval = 60
 
     /// `now` is the server clock; `phoneNow` times the 429 wait, as BlockFailureRow counts it down and reads again on the phone's
     /// clock; `opsDisabled` the session's ops switch; `reportOps` hands each error read's outcome to LiveOpsStore (S1D1-02);
-    /// `countSource` answers the segments' counts.
+    /// `countSource` answers the segments' counts. `supportsSinceID` is `logs.since_id`; `policy` holds N and the page size.
     init(route: LogsRoute, generation: UUID, source: LogsSource, timeZone: ServerTimeZone, legacyServer: Bool, supportsModelSource: Bool,
          isCurrent: @escaping @MainActor () -> Bool, now: @escaping @MainActor () -> Date,
          phoneNow: @escaping @MainActor () -> Date = { Date() }, opsDisabled: @escaping @MainActor () -> Bool = { false },
-         reportOps: @escaping @MainActor ((any Error)?) async -> Void = { _ in }, countSource: LogCountSource = .unavailable) {
+         reportOps: @escaping @MainActor ((any Error)?) async -> Void = { _ in }, countSource: LogCountSource = .unavailable,
+         supportsSinceID: Bool = false, policy: LogListPolicy = LogListPolicy(),
+         pollInterval: TimeInterval = LogsStoreState.standardPollInterval) {
         self.generation = generation; self.timeZone = timeZone; self.source = source
         self.legacyServer = legacyServer; self.supportsModelSource = supportsModelSource
         self.isCurrent = isCurrent; self.clock = now; self.phoneClock = phoneNow
         self.opsDisabled = opsDisabled; self.reportOps = reportOps
+        self.supportsSinceID = supportsSinceID; self.policy = policy; self.pollInterval = pollInterval
         counter = LogSegmentCounter(source: countSource) { await reportOps($0) }
         scope = route.scope
         conditions = route.conditions
@@ -99,7 +136,9 @@ final class LogsStoreState {
 
     var chips: LogFilterChips { chips(for: scope) }
     /// The request's conditions: the greyed chips are left out (40 §6.4).
-    func filter(for scope: LogScope, window: LogTimeWindow) -> RequestLogFilter { chips(for: scope).filter(time: window) }
+    func filter(for scope: LogScope, window: LogTimeWindow) -> RequestLogFilter {
+        chips(for: scope).filter(time: window, pageSize: policy.pageSize)
+    }
     /// The custom range sheet's first values.
     func currentWindow() -> LogTimeWindow { shown.window ?? time.window(now: clock()) }
     var phase: LogSegmentPhase { shown.phase }
@@ -111,8 +150,11 @@ final class LogsStoreState {
         return page > 1
     }
     var failure: LogListFailure? {
-        guard case .failed(let page) = phase else { return nil }
-        return LogListFailure(page: page, error: shown.lastError, occurredAt: shown.lastErrorAt)
+        switch phase {
+        case .failed(let page): LogListFailure(page: page, error: shown.lastError, occurredAt: shown.lastErrorAt)
+        case .refreshFailed: LogListFailure(page: 1, error: shown.lastError, occurredAt: shown.lastErrorAt)
+        default: nil
+        }
     }
     var showsOpsNotice: Bool { scope.errorKind != nil && (phase == .opsDisabled || opsDisabled()) }
     /// 40 §6.5 empty states.
@@ -146,11 +188,16 @@ final class LogsStoreState {
         await loadCounted(scope)
     }
     func disappeared() { isVisible = false }
-    /// D18: a shown page reads its segment's page 1 again, and only the counts the background stopped.
+    /// D18: a shown page polls at once while it auto-refreshes (40 §6.6), else reads its segment's page 1 again; only the
+    /// counts the background stopped are asked.
     func foregroundResumed() async {
         guard isVisible else { return }
-        resumeCounts(listReadsAgain: true)
-        await loadFirstPage(scope)
+        guard autoRefreshes else {
+            resumeCounts(listReadsAgain: true)
+            return await loadFirstPage(scope)
+        }
+        resumeCounts(listReadsAgain: false)
+        await refreshTick()
     }
     /// LiveOpsStore's switch moved: an error segment that ops monitoring held back reads once it is on, as on entering.
     func opsAvailabilityChanged() async {
@@ -169,6 +216,7 @@ final class LogsStoreState {
         self.scope = scope
         ticket = UUID()
         reset(scope)
+        visibleRows = []; pendingTrim = false
         refreshSections()
         await loadFirstPage(scope)
     }
@@ -187,11 +235,13 @@ final class LogsStoreState {
     }
     /// The last row appeared: the next page, joined by id (40 §6.4).
     func loadMoreIfNeeded(after id: Int) async {
-        guard phase == .loaded, let next = shown.nextPage, sections.last?.rows.last?.id == id else { return }
+        guard isPollable, let next = shown.nextPage, sections.last?.rows.last?.id == id else { return }
         await load(scope, page: next, window: nextPageWindow())
     }
+    /// A failed poll polls again (S4-06); a failed read reads its page again.
     func retry() async {
         guard let failure else { return }
+        if phase == .refreshFailed { return await refreshTick() }
         if failure.page == 1 { await loadFirstPage(scope) } else { await load(scope, page: failure.page, window: nextPageWindow()) }
     }
 
@@ -221,6 +271,7 @@ final class LogsStoreState {
     private func resetAll() {
         ticket = UUID()
         usage = LogSegment(); errors = LogSegment(); upstream = LogSegment()
+        visibleRows = []; pendingTrim = false
         refreshSections()
     }
     /// Page 1 of one segment in a new window, nothing else (S4-05b counts in the user's entries, S4-06 reloads through this).
@@ -264,6 +315,7 @@ final class LogsStoreState {
         case .success(let reply):
             refresh = refresh.recordingSuccess()
             land(current().applying(reply, page: page), update: update)
+            if page == 1 { firstPageLanded(scope) }
             if isErrorSegment { await reportOps(nil) }
         // Only a read that never got its answer: a reply that came in counts, even for a caller that has gone.
         case .failure(let error) where error is CancellationError:
@@ -345,5 +397,197 @@ extension LogListFailure {
         guard let error else { return false }
         if error.statusCode == 400 { return !IncrementalPolicy.shouldRestartFromFirstPage(error) }
         return error.statusCode == nil && error.kind == .validation
+    }
+}
+
+// MARK: - S4-06 自动刷新（40 §6.6）
+
+/// What one poll reads (00 §4.3): past the cursor, step 7's time window, page 1 joined in (calibration), or page 1 in place
+/// of rows with nothing to continue from.
+private enum LogPollFetch {
+    case since(Int, RequestLogFilter)
+    case window(RequestLogFilter)
+    case calibration(RequestLogFilter)
+    case firstPage(RequestLogFilter)
+}
+
+extension LogsStoreState {
+    /// 40 §6.6: a rolling preset over a segment that has loaded, unless ops monitoring holds it back. LogsView polls while this
+    /// holds, the page shows and the App is active.
+    var autoRefreshes: Bool {
+        guard time.isRolling, !showsOpsNotice else { return false }
+        return hasRows || isPollable
+    }
+
+    /// 00 §4.6: polls the shown segment for as long as the caller's task lives (LogsView keys it on D18's scene phase).
+    func autoRefreshPolling() async {
+        while !Task.isCancelled {
+            do { try await Task.sleep(for: .seconds(max(1, nextAutoRefreshDelay()))) } catch { return }
+            if nextAutoRefreshDelay() <= 0 { await refreshTick() }
+        }
+    }
+    /// The rest of a 429 wait; otherwise the interval, doubled after failures up to 300 seconds (00 §4.6), less the time since
+    /// the shown segment's last read ended. A poll on its way, or a segment not ready for one, waits a whole interval.
+    func nextAutoRefreshDelay() -> TimeInterval {
+        let now = phoneClock()
+        guard !isPolling, isPollable, let last = lastPolls[scope] else { return pollInterval }
+        guard refresh.allowsRequest(at: now) else { return refresh.nextDelay(base: pollInterval, at: now) }
+        let elapsed = now.timeIntervalSince(last)
+        guard elapsed >= 0 else { return 0 }
+        return max(0, BlockRefresh.nextRefreshInterval(base: pollInterval, consecutiveFailures: refresh.consecutiveFailures) - elapsed)
+    }
+    /// One poll of the shown segment (40 §6.6): new rows join on top and the counts stay. has_more, more than one page and
+    /// since_id's two 400s read page 1 again without a word; other failures keep the rows and say so at the list's end.
+    func refreshTick() async {
+        guard autoRefreshes, isVisible, isPollable, !isPolling, isCurrent(), refresh.allowsRequest(at: phoneClock()) else { return }
+        let scope = self.scope
+        isPolling = true
+        defer { isPolling = false; lastPolls[scope] = phoneClock() }
+        switch scope {
+        case .usage:
+            await poll(scope, current: { usage }, update: { usage = $0 }, page: source.usage, since: source.usageSince)
+        case .errors, .upstream:
+            let page = source.errors, kind = scope.errorKind ?? .request
+            await poll(scope, current: { errorSegment(scope) }, update: { setErrorSegment($0, for: scope) },
+                       page: { try await page($0, $1, kind) }, since: source.errorsSince)
+        }
+    }
+    /// LogsView's rows report showing and going; the first shown one stands for the scroll position (S4D2a-06). A trim a poll
+    /// left waiting lands once the list is near the top again.
+    func rowAppeared(_ id: Int) {
+        visibleRows.insert(id)
+        guard pendingTrim else { return }
+        switch scope {
+        case .usage:
+            trimNearTop(current: { usage }, update: { usage = $0 })
+        case .errors, .upstream:
+            let scope = scope
+            trimNearTop(current: { errorSegment(scope) }, update: { setErrorSegment($0, for: scope) })
+        }
+    }
+    func rowDisappeared(_ id: Int) { visibleRows.remove(id) }
+
+    /// Loaded, its last poll perhaps failed: nothing of the segment is on its way.
+    private var isPollable: Bool { phase == .loaded || phase == .refreshFailed }
+
+    private func poll<Record: IncrementalRecord & Decodable>(
+        _ scope: LogScope, current: () -> LogSegment<Record>, update: (LogSegment<Record>) -> Void,
+        page: @escaping @Sendable (Int, RequestLogFilter) async throws -> Page<Record>, since: @escaping LogsSource.CursorRead<Record>
+    ) async {
+        let window = time.window(now: clock()), ticket = self.ticket
+        let fetch = pollFetch(scope, list: current().list, base: filter(for: scope, window: window))
+        let result: Result<Page<Record>, any Error>
+        do { result = .success(try await readPoll(fetch, page: page, since: since)) } catch { result = .failure(error) }
+        // A reset, another read, an ended session or a page left since: the reply belongs to rows no longer shown.
+        guard ticket == self.ticket, isCurrent(), !Task.isCancelled else { return }
+        switch result {
+        case .success(let reply):
+            refresh = refresh.recordingSuccess()
+            await pollLanded(reply, of: fetch, scope: scope, window: window, current: current, update: update)
+            if scope.errorKind != nil { await reportOps(nil) }
+        case .failure(let error):
+            await pollFailed(error, scope: scope, current: current, update: update)
+        }
+    }
+    /// 00 §4.3: past the cursor with `logs.since_id`, else step 7's window. Upstream errors always read the window and are never
+    /// calibrated; every tenth increment of the others re-reads page 1 (40 §6.6).
+    private func pollFetch<Record: IncrementalRecord>(_ scope: LogScope, list: IncrementalList<Record>,
+                                                      base: RequestLogFilter) -> LogPollFetch {
+        let hasCursor = scope != .upstream
+        if hasCursor, pollSchedule(scope).next == .calibration { return .calibration(base) }
+        if hasCursor, supportsSinceID {
+            guard case .since(let id) = list.nextFetch(supportsSinceID: true, now: clock()) else { return .firstPage(base) }
+            return .since(id, base)
+        }
+        guard let window = LogListPolicy.fallbackRefreshFilter(after: list, base: base, now: clock()) else { return .firstPage(base) }
+        return .window(window)
+    }
+    private func readPoll<Record: IncrementalRecord & Decodable>(
+        _ fetch: LogPollFetch, page: @Sendable (Int, RequestLogFilter) async throws -> Page<Record>, since: LogsSource.CursorRead<Record>
+    ) async throws -> Page<Record> {
+        switch fetch {
+        case .since(let id, let filter): return try await since(id, filter)
+        case .window(let filter), .calibration(let filter), .firstPage(let filter): return try await page(1, filter)
+        }
+    }
+    private func pollLanded<Record: IncrementalRecord & Decodable>(_ reply: Page<Record>, of fetch: LogPollFetch, scope: LogScope,
+                                                                    window: LogTimeWindow, current: () -> LogSegment<Record>,
+                                                                    update: (LogSegment<Record>) -> Void) async {
+        let list = current().list
+        switch fetch {
+        case .since:
+            await stepped(list.applyingIncrement(reply.items, hasMore: reply.hasMore, latestID: reply.latestID), scope: scope,
+                          current: current, update: update)
+        case .window:
+            await stepped(LogListPolicy.fallbackRefreshStep(list, reply: reply), scope: scope, current: current, update: update)
+        case .calibration:
+            recordPoll(.calibration, for: scope)
+            landMerged(list.merging(reply.items, latestID: nil), current: current, update: update)
+        case .firstPage:
+            land(current().reloaded(reply, window: window), update: update)
+            firstPageLanded(scope)
+        }
+    }
+    /// has_more, or more than one page, left a gap: page 1 again, without counts (S4D2a-01).
+    private func stepped<Record: IncrementalRecord & Decodable>(_ step: IncrementalStep<Record>, scope: LogScope,
+                                                                 current: () -> LogSegment<Record>,
+                                                                 update: (LogSegment<Record>) -> Void) async {
+        switch step {
+        case .reloadFirstPage:
+            await loadFirstPage(scope)
+        case .merged(let merged):
+            recordPoll(.increment, for: scope)
+            landMerged(merged, current: current, update: update)
+        }
+    }
+    /// 00 §4.3 step 6 and 40 §6.5: since_id's two 400s read page 1 again unseen; a cancelled poll is let go; OPS_DISABLED shows
+    /// the notice; anything else keeps the rows, says so and stretches the interval (00 §4.6).
+    private func pollFailed<Record: IncrementalRecord & Decodable>(_ error: any Error, scope: LogScope,
+                                                                    current: () -> LogSegment<Record>,
+                                                                    update: (LogSegment<Record>) -> Void) async {
+        if IncrementalPolicy.shouldRestartFromFirstPage(error) { return await loadFirstPage(scope) }
+        if error is CancellationError { return }
+        if scope.errorKind != nil, AccountUpstreamErrors.isOpsDisabled(error) {
+            land(current().opsOff(), update: update)
+            return await reportOps(error)
+        }
+        refresh = refresh.recordingFailure(error, at: phoneClock())
+        land(current().refreshFailing(error, at: clock()), update: update)
+    }
+
+    /// After a poll's merge (40 §6.6): rows made before the window's start go; past N the tail goes near the top, and waits for
+    /// the way back up while the list is scrolled down.
+    private func landMerged<Record: IncrementalRecord & Decodable>(_ merged: IncrementalList<Record>,
+                                                                    current: () -> LogSegment<Record>,
+                                                                    update: (LogSegment<Record>) -> Void) {
+        let kept = LogListPolicy.pruned(merged, to: time.window(now: clock()))
+        let trim = policy.trimmed(kept, firstVisibleIndex: firstVisibleIndex(in: kept.items))
+        pendingTrim = trim == nil && kept.items.count > policy.limit
+        let segment = current().refreshed(kept)
+        land(trim.map(segment.trimmed) ?? segment, update: update)
+    }
+    private func trimNearTop<Record: IncrementalRecord & Decodable>(current: () -> LogSegment<Record>,
+                                                                     update: (LogSegment<Record>) -> Void) {
+        let segment = current()
+        guard isPollable, let trim = policy.trimmed(segment.list, firstVisibleIndex: firstVisibleIndex(in: segment.rows)) else { return }
+        pendingTrim = false
+        land(segment.trimmed(trim), update: update)
+    }
+    /// nil, the top, until a row shows; while the page is away a trim waits for it to show again.
+    private func firstVisibleIndex<Record: IncrementalRecord>(in rows: [Record]) -> Int? {
+        guard isVisible else { return Int.max }
+        return rows.firstIndex { visibleRows.contains($0.id) }
+    }
+    /// Any page 1 restarts the calibration count, the interval and a waiting trim (40 §6.6).
+    private func firstPageLanded(_ scope: LogScope) {
+        recordPoll(.calibration, for: scope)
+        lastPolls[scope] = phoneClock()
+        pendingTrim = false
+    }
+    private func pollSchedule(_ scope: LogScope) -> LogPollSchedule { pollSchedules[scope] ?? LogPollSchedule() }
+    /// Upstream errors keep no schedule: each of their polls already reads page 1 (S4D2a-04).
+    private func recordPoll(_ read: LogPollRead, for scope: LogScope) {
+        guard scope != .upstream else { return }
+        pollSchedules[scope] = pollSchedule(scope).recording(read)
     }
 }
