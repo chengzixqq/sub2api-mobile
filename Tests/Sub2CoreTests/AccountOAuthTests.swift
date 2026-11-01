@@ -78,11 +78,13 @@ private let claudeTokenJSON = #"{"access_token":"at-secret-fixture","token_type"
 
 @Test func authURLReplyKeepsStateAndRejectsUnsafeLinks() async throws {
     let gemini = ScriptedTransport(script: [.reply(linkReply("https://accounts.google.com/o/oauth2/v2/auth?state=g7Hn3", state: "g7Hn3"))])
+    let before = ContinuousClock.now
     let link = try await oauthClient(gemini).generateAuthURL(OAuthLinkRequest(platform: .gemini))
+    let after = ContinuousClock.now
     #expect(link.state == "g7Hn3" && link.sessionID == "sess-1" && link.platform == .gemini)
     #expect(link.authURL.absoluteString == "https://accounts.google.com/o/oauth2/v2/auth?state=g7Hn3")
-    let remaining = link.lifetime.remaining(at: ContinuousClock.now)
-    #expect(remaining > .seconds(1_799) && remaining <= .seconds(1_800))
+    #expect(link.lifetime.generatedAt >= before && link.lifetime.generatedAt <= after)
+    #expect(link.lifetime.remaining(at: link.lifetime.generatedAt) == .seconds(1_800))
     #expect(!String(describing: link).contains("sess-1") && !String(describing: link).contains("g7Hn3"))
     let openai = ScriptedTransport(script: [.reply(linkReply("https://auth.openai.com/oauth/authorize?client_id=x&state=st-url"))])
     #expect(try await oauthClient(openai).generateAuthURL(OAuthLinkRequest(platform: .openai)).state == "st-url")
