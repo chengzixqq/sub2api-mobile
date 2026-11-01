@@ -27,11 +27,13 @@ struct AnalyticsMoreCard: View {
         }
     }
 
-    /// 用户用量 and 请求类型 come with S4-17b, 错误趋势 and 请求时长分布 with S4-18b; each replaces its own case.
+    /// 错误趋势 and 请求时长分布 come with S4-18b; each replaces its own case.
     @ViewBuilder private func tile(_ chart: AnalyticsChartKey, session: AnalyticsSession) -> some View {
         switch chart {
         case .tokens: AnalyticsTokenTile(session: session)
+        case .userTrend: AnalyticsUserTrendTile(session: session)
         case .endpoints: AnalyticsEndpointTile(session: session)
+        case .reqType: AnalyticsRequestTypeTile(session: session)
         default: AnalyticsMoreTile(chart: chart, model: .placeholder)
         }
     }
@@ -144,16 +146,52 @@ private struct AnalyticsEndpointTile: View {
     }
 }
 
-// MARK: - 缩略图
+/// 用户用量趋势's tile over its Tokens segment (the card's read): “12.4M” Tokens / “第 1 · Nova 工作室” and that user's line.
+private struct AnalyticsUserTrendTile: View {
+    let session: AnalyticsSession
+    @Environment(\.sessionContext) private var context
 
-/// A tile's sketch (S4-17b and S4-18b add their kinds): Token 使用趋势's columns, a share list's bars.
-enum AnalyticsSketch: Equatable, Sendable {
-    case tokenStacks([TokenMix])
-    /// The first five, longest first.
-    case hbars([Double])
+    var body: some View {
+        let supports = context?.has(.dashboardUsersTrendFilteredMetric) ?? false
+        AnalyticsMoreTile(chart: .userTrend, model: .of(session.state(.userTrend(.tokens), as: UserUsageSeries.self)) { series in
+            AnalyticsTileModel(text: series.tile, sketch: series.rows.first.map { AnalyticsSketch.line($0.normalized) })
+        })
+        .analyticsCardLoading("moreCard.tile.userTrend", session: session) { [session] refresh in
+            await UsageChartLoads.userTrend(session, metric: .tokens, supportsFilteredMetric: supports, refresh: refresh)
+        }
+    }
 }
 
-/// A sketch 34pt high, not read: the columns in TokenKindStyle's fills with a 1pt seam, or up to five bars from the left.
+/// 请求类型's tile, with ops off only (the card's read): “72%” / “流式占请求” and the five types' requests in small.
+private struct AnalyticsRequestTypeTile: View {
+    let session: AnalyticsSession
+    @Environment(AppModel.self) private var model
+    @Environment(\.sessionContext) private var context
+
+    var body: some View {
+        let supports = context?.has(.dashboardRequestTypes) ?? false
+        AnalyticsMoreTile(chart: .reqType, model: .of(session.state(.requestTypes, as: RequestTypeMix.self)) { mix in
+            AnalyticsTileModel(text: mix.tile, sketch: mix.isEmpty ? nil : .hbars(mix.rows.map { Double($0.requests) }))
+        })
+        .analyticsCardLoading("moreCard.tile.reqType", session: session) { [session, model] refresh in
+            // Still registered once ops is back on and the tile has gone: it reads nothing then (S4D2b-02 ②).
+            guard model.analyticsOpsDisabled else { return }
+            await UsageChartLoads.requestTypes(session, supportsRequestTypes: supports, refresh: refresh)
+        }
+    }
+}
+
+// MARK: - 缩略图
+
+/// A tile's sketch (S4-18b adds its kinds): Token 使用趋势's columns, a share list's bars, a 0–1 line (用户用量's first user).
+enum AnalyticsSketch: Equatable, Sendable {
+    case tokenStacks([TokenMix])
+    /// The first five, in the order given; one at 0 has no bar.
+    case hbars([Double])
+    case line([Double])
+}
+
+/// A sketch 34pt high, not read: the columns in TokenKindStyle's fills with a 1pt seam, up to five bars from the left, or a line.
 struct AnalyticsSketchView: View {
     static let height: CGFloat = 34
 
@@ -167,6 +205,7 @@ struct AnalyticsSketchView: View {
             switch sketch {
             case .tokenStacks(let mixes): SketchDrawing.stacks(mixes, in: &context, size: size)
             case .hbars(let values): SketchDrawing.bars(values, in: &context, size: size)
+            case .line(let values): SketchDrawing.line(values, in: &context, size: size)
             }
         }
         .frame(height: Self.height)
@@ -179,6 +218,7 @@ private enum SketchDrawing {
     static let stripePitch: CGFloat = 3
     static let stripeLine: CGFloat = 1.4
     static let barRows = 5
+    static let lineWidth: CGFloat = 1.5
 
     static func stacks(_ mixes: [TokenMix], in context: inout GraphicsContext, size: CGSize) {
         let columns = AnalyticsSeries.tokenColumns(mixes, only: nil)
@@ -199,11 +239,16 @@ private enum SketchDrawing {
         let shown = Array(values.prefix(barRows)), top = shown.max() ?? 0
         guard top > 0 else { return }
         let pitch = size.height / CGFloat(barRows), thickness = pitch * 0.6
-        for (index, value) in shown.enumerated() {
+        for (index, value) in shown.enumerated() where value > 0 {
             let width = max(3, size.width * value / top)
             context.fill(Path(roundedRect: CGRect(x: 0, y: CGFloat(index) * pitch, width: width, height: thickness), cornerRadius: 1),
                          with: .color(Palette.chartBar))
         }
+    }
+
+    static func line(_ values: [Double], in context: inout GraphicsContext, size: CGSize) {
+        let path = AnalyticsSparklineShape(values: values).path(in: CGRect(origin: .zero, size: size))
+        context.stroke(path, with: .color(Palette.chartMain), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
     }
 
     private static func fill(_ rect: CGRect, kind: TokenKind, in context: inout GraphicsContext) {

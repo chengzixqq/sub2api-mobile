@@ -77,7 +77,7 @@ final class AnalyticsMoreUITests: XCTestCase {
         let tokens = element("analytics.moreCard.tile.tokens")
         app.waitForLabel(tokens, containing: "Tokens")
         app.waitForLabel(tokens, containing: "缓存读占 54%")
-        app.waitForLabel(element("analytics.moreCard.tile.userTrend"), containing: "稍后提供")
+        app.waitForLabel(element("analytics.moreCard.tile.userTrend"), containing: "第 1 · Nova 工作室")
 
         openTile("tokens")
         assertBelowTopicBar(element("analytics.more.chart.tokens"))
@@ -209,5 +209,132 @@ final class AnalyticsMoreUITests: XCTestCase {
         goBack()
         XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.rangeSegment("今天").poll(NSPredicate(format: "isSelected == true"), timeout: 5), app.debugDescription)
+    }
+
+    // MARK: 用户用量趋势与请求类型（40 §2.3，S4-17b）
+
+    private enum UsageArgument {
+        static let without = "-ui-without-capabilities"
+        static let refreshChanges = "-ui-analytics-refresh-changes"
+    }
+
+    @MainActor private func userTrendRow(_ userID: Int) -> XCUIElement { element("analytics.userTrend.row.\(userID)") }
+    @MainActor private func requestTypeRow(_ type: String) -> XCUIElement { element("analytics.reqType.row.\(type)") }
+    @MainActor private var userTrendMetric: XCUIElement { app.segmentedControls["analytics.userTrend.metric"] }
+    /// The navigation bar's filter sheet, then a group row.
+    @MainActor private func filterByGroup(_ id: Int, file: StaticString = #filePath, line: UInt = #line) {
+        app.navigationBars.buttons["analytics.filter.button"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        let row = element("analytics.filter.row.group.\(id)")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].pollGone(timeout: 5), app.debugDescription, file: file, line: line)
+    }
+
+    @MainActor func testUserTrendSwitchesMetricReordersRowsAndOpensUser() {
+        openMoreCard()
+        let tile = element("analytics.moreCard.tile.userTrend")
+        app.waitForLabel(tile, containing: "12.4M Tokens")
+        app.waitForLabel(tile, containing: "第 1 · Nova 工作室")
+        openTile("userTrend")
+        assertBelowTopicBar(element("analytics.more.chart.userTrend"))
+        app.waitForLabel(userTrendRow(21), containing: "第 1 名，Nova 工作室，12.4M Tokens")
+        let note = element("analytics.userTrend.note")
+        app.scrollUntilExists(note)
+        app.waitForLabel(note, containing: "按 Tokens 取前 12 位，这里显示前 5 位；每条线用自己的刻度，只看走势。")
+        // By Tokens Mira Labs is fifth and Pixel 工坊 sixth.
+        app.waitForLabel(userTrendRow(24), containing: "第 5 名，Mira Labs")
+        XCTAssertFalse(userTrendRow(25).exists, app.debugDescription)
+        attachScreenshot("more-user-trend-tokens")
+
+        app.scrollUntilExists(userTrendMetric, towardBottom: false)
+        userTrendMetric.buttons["实际扣费"].tap()
+        app.waitForLabel(userTrendRow(22), containing: "第 1 名，Atlas 科技，$412.80")
+        app.waitForLabel(userTrendRow(21), containing: "第 2 名，Nova 工作室，$389.20")
+        app.waitForLabel(userTrendRow(25), containing: "第 5 名，Pixel 工坊")
+        XCTAssertFalse(userTrendRow(24).exists, app.debugDescription)
+        app.waitForLabel(note, containing: "按实际扣费取前 12 位，这里显示前 5 位")
+        attachScreenshot("more-user-trend-cost")
+
+        let atlas = userTrendRow(22)
+        app.scrollUntilExists(atlas, towardBottom: false)
+        atlas.tap()
+        XCTAssertTrue(element("user.detail").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor func testUserTrendUnderFilterWithoutFilteredMetricOffersTokensOnly() {
+        openMoreCard([UsageArgument.without, "dashboard.users_trend_filtered_metric"])
+        openTile("userTrend")
+        XCTAssertTrue(userTrendMetric.waitForExistence(timeout: 10), app.debugDescription)
+        userTrendMetric.buttons["实际扣费"].tap()
+        app.waitForLabel(userTrendRow(22), containing: "第 1 名，Atlas 科技，$412.80")
+
+        // The site cannot rank a filtered range by cost: only Tokens, and the footnote says so.
+        filterByGroup(1)
+        XCTAssertTrue(userTrendMetric.pollGone(timeout: 5), app.debugDescription)
+        app.waitForLabel(userTrendRow(21), containing: "第 1 名，Nova 工作室，12.4M Tokens")
+        app.waitForLabel(element("analytics.userTrend.note"), containing: "按 Tokens 取前 12 位")
+        attachScreenshot("more-user-trend-filtered")
+
+        let chip = element("analytics.filter.chip")
+        app.scrollUntilExists(chip, towardBottom: false)
+        chip.tap()
+        XCTAssertTrue(chip.pollGone(timeout: 5), app.debugDescription)
+        selectTopic("usage")
+        app.scrollUntilExists(userTrendMetric)
+        XCTAssertTrue(userTrendMetric.buttons["实际扣费"].waitForExistence(timeout: 10), app.debugDescription)
+        userTrendMetric.buttons["实际扣费"].tap()
+        app.waitForLabel(userTrendRow(22), containing: "第 1 名，Atlas 科技，$412.80")
+    }
+
+    @MainActor func testRequestTypesShowFiveFixedRowsHollowZeroAndTile() {
+        openMoreCard([Argument.opsDisabled])
+        let tile = element("analytics.moreCard.tile.reqType")
+        app.waitForLabel(tile, containing: "72%")
+        app.waitForLabel(tile, containing: "流式占请求")
+        openTile("reqType")
+        assertBelowTopicBar(element("analytics.more.chart.reqType"))
+        let rows = ["stream", "sync", "ws_v2", "cyber", "live"].map(requestTypeRow)
+        app.scrollUntilExists(rows[4])
+        app.waitForLabel(element("analytics.reqType.bar"), containing: "流式 72.1%，同步 23.7%，WS 3.4%，安全策略 0.9%")
+        app.waitForLabel(rows[0], containing: "流式，13,120 次请求，占 72.1%")
+        app.waitForLabel(rows[3], containing: "安全策略，162 次请求，占 0.9%")
+        app.waitForLabel(rows[4], containing: "Live，0 次请求，占 0.0%")
+        app.waitForValue(rows[4], equal: "没有请求")
+        for (upper, lower) in zip(rows, rows.dropFirst()) {
+            XCTAssertLessThan(upper.frame.minY, lower.frame.minY, "\(upper) above \(lower)\n\(app.debugDescription)")
+        }
+        attachScreenshot("more-request-types")
+    }
+
+    @MainActor func testRequestTypesFallBackToPerTypeUsageStatsWithoutCapability() {
+        openMoreCard([Argument.opsDisabled, UsageArgument.without, "dashboard.request_types"])
+        // 9,800 of 12,000: the fallback's numbers, not the dashboard's.
+        app.waitForLabel(element("analytics.moreCard.tile.reqType"), containing: "82%")
+        openTile("reqType")
+        let live = requestTypeRow("live")
+        app.scrollUntilExists(live)
+        app.waitForLabel(requestTypeRow("stream"), containing: "流式，9,800 次请求")
+        app.waitForLabel(requestTypeRow("ws_v2"), containing: "WS，0 次请求")
+        app.waitForValue(requestTypeRow("ws_v2"), equal: "没有请求")
+        app.waitForLabel(live, containing: "Live，60 次请求")
+        XCTAssertTrue(element("analytics.reqType.bar").exists, app.debugDescription)
+    }
+
+    @MainActor func testMoreChartsPullToRefreshRereadsLoadedCards() {
+        openMoreCard([UsageArgument.refreshChanges])
+        openAllCharts()
+        selectTopic("usage")
+        let nova = userTrendRow(21)
+        app.scrollUntilExists(nova)
+        app.waitForLabel(nova, containing: "12.4M")
+
+        let caption = element("analytics.range.caption")
+        app.scrollUntilExists(caption, towardBottom: false)
+        app.pullToRefresh(from: caption)
+        // The card scrolled away stays registered: the pull read it again (S4D2b-02 ⑤).
+        selectTopic("usage")
+        app.scrollUntilExists(nova)
+        app.waitForLabel(nova, containing: "24.8M")
     }
 }

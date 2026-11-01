@@ -210,13 +210,15 @@ private struct AnalyticsMoreChartCard: View {
         }
     }
 
-    /// 用户用量趋势 and 请求类型 come with S4-17b, the ops charts with S4-18 / S4-18b; each replaces its own case.
+    /// The ops charts come with S4-18 / S4-18b; each replaces its own case.
     @ViewBuilder private var chartBody: some View {
         switch chart {
         case .billing: AnalyticsBillingBody(size: .card)
         case .profit: AnalyticsProfitBody(size: .card)
         case .tokens: TokenTrendBody(size: .card)
+        case .userTrend: UserTrendBody(size: .card)
         case .endpoints: EndpointShareBody(size: .card)
+        case .reqType: RequestTypeBody(size: .card)
         default:
             Text("这张图会在后续版本提供。").font(.subheadline).foregroundStyle(Palette.ink2)
                 .frame(maxWidth: .infinity, minHeight: 88)
