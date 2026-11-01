@@ -60,7 +60,12 @@ public struct AnalyticsBillingCard: Equatable, Sendable {
         requests = DisplayFormat.grouped(summary?.requests)
         tokens = DisplayFormat.compact(summary?.tokens)
         averageDuration = (summary?.requests ?? 0) > 0 ? DisplayFormat.duration(summary?.averageDurationMs, style: .list) : DisplayFormat.missing
-        footTitle = "全部 \(range.buckets.count) " + (range.granularity == .hour ? "小时" : "天")
+        footTitle = Self.footTitle(range)
+    }
+
+    /// “全部 10 小时” / “全部 7 天”, also 利润明细's foot (S4-13b).
+    public static func footTitle(_ range: AnalyticsRange) -> String {
+        "全部 \(range.buckets.count) " + (range.granularity == .hour ? "小时" : "天")
     }
 
     /// 账号成本 / 标准 / 利润 (keys accountCost / standardCost / profit); without `total_account_cost` the first and the last are “—”.

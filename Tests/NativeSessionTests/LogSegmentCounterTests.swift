@@ -263,6 +263,54 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(await stub.calls.count == 4)
 }
 
+@MainActor @Test func stoppedListPageIsAskedOnlyWhenNotReadAgain() async {
+    let stub = LogCountStub(errors: { _, _, kind in kind == .request ? 4 : 6 })
+    let counter = LogSegmentCounter(source: stub.source)
+    counter.begin(countPlan(current: .errors))
+    await counter.settled()
+    counter.firstPageFailed(.errors, error: CancellationError())
+    counter.resumeInterrupted()
+    counter.firstPageLoaded(.errors, total: 7)
+    await counter.settled()
+    #expect(await stub.calls.count == 2)
+    #expect(counter.count(for: .errors) == .value(7))
+    counter.begin(countPlan(current: .errors))
+    await counter.settled()
+    counter.firstPageFailed(.errors, error: CancellationError())
+    counter.resumeInterrupted(listReadsAgain: false)
+    await counter.settled()
+    #expect(await stub.calls.count == 5)
+    #expect(await stub.calls.last == .errors(errorsFilter, .request))
+    counter.firstPageLoaded(.errors, total: 99)
+    #expect(counter.count(for: .errors) == .value(4))
+    counter.resumeInterrupted(listReadsAgain: false)
+    await counter.settled()
+    #expect(await stub.calls.count == 5)
+}
+
+@MainActor @Test func heldBackAsksReadDashWithoutGoingOut() async {
+    let stub = LogCountStub(usage: { call, _ in
+        if call == 1 { throw CancellationError() }
+        return 40
+    })
+    let counter = LogSegmentCounter(source: stub.source)
+    counter.begin(countPlan(current: .errors), holdingBack: true)
+    #expect(counts(counter) == [.unavailable, .pending, .unavailable])
+    counter.firstPageFailed(.errors, error: nil)
+    #expect(counter.count(for: .errors) == .unavailable)
+    counter.firstPageLoaded(.errors, total: 3)
+    #expect(counter.count(for: .errors) == .value(3))
+    #expect(await stub.calls.isEmpty)
+    counter.begin(countPlan(current: .upstream))
+    await counter.settled()
+    counter.firstPageFailed(.upstream, error: CancellationError())
+    #expect(await stub.calls.count == 2)
+    counter.resumeInterrupted(listReadsAgain: false, holdingBack: true)
+    await counter.settled()
+    #expect(await stub.calls.count == 2)
+    #expect(counts(counter) == [.unavailable, .value(0), .unavailable])
+}
+
 @MainActor @Test func resultsAfterCancelAreDropped() async {
     let gate = SessionGate()
     let stub = LogCountStub(usage: { _, _ in await gate.wait(); return 40 })

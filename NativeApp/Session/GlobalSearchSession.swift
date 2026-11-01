@@ -32,7 +32,8 @@ private struct SearchOutcome: Sendable {
 /// 60 §2.2 / §2.6: the search box's fan-out for one session. Each input waits 300 ms, then every planned section goes out at
 /// once and lands on its own; new input cancels the round before. A round that ended without a failure is reused for 30
 /// seconds while this object lives. Answers of a superseded round or of an ended session are dropped. A section that got
-/// 429 is not sent until its wait ends, then once for the query shown at that time (S6D2b-03).
+/// 429 is not sent until its wait ends, then once for the query shown at that time (S6D2b-03). A read the suspend cut off
+/// keeps its section searching and goes out again on `foregroundResumed()` (00 §4.6, D18).
 @MainActor @Observable
 final class GlobalSearchSession {
     nonisolated static let debounce: Duration = .milliseconds(300)
@@ -54,6 +55,8 @@ final class GlobalSearchSession {
     @ObservationIgnored private var ticket = UUID()
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored private var resends: [SearchSection: Task<Void, Never>] = [:]
+    /// Sections of the current round whose read was cancelled by the suspend.
+    @ObservationIgnored private var cutOff: Set<SearchSection> = []
     @ObservationIgnored private var cache: [GlobalSearchPlan: CachedSearch] = [:]
 
     init(generation: UUID, source: any GlobalSearchSource, me: @escaping @MainActor () -> AdminMe?, isCurrent: @escaping @MainActor () -> Bool,
@@ -66,6 +69,7 @@ final class GlobalSearchSession {
         let next = GlobalSearchQuery(text)?.plan(me: me())
         guard next != plan else { return }
         ticket = UUID()
+        cutOff = []
         tasks.forEach { $0.cancel() }
         tasks = []
         plan = next
@@ -86,6 +90,15 @@ final class GlobalSearchSession {
     /// FailureView's “重试”.
     func retryFailed() { retry(results?.failedSections ?? []) }
     func throttle(for section: SearchSection) -> BlockRefresh { throttles[section] ?? BlockRefresh() }
+    /// On `foregroundRevision`: the sections the suspend cut off go out again for the round shown, without the debounce.
+    func foregroundResumed() {
+        let resumed = cutOff
+        cutOff = []
+        guard let plan, let results, isCurrent() else { return }
+        let resend = plan.sections.filter { resumed.contains($0) && results.status(of: $0) == .searching }
+        guard !resend.isEmpty else { return }
+        start(resend, of: plan, debounced: false)
+    }
 
     // MARK: - Internals
 
@@ -114,7 +127,8 @@ final class GlobalSearchSession {
                     group.cancelAll()
                     return
                 }
-                land(outcome.result, for: outcome.section)
+                if GlobalSearchFailure.isCutOff(outcome.result) { cutOff.insert(outcome.section) }
+                else { land(outcome.result, for: outcome.section) }
             }
         }
     }

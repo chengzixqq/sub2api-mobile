@@ -302,7 +302,7 @@ struct BillingTrendCard: View {
     var body: some View {
         let summary = session.state(.billingSummary, as: AnalyticsSummary.self)
         let trend = session.state(.billingTrend, as: DashboardTrendReply.self)
-        let card = AnalyticsBillingCard(range: session.range, summary: summary?.value, comparison: comparison,
+        let card = AnalyticsBillingCard(range: session.range, summary: summary?.value, comparison: session.changeComparison,
                                         points: trend?.value?.points ?? [], selected: selection.selected)
         AnalyticsCard(title: "计费趋势", id: "analytics.billing") {
             AnalyticsChartLegend()
@@ -334,13 +334,6 @@ struct BillingTrendCard: View {
     }
 
     private var zone: TimeZone { session.timeZone.timeZone }
-    /// LoadState keeps `lastErrorAt` until a read succeeds, through a retry and a cancelled one.
-    private var comparison: AnalyticsBillingCard.Comparison {
-        let state = session.state(.billingComparison, as: AnalyticsSummary.self)
-        let totals = session.state(.billingSummary, as: AnalyticsSummary.self)
-        return AnalyticsBillingCard.Comparison(state?.state, lastReadFailed: state?.lastErrorAt != nil,
-                                               totalsLastReadFailed: totals?.lastErrorAt != nil)
-    }
     private func retry() {
         let session = session
         Task { await BillingTrendCard.load(session, refresh: true) }
@@ -375,8 +368,201 @@ struct BillingTrendCard: View {
     }
 }
 
-/// 40 §1.4 利润明细: S4-13b fills it in this file; AnalyticsView already has it at the profit anchor.
+extension AnalyticsSession {
+    /// The comparison window as the change lines of 计费趋势 and 利润明细 take it. LoadState keeps `lastErrorAt` until a read
+    /// succeeds, through a retry and a cancelled one.
+    var changeComparison: AnalyticsBillingCard.Comparison {
+        let window = state(.billingComparison, as: AnalyticsSummary.self)
+        let totals = state(.billingSummary, as: AnalyticsSummary.self)
+        return AnalyticsBillingCard.Comparison(window?.state, lastReadFailed: window?.lastErrorAt != nil,
+                                               totalsLastReadFailed: totals?.lastErrorAt != nil)
+    }
+}
+
+// MARK: - 利润明细（40 §1.4，S4-13b）
+
+extension AnalyticsCardKey {
+    /// ProfitSegmentCosts: an old server's segments of 利润明细, one `usage/stats` each (40 §1.3 降级).
+    static let profitSegments = AnalyticsCardKey("profit.segments")
+}
+
+extension AnalyticsSession {
+    /// 利润明细's lines once the trend has answered and, on an old server, its segments too; nil until then. S4-14's body reads it.
+    func profitBreakdown() -> ProfitBreakdown? {
+        guard let trend = state(.billingTrend, as: DashboardTrendReply.self)?.value else { return nil }
+        let summary = state(.billingSummary, as: AnalyticsSummary.self)?.value
+        let segments = state(.profitSegments, as: ProfitSegmentCosts.self)
+        if segments?.value == nil, segments?.error == nil,
+           !ProfitBreakdown.segmentsToRead(range: range, trend: trend.points, summary: summary).isEmpty {
+            return nil
+        }
+        return ProfitBreakdown(range: range, trend: trend.points, summary: summary, segments: segments?.value)
+    }
+
+    /// 40 §1.3 降级: the segments the trend has no account cost for, four at a time. A refresh reads only those whose window moved
+    /// or that are still missing; the others keep their answer until the range or the filter changes (S4D2b-09 ⑥).
+    func loadProfitSegments() async {
+        guard let trend = state(.billingTrend, as: DashboardTrendReply.self)?.value else { return }
+        let summary = state(.billingSummary, as: AnalyticsSummary.self)?.value
+        let previous = state(.profitSegments, as: ProfitSegmentCosts.self)?.value
+        let buckets = ProfitBreakdown.segmentsToRefresh(range: range, trend: trend.points, summary: summary, previous: previous)
+        guard !buckets.isEmpty else { return }
+        let request = query(), kept = previous ?? ProfitSegmentCosts()
+        await load(.profitSegments, refresh: true, fixture: { session in
+            kept.merging(try await AnalyticsFixtures.profitSegments(session, buckets: buckets), reread: buckets)
+        }) { client, _ in
+            kept.merging(try await client.profitSegmentCosts(request, buckets: buckets), reread: buckets)
+        }
+    }
+}
+
+/// 40 §1.4 利润明细: the range's profit (or the selected bar's) with its change, the bars with a loss below zero, the latest four
+/// buckets newest on top with the selected one highlighted, and the way to the chart page. It shares 计费趋势's three reads; on an
+/// old server it also reads the segments the trend has no account cost for. Identifiers analytics.profit.*.
 struct ProfitCard: View {
     let session: AnalyticsSession
-    var body: some View { EmptyView() }
+    @Environment(AppRouter.self) private var router
+    @State private var selection = AnalyticsChartSelection()
+
+    /// Close to the loaded card's height (S4D2b-16).
+    static let placeholderHeight: CGFloat = 280
+    /// The chart and the table, until the trend (or its segments) answers.
+    static let bodyHeight: CGFloat = 220
+
+    var body: some View {
+        let summary = session.state(.billingSummary, as: AnalyticsSummary.self)
+        let trend = session.state(.billingTrend, as: DashboardTrendReply.self)
+        let breakdown = session.profitBreakdown()
+        AnalyticsCard(title: ProfitCardText.title, id: "analytics.profit") {
+            Text(ProfitCardText.meta).font(.caption).foregroundStyle(Palette.ink3).lineLimit(1)
+                .accessibilityIdentifier("analytics.profit.meta")
+        } content: {
+            if summary?.value == nil, summary?.error == nil {
+                AnalyticsCardPlaceholder(height: Self.placeholderHeight, id: "analytics.profit")
+            } else {
+                headline(summary, picked: breakdown?.line(at: selection.selected))
+                AnalyticsCardBody(trend, id: "analytics.profit.trend", minHeight: Self.bodyHeight, timeZone: zone, showsStaleLine: false,
+                                  retry: retry) { _ in
+                    if let breakdown {
+                        details(breakdown)
+                    } else {
+                        AnalyticsCardPlaceholder(height: Self.bodyHeight, id: "analytics.profit.trend")
+                    }
+                }
+                AnalyticsCardFoot(title: AnalyticsBillingCard.footTitle(session.range), meta: ProfitCardText.title,
+                                  id: "analytics.profit.foot") { router.push(.analyticsChart(.profit)) }
+            }
+        }
+        .analyticsCardLoading("profit", session: session) { [session] refresh in await ProfitCard.load(session, refresh: refresh) }
+        // 计费趋势's own refresh or retry brings a new trend: its segments follow.
+        .task(id: ProfitSegmentTrigger(scope: session.scope, trend: trend?.updatedAt, summary: summary?.updatedAt)) { [session] in
+            await session.loadProfitSegments()
+        }
+        .onChange(of: session.scope) { _, _ in selection = AnalyticsChartSelection() }
+    }
+
+    /// 计费趋势's three reads, then an old server's segments; 重试本项 reads them all again.
+    static func load(_ session: AnalyticsSession, refresh: Bool) async {
+        await BillingTrendCard.load(session, refresh: refresh)
+        await session.loadProfitSegments()
+    }
+
+    private var zone: TimeZone { session.timeZone.timeZone }
+    private func retry() {
+        let session = session
+        Task { await ProfitCard.load(session, refresh: true) }
+    }
+
+    /// The big number with its label (one element), the status row under it, then the change or the selected bar's line.
+    @ViewBuilder private func headline(_ summary: LoadState<AnalyticsSummary>?, picked: ProfitBreakdown.Line?) -> some View {
+        let label = ProfitCardText.heroLabel(rangeName: session.range.name, selected: picked)
+        let amount = ProfitCardText.heroValue(total: summary?.value?.profit, selected: picked)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.footnote).foregroundStyle(Palette.ink2).monospacedDigit().lineLimit(1)
+            Text(amount).font(.largeTitle.weight(.semibold)).monospacedDigit().foregroundStyle(Palette.ink1)
+                .lineLimit(1).minimumScaleFactor(0.5)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .spokenValue(amount)
+        .accessibilityIdentifier("analytics.profit.amount")
+        AnalyticsCardStatusRow(summary, id: "analytics.profit", timeZone: zone, retry: retry)
+        if let picked {
+            subline(ProfitCardText.selectionLine(picked), id: "analytics.profit.selection")
+        } else if let line = changeLine(summary?.value) {
+            subline(line, id: "analytics.profit.change")
+        }
+    }
+
+    /// Hidden while the comparison is pending or failed, as on 计费趋势 (40 §1.3).
+    private func changeLine(_ summary: AnalyticsSummary?) -> String? {
+        guard let summary, case .loaded(let previous) = session.changeComparison else { return nil }
+        return ProfitCardText.changeLine(current: summary.profit, previous: previous.profit, label: session.range.comparison.label)
+    }
+    private func subline(_ text: String, id: String) -> some View {
+        Text(text).font(.footnote).monospacedDigit().foregroundStyle(Palette.ink2).accessibilityIdentifier(id)
+    }
+
+    @ViewBuilder private func details(_ breakdown: ProfitBreakdown) -> some View {
+        AnalyticsBarChart(series: .profit(range: session.range, breakdown: breakdown), selection: $selection, id: "analytics.profit.chart",
+                          chartTitle: ProfitCardText.title, height: BillingTrendCard.chartHeight, emptyText: ProfitCardText.emptyText)
+        ProfitRecentTable(lines: breakdown.recent(), granularity: session.range.granularity, selected: selection.selected)
+    }
+}
+
+/// The trend or the totals answering again may leave segments to read.
+private struct ProfitSegmentTrigger: Hashable, Sendable {
+    let scope: AnalyticsScope
+    let trend: Date?
+    let summary: Date?
+}
+
+/// 利润明细's latest buckets, newest on top: 时段（按天 日期）/ 实际 / 账号成本 / 利润, the selected bucket's row on a sunken band. Rows
+/// are not buttons; each reads as one line. Identifiers analytics.profit.row.<bucket index>.
+private struct ProfitRecentTable: View {
+    let lines: [ProfitBreakdown.Line]
+    let granularity: AnalyticsGranularity
+    let selected: Int?
+
+    private static let headerHeight: CGFloat = 32
+    private static let rowHeight: CGFloat = 40
+
+    var body: some View {
+        VStack(spacing: 0) {
+            columns(Text(ProfitCardText.periodColumnTitle(granularity)), Text("实际"), Text("账号成本"), Text("利润"))
+                .font(.caption.weight(.medium)).foregroundStyle(Palette.ink3)
+                .frame(minHeight: Self.headerHeight)
+                .accessibilityHidden(true)
+            ForEach(lines) { line in row(line) }
+        }
+    }
+
+    private func row(_ line: ProfitBreakdown.Line) -> some View {
+        let isSelected = line.bucket.index == selected
+        return VStack(spacing: 0) {
+            Palette.hairline.frame(height: 1)
+            columns(Text(line.bucket.shortName).foregroundStyle(Palette.ink1),
+                    Text(DisplayFormat.money(line.actual)).foregroundStyle(Palette.ink1),
+                    Text(DisplayFormat.money(line.accountCost)).foregroundStyle(Palette.ink2),
+                    Text(DisplayFormat.money(line.profit)).fontWeight(.semibold).foregroundStyle(Palette.ink1))
+                .font(.subheadline).monospacedDigit()
+                .frame(minHeight: Self.rowHeight)
+                .background(isSelected ? Palette.sunken : Color.clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(ProfitCardText.rowSpoken(line))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("analytics.profit.row.\(line.bucket.index)")
+    }
+
+    private func columns<Period: View, Actual: View, Cost: View, Profit: View>(_ period: Period, _ actual: Actual, _ cost: Cost,
+                                                                               _ profit: Profit) -> some View {
+        HStack(spacing: 8) {
+            period.lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            actual.lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .trailing)
+            cost.lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .trailing)
+            profit.lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.horizontal, 6)
+    }
 }

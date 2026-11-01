@@ -56,6 +56,7 @@ struct AnalyticsBarChart: View {
         return Chart {
             ForEach(series.bars) { bar in barMark(bar, selected: selected) }
             ForEach(series.bars.filter { $0.plotLine != nil }) { bar in lineMark(bar) }
+            if series.yDomain.lowerBound < 0 { zeroLine }
         }
         .chartXScale(domain: xDomain)
         .chartYScale(domain: series.yDomain)
@@ -78,6 +79,13 @@ struct AnalyticsBarChart: View {
         LineMark(x: .value("时段", Double(bar.id)), y: .value("标准", bar.plotLine ?? 0), series: .value("系列", "标准"))
             .foregroundStyle(Palette.chartCompare)
             .lineStyle(Self.lineStroke)
+            .accessibilityHidden(true)
+    }
+    /// 40 §1.4 利润明细: once the axis holds a loss, a 1pt zero line the bars grow down from, never recoloured (S4-13b).
+    private var zeroLine: some ChartContent {
+        RuleMark(y: .value("零线", 0.0))
+            .foregroundStyle(Palette.ink3)
+            .lineStyle(StrokeStyle(lineWidth: 1))
             .accessibilityHidden(true)
     }
 

@@ -1,28 +1,39 @@
 import SwiftUI
 import Sub2Core
 
-/// 60 §1: the search tab's root is the directory; typing switches to the results, which stage 6 adds (60 §2).
+/// 60 §1: the search tab's root is the directory; typing switches to the results (60 §2), clearing or 取消 back to it.
 struct SearchHomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
     @Environment(\.sessionContext) private var session
     @Environment(\.openURL) private var openURL
     @State private var query = ""
+    /// 60 §2.6: lives with the tab's root, so a query typed again within 30 seconds reuses its answers; a new site gets a new one.
+    @State private var search: GlobalSearchSession?
 
     var body: some View {
         Group {
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { directory }
-            else {
-                ContentUnavailableView("搜索即将推出", systemImage: "magnifyingglass", description: Text("全局搜索会在后续版本提供。"))
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("search.placeholder")
-            }
+            else { GlobalSearchResultsView(search: search, text: query, onClear: { query = "" }) }
         }
         .navigationTitle("搜索")
         .navigationSubtitle("账号、用户、请求 ID、Key 片段")
         .navigationBarTitleDisplayMode(.large)
         // On the root inside the tab, not on the TabView: the field opens the keyboard only when tapped (60 §1.1).
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索全部对象")
+        .onChange(of: query) { _, text in searchTextChanged(text) }
+    }
+
+    /// Every change, clearing included, goes to the session (debounce, cancelling and the cache are its own, S6-20).
+    private func searchTextChanged(_ text: String) {
+        guard let session else { return }
+        if search?.generation != session.generation {
+            let generation = session.generation
+            search = GlobalSearchSession(generation: generation, source: model.globalSearchSource(for: session),
+                                         me: { [weak model] in model?.siteSession?.me },
+                                         isCurrent: { [weak model] in model?.sessionGeneration == generation })
+        }
+        search?.update(text: text)
     }
 
     private var directory: some View {

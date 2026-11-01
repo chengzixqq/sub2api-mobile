@@ -257,6 +257,10 @@ public enum GlobalSearchFailure {
         guard let api = error as? APIError else { return false }
         return api.statusCode == 403 || AccountUpstreamErrors.isOpsDisabled(api)
     }
+    /// A cancelled read of a round still shown: APIClient's suspend (D18) throws CancellationError for it.
+    public static func isCutOff(_ result: Result<SearchHits, any Error>) -> Bool {
+        if case .failure(let error) = result { error is CancellationError } else { false }
+    }
 }
 
 // MARK: - 结果与状态（60 §2.3、§2.5）
@@ -310,9 +314,10 @@ public struct GlobalSearchResults: Sendable {
         case .failed: .failed
         }
     }
-    /// A section outside the plan is left as it is. 403 and OPS_DISABLED hide it; any other failure keeps the catalog text.
+    /// A section outside the plan, or a read the suspend cut off (no failure, it goes out again: 00 §4.6), is left as it is.
+    /// 403 and OPS_DISABLED hide it; any other failure keeps the catalog text.
     public func landing(_ result: Result<SearchHits, any Error>, for section: SearchSection, at date: Date) -> GlobalSearchResults {
-        guard states[section] != nil else { return self }
+        guard states[section] != nil, !GlobalSearchFailure.isCutOff(result) else { return self }
         let state: BlockState<SearchHits> = switch result {
         case .success(let hits): .loaded(hits, at: date)
         case .failure(let error) where GlobalSearchFailure.hidesSection(error): .disabled(reason: (error as? APIError)?.reason ?? "FORBIDDEN")

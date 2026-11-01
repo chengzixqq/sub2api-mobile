@@ -423,4 +423,108 @@ final class AnalyticsUITests: XCTestCase {
         let date = calendar.date(byAdding: .day, value: -366, to: Date())!
         return (calendar.component(.month, from: date), calendar.component(.day, from: date))
     }
+
+    // MARK: S4-13b 利润明细卡
+
+    /// AnalyticsFixtures' 近 7 天 profit as the card shows it (change both together).
+    private enum ProfitExpected {
+        /// The billing card's 利润: the loss and the old server's trend leave the totals as they are.
+        static let week = "$5,050.23"
+        /// Rows 6, 5, 4, 3 (newest on top): actual − account cost per day.
+        static let weekRows = ["$1,082.20", "$841.71", "$961.95", "$721.46"]
+        static let loss = "−$50.00"
+    }
+
+    @MainActor private var profitAmount: XCUIElement { element("analytics.profit.amount") }
+    @MainActor private func profitRow(_ index: Int) -> XCUIElement { element("analytics.profit.row.\(index)") }
+    /// The profit chart's bars from left to right, by what VoiceOver reads for them (the table's rows also read 实际).
+    @MainActor private var profitBars: [XCUIElement] {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@ AND NOT (label CONTAINS %@)", "，利润 ", "，实际 ")).allElementsBoundByIndex
+            .sorted { $0.frame.minX < $1.frame.minX }
+    }
+    /// Scrolls until the card's foot shows, with the chart and the table above it.
+    @MainActor private func revealProfitCard() { app.scrollUntilExists(element("analytics.profit.foot")) }
+    @MainActor private func touchProfitBar(_ index: Int, file: StaticString = #filePath, line: UInt = #line) {
+        revealProfitCard()
+        let bars = profitBars
+        XCTAssertTrue(bars.indices.contains(index), app.debugDescription, file: file, line: line)
+        bars[index].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
+    @MainActor func testProfitCardShowsTotalLatestFourRowsAndSelection() {
+        launch()
+        defer { diagnostics("analytics-profit-final") }
+        app.openAnalyticsFromSearch()
+        revealProfitCard()
+        app.waitForLabel(profitAmount, containing: "利润 · 近 7 天")
+        app.waitForValue(profitAmount, equal: ProfitExpected.week)
+        XCTAssertEqual(element("analytics.profit.meta").label, "实际扣费 − 账号成本")
+        app.waitForLabel(element("analytics.profit.change"), containing: "比前 7 天同期")
+        let rows = [6, 5, 4, 3].map { profitRow($0) }
+        for (row, profit) in zip(rows, ProfitExpected.weekRows) { app.waitForLabel(row, containing: "，利润 " + profit) }
+        let tops = rows.map { $0.frame.minY }
+        XCTAssertEqual(tops, tops.sorted(), app.debugDescription)
+        XCTAssertFalse(profitRow(2).exists, app.debugDescription)
+        diagnostics("analytics-profit")
+        // A bar shows its bucket; the same bar again clears it.
+        touchProfitBar(5)
+        XCTAssertTrue(profitAmount.poll(NSPredicate(format: "label MATCHES %@", #"^\d+月\d+日 周.$"#), timeout: 5), app.debugDescription)
+        app.waitForValue(profitAmount, equal: ProfitExpected.weekRows[1])
+        let selection = element("analytics.profit.selection")
+        XCTAssertTrue(selection.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(selection.label.hasPrefix("实际 $") && selection.label.hasSuffix("再点一下取消"), selection.label)
+        XCTAssertFalse(element("analytics.profit.change").exists, app.debugDescription)
+        XCTAssertTrue(profitRow(5).isSelected, app.debugDescription)
+        touchProfitBar(5)
+        app.waitForLabel(profitAmount, containing: "利润 · 近 7 天")
+        XCTAssertTrue(selection.pollGone(timeout: 5), app.debugDescription)
+        // A range change clears the selection; the foot counts the new range and opens 利润明细.
+        touchProfitBar(6)
+        XCTAssertTrue(selection.waitForExistence(timeout: 5), app.debugDescription)
+        app.scrollUntilExists(app.rangeSegment("30 天"), towardBottom: false)
+        app.selectRangeSegment("30 天")
+        app.waitForLabel(profitAmount, containing: "利润 · 近 30 天")
+        XCTAssertTrue(selection.pollGone(timeout: 5), app.debugDescription)
+        let foot = element("analytics.profit.foot")
+        app.waitForLabel(foot, containing: "全部 30 天 · 利润明细")
+        app.scrollUntilExists(foot)
+        foot.tap()
+        // 图表 until S4-14 builds 利润明细.
+        let detail = app.navigationBars.matching(NSPredicate(format: "identifier IN %@", ["图表", "利润明细"])).firstMatch
+        XCTAssertTrue(detail.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor func testProfitLossBucketDrawsBelowZeroAndReadsNegative() {
+        launch(["-ui-analytics-loss"])
+        defer { diagnostics("analytics-profit-loss-final") }
+        app.openAnalyticsFromSearch()
+        revealProfitCard()
+        app.waitForValue(profitAmount, equal: ProfitExpected.week)
+        let row = profitRow(5)
+        app.waitForLabel(row, containing: "，利润 " + ProfitExpected.loss)
+        XCTAssertFalse(row.label.contains("-$") || row.label.contains("+"), row.label)
+        XCTAssertTrue(profitBars.contains { $0.label.contains("，利润 " + ProfitExpected.loss) }, app.debugDescription)
+        // A loss is not an empty range.
+        XCTAssertFalse(element("analytics.profit.chart.empty").exists, app.debugDescription)
+        diagnostics("analytics-profit-loss")
+        touchProfitBar(5)
+        app.waitForValue(profitAmount, equal: ProfitExpected.loss)
+        XCTAssertTrue(element("analytics.profit.selection").label.hasPrefix("实际 $1,402.05 · 账号成本 $1,452.05"), app.debugDescription)
+    }
+
+    @MainActor func testLegacyTrendProfitReadsEachSegmentAndMarksTheFailedOne() {
+        launch(["-ui-analytics-legacy-trend"])
+        defer { diagnostics("analytics-profit-legacy-final") }
+        app.openAnalyticsFromSearch()
+        revealProfitCard()
+        // The total still comes from usage/stats; the failed segment's cost and profit are missing.
+        app.waitForValue(profitAmount, equal: ProfitExpected.week)
+        app.waitForLabel(profitRow(4), containing: "，账号成本 无数据，利润 无数据")
+        for (index, profit) in [(6, ProfitExpected.weekRows[0]), (5, ProfitExpected.weekRows[1]), (3, ProfitExpected.weekRows[3])] {
+            app.waitForLabel(profitRow(index), containing: "，利润 " + profit)
+        }
+        XCTAssertTrue(profitBars.contains { $0.label.contains("，利润 无数据") }, app.debugDescription)
+        diagnostics("analytics-profit-legacy")
+    }
 }
