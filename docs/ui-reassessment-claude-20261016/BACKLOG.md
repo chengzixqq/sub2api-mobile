@@ -581,6 +581,8 @@
 | 分组详情大分组的轮询请求量 | S5-06 每 60 秒按已读页数重读成员 1…n 页（每页 100、最多 20 页），再分批读成员今日，成员很多时请求量随页数线性增长。n > 3 时只重读第 1 页、保留其余页旧数据更省，但排序与计数会短暂不一致；目前默认全部重读，实测后再定。 |
 | 分组详情横幅与 Key“最近使用”的更早时间格式 | 规格 50 §2.3 / §6.3 写“更早写 MM-DD”，现在按 S5D2a-14 用 DisplayFormat.monthDayClock 写 MM/dd HH:mm（多了时刻）。如果坚持只写日期，要在 DisplayFormat+DateTime.swift 加一个月日函数（需要 C-30 归属裁定），S5-07 和 S5-12 两页一起换。 |
 | 分组详情区块刷新失败不提示 | 按 S5D2a-15，横幅、三栏金额、今日行、容量刷新失败时保留旧值、不加“更新失败”提示，贰标题没有挂区块状态附件；规格页面表格写的是“失败 → —”或“不显示横幅”。待用户拍板（批次 2a 第 3 条）。 |
+| 订阅限额 0 的语义 | 后端 normalizeLimit 保留 0，HasDailyLimit 又把 0 当不限；分组订阅页按 GroupFormat.limitText 写 $0、用量条不画填充（usageFraction 对 ≤ 0 的限额返回 nil），是否加提示待后端确认（需要用户拍板第 14 条，S5-12） |
+| 服务器日历整天数的多份同算法 | AccessTokens.daysLeft、ProxyExpiry.days、RedeemPresentation.daysUntil 三份；S5-12 的订阅剩余天数只转调 ProxyExpiry.days，建议在 S6-26 收口时统一到 ServerTimeZone 上的一个函数 |
 
 ### App 与设计 · 阶段 6
 
