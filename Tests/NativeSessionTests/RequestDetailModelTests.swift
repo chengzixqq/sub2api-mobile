@@ -46,18 +46,21 @@ private actor RequestDetailStub {
     }
 }
 
-/// The model's session flag, ops switch and clock, and what it reported to LiveOpsStore (“nil” for a success).
+/// The model's session flag, ops switch and clocks, and what it reported to LiveOpsStore (“nil” for a success).
 @MainActor private final class DetailHarness {
     var isCurrent = true
     var opsEnabled = true
     var now = Date(timeIntervalSince1970: 1_800_000_000)
+    /// Server minus phone time, as ServerClock keeps it; `phone` moves with `now`.
+    var serverOffset: TimeInterval = 0
+    var phone: Date { now.addingTimeInterval(-serverOffset) }
     private(set) var reports: [String] = []
 
     func model(_ route: RequestRoute, _ stub: RequestDetailStub, attemptsSupported: Bool = true) -> RequestDetailModel {
         RequestDetailModel(route: route, source: stub.source, attemptsSupported: attemptsSupported, isOpsEnabled: { self.opsEnabled },
                            isCurrent: { self.isCurrent },
                            onOpsResponse: { error in self.reports.append(error.map { ($0 as? APIError)?.reason ?? "other" } ?? "nil") },
-                           now: { self.now })
+                           now: { self.now }, phoneNow: { self.phone })
     }
 }
 
@@ -288,6 +291,28 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     harness.now = harness.now.addingTimeInterval(5)
     await waiting.load()
     #expect(await throttled.detailReads.count == 1)
+}
+
+/// The failure row counts the wait down and reads again on the phone's clock (BlockFailureRow); a site clock behind the
+/// phone's (the Date header is cut to the second) must not hold that read back.
+@MainActor @Test func detailThrottleWaitRunsOnThePhoneClock() async throws {
+    let harness = DetailHarness()
+    harness.serverOffset = -1
+    let limited = APIError(kind: .rateLimited, statusCode: 429, message: "请求过于频繁", retryAfter: 30)
+    let stub = RequestDetailStub(detail: { call in
+        guard call > 1 else { throw limited }
+        return try detailReply()
+    })
+    let model = harness.model(.error(id: 9701, kind: .upstream), stub, attemptsSupported: false)
+    await model.load()
+    #expect(model.page == .failed)
+    let notBefore = try #require(model.detailRefresh.notBefore)
+    #expect(notBefore == harness.phone.addingTimeInterval(30))
+    // ResendAfterWait sleeps `notBefore.timeIntervalSinceNow`, then the row calls retry.
+    harness.now = harness.now.addingTimeInterval(notBefore.timeIntervalSince(harness.phone))
+    await model.load()
+    #expect(await stub.detailReads.count == 2)
+    #expect(model.page == .content)
 }
 
 @MainActor @Test func opsOffSendsNoOpsRequest() async throws {

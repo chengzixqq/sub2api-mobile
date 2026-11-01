@@ -66,15 +66,17 @@ final class RequestDetailModel {
     @ObservationIgnored private let isCurrent: @MainActor @Sendable () -> Bool
     @ObservationIgnored private let onOpsResponse: @MainActor ((any Error)?) async -> Void
     @ObservationIgnored private let now: @MainActor () -> Date
+    @ObservationIgnored private let phoneNow: @MainActor () -> Date
     /// Changes with every load; a reply carrying an older one is dropped.
     @ObservationIgnored private var ticket = UUID()
 
     /// `attemptsSupported` is `ops.request_attempts`; `onOpsResponse` hands each ops read's outcome to LiveOpsStore (S1D1-02).
+    /// `now` is the server clock; `phoneNow` times the 429 wait, as BlockFailureRow counts it down and reads again on the phone's.
     init(route: RequestRoute, source: RequestDetailSource, attemptsSupported: Bool, isOpsEnabled: @escaping @MainActor () -> Bool,
          isCurrent: @escaping @MainActor @Sendable () -> Bool, onOpsResponse: @escaping @MainActor ((any Error)?) async -> Void = { _ in },
-         now: @escaping @MainActor () -> Date = { Date() }) {
+         now: @escaping @MainActor () -> Date = { Date() }, phoneNow: @escaping @MainActor () -> Date = { Date() }) {
         self.route = route; self.source = source; self.attemptsSupported = attemptsSupported; self.isOpsEnabled = isOpsEnabled
-        self.isCurrent = isCurrent; self.onOpsResponse = onOpsResponse; self.now = now
+        self.isCurrent = isCurrent; self.onOpsResponse = onOpsResponse; self.now = now; self.phoneNow = phoneNow
         switch route {
         case .usage(let preload): usage = preload.value; page = .content
         case .usageRequestID: page = .loading
@@ -181,7 +183,7 @@ final class RequestDetailModel {
 
     private func loadError(id: Int, kind: ErrorLogKind, ticket: UUID) async {
         guard isOpsEnabled() else { return showOpsOff() }
-        guard detailRefresh.allowsRequest(at: now()) else { return }
+        guard detailRefresh.allowsRequest(at: phoneNow()) else { return }
         let source = source, row = record, previous = attempts
         let earlyID = row.flatMap { chainID($0) }, around = row.flatMap { ServerTime.parseTimestamp($0.createdAt) }
         if row == nil { page = .loading } else if earlyID != nil, !previous.isFilled { attempts = .loading }
@@ -219,7 +221,7 @@ final class RequestDetailModel {
             return false
         case .failure(let error):
             detail = detail.withFailure(error.localizedDescription); detailError = error as? APIError
-            detailRefresh = detailRefresh.recordingFailure(error, at: now())
+            detailRefresh = detailRefresh.recordingFailure(error, at: phoneNow())
             guard record == nil else { return true }
             pageError = error as? APIError; page = .failed; attempts = previous
             return false
