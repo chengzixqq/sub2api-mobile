@@ -6,11 +6,8 @@ import Sub2Core
 /// 40 §1.4 / §1.5 the money bar chart of 计费趋势 (and 利润明细, the chart pages): one grey bar per bucket on a continuous index axis
 /// (HomeHourlyChart's way), the bucket still running or the selected one darker, the standard as a dotted line, ticks from the range
 /// with 现在 / 今天 in a stronger grey, the amounts on the right. With a selection the whole plot is one tap and press-and-drag area
-/// (`.chartXSelection`, folded by AnalyticsChartSelection: pressing the selected bar again clears it); no bar has its own target.
-/// `.chartXSelection` only answers a touch held for a moment, so a quick tap is read by a simultaneous SpatialTapGesture as one
-/// press and release of its bucket (S4D2b-04 ⑤; `.chartGesture` would replace the drag, and a zero-distance drag would hold the
-/// page's scrolling). A range without usage keeps the axes and says so. VoiceOver gets an AXChartDescriptor and one label per bar.
-/// Identifier `<id>`, the empty text `<id>.empty`.
+/// (`analyticsChartSelection`); no bar has its own target. A range without usage keeps the axes and says so. VoiceOver gets an
+/// AXChartDescriptor and one label per bar. Identifier `<id>`, the empty text `<id>.empty`.
 struct AnalyticsBarChart: View {
     private let series: AnalyticsBarSeries
     private let selection: Binding<AnalyticsChartSelection>?
@@ -18,11 +15,6 @@ struct AnalyticsBarChart: View {
     private let chartTitle: String
     private let height: CGFloat
     private let emptyText: String
-    @State private var rawX: Double?
-    /// The plot's frame in the chart's space, for a tap's bucket.
-    @State private var plotFrame: CGRect = .zero
-    /// When the last press-and-drag let go: the tap that ends the same touch is not a second press.
-    @State private var releasedAt: Date?
 
     /// `selection` nil: the chart takes no selection (the model page's trend).
     init(series: AnalyticsBarSeries, selection: Binding<AnalyticsChartSelection>?, id: String, chartTitle: String,
@@ -47,38 +39,16 @@ struct AnalyticsBarChart: View {
     }
 
     private static let barHalfWidth = 0.36
-    /// A tap this soon after a press-and-drag let go belongs to that touch.
-    private static let tapAfterRelease: TimeInterval = 0.5
     private static let lineStroke = StrokeStyle(lineWidth: 1.3, lineCap: .round, dash: [1.5, 3])
+
+    private var xDomain: ClosedRange<Double> { -0.5...(Double(max(series.bars.count, 1)) - 0.5) }
 
     @ViewBuilder private var plot: some View {
         if let selection {
-            chart.chartXSelection(value: $rawX)
-                .chartOverlay { proxy in
-                    GeometryReader { geometry in
-                        let frame = proxy.plotFrame.map { geometry[$0] } ?? .zero
-                        Color.clear.allowsHitTesting(false)
-                            .onAppear { plotFrame = frame }
-                            .onChange(of: frame) { _, new in plotFrame = new }
-                    }
-                }
-                .simultaneousGesture(SpatialTapGesture().onEnded { tapped(at: $0.location, selection: selection) })
-                .onChange(of: rawX) { old, x in
-                    if old != nil, x == nil { releasedAt = Date() }
-                    selection.wrappedValue = selection.wrappedValue.receiving(x.flatMap(series.bucketIndex(atX:)))
-                }
+            chart.analyticsChartSelection(selection, xDomain: xDomain, bucketAt: series.bucketIndex(atX:))
         } else {
             chart
         }
-    }
-
-    /// A quick tap the press-and-drag did not see: its bucket pressed and let go at once.
-    private func tapped(at location: CGPoint, selection: Binding<AnalyticsChartSelection>) {
-        let afterPress = releasedAt.map { Date().timeIntervalSince($0) < Self.tapAfterRelease } ?? false
-        guard rawX == nil, !afterPress, plotFrame.width > 0, (plotFrame.minX...plotFrame.maxX).contains(location.x) else { return }
-        let x = Double((location.x - plotFrame.minX) / plotFrame.width) * Double(series.bars.count) - 0.5
-        guard let index = series.bucketIndex(atX: x) else { return }
-        selection.wrappedValue = selection.wrappedValue.receiving(index).receiving(nil)
     }
 
     private var chart: some View {
@@ -87,7 +57,7 @@ struct AnalyticsBarChart: View {
             ForEach(series.bars) { bar in barMark(bar, selected: selected) }
             ForEach(series.bars.filter { $0.plotLine != nil }) { bar in lineMark(bar) }
         }
-        .chartXScale(domain: -0.5...(Double(max(series.bars.count, 1)) - 0.5))
+        .chartXScale(domain: xDomain)
         .chartYScale(domain: series.yDomain)
         .chartXAxis { xAxis }
         .chartYAxis { yAxis }
@@ -114,7 +84,8 @@ struct AnalyticsBarChart: View {
     private var xAxis: some AxisContent {
         AxisMarks(values: series.ticks.map { Double($0.index) }) { value in
             if let tick = tick(at: value.as(Double.self)) {
-                AxisValueLabel {
+                // Centred under its bar.
+                AxisValueLabel(anchor: .top) {
                     Text(tick.label).font(.caption2).monospacedDigit().foregroundStyle(tick.isNow ? Palette.ink2 : Palette.ink3)
                 }
             }
@@ -133,6 +104,57 @@ struct AnalyticsBarChart: View {
     private func tick(at position: Double?) -> AnalyticsAxisTick? {
         guard let position else { return nil }
         return series.ticks.first { Double($0.index) == position }
+    }
+}
+
+extension View {
+    /// 40 §1.5 整图点选 for an analytics chart (put it on the Chart) whose x is continuous over `xDomain`: `.chartXSelection` scrubs a
+    /// touch held for a moment, folded by AnalyticsChartSelection (pressing the selected bucket again clears it); a quick tap, which
+    /// `.chartXSelection` lets pass, is read by a simultaneous SpatialTapGesture as one press and release of its bucket (S4D2b-04 ⑤:
+    /// `.chartGesture` would replace the scrubbing, a zero-distance drag would hold the page's scrolling). `bucketAt` takes an x to
+    /// its bucket. S4-16's line and S4-17's stacked bars select the same way.
+    func analyticsChartSelection(_ selection: Binding<AnalyticsChartSelection>, xDomain: ClosedRange<Double>,
+                                 bucketAt: @escaping (Double) -> Int?) -> some View {
+        modifier(AnalyticsChartSelecting(selection: selection, xDomain: xDomain, bucketAt: bucketAt))
+    }
+}
+
+private struct AnalyticsChartSelecting: ViewModifier {
+    /// A tap this soon after a press-and-drag let go ends that same touch.
+    private static let tapAfterRelease: TimeInterval = 0.5
+
+    @Binding var selection: AnalyticsChartSelection
+    let xDomain: ClosedRange<Double>
+    let bucketAt: (Double) -> Int?
+    @State private var rawX: Double?
+    /// The plot's frame in the chart's space, for a tap's x.
+    @State private var plotFrame: CGRect = .zero
+    @State private var releasedAt: Date?
+
+    func body(content: Content) -> some View {
+        content
+            .chartXSelection(value: $rawX)
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    let frame = proxy.plotFrame.map { geometry[$0] } ?? .zero
+                    Color.clear.allowsHitTesting(false)
+                        .onAppear { plotFrame = frame }
+                        .onChange(of: frame) { _, new in plotFrame = new }
+                }
+            }
+            .simultaneousGesture(SpatialTapGesture().onEnded { tapped(at: $0.location) })
+            .onChange(of: rawX) { old, x in
+                if old != nil, x == nil { releasedAt = Date() }
+                selection = selection.receiving(x.flatMap(bucketAt))
+            }
+    }
+
+    private func tapped(at location: CGPoint) {
+        let afterPress = releasedAt.map { Date().timeIntervalSince($0) < Self.tapAfterRelease } ?? false
+        guard rawX == nil, !afterPress, plotFrame.width > 0, (plotFrame.minX...plotFrame.maxX).contains(location.x) else { return }
+        let fraction = Double((location.x - plotFrame.minX) / plotFrame.width)
+        guard let index = bucketAt(xDomain.lowerBound + fraction * (xDomain.upperBound - xDomain.lowerBound)) else { return }
+        selection = selection.receiving(index).receiving(nil)
     }
 }
 

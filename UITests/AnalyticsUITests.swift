@@ -16,6 +16,8 @@ final class AnalyticsUITests: XCTestCase {
         static let todayChange = "↑ 8.1% · 比昨天同时"
         /// HomeUITests.Expected.profit: the overview's cell (40 §1.4 分段取整).
         static let todayProfit = "$772.42"
+        /// 40% of 近 7 天 under a group filter.
+        static let weekFiltered = "$3,364.92"
     }
 
     // MARK: Helpers
@@ -190,5 +192,232 @@ final class AnalyticsUITests: XCTestCase {
         app.openAnalyticsFromSearch()
         assertSegmentSelected("30 天")
         app.waitForLabel(amount, containing: "实际扣费 · 近 30 天")
+    }
+
+    // MARK: S4-12 范围与筛选 sheet（S4D1-05）
+
+    @MainActor func testCustomRangeShortcutAppliesToCaptionAndCard() {
+        launch()
+        defer { diagnostics("analytics-custom-shortcut-final") }
+        app.openAnalyticsFromSearch()
+        openCustomRange()
+        element("analytics.custom.preset.last14").tap()
+        XCTAssertTrue(element("analytics.custom.preset.last14").poll(NSPredicate(format: "isSelected == true"), timeout: 5), app.debugDescription)
+        element("analytics.custom.apply").tap()
+        XCTAssertTrue(app.navigationBars["自定义范围"].pollGone(timeout: 5), app.debugDescription)
+        assertSegmentSelected("近 14 天")
+        let caption = element("analytics.range.caption")
+        app.waitForLabel(caption, containing: "（今天到")
+        app.waitForLabel(caption, containing: "按天")
+        app.waitForLabel(amount, containing: "实际扣费 · 近 14 天")
+        app.waitForValue(amount, equal: "$16,824.64")
+        app.waitForLabel(element("analytics.billing.foot"), containing: "全部 14 天 · 计费明细")
+    }
+
+    @MainActor func testPickingLastMonthSelectsItsShortcutAndOldDatesAreDisabled() {
+        launch()
+        defer { diagnostics("analytics-custom-last-month-final") }
+        app.openAnalyticsFromSearch()
+        openCustomRange()
+        let lastMonth = Self.lastMonth()
+        // From 本月 (the sheet's start for a bar preset): one month back on each end.
+        pickDay(on: "start", monthsBack: 1, month: lastMonth.month, day: 1)
+        pickDay(on: "end", monthsBack: 1, month: lastMonth.month, day: lastMonth.lastDay)
+        let shortcut = element("analytics.custom.preset.lastMonth")
+        XCTAssertTrue(shortcut.poll(NSPredicate(format: "isSelected == true"), timeout: 5), app.debugDescription)
+        diagnostics("analytics-custom-last-month")
+        // U36: 366 days back at most, so the start calendar stops about a year back.
+        tapRow("analytics.custom.start")
+        let previous = calendar("start").buttons["DatePicker.PreviousMonth"]
+        XCTAssertTrue(previous.waitForExistence(timeout: 5), app.debugDescription)
+        var steps = 0
+        while previous.isEnabled, steps < 14 {
+            previous.tap()
+            steps += 1
+        }
+        XCTAssertFalse(previous.isEnabled, app.debugDescription)
+        XCTAssertTrue((11...13).contains(steps), "\(steps) months back\n\(app.debugDescription)")
+        let earliest = Self.earliestDay()
+        if earliest.day > 1 {
+            let before = dayButton(on: "start", month: earliest.month, day: earliest.day - 1)
+            XCTAssertTrue(before.exists && !before.isEnabled, app.debugDescription)
+            XCTAssertTrue(dayButton(on: "start", month: earliest.month, day: earliest.day).isEnabled, app.debugDescription)
+        }
+        element("analytics.custom.apply").tap()
+        app.waitForLabel(amount, containing: "实际扣费 · 上月")
+        let change = element("analytics.billing.change")
+        app.waitForLabel(change, containing: "比 ")
+        XCTAssertTrue(change.label.hasSuffix(" 月"), change.label)
+    }
+
+    @MainActor func testGroupFilterShowsARemovableChipAndScalesTheCard() {
+        launch()
+        defer { diagnostics("analytics-group-filter-final") }
+        app.openAnalyticsFromSearch()
+        app.waitForValue(amount, equal: Expected.week)
+        openFilter()
+        let row = element("analytics.filter.row.group.1")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].pollGone(timeout: 5), app.debugDescription)
+        let chip = element("analytics.filter.chip")
+        app.waitForLabel(chip, containing: "分组：高级组")
+        app.waitForValue(amount, equal: Expected.weekFiltered)
+        chip.tap()
+        XCTAssertTrue(chip.pollGone(timeout: 5), app.debugDescription)
+        app.waitForValue(amount, equal: Expected.week)
+    }
+
+    @MainActor func testModelFilterNoteWithoutOpsModelFilter() {
+        launch(["-ui-without-capabilities", "ops.dashboard_model_filter"])
+        defer { diagnostics("analytics-model-filter-note-final") }
+        app.openAnalyticsFromSearch()
+        openFilter()
+        app.segmentedControls["analytics.filter.kind"].buttons["模型"].tap()
+        let note = app.staticTexts["运行类图表（RPM / TPM、时长、错误）后端不支持按模型，仍显示全站。"]
+        XCTAssertTrue(note.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    // MARK: S4-13 卡内状态（40 §1.6）
+
+    @MainActor func testFirstLoadShowsProgressInsideTheCard() {
+        launch(["-ui-analytics-slow"])
+        defer { diagnostics("analytics-first-load-final") }
+        app.openSearchItem("search.item.analytics")
+        let loading = element("analytics.billing.loading")
+        XCTAssertTrue(loading.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertGreaterThanOrEqual(loading.frame.height, 250, app.debugDescription)
+        diagnostics("analytics-first-load")
+        app.waitForValue(amount, equal: Expected.week, timeout: 15)
+        XCTAssertTrue(loading.pollGone(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testFailedCardRetriesThisItem() {
+        launch(["-ui-analytics-fail-once"])
+        defer { diagnostics("analytics-failed-final") }
+        app.openSearchItem("search.item.analytics")
+        let failure = element("analytics.billing.failure")
+        XCTAssertTrue(text(in: failure, containing: "加载失败").waitForExistence(timeout: 10), app.debugDescription)
+        let retry = element("analytics.billing.retry")
+        XCTAssertEqual(retry.label, "重试本项")
+        diagnostics("analytics-failed")
+        retry.tap()
+        app.waitForValue(amount, equal: Expected.week)
+        XCTAssertTrue(failure.pollGone(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testTimedOutCardSaysStatisticsAreSlow() {
+        launch(["-ui-analytics-timeout"])
+        defer { diagnostics("analytics-timeout-final") }
+        app.openSearchItem("search.item.analytics")
+        let failure = element("analytics.billing.failure")
+        XCTAssertTrue(text(in: failure, containing: "统计较慢，加载超时").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(element("analytics.billing.retry").label, "重试本项")
+    }
+
+    @MainActor func testThrottledCardCountsDownWithRetryDisabled() {
+        launch(["-ui-analytics-throttled"])
+        defer { diagnostics("analytics-throttled-final") }
+        app.openSearchItem("search.item.analytics")
+        let failure = element("analytics.billing.failure")
+        let countdown = failure.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@ AND label ENDSWITH %@", "请求过于频繁，", "秒后自动重试")).firstMatch
+        XCTAssertTrue(countdown.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("analytics.billing.retry").isEnabled, app.debugDescription)
+    }
+
+    @MainActor func testRefreshFailureKeepsOldDataWithAStaleLine() {
+        launch(["-ui-analytics-refresh-fails"])
+        defer { diagnostics("analytics-stale-final") }
+        app.openAnalyticsFromSearch()
+        app.waitForValue(amount, equal: Expected.week)
+        app.pullToRefresh(from: amount)
+        let stale = element("analytics.billing.stale.failure")
+        XCTAssertTrue(text(in: stale, containing: "更新失败 · 显示的是 ").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(text(in: stale, containing: " 的数据").exists, app.debugDescription)
+        XCTAssertEqual(element("analytics.billing.stale.retry").label, "重试本项")
+        XCTAssertEqual(amount.value as? String, Expected.week)
+    }
+
+    @MainActor func testEmptyRangeSaysNoUsage() {
+        launch(["-ui-analytics-empty"])
+        defer { diagnostics("analytics-empty-final") }
+        app.openAnalyticsFromSearch()
+        app.waitForValue(amount, equal: "$0.00")
+        app.waitForLabel(element("analytics.billing.chart.empty"), containing: "这个范围内没有用量")
+        app.waitForValue(element("analytics.billing.requests"), equal: "0")
+        app.waitForValue(element("analytics.billing.duration"), equal: "无数据")
+    }
+
+    @MainActor func testOldServerAndFailedComparison() {
+        launch(["-ui-without-capabilities", "dashboard.account_cost", "-ui-analytics-comparison-fails"])
+        defer { diagnostics("analytics-old-server-final") }
+        app.openAnalyticsFromSearch()
+        app.waitForValue(amount, equal: Expected.week)
+        app.waitForValue(element("analytics.billing.accountCost"), equal: "无数据")
+        app.waitForValue(element("analytics.billing.profit"), equal: "无数据")
+        app.waitForValue(element("analytics.billing.standardCost"), equal: Expected.weekFigures[1])
+        XCTAssertFalse(element("analytics.billing.change").exists, app.debugDescription)
+    }
+
+    // MARK: Helpers of the sheet and state tests
+
+    @MainActor private func openCustomRange() {
+        element("analytics.range.caption").tap()
+        XCTAssertTrue(app.navigationBars["自定义范围"].waitForExistence(timeout: 5), app.debugDescription)
+    }
+    @MainActor private func openFilter() {
+        app.navigationBars.buttons["analytics.filter.button"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].waitForExistence(timeout: 5), app.debugDescription)
+    }
+    @MainActor private func text(in container: XCUIElement, containing part: String) -> XCUIElement {
+        container.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", part)).firstMatch
+    }
+    @MainActor private func calendar(_ end: String) -> XCUIElement { element("analytics.custom.calendar." + end) }
+    /// A day of the graphical calendar: “10月1日 星期四”, “今天, 11月1日 星期日”, with the year when it is not this one.
+    @MainActor private func dayButton(on end: String, month: Int, day: Int) -> XCUIElement {
+        let name = "\(month)月\(day)日 "
+        return calendar(end).buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label CONTAINS %@ OR label CONTAINS %@",
+                                                          name, ", " + name, "年" + name)).firstMatch
+    }
+    /// Opens the start or end row's calendar unless it is open.
+    @MainActor private func tapRow(_ identifier: String) {
+        let row = element(identifier)
+        revealInSheet(row)
+        if !(row.value as? String == "1" || row.isSelected) { row.tap() }
+    }
+    @MainActor private func pickDay(on end: String, monthsBack: Int, month: Int, day: Int) {
+        tapRow("analytics.custom." + end)
+        let previous = calendar(end).buttons["DatePicker.PreviousMonth"]
+        XCTAssertTrue(previous.waitForExistence(timeout: 5), app.debugDescription)
+        for _ in 0..<monthsBack { previous.tap() }
+        let button = dayButton(on: end, month: month, day: day)
+        XCTAssertTrue(button.waitForExistence(timeout: 5), app.debugDescription)
+        revealInSheet(button)
+        button.tap()
+    }
+    /// The sheet's list scrolls the open calendar's last rows into view.
+    @MainActor private func revealInSheet(_ item: XCUIElement) {
+        for _ in 0..<4 where !(item.exists && item.isHittable) {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+        }
+    }
+    /// The site's (Asia/Shanghai, the fixture server's) calendar.
+    private static var siteCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        return calendar
+    }
+    private static func lastMonth() -> (month: Int, lastDay: Int) {
+        let calendar = siteCalendar
+        let date = calendar.date(byAdding: .month, value: -1, to: Date())!
+        return (calendar.component(.month, from: date), calendar.range(of: .day, in: .month, for: date)!.count)
+    }
+    /// U36: 366 days before the site's today.
+    private static func earliestDay() -> (month: Int, day: Int) {
+        let calendar = siteCalendar
+        let date = calendar.date(byAdding: .day, value: -366, to: Date())!
+        return (calendar.component(.month, from: date), calendar.component(.day, from: date))
     }
 }
