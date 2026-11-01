@@ -170,16 +170,14 @@ final class RequestLogsUITests: XCTestCase {
         XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    /// 40 §6.1: a row opens its request (the old details until S4-08) and the list is kept on return.
+    /// 40 §6.1: a row opens its request and the list is kept on return; what the detail shows is RequestDetailUITests' (S4-08b).
     @MainActor func testRowsOpenRequestDetails() {
         launchLogs()
         defer { diagnostics("logs-open-detail") }
         let newest = row("usage", 1040)
         XCTAssertTrue(newest.waitForExistence(timeout: 10), app.debugDescription)
         newest.tap()
-        let charge = element("logs.detail.charge")
-        XCTAssertTrue(charge.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(charge.label.contains("$0.0124"), charge.label)
+        XCTAssertTrue(element("logs.detail.card").waitForExistence(timeout: 10), app.debugDescription)
         goBack()
         XCTAssertTrue(newest.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(segment("用量明细").isSelected, app.debugDescription)
@@ -187,7 +185,7 @@ final class RequestLogsUITests: XCTestCase {
         let error = row("errors", 2006)
         XCTAssertTrue(error.waitForExistence(timeout: 10), app.debugDescription)
         error.tap()
-        XCTAssertTrue(element("logs.detail.message").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("logs.detail.card").waitForExistence(timeout: 10), app.debugDescription)
     }
 
     // MARK: - Helpers
