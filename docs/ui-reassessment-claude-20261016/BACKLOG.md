@@ -557,6 +557,9 @@
 | Token 使用趋势长范围性能 | 自选 366 天按天时约 1,500 个 RectangleMark，未实测滚动与点选是否掉帧，留给 S4-20 评估 |
 | 后端 resolved_by_user_name 是邮箱、resolve 不回处理时间与人 | ops_repo.go 里 resolved_by_user_name 取的是 COALESCE(u2.email, '')，请求详情的“已处理 · 人 · 时间”显示的是邮箱，不是用户名；PUT …/resolve 只回 {ok:true}，本机标记后要等下次读详情才有时间和处理人。建议后端改成用户名优先（COALESCE(NULLIF(username,''), email)），并在 resolve 的响应里返回 resolved_at 和处理人（交后端维护者） |
 | 使用记录列表夹具不随已处理表变化 | -ui-testing 下标记已处理只改 LogFixtures+Detail 的 resolutions 表和内存里的列表行；下拉刷新后列表夹具仍是原值（X44：LogFixtures.swift 只由 S4-05 / S4-05b 改），目前列表行也不显示已处理状态，暂无影响 |
+| 请求类型降级扇出部分失败的显示 | 现为任一类失败整卡失败（占比依赖五类合计）；若要显示部分结果需另定占比口径，待用户拍板（S4D2b-20） |
+| 请求类型第 5 类（Live）的分类样式 | 设计稿只有 4 种分类样式，Live 暂用 ink3 点纹 + ink2 描边、未新增调色板颜色，交 UI 审查定稿 |
+| 用户用量趋势回执时区与请求时区不同 | 迷你折线按请求时区的桶对齐（与 Token 使用趋势同样处理），回执时区不同时折线会是 0，合计与排名不受影响；若 S4-20 统一按回执时区重建桶，这里一起改 |
 
 ### App 与设计 · 阶段 5
 
