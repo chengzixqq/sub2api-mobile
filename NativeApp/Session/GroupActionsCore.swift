@@ -136,7 +136,7 @@ final class GroupActions {
         if deletePrompt?.id == prompt.id { deletePrompt = nil }
         return await run(prompt.group.id, generation: prompt.generation) { session in
             leaving?()
-            return await startDelete(prompt.group, session: session)
+            return await startDelete(prompt.group, session: session, pageStays: leaving == nil)
         }
     }
 
@@ -292,21 +292,19 @@ final class GroupActions {
         }
     }
     /// The read-back shows the write did not happen: a keyed one goes again under its number, not before the cooldown of 503
-    /// IDEMPOTENCY_STORE_UNAVAILABLE (00 §2.5.3); an unkeyed one under a new request id (00 §2.4).
+    /// IDEMPOTENCY_STORE_UNAVAILABLE (00 §2.5.3); an unkeyed one under a new request id (00 §2.4), as `actAgain` sends it.
     private func notConfirmed(_ change: StatusChange, notBefore: Date?, session: GroupWriteSession) -> GroupActionOutcome {
-        let id = change.group.id
         guard change.operation.sendsIdempotencyKey else {
-            show(GroupActionCopy.notApplied(change.kind)) {
-                self.relaunch(id, session) { await $0.startStatus(change.group, target: change.target, isUndo: change.isUndo, session: session) }
-            }
+            show(GroupActionCopy.notApplied(change.kind), action: actAgain(change, session))
             return .notApplied
         }
         show(notBefore == nil ? GroupActionCopy.unconfirmedRetry(change.kind) : GroupActionCopy.storeUnavailable(change.kind)) {
-            self.relaunch(id, session, notBefore: notBefore) { await $0.sendStatus(change, session: session) }
+            self.relaunch(change.group.id, session, notBefore: notBefore) { await $0.sendStatus(change, session: session) }
         }
         return .unconfirmed
     }
-    /// KEY_CONFLICT and the like ran nothing: 停用 asks again; 启用 and 撤销 go at once under a new number.
+    /// A new number for what ran nothing (KEY_CONFLICT and the like, or an unkeyed write the read-back shows): 停用 asks again,
+    /// since the number is made at its confirmation (R05); 启用 and 撤销 go at once.
     private func actAgain(_ change: StatusChange, _ session: GroupWriteSession) -> @MainActor @Sendable () -> Void {
         guard change.kind != .disable else { return { Task { await self.requestDisable(change.group) } } }
         return {

@@ -443,27 +443,6 @@ final class AppModel {
         }
         return try await requireClient().dashboardTrend()
     }
-    func dashboardPerformanceTrend(hours: Int, groupID: Int? = nil, model: String? = nil,
-                                   modelSource: ModelSource? = nil) async throws -> PerformanceTrend {
-        if isUITesting {
-            if ProcessInfo.processInfo.arguments.contains("-ui-performance-error") {
-                throw APIError.server(status: 404, reason: "OPS_DISABLED")
-            }
-            // “Now” is 23 seconds past a minute: 6 and 24 hours get a partial first and last bucket, 1 hour stays 60 full ones.
-            let window = OpsQuery.trailingWindow(hours: hours, endingAt: Date(timeIntervalSince1970: 1_792_026_083))
-            let bucket = OpsBucket.forWindow(window.end.timeIntervalSince(window.start))
-            let points = bucket.starts(from: window.start, to: window.end).enumerated().map { index, date in
-                PerformanceTrend.Point(date: date, requestCount: 10 + index, tokenConsumed: 100_000 + index * 10_000)
-            }
-            return PerformanceTrend(bucket: bucket, windowStart: window.start, windowEnd: window.end, points: points)
-        }
-        // Read together before the await (D13), so a site switch cannot pair one site's capability with another's client.
-        let client = try requireClient()
-        let supportsModelFilter = siteSession?.has(.opsDashboardModelFilter) ?? false
-        let query = OpsQuery.trailingWindow(hours: hours, endingAt: client.serverClock.now(), groupID: groupID, model: model,
-                                            modelSource: modelSource)
-        return try await client.dashboardPerformanceTrend(query, supportsModelFilter: supportsModelFilter)
-    }
 
     // MARK: - 账号
     // The account wrappers and their fixture branches live in AppModel+Accounts.swift (S2-03, S2-04).
