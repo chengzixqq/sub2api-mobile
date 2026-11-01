@@ -537,6 +537,9 @@
 | AnalyticsCardFoot 的 meta 为空时读屏仍带“ · ” | S4-15 的“全部 9 个分组 ›”“查看前 50 位用户 ›”按规格没有 meta，传空串后 accessibilityLabel 为“全部 9 个分组 · ”。组件在 AnalyticsCards.swift（归 S4-13，X44 本条不改），建议 S4-20 收口时让 meta 为空时不拼“ · ”。 |
 | B03 补漏行备注（S4-15 核对） | 后端 dd80618fe（fix(dashboard): dashboard/groups 的模型筛选按 model_source 匹配）已修；App 的排行只发 requested，无需改动。请在 BACKLOG 的“B03 补漏：dashboard/groups 的 model_source 不生效”一行备注“后端 dd80618fe 已修，App 无需改动”。 |
 | 排行卡 / 全部排行的规格空白处按默认实现（S4-15） | 用户卡底在旧站点（没有 total_users）按取回满 5 行判断；构成条不足 3 行写“前 2 占 100.0%”；未分组不可点；分组名为空用目录名或“#id”；模型名为空写“未命名”不可点；映射口径未映射的行也写“→ 同名”。需用户确认。 |
+| 使用记录自动刷新时菜单 / sheet 是否暂停 | 规格只要求离开页面、切 Tab、进后台时暂停，打开时间菜单或筛选 sheet 时照常刷新。UI 测试里 2 秒一拍时，时间胶囊菜单的第一次点按偶尔被列表重绘吞掉（用例已改为最多重试三次）；生产 60 秒一拍时影响小。要不要在菜单或 sheet 打开期间暂停，待用户拍板 |
+| 使用记录加载更多或下拉刷新失败时自动刷新暂停 | 列表末尾已有“加载失败 · 重试”时，自动刷新不发请求，直到用户点重试（S4-06 的取舍）。要不要改成继续轮询、并保留那一行失败提示，待定 |
+| S4-06 条目 files 补登 | 实际改动还涉及 Tests/NativeSessionTests/LogsStoreRefreshTests.swift（新建，LogsStoreStateTests.swift 已超 800 行）和 Tests/NativeSessionTests/LogsStoreCountTests.swift（一个用例随回前台行为变化改写）；条件项 Sources/Sub2Core/LogListPolicy+Refresh.swift、NativeApp/Session/LogsStoreState+Refresh.swift 没有建 |
 
 ### App 与设计 · 阶段 5
 
