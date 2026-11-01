@@ -65,14 +65,14 @@ final class AppNavigationUITests: XCTestCase {
         launchDirectorySite()
         defer { diagnostics("search-directory-usage-final") }
         app.openSearchItem("search.item.usage")
-        assertLogsMode("请求记录")
+        assertLogsMode("用量明细")
     }
 
     @MainActor func testSearchDirectoryOpensErrorLogs() {
         launchDirectorySite()
         defer { diagnostics("search-directory-errors-final") }
         app.openSearchItem("search.item.errors")
-        assertLogsMode("失败请求")
+        assertLogsMode("错误请求")
     }
 
     @MainActor func testSearchDirectoryOpensGroups() {
@@ -233,10 +233,11 @@ final class AppNavigationUITests: XCTestCase {
     @MainActor private func menuItem(_ label: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == '' AND (label == %@ OR label BEGINSWITH %@)", label, label + ",")).firstMatch
     }
+    /// The segment's title starts its label (S4-05b adds the count after it).
     @MainActor private func assertLogsMode(_ title: String) {
         let mode = app.segmentedControls["logs.mode"]
         XCTAssertTrue(mode.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(mode.buttons[title].isSelected, app.debugDescription)
+        XCTAssertTrue(mode.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch.isSelected, app.debugDescription)
     }
     @MainActor private func goBack() { app.navigationBars.buttons.element(boundBy: 0).tap() }
     @MainActor private func element(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier].firstMatch }

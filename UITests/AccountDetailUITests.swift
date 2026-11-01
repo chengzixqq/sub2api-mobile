@@ -241,7 +241,7 @@ final class AccountDetailUITests: XCTestCase {
         for id in ["rpm", "sessions", "fiveHour"] { XCTAssertFalse(element("account.capacity.\(id)").exists, id) }
     }
 
-    /// 记录's rows open the log page filtered by this account (the old page until S4-05).
+    /// 记录's rows open the log page filtered by this account; its chip names the account.
     @MainActor func testRecordsRowsOpenLogsFilteredByAccount() {
         openDetail(1)
         defer { diagnostics("account-detail-records-final") }
@@ -250,13 +250,13 @@ final class AccountDetailUITests: XCTestCase {
         waitForValue(upstream, equals: "近 24 小时 0 条")
         upstream.tap()
         assertLogsMode("上游错误")
-        XCTAssertTrue(element("logs.account-filter").label.contains("#1"), app.debugDescription)
+        XCTAssertTrue(element("logs.chip.account").label.contains("Claude-官方-01"), app.debugDescription)
         goBack()
         let usage = app.buttons["account.records.usage"]
         reveal(usage)
         usage.tap()
-        assertLogsMode("请求记录")
-        XCTAssertTrue(element("logs.account-filter").label.contains("#1"), app.debugDescription)
+        assertLogsMode("用量明细")
+        XCTAssertTrue(element("logs.chip.account").label.contains("Claude-官方-01"), app.debugDescription)
     }
 
     /// OpenAI-备用-A is in error: the card's newest upstream error opens that request (a placeholder until S4-05 / S4-08).
@@ -417,7 +417,7 @@ final class AccountDetailUITests: XCTestCase {
     @MainActor private func openAccountFromRequestLog(arguments: [String] = []) {
         launchAndLogin(arguments: arguments)
         app.openSearchItem("search.item.usage")
-        let request = app.buttons["logs.request.101"]
+        let request = app.buttons["logs.row.usage.1040"]
         XCTAssertTrue(request.waitForExistence(timeout: 10), app.debugDescription)
         request.tap()
         let link = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '查看账号'")).firstMatch
@@ -463,11 +463,12 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [matched], timeout: timeout), .completed, "\(String(describing: item.value))\n\(app.debugDescription)",
                        file: file, line: line)
     }
-    /// The old log page (until S4-05) shows its scope as the selected segment.
+    /// The log page shows its scope as the selected segment, whose label starts with the title (S4-05b adds the count).
     @MainActor private func assertLogsMode(_ title: String, file: StaticString = #filePath, line: UInt = #line) {
         let mode = app.segmentedControls["logs.mode"]
         XCTAssertTrue(mode.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
-        XCTAssertTrue(mode.buttons[title].isSelected, app.debugDescription, file: file, line: line)
+        let segment = mode.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+        XCTAssertTrue(segment.isSelected, app.debugDescription, file: file, line: line)
     }
     @MainActor private func element(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier].firstMatch }
     @MainActor private func enter(_ text: String, in identifier: String) {

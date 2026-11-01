@@ -376,19 +376,21 @@ final class AlertDetailUITests: XCTestCase {
         XCTAssertFalse(element("alert.detail.scope.errors.failure").exists, app.debugDescription)
     }
 
-    /// The log page the row opened. Until S4-05 it is the old 请求与错误日志 with 失败请求 selected and the group as “分组 #<id>”;
-    /// S4-05's 使用记录 replaces this check.
+    /// The log page the row opened: 使用记录 on 错误请求, with the group's chip under 标准组 and none for a site-wide rule (S4-05).
     @MainActor private func assertErrorLogsOpened(groupID: Int?, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(element("alert.detail.badge").waitForNonExistence(timeout: 10), app.debugDescription, file: file, line: line)
-        let old = app.navigationBars["请求与错误日志"]
-        XCTAssertTrue(old.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
         let mode = app.segmentedControls["logs.mode"]
         XCTAssertTrue(mode.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
-        XCTAssertTrue(mode.buttons["失败请求"].isSelected, app.debugDescription, file: file, line: line)
-        if let groupID {
-            XCTAssertTrue(text(containing: "分组 #\(groupID)").waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        XCTAssertTrue(app.navigationBars["使用记录"].exists || app.navigationBars.staticTexts["使用记录"].exists, app.debugDescription,
+                      file: file, line: line)
+        let errors = mode.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "错误请求")).firstMatch
+        XCTAssertTrue(errors.isSelected, app.debugDescription, file: file, line: line)
+        let chip = element("logs.chip.group")
+        if groupID != nil {
+            XCTAssertTrue(chip.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+            XCTAssertTrue(chip.label.hasPrefix("分组："), chip.label, file: file, line: line)
         } else {
-            XCTAssertFalse(text(containing: "分组 #").exists, app.debugDescription, file: file, line: line)
+            XCTAssertFalse(chip.exists, app.debugDescription, file: file, line: line)
         }
     }
 }
