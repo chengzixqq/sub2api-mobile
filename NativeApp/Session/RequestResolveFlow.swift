@@ -33,6 +33,8 @@ final class RequestResolveFlow {
     private(set) var record: RequestErrorRecord?
     private(set) var isSending = false
     private(set) var isGone = false
+    /// Moves when a write goes out and when it ends; RequestDetailModel keeps it with each detail it reads (`detailEpoch`).
+    @ObservationIgnored private(set) var writeEpoch = 0
     var isResolved: Bool { record?.resolved ?? false }
     var canToggle: Bool { record != nil && !isGone }
 
@@ -61,9 +63,10 @@ final class RequestResolveFlow {
         self.isCurrent = isCurrent; self.isReadOnly = isReadOnly; self.onSettled = onSettled
     }
 
-    /// A detail arrived: it is the server's value, unless a write is on its way (that write's own answer counts).
-    func adopt(_ record: RequestErrorRecord) {
-        guard !isSending else { return }
+    /// A detail arrived: it is the server's value, unless a write is on its way or went out or ended after the read did
+    /// (`epoch` is `writeEpoch` as the read went out): the write's own answer counts, the next read brings who and when.
+    func adopt(_ record: RequestErrorRecord, readAt epoch: Int) {
+        guard !isSending, epoch == writeEpoch else { return }
         self.record = record
         confirmed = record
     }
@@ -80,9 +83,9 @@ final class RequestResolveFlow {
         }
         guard !isSending else { return }
         guard let start = confirmed else { return }
-        isSending = true
+        isSending = true; writeEpoch += 1
         let isLive = await sendWanted()
-        isSending = false
+        isSending = false; writeEpoch += 1
         guard isLive, let confirmed, confirmed.resolved != start.resolved else { return }
         onSettled(confirmed)
     }

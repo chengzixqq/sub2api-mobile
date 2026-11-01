@@ -57,6 +57,8 @@ final class RequestDetailModel {
     private(set) var attempts: Attempts = .hidden
     /// Grows with every detail that arrives (entry, pull, foreground, retry); S4-08b follows it (S4D2a-08).
     private(set) var detailRevision = 0
+    /// S4-08b's `writeEpoch` as the shown detail's read went out, so a read across a write is not taken for the server's value.
+    private(set) var detailEpoch = 0
     /// A load ran to its end, so returning to the page reads nothing until the reason to read changes.
     private(set) var hasLoaded = false
 
@@ -67,16 +69,20 @@ final class RequestDetailModel {
     @ObservationIgnored private let onOpsResponse: @MainActor ((any Error)?) async -> Void
     @ObservationIgnored private let now: @MainActor () -> Date
     @ObservationIgnored private let phoneNow: @MainActor () -> Date
+    @ObservationIgnored private let writeEpoch: @MainActor () -> Int
     /// Changes with every load; a reply carrying an older one is dropped.
     @ObservationIgnored private var ticket = UUID()
 
     /// `attemptsSupported` is `ops.request_attempts`; `onOpsResponse` hands each ops read's outcome to LiveOpsStore (S1D1-02).
     /// `now` is the server clock; `phoneNow` times the 429 wait, as BlockFailureRow counts it down and reads again on the phone's.
+    /// `writeEpoch` is S4-08b's RequestResolveFlow.writeEpoch.
     init(route: RequestRoute, source: RequestDetailSource, attemptsSupported: Bool, isOpsEnabled: @escaping @MainActor () -> Bool,
          isCurrent: @escaping @MainActor @Sendable () -> Bool, onOpsResponse: @escaping @MainActor ((any Error)?) async -> Void = { _ in },
-         now: @escaping @MainActor () -> Date = { Date() }, phoneNow: @escaping @MainActor () -> Date = { Date() }) {
+         now: @escaping @MainActor () -> Date = { Date() }, phoneNow: @escaping @MainActor () -> Date = { Date() },
+         writeEpoch: @escaping @MainActor () -> Int = { 0 }) {
         self.route = route; self.source = source; self.attemptsSupported = attemptsSupported; self.isOpsEnabled = isOpsEnabled
         self.isCurrent = isCurrent; self.onOpsResponse = onOpsResponse; self.now = now; self.phoneNow = phoneNow
+        self.writeEpoch = writeEpoch
         switch route {
         case .usage(let preload): usage = preload.value; page = .content
         case .usageRequestID: page = .loading
@@ -184,7 +190,7 @@ final class RequestDetailModel {
     private func loadError(id: Int, kind: ErrorLogKind, ticket: UUID) async {
         guard isOpsEnabled() else { return showOpsOff() }
         guard detailRefresh.allowsRequest(at: phoneNow()) else { return }
-        let source = source, row = record, previous = attempts
+        let source = source, row = record, previous = attempts, epoch = writeEpoch()
         let earlyID = row.flatMap { chainID($0) }, around = row.flatMap { ServerTime.parseTimestamp($0.createdAt) }
         if row == nil { page = .loading } else if earlyID != nil, !previous.isFilled { attempts = .loading }
         detail = detail.withLoading()
@@ -192,7 +198,7 @@ final class RequestDetailModel {
         let result = await Self.capture { try await source.errorDetail(id, kind) }
         var read = await early
         guard ticket == self.ticket, isCurrent() else { return }
-        let proceeds = applyDetail(result, previous: previous)
+        let proceeds = applyDetail(result, previous: previous, epoch: epoch)
         await report(result)
         guard proceeds, ticket == self.ticket, isCurrent() else { return }
         if row == nil, let fresh = detail.value, let lateID = chainID(fresh.record) {
@@ -204,10 +210,10 @@ final class RequestDetailModel {
     }
     /// Whether the chain still matters: not after the record went, ops turned out off, the read was cancelled, or a page
     /// without a row failed.
-    private func applyDetail(_ result: Result<RequestErrorDetail, any Error>, previous: Attempts) -> Bool {
+    private func applyDetail(_ result: Result<RequestErrorDetail, any Error>, previous: Attempts, epoch: Int) -> Bool {
         switch result {
         case .success(let fresh):
-            record = fresh.record; detail = .loaded(fresh, at: now()); detailError = nil
+            record = fresh.record; detail = .loaded(fresh, at: now()); detailError = nil; detailEpoch = epoch
             detailRefresh = detailRefresh.recordingSuccess(); detailRevision += 1; pageError = nil; page = .content
             return true
         case .failure(let error) where error is CancellationError:

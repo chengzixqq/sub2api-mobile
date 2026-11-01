@@ -54,13 +54,15 @@ private actor RequestDetailStub {
     /// Server minus phone time, as ServerClock keeps it; `phone` moves with `now`.
     var serverOffset: TimeInterval = 0
     var phone: Date { now.addingTimeInterval(-serverOffset) }
+    /// S4-08b's write epoch.
+    var epoch = 0
     private(set) var reports: [String] = []
 
     func model(_ route: RequestRoute, _ stub: RequestDetailStub, attemptsSupported: Bool = true) -> RequestDetailModel {
         RequestDetailModel(route: route, source: stub.source, attemptsSupported: attemptsSupported, isOpsEnabled: { self.opsEnabled },
                            isCurrent: { self.isCurrent },
                            onOpsResponse: { error in self.reports.append(error.map { ($0 as? APIError)?.reason ?? "other" } ?? "nil") },
-                           now: { self.now }, phoneNow: { self.phone })
+                           now: { self.now }, phoneNow: { self.phone }, writeEpoch: { self.epoch })
     }
 }
 
@@ -458,6 +460,24 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     await cancelGate.open()
     await cancelled.value
     #expect(kept.detail.value?.record.message == "kept" && !kept.detail.isLoading && kept.detailRevision == 1)
+}
+
+/// S4-08b: a detail keeps the write epoch of when its read went out, not of when it arrived.
+@MainActor @Test func detailKeepsTheWriteEpochOfItsRead() async throws {
+    let harness = DetailHarness(), gate = SessionGate(), row = try detailRow()
+    let stub = RequestDetailStub(detail: { call in
+        if call == 1 { await gate.wait() }
+        return try detailReply()
+    })
+    let model = harness.model(.error(id: 2006, kind: .request, initial: RoutePreload(row)), stub, attemptsSupported: false)
+    let loading = Task { await model.load() }
+    #expect(await eventually { await gate.arrived })
+    harness.epoch = 2
+    await gate.open()
+    await loading.value
+    #expect(model.detailRevision == 1 && model.detailEpoch == 0)
+    await model.load()
+    #expect(model.detailRevision == 2 && model.detailEpoch == 2)
 }
 
 // MARK: - 线上数据源
