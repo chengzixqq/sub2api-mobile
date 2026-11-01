@@ -26,32 +26,72 @@ enum LogFixtures {
         static let nextPageFails = "-ui-logs-page-error"
         /// admin/me says ops monitoring is on, yet both error lists answer 404 OPS_DISABLED.
         static let opsDisabledReply = "-ui-logs-ops-404"
+        /// S4-05b: the site is taken for one without D03, so upstream errors grey the user and model chips.
+        static let legacyServer = "-ui-logs-legacy-server"
+        /// `usage/stats` answers 500, so 用量明细 reads “—”.
+        static let countFails = "-ui-logs-count-fails"
+        /// Each count answers one more than the time before for its segment (rows + n − 1 on the n-th ask).
+        static let countTicks = "-ui-logs-count-ticks"
+        /// A list or count with any object condition answers 400 without a reason.
+        static let badRequest = "-ui-logs-bad-request"
     }
     static let pageSize = 30
     static let newestUsageID = 1040
     static let overlapUsageID = 1011
     static let oldestUsageID = 1001
     static let failure = APIError.server(status: 503, reason: nil)
+    static let countFailure = APIError.server(status: 500, reason: nil)
+    static let badRequest = APIError.server(status: 400, reason: nil)
 
     /// The rows are made once; the reads only filter and page them. `-ui-ops-disabled` / `-ui-ops-config-off` (OpsFixtureSwitch)
     /// also answer 404 on the error lists, which the store does not ask while the switch says off.
     static func source(arguments: [String], base: Date, timeZone: ServerTimeZone) -> LogsSource {
-        let isEmpty = arguments.contains(Argument.empty)
-        let usage = isEmpty ? [] : usageRows(base: base, timeZone: timeZone)
-        let request = isEmpty ? [] : errorRows(.request, base: base, timeZone: timeZone)
-        let upstream = isEmpty ? [] : errorRows(.upstream, base: base, timeZone: timeZone)
-        let opsOff = OpsFixtureSwitch.from(arguments: arguments) != .on || arguments.contains(Argument.opsDisabledReply)
+        let rows = LogFixtureRows(arguments: arguments, base: base, timeZone: timeZone)
+        let opsOff = opsOff(arguments), rejects = arguments.contains(Argument.badRequest)
         let failures = LogFixtureFailures(firstPage: arguments.contains(Argument.firstPageFails),
                                           nextPage: arguments.contains(Argument.nextPageFails))
         return LogsSource(usage: { page, filter in
+            try rejectBadRequest(filter, isOn: rejects)
             try await failures.check("usage", page: page)
-            return LogFixtures.page(usage.filter { matches($0, filter) }, page: page, countsTotal: false)
+            return LogFixtures.page(rows.usage.filter { matches($0, filter) }, page: page, countsTotal: false)
         }, errors: { page, filter, kind in
             if opsOff { throw LiveOpsFixtures.opsDisabledError }
+            try rejectBadRequest(filter, isOn: rejects)
             try await failures.check(kind.rawValue, page: page)
-            let rows = (kind == .upstream ? upstream : request).filter { matches($0, filter) }
-            return LogFixtures.page(rows, page: page, countsTotal: true, reportsHasMore: kind == .request)
+            return LogFixtures.page(rows.errors(kind).filter { matches($0, filter) }, page: page, countsTotal: true,
+                                    reportsHasMore: kind == .request)
         })
+    }
+
+    /// S4-05b: the counts over the same rows and conditions as the lists, so a count equals its list's length.
+    static func countSource(arguments: [String], base: Date, timeZone: ServerTimeZone) -> LogCountSource {
+        let rows = LogFixtureRows(arguments: arguments, base: base, timeZone: timeZone)
+        let opsOff = opsOff(arguments), rejects = arguments.contains(Argument.badRequest), fails = arguments.contains(Argument.countFails)
+        let ticks = LogFixtureCountTicks(isOn: arguments.contains(Argument.countTicks))
+        return LogCountSource(usage: { query in
+            let filter = RequestLogFilter(time: .range(query.start, query.end), accountID: query.accountID, groupID: query.groupID,
+                                          userID: query.userID, model: query.model, modelSource: query.modelSource)
+            try rejectBadRequest(filter, isOn: rejects)
+            if fails { throw countFailure }
+            return await ticks.next("usage") + rows.usage.filter { matches($0, filter) }.count
+        }, errors: { filter, kind in
+            if opsOff { throw LiveOpsFixtures.opsDisabledError }
+            try rejectBadRequest(filter, isOn: rejects)
+            return await ticks.next(kind.rawValue) + rows.errors(kind).filter { matches($0, filter) }.count
+        })
+    }
+    /// `-ui-logs-legacy-server`, else admin/me's.
+    static func isLegacyServer(_ site: SiteSession, arguments: [String]) -> Bool {
+        arguments.contains(Argument.legacyServer) || site.me.isLegacyServer
+    }
+
+    /// `-ui-ops-disabled` / `-ui-ops-config-off` (OpsFixtureSwitch) and `-ui-logs-ops-404` answer 404 on the error reads.
+    private static func opsOff(_ arguments: [String]) -> Bool {
+        OpsFixtureSwitch.from(arguments: arguments) != .on || arguments.contains(Argument.opsDisabledReply)
+    }
+    private static func rejectBadRequest(_ filter: RequestLogFilter, isOn: Bool) throws {
+        let hasConditions = filter.accountID != nil || filter.groupID != nil || filter.userID != nil || filter.model != nil
+        if isOn, hasConditions { throw badRequest }
     }
 
     /// Newest id first. Usage pages page by `has_more` without a total; the error lists count (`ops/upstream-errors` has no
@@ -242,6 +282,36 @@ private struct LogFixtureClock {
     }
     func yesterday(minutesBeforeMidnight: Int, rank: Int) -> Date {
         max(dayStart.addingTimeInterval(-TimeInterval(minutesBeforeMidnight * 60)), base.addingTimeInterval(TimeInterval(-86_400 + 120 + rank * 2)))
+    }
+}
+
+/// The three segments' rows, made once per source; none with `-ui-logs-empty`.
+private struct LogFixtureRows: Sendable {
+    let usage: [UsageRequestRecord]
+    let request: [RequestErrorRecord]
+    let upstream: [RequestErrorRecord]
+
+    init(arguments: [String], base: Date, timeZone: ServerTimeZone) {
+        let isEmpty = arguments.contains(LogFixtures.Argument.empty)
+        usage = isEmpty ? [] : LogFixtures.usageRows(base: base, timeZone: timeZone)
+        request = isEmpty ? [] : LogFixtures.errorRows(.request, base: base, timeZone: timeZone)
+        upstream = isEmpty ? [] : LogFixtures.errorRows(.upstream, base: base, timeZone: timeZone)
+    }
+    func errors(_ kind: ErrorLogKind) -> [RequestErrorRecord] { kind == .upstream ? upstream : request }
+}
+
+/// `-ui-logs-count-ticks`: the n-th count of a segment adds n − 1, so a count asked again shows (S4-05b).
+private actor LogFixtureCountTicks {
+    private let isOn: Bool
+    private var asked: [String: Int] = [:]
+
+    init(isOn: Bool) { self.isOn = isOn }
+
+    func next(_ segment: String) -> Int {
+        guard isOn else { return 0 }
+        let count = asked[segment, default: 0]
+        asked[segment] = count + 1
+        return count
     }
 }
 

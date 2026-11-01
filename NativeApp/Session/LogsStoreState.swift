@@ -62,6 +62,8 @@ final class LogsStoreState {
     /// The shown segment's rows by site day, made when they change.
     private(set) var sections: [LogSection<LogRowPresentation>] = []
     private(set) var isVisible = false
+    /// The segments' counts (S4-05b).
+    let counter: LogSegmentCounter
 
     @ObservationIgnored private let source: LogsSource
     @ObservationIgnored private let legacyServer: Bool
@@ -75,15 +77,17 @@ final class LogsStoreState {
     @ObservationIgnored private var ticket = UUID()
 
     /// `now` is the server clock; `phoneNow` times the 429 wait, as BlockFailureRow counts it down and reads again on the phone's
-    /// clock; `opsDisabled` the session's ops switch; `reportOps` hands each error read's outcome to LiveOpsStore (S1D1-02).
+    /// clock; `opsDisabled` the session's ops switch; `reportOps` hands each error read's outcome to LiveOpsStore (S1D1-02);
+    /// `countSource` answers the segments' counts.
     init(route: LogsRoute, generation: UUID, source: LogsSource, timeZone: ServerTimeZone, legacyServer: Bool, supportsModelSource: Bool,
          isCurrent: @escaping @MainActor () -> Bool, now: @escaping @MainActor () -> Date,
          phoneNow: @escaping @MainActor () -> Date = { Date() }, opsDisabled: @escaping @MainActor () -> Bool = { false },
-         reportOps: @escaping @MainActor ((any Error)?) async -> Void = { _ in }) {
+         reportOps: @escaping @MainActor ((any Error)?) async -> Void = { _ in }, countSource: LogCountSource = .unavailable) {
         self.generation = generation; self.timeZone = timeZone; self.source = source
         self.legacyServer = legacyServer; self.supportsModelSource = supportsModelSource
         self.isCurrent = isCurrent; self.clock = now; self.phoneClock = phoneNow
         self.opsDisabled = opsDisabled; self.reportOps = reportOps
+        counter = LogSegmentCounter(source: countSource) { await reportOps($0) }
         scope = route.scope
         conditions = route.conditions
     }
@@ -138,27 +142,29 @@ final class LogsStoreState {
     func appeared() async {
         isVisible = true
         guard phase == .idle else { return }
-        await loadFirstPage(scope)
+        await loadCounted(scope)
     }
     func disappeared() { isVisible = false }
-    /// D18: a shown page reads its segment's page 1 again.
+    /// D18: a shown page reads its segment's page 1 again, and only the counts the background stopped.
     func foregroundResumed() async {
         guard isVisible else { return }
+        counter.resumeInterrupted()
         await loadFirstPage(scope)
     }
-    /// LiveOpsStore's switch moved: an error segment that ops monitoring held back reads once it is on.
+    /// LiveOpsStore's switch moved: an error segment that ops monitoring held back reads once it is on, as on entering.
     func opsAvailabilityChanged() async {
         guard scope.errorKind != nil, phase == .opsDisabled, !opsDisabled() else { return }
-        await loadFirstPage(scope)
+        await loadCounted(scope)
     }
 
     // MARK: User actions
 
-    /// Pull to refresh: page 1 in a new window; the rows stay until it lands.
-    func reload() async { await loadFirstPage(scope) }
-    /// 40 §6.4: the conditions and the time stay; the segment starts again from page 1.
+    /// Pull to refresh: page 1 in a new window and the counts again; the rows stay until it lands.
+    func reload() async { await loadCounted(scope) }
+    /// 40 §6.4: the conditions and the time stay; the segment starts again from page 1 and nothing is counted again.
     func select(_ scope: LogScope) async {
         guard scope != self.scope else { return }
+        counter.leaving(self.scope)
         self.scope = scope
         ticket = UUID()
         reset(scope)
@@ -169,14 +175,14 @@ final class LogsStoreState {
         guard preset != time else { return }
         time = preset
         resetAll()
-        await loadFirstPage(scope)
+        await loadCounted(scope)
     }
     /// The one way to change the conditions (S4-05b's chips, S4-07's picker).
     func setConditions(_ conditions: LogConditions) async {
         guard conditions != self.conditions else { return }
         self.conditions = conditions
         resetAll()
-        await loadFirstPage(scope)
+        await loadCounted(scope)
     }
     /// The last row appeared: the next page, joined by id (40 §6.4).
     func loadMoreIfNeeded(after id: Int) async {
@@ -237,8 +243,14 @@ final class LogsStoreState {
     ) async {
         guard isCurrent() else { return }
         let isErrorSegment = scope.errorKind != nil
-        if isErrorSegment, opsDisabled() { return land(current().opsOff(), update: update) }
-        guard refresh.allowsRequest(at: phoneClock()) else { return holdBack(page: page, current: current, update: update) }
+        if isErrorSegment, opsDisabled() {
+            if page == 1 { counter.firstPageFailed(scope, error: nil) }
+            return land(current().opsOff(), update: update)
+        }
+        guard refresh.allowsRequest(at: phoneClock()) else {
+            if page == 1 { counter.firstPageFailed(scope, error: nil) }
+            return holdBack(page: page, current: current, update: update)
+        }
         let ticket = UUID()
         self.ticket = ticket
         update(current().starting(page: page, window: window))
@@ -246,6 +258,7 @@ final class LogsStoreState {
         let result: Result<Page<Record>, any Error>
         do { result = .success(try await fetch(page, filter)) } catch { result = .failure(error) }
         guard ticket == self.ticket, isCurrent() else { return }
+        if page == 1 { countFirstPage(scope, result) }
         switch result {
         case .success(let reply):
             refresh = refresh.recordingSuccess()
@@ -280,5 +293,51 @@ final class LogsStoreState {
         }
         let made = LogSections.make(rows, timeZone: timeZone, now: clock())
         if made != sections { sections = made }
+    }
+}
+
+// MARK: - S4-05b 计数与条件
+
+extension LogsStoreState {
+    /// The empty state's “这些条件下” and “清除筛选”: a condition the shown segment applies (40 §6.5).
+    var hasAppliedConditions: Bool { chips.hasAppliedConditions }
+    /// 40 §6.5: an error segment over a range starting more than 30 days ago, unless ops monitoring is off.
+    var retentionNote: String? {
+        guard !showsOpsNotice, time.showsRetentionNotice(kind: scope.errorKind, now: clock()) else { return nil }
+        return LogListCopy.retentionNotice
+    }
+    /// 40 §6.3: tapping a chip, greyed or not, drops its condition; the list and the counts start again.
+    func removeCondition(_ kind: LogFilterKind) async { await setConditions(conditions.removing(kind)) }
+    /// 40 §6.5 清除筛选: every condition goes; the time and the segment stay.
+    func clearConditions() async { await setConditions(LogConditions()) }
+
+    /// The user's entries (40 §6.6): page 1 and a new round of counts over the same window.
+    private func loadCounted(_ scope: LogScope) async {
+        let window = time.window(now: clock())
+        if isCurrent() { counter.begin(countPlan(window: window)) }
+        await load(scope, page: 1, window: window)
+    }
+    /// Each segment's request conditions without its greyed chips; usage counts over the site's zone.
+    private func countPlan(window: LogTimeWindow) -> LogCountPlan {
+        LogCountPlan(usage: LogListPolicy.usageCountQuery(filter(for: .usage, window: window), timeZone: timeZone),
+                     errors: filter(for: .errors, window: window), upstream: filter(for: .upstream, window: window),
+                     current: scope, opsAvailable: !opsDisabled())
+    }
+    /// The shown error segment's count is its page 1's `total` (40 §6.2).
+    private func countFirstPage<Record: IncrementalRecord & Decodable>(_ scope: LogScope, _ result: Result<Page<Record>, any Error>) {
+        switch result {
+        case .success(let reply): counter.firstPageLoaded(scope, total: reply.total)
+        case .failure(let error): counter.firstPageFailed(scope, error: error)
+        }
+    }
+}
+
+extension LogListFailure {
+    /// 40 §6.5 “400 其他（参数）”: a 400 other than since_id's two (S4-06 reads page 1 again for those), or the check before
+    /// sending.
+    var isInvalidParameters: Bool {
+        guard let error else { return false }
+        if error.statusCode == 400 { return !IncrementalPolicy.shouldRestartFromFirstPage(error) }
+        return error.statusCode == nil && error.kind == .validation
     }
 }
