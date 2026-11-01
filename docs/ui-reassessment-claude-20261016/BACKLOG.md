@@ -603,3 +603,5 @@
 | 代理编辑对象条地址的写法 | 续期对象条用 ProxyPresentation.addressLine（“SOCKS5H · host:port”），和详情副标题一致；规格示例里的地址是演示数据，夹具实际显示 198.51.100.30 |
 | 公告编辑 sheet 结果未确认时仍可关闭 | AnnouncementEditSheet（S6-18）处于 createUnconfirmed 或 updateUnconfirmed 时，只在 isBusy 或 hasChanges 时禁止下滑；取消弹的是“放弃修改？”，关闭后也不重读列表。S6-14 审查修正前的代理 sheet 是同一个问题（00 §2.5.4 第 1 条）。建议 S6-26 合并 DismissAttemptBridge 时，一并改成“结果未确认 / 稍后核对”。 |
 | 新建类写入结果未确认、关闭 sheet 后不拦截再次新建 | 00 §2.5.4 第 4 条要求核对完成前不发起同类写入。代理、公告、分组等新建类写入没有本机记录，sheet 关闭后编号也随之丢失。代理 sheet 目前只在关闭前提示，关闭后重读列表，不拦截再次添加。如果要拦截，需要给新建类写入加会话内的待核对记录，是否这样做由各模块决定。 |
+| 全局搜索 vendor 发送规则只有单测 | U01 首版拒绝 vendor 登录，S6-20 的 vendor 发送矩阵与底部说明“当前身份看不到用户与错误请求”只由 GlobalSearchTests 覆盖；放开 vendor 登录时需补夹具与 UI 用例 |
+| AppNavigationUITests.testSearchDirectoryOpensErrorLogs 偶发卡死 | 2026-11-01 线 C 一次 check 中该用例超 10 分钟执行时限（没有断言失败，runner 重启后其余用例通过），单独重跑与再次整类 check 都通过；再现时考虑登记进 UI 测试基线或查错误日志页在夹具下的卡死 |
