@@ -512,6 +512,16 @@
 | 429 等待期间被挡住的日志读取 | 切段、换时间或下拉时还在 429 等待内，该段显示“加载失败 · 重试”的倒计时行（没有错误详情），等待结束后自动重读；规格没写这种情况，这是 S4-05 的取舍，待确认 |
 | 日志夹具在站点午夜前两分钟的边界 | LogFixtures 的“昨天”行夹在近 24 小时以内，但站点时间 23:58–24:00 之间会落到今天或窗口外，RequestLogsUITests 的“今天 / 昨天”断言可能失败；如果在 Mac 上偶发，先看失败时的站点时间（S4-05） |
 | 日志页首屏不再挂在视图的 .task 上 | 推入页面时会先消失再出现，.task 会取消在途的首屏读取，页面停在“正在读取记录…”。S4-05 改为在 onAppear 里起非结构化 Task，store 只把 CancellationError 当作中断。S4-06 加轮询任务时注意同样的问题 |
+| 路由参数在旧页面上不生效（补充） | .analytics 的 range 自 S4-13 生效，focus == .perf 的首次滚动已做，metric 由 S4-16 的 RPM / TPM 卡读取 |
+| 区块 429 倒计时文案与重试按钮（补充） | 统计分析各卡经 AnalyticsCardStatusRow 用 BlockFailureRow，按钮写“重试本项”，429 等待期间倒计时、重试禁用（S4-13 已有 UI 用例） |
+| 缺失值“—”的读屏（补充） | 统计分析计费卡的大数、账号成本 / 标准 / 利润三格、请求 · Tokens · 平均耗时的缺失值都读“无数据”（S4-13） |
+| 筛选 sheet 分组占比读取失败没有提示 | S4-13 未做（要改 S4-12 的 AnalyticsSheets.swift / AnalyticsFixtures+Filter.swift），延后到 UI 审查 |
+| 自定义范围日历的“今天”高亮按手机时区（核对结果） | S4-13 在模拟器上设手机时区 America/Los_Angeles、站点 Asia/Shanghai 截图核对：图形日历的“今天”标在站点日期（11月1日），因为 DatePicker 已注入站点 timeZone / calendar，没有错位；这一行可以关闭 |
+| S4-20 清理清单补充：旧趋势页的残留 | LegacyTrendPage 删除后，AppModel.dashboardTrend() 及其 -ui-trend-long-series / -ui-dashboard-detail-errors 夹具分支、DemoData.longHourlyTrend 已没有调用方（PerformanceTrendView 与 dashboardPerformanceTrend(hours:) 归 S4-16）；docs/API_COMPATIBILITY.md:32 仍写“过渡页 LegacyTrendPage”，需要随 S4-20 改写 |
+| 卡内失败行偏重 | 计费卡合计与趋势同时失败时，卡内出现两组“加载失败 · 重试本项 + 详情”，各管一个读取；是否合并成一行留给 UI 审查 |
+| 请求详情分区编号 | 按已定设计稿：头部状态卡与按钮行不编号，耗时从“壹”起；40 §7.1 字面从头部卡开始编号，待用户确认（S4D2a-14；若按规格只改 RequestDetailLayout.sections / ordinal 与对应单测） |
+| 请求详情 UI 夹具按请求 ID 查使用记录 | LogFixtures+Detail 的 requestUsageRecord 目前一律返回 nil：UI 夹具里已恢复请求的退路查不到成功那次。S6-20 / S6-21 用请求 ID 搜索进入 .usageRequestID 时在该文件补脚本 |
+| 请求详情 429 等待的时钟与失败行不一致 | 线 B 的 S4-08（aa67dc3/0e333d3）里，RequestDetailModel 的 detailRefresh 也用 client.serverClock.now() 记录和判定 429 等待（RequestDetailModel.swift:184/222），RequestDetailView 又把它交给 BlockFailureRow，按设备时钟倒计时和自动重发。这和 S4-05 审查修正 cf34f8f 修的是同一个问题：服务器时钟偏慢时，等待结束后的自动重发会被挡掉。应在 S4-08 的修正里照 LogsStoreState 的做法改用设备时钟（phoneNow）。 |
 
 ### App 与设计 · 阶段 5
 

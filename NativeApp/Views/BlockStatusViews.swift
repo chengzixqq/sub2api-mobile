@@ -56,7 +56,7 @@ struct BlockStatusAccessory<Value: Sendable>: View {
 
 /// A block without an earlier value: one line “加载失败 · 重试”. During a 429 wait the countdown shows and 重试 waits; a
 /// compliance refusal offers 完成合规确认 (BACKLOG); an APIError adds its 详情. Identifiers `<id>.failure`, `<id>.retry`,
-/// `<id>.compliance`.
+/// `<id>.compliance`. The analytics cards call the button 重试本项 (`retryTitle`, 40 §1.6).
 struct BlockFailureRow: View {
     @Environment(AppModel.self) private var model
     private let title: String
@@ -65,14 +65,16 @@ struct BlockFailureRow: View {
     private let refresh: BlockRefresh
     private let id: String
     private let resendsAfterWait: Bool
+    private let retryTitle: String
     private let retry: @MainActor () -> Void
     /// The time of the details when the caller has none: when this row first showed.
     @State private var shownAt = Date()
 
     init(title: String = BlockStatusPresentation.loadFailed, error: APIError?, occurredAt: Date? = nil, refresh: BlockRefresh,
-         id: String = "block", resendsAfterWait: Bool = true, retry: @escaping @MainActor () -> Void) {
+         id: String = "block", resendsAfterWait: Bool = true, retryTitle: String = BlockStatusPresentation.retryTitle,
+         retry: @escaping @MainActor () -> Void) {
         self.title = title; self.error = error; self.occurredAt = occurredAt; self.refresh = refresh; self.id = id
-        self.resendsAfterWait = resendsAfterWait; self.retry = retry
+        self.resendsAfterWait = resendsAfterWait; self.retryTitle = retryTitle; self.retry = retry
     }
     /// 加载超时 or 加载失败 as the block's failure says.
     init<Value: Sendable>(state: BlockState<Value>, error: APIError? = nil, occurredAt: Date? = nil, refresh: BlockRefresh,
@@ -100,8 +102,8 @@ struct BlockFailureRow: View {
             Text(row.text).font(.subheadline).monospacedDigit().foregroundStyle(Palette.ink2)
             Text("·").foregroundStyle(Palette.ink3).accessibilityHidden(true)
             switch row.action {
-            case .retry: rowButton(BlockStatusPresentation.retryTitle, id: "\(id).retry", action: retry)
-            case .waiting: rowButton(BlockStatusPresentation.retryTitle, id: "\(id).retry") {}.disabled(true)
+            case .retry: rowButton(retryTitle, id: "\(id).retry", action: retry)
+            case .waiting: rowButton(retryTitle, id: "\(id).retry") {}.disabled(true)
             case .completeCompliance: rowButton(BlockStatusPresentation.complianceTitle, id: "\(id).compliance", action: completeCompliance)
             }
             Spacer(minLength: 0)

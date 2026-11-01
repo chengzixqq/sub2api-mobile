@@ -260,7 +260,7 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertTrue(element("logs.chip.account").label.contains("Claude-官方-01"), app.debugDescription)
     }
 
-    /// OpenAI-备用-A is in error: the card's newest upstream error opens that request (a placeholder until S4-05 / S4-08).
+    /// OpenAI-备用-A is in error: the card's newest upstream error opens that request.
     @MainActor func testErrorAccountLatestUpstreamErrorOpensRequestRoute() {
         openDetail(7)
         defer { diagnostics("account-detail-last-upstream-final") }
@@ -274,8 +274,8 @@ final class AccountDetailUITests: XCTestCase {
         diagnostics("account-detail-last-upstream")
         reveal(latest, towardBottom: false)
         latest.tap()
-        XCTAssertTrue(element("route.placeholder").waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.navigationBars["请求详情"].exists, app.debugDescription)
+        XCTAssertTrue(element("logs.detail.status").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["上游错误"].exists || app.navigationBars.staticTexts["上游错误"].exists, app.debugDescription)
     }
 
     /// U22: with ops monitoring off the card says when the account failed, without a link, and 记录 says so but still opens.
@@ -421,7 +421,7 @@ final class AccountDetailUITests: XCTestCase {
         let request = app.buttons["logs.row.usage.1040"]
         XCTAssertTrue(request.waitForExistence(timeout: 10), app.debugDescription)
         request.tap()
-        let link = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '查看账号'")).firstMatch
+        let link = app.buttons["logs.detail.link.account"]
         app.scrollUntilExists(link)
         link.tap()
     }

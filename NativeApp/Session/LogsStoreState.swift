@@ -68,19 +68,22 @@ final class LogsStoreState {
     @ObservationIgnored private let supportsModelSource: Bool
     @ObservationIgnored private let isCurrent: @MainActor () -> Bool
     @ObservationIgnored private let clock: @MainActor () -> Date
+    @ObservationIgnored private let phoneClock: @MainActor () -> Date
     @ObservationIgnored private let opsDisabled: @MainActor () -> Bool
     @ObservationIgnored private let reportOps: @MainActor ((any Error)?) async -> Void
     /// Changes with every read and every reset; a reply carrying an older one is dropped.
     @ObservationIgnored private var ticket = UUID()
 
-    /// `now` is the server clock; `opsDisabled` the session's ops switch; `reportOps` hands each error read's outcome to
-    /// LiveOpsStore (S1D1-02).
+    /// `now` is the server clock; `phoneNow` times the 429 wait, as BlockFailureRow counts it down and reads again on the phone's
+    /// clock; `opsDisabled` the session's ops switch; `reportOps` hands each error read's outcome to LiveOpsStore (S1D1-02).
     init(route: LogsRoute, generation: UUID, source: LogsSource, timeZone: ServerTimeZone, legacyServer: Bool, supportsModelSource: Bool,
          isCurrent: @escaping @MainActor () -> Bool, now: @escaping @MainActor () -> Date,
-         opsDisabled: @escaping @MainActor () -> Bool = { false }, reportOps: @escaping @MainActor ((any Error)?) async -> Void = { _ in }) {
+         phoneNow: @escaping @MainActor () -> Date = { Date() }, opsDisabled: @escaping @MainActor () -> Bool = { false },
+         reportOps: @escaping @MainActor ((any Error)?) async -> Void = { _ in }) {
         self.generation = generation; self.timeZone = timeZone; self.source = source
         self.legacyServer = legacyServer; self.supportsModelSource = supportsModelSource
-        self.isCurrent = isCurrent; self.clock = now; self.opsDisabled = opsDisabled; self.reportOps = reportOps
+        self.isCurrent = isCurrent; self.clock = now; self.phoneClock = phoneNow
+        self.opsDisabled = opsDisabled; self.reportOps = reportOps
         scope = route.scope
         conditions = route.conditions
     }
@@ -235,7 +238,7 @@ final class LogsStoreState {
         guard isCurrent() else { return }
         let isErrorSegment = scope.errorKind != nil
         if isErrorSegment, opsDisabled() { return land(current().opsOff(), update: update) }
-        guard refresh.allowsRequest(at: clock()) else { return holdBack(page: page, current: current, update: update) }
+        guard refresh.allowsRequest(at: phoneClock()) else { return holdBack(page: page, current: current, update: update) }
         let ticket = UUID()
         self.ticket = ticket
         update(current().starting(page: page, window: window))
@@ -255,7 +258,7 @@ final class LogsStoreState {
             land(current().opsOff(), update: update)
             await reportOps(error)
         case .failure(let error):
-            refresh = refresh.recordingFailure(error, at: clock())
+            refresh = refresh.recordingFailure(error, at: phoneClock())
             land(current().failing(page: page, error: error, at: clock()), update: update)
         }
     }
