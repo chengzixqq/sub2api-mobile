@@ -32,3 +32,14 @@ import Sub2Core
     #expect(router.path(for: .search) == [.groups(), .group(id: 12)])
     #expect(router.path(for: .today).isEmpty)
 }
+
+/// S5-08: 0.4.3 查看 opens the member write's per-item results on the current tab (S5-09 carries the outcome along).
+@MainActor @Test func showGroupBatchPushesTheResultPageOnTheCurrentTab() throws {
+    let router = AppRouter(selectedTab: .search)
+    router.setPath([.groups(), .group(id: 4)], for: .search)
+    let request = try GroupMemberBatchRequest(add: [GroupMemberAdd(accountID: 7)])
+    router.showGroupBatch(GroupBatchOutcome(groupID: 4, groupName: "企业专线", request: request,
+                                            result: GroupMemberBatchResult(groupID: 4, results: [], counts: nil)))
+    #expect(router.path(for: .search) == [.groups(), .group(id: 4), .groupBatch(groupID: 4, name: "企业专线")])
+    #expect(router.path(for: .accounts).isEmpty)
+}

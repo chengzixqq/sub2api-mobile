@@ -30,7 +30,7 @@ final class GroupDetailUITests: XCTestCase {
         XCTAssertTrue(recovery.poll(NSPredicate(format: "label != %@", first), timeout: 5), "the recovery line did not count down: \(first)")
         XCTAssertFalse(element("group.detail.card.stopped").exists, app.debugDescription)
         XCTAssertTrue(app.buttons["group.action.edit"].exists, app.debugDescription)
-        XCTAssertFalse(app.buttons["group.action.addAccounts"].exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["group.action.addAccounts"].exists, app.debugDescription)
         for old in ["group.analytics", "group.accounts", "group.logs"] { XCTAssertFalse(element(old).exists, old) }
 
         let header = element("group.members.header")
@@ -102,9 +102,10 @@ final class GroupDetailUITests: XCTestCase {
         let warning = element("group.detail.card.warning")
         XCTAssertTrue(warning.poll(NSPredicate(format: "label == %@", "分组里还没有账号，新请求会失败。目前也没有 API 密钥使用它。"), timeout: 10),
                       warning.label)
-        let empty = element("group.members.empty")
-        app.scrollUntilExists(empty)
-        XCTAssertEqual(empty.label, "没有成员账号")
+        let add = element("group.members.add")
+        app.scrollUntilExists(add)
+        XCTAssertEqual(add.label, "添加 Antigravity 账号")
+        XCTAssertFalse(element("group.members.empty").exists, app.debugDescription)
         XCTAssertFalse(element("group.members.footnote").exists, app.debugDescription)
     }
 
@@ -153,7 +154,7 @@ final class GroupDetailUITests: XCTestCase {
         XCTAssertFalse(element("account.detail.card").exists, app.debugDescription)
     }
 
-    /// 编辑分组 opens the group editor; ⋯ lists the actions this identity has (添加账号 waits for S5-08), and 删除分组… asks for
+    /// 编辑分组 opens the group editor; ⋯ lists the actions this identity has (添加账号 since S5-08), and 删除分组… asks for
     /// the name while Face ID is off.
     @MainActor func testEditButtonAndMoreMenuOpenTheirSheets() {
         openGroup(1)
@@ -166,10 +167,9 @@ final class GroupDetailUITests: XCTestCase {
         XCTAssertTrue(element("group.detail.card").exists, app.debugDescription)
 
         app.buttons["group.more"].tap()
-        for title in ["编辑分组", "停用分组…", "复制分组", "删除分组…"] {
+        for title in ["编辑分组", "添加账号", "停用分组…", "复制分组", "删除分组…"] {
             XCTAssertTrue(menuItem(title).waitForExistence(timeout: 5), "\(title) missing\n\(app.debugDescription)")
         }
-        XCTAssertFalse(menuItem("添加账号").exists, app.debugDescription)
         menuItem("删除分组…").tap()
         XCTAssertTrue(element("delete.sheet").waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(element("delete.title").label, "删除分组「高级组」？")

@@ -459,6 +459,12 @@ final class AccountDemoStore {
         let succeeded = items.filter(\.success).map(\.accountID), failed = items.filter { !$0.success }.map(\.accountID)
         return AccountBulkReply(success: succeeded.count, failed: failed.count, successIDs: succeeded, failedIDs: failed, results: items)
     }
+    /// S5-08: the group pages' member writes change only `group_ids` (and the embedded names), as account_groups does; no version.
+    @discardableResult func setGroupIDs(accountID: Int, _ groupIDs: [Int]) throws -> UpstreamAccount {
+        let updated = Self.applying(AccountPatchRequest(groupIDs: groupIDs), to: try existing(accountID))
+        replace(updated)
+        return updated
+    }
 
     private func existing(_ id: Int) throws -> UpstreamAccount {
         guard let account = account(id: id) else { throw APIError.server(status: 404, reason: AccountWriteReason.notFound) }

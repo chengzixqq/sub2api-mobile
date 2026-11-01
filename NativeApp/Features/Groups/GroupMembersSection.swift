@@ -4,7 +4,9 @@ import Sub2Core
 /// 50 §2.3 壹 · 成员账号 (design GvDetailRows): the account tab's row with this group left out of its second line (“另属 X、Y”),
 /// unavailable first, 今日 on the right, then the U38 footnote. The members read on their own: a failed first read says
 /// “成员加载失败 · 重试” while the status card keeps the group's counts (2.5); a failed refresh keeps the rows under the header's
-/// 更新失败. Rows end in a tail that reads the next page (S5-08 adds the swipes and the 添加 row here).
+/// 更新失败. Rows end in a tail that reads the next page. S5-08: each row's swipe and long press (2.4), a row swiped out stays
+/// hidden while its removal is out, “添加 <平台> 账号” ends the section where members may be changed (4.1), and a vendor reads
+/// U37's footnote.
 struct GroupMembersSection: View {
     let group: AdminGroup
     let members: LoadState<GroupMemberList>
@@ -17,6 +19,10 @@ struct GroupMembersSection: View {
     let onOpen: (UpstreamAccount) -> Void
     let onRetry: @MainActor () -> Void
     let onLoadMore: @MainActor () -> Void
+    let memberActions: GroupMemberActions?
+    let permissions: GroupPermissions
+    let hidden: Set<Int>
+    let onAddAccounts: @MainActor () -> Void
     @Environment(\.sessionContext) private var session
 
     var body: some View {
@@ -41,28 +47,44 @@ struct GroupMembersSection: View {
     }
 
     @ViewBuilder private func rows(_ list: GroupMemberList) -> some View {
-        if list.rows.isEmpty {
+        let rows = list.rows.filter { !hidden.contains($0.id) }
+        if rows.isEmpty, !permissions.canEditMembers(group).isShown {
             Text(GroupDetailCopy.membersEmpty).font(.subheadline).foregroundStyle(Palette.ink2)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .accessibilityIdentifier("group.members.empty")
         } else {
             let now = serverNow
-            let positions = RailPosition.positions(of: list.rows) { AccountDisplayState($0, now: now).tone.drawsRail }
-            ForEach(Array(list.rows.enumerated()), id: \.element.id) { index, account in
-                memberRow(account, rail: positions[index])
-                    .onAppear { if index == list.rows.count - 1, list.hasMore { onLoadMore() } }
+            let positions = RailPosition.positions(of: rows) { AccountDisplayState($0, now: now).tone.drawsRail }
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, account in
+                memberRow(account, rail: positions[index], now: now)
+                    .onAppear { if index == rows.count - 1, list.hasMore { onLoadMore() } }
             }
             tail
+            if permissions.canEditMembers(group).isShown { addRow }
         }
     }
-    /// S5-08 hangs the member's swipes and long press on this row.
-    private func memberRow(_ account: UpstreamAccount, rail: RailPosition?) -> some View {
+    /// 4.1 直接打开: “添加 Anthropic 账号”, or “添加账号” for a composite group (design GvAddRow).
+    private var addRow: some View {
+        Button(action: onAddAccounts) {
+            Label(GroupCopy.addAccountsRow(platform: group.platform, catalog: catalog), systemImage: "plus")
+                .font(.body.weight(.semibold)).foregroundStyle(Palette.accent)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("group.members.add")
+        .readOnlyGate()
+        .listRowBackground(Palette.surface)
+    }
+    private func memberRow(_ account: UpstreamAccount, rail: RailPosition?, now: Date) -> some View {
         Button { onOpen(account) } label: {
             AccountRow(account: account, today: today.value?.cell(for: account.id) ?? AccountTodayCell(stats: nil, unavailable: false),
                        context: AccountRowContext(omit: .group, home: group.name), railPosition: rail, groupName: groupName, catalog: catalog)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("group.member.\(account.id)")
+        .groupMemberRowActions(account, group: group, actions: memberActions, membersEntry: permissions.canEditMembers(group),
+                               isReadOnly: permissions.isReadOnlyToken, now: now)
         .listRowInsets(EdgeInsets())
         .listRowBackground(Palette.surface)
         .listRowSeparatorTint(Palette.hairline)
@@ -79,12 +101,24 @@ struct GroupMembersSection: View {
             .accessibilityIdentifier("group.members.more.failure")
         }
     }
-    /// U38: once today-stats has answered, and only when some row shows 今日 (design GvMemberNote).
+    /// U38: once today-stats has answered, and only when some row shows 今日 (design GvMemberNote); U37: a vendor changes
+    /// memberships in the account detail.
     @ViewBuilder private var footnote: some View {
-        if let list = members.value, !list.rows.isEmpty, summary.showsTodayFootnote, let scope = today.value?.scope {
-            Text(GroupCopy.membersTodayFootnote(isGroupScoped: scope == .group)).font(.footnote).foregroundStyle(Palette.ink3)
-                .accessibilityIdentifier("group.members.footnote")
+        let todayNote = todayFootnote, vendorNote = permissions.membersFootnote
+        if todayNote != nil || vendorNote != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                if let todayNote {
+                    Text(todayNote).font(.footnote).foregroundStyle(Palette.ink3).accessibilityIdentifier("group.members.footnote")
+                }
+                if let vendorNote {
+                    Text(vendorNote).font(.footnote).foregroundStyle(Palette.ink3).accessibilityIdentifier("group.members.note")
+                }
+            }
         }
+    }
+    private var todayFootnote: String? {
+        guard let list = members.value, !list.rows.isEmpty, summary.showsTodayFootnote, let scope = today.value?.scope else { return nil }
+        return GroupCopy.membersTodayFootnote(isGroupScoped: scope == .group)
     }
     private var serverNow: Date { session?.client.serverClock.now() ?? Date() }
 }

@@ -48,7 +48,7 @@ struct GroupListView: View {
     @ViewBuilder private var content: some View {
         if let store = model.groupStore {
             GroupListContent(store: store, permissions: permissions, query: searchText, segment: targetSegment, actions: actions,
-                             onCreate: openCreate, onEdit: openEdit)
+                             onCreate: openCreate, onEdit: openEdit, onAddAccounts: openPicker)
                 .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: GroupListSections.searchPrompt)
                 .refreshable { await store.refreshAll() }
                 .task { await store.loadIfNeeded() }
@@ -65,6 +65,8 @@ struct GroupListView: View {
     /// 50 §1.4: + and the empty state's 新建分组 open the group editor (S5-10 replaces the old one behind it).
     private func openCreate() { router.present(.groupEdit(id: nil)) }
     private func openEdit(_ id: Int) { router.present(.groupEdit(id: id)) }
+    /// 50 §1.4 右滑 and the long press: 添加账号 (S5-08).
+    private func openPicker(_ id: Int) { router.present(.groupPick(groupID: id)) }
     /// Checks again on waking: a refresh that ended during the sleep or a new failure moved the next one (00 §4.6); a list read
     /// already out (the pull, the foreground) is not followed by another.
     private func poll(_ store: GroupStore) async {
@@ -84,6 +86,7 @@ private struct GroupListContent: View {
     let actions: GroupActions?
     let onCreate: () -> Void
     let onEdit: (Int) -> Void
+    let onAddAccounts: (Int) -> Void
     @State private var scrolledToSegment = false
 
     private static let rowInsets = EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16)
@@ -130,9 +133,21 @@ private struct GroupListContent: View {
                 .listRowInsets(Self.rowInsets)
                 .id(Self.rowID(item.id))
                 .groupActionSwipe(item.group, actions: actions, permissions: permissions) { onEdit(item.id) }
+                .swipeActions(edge: .leading, allowsFullSwipe: false) { addSwipe(item.group) }
                 .contextMenu {
-                    if let actions { GroupActionMenuItems(group: item.group, actions: actions, permissions: permissions) { onEdit(item.id) } }
+                    if let actions {
+                        GroupActionMenuItems(group: item.group, actions: actions, permissions: permissions, onEdit: { onEdit(item.id) },
+                                             onAddAccounts: { onAddAccounts(item.id) })
+                    }
                 }
+        }
+    }
+    /// 50 §1.4 右滑 (accent): 添加账号 on an active group whose members this identity may change; none for a read-only token.
+    private func addSwipe(_ group: AdminGroup) -> some View {
+        ForEach(permissions.leadingSwipe(for: group), id: \.self) { action in
+            Button { onAddAccounts(group.id) } label: { Label(action.swipeTitle, systemImage: action.systemImage) }
+                .tint(Palette.accent)
+                .accessibilityIdentifier("group.swipe.\(action.rawValue)")
         }
     }
     /// 50 §1.5 有缓存时刷新失败: the rows stay under one thin line; during a 429 wait it counts down instead.
