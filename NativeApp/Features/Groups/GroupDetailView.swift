@@ -190,10 +190,12 @@ private struct GroupDetailContent: View {
         guard let group = detail.group else { return model.groupDirectory?.name(for: id) }
         return GroupMemberList.groupName(id, home: group) { model.groupDirectory?.name(for: $0) }
     }
-    /// 2.3 告警横幅: the last event read, on the server's calendar.
+    /// 2.3 告警横幅: the last event read, on the server's calendar; none once the session knows ops monitoring is off (2.5).
     private var alertBanner: GroupAlertBannerContent? {
-        GroupAlertBannerContent(GroupAlertBannerContent.shownEvent(detail.sections.alert.state), now: serverNow,
-                                timeZone: session?.site.serverTimeZone ?? .device, latencyMetricsSupported: session?.has(.opsAlertLatencyMetrics) == true)
+        let sections = detail.sections
+        let event = GroupAlertBannerContent.shownEvent(sections.alert.state, opsKnownDisabled: sections.opsKnownDisabled)
+        return GroupAlertBannerContent(event, now: serverNow, timeZone: session?.site.serverTimeZone ?? .device,
+                                       latencyMetricsSupported: session?.has(.opsAlertLatencyMetrics) == true)
     }
     /// 肆 降级分组: the directory's name (C-10), else the list's row.
     private func fallbackName(_ group: AdminGroup) -> String? {

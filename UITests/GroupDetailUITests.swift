@@ -450,4 +450,38 @@ final class GroupDetailUITests: XCTestCase {
         }
         XCTFail("no log page\n\(app.debugDescription)", file: file, line: line)
     }
+
+    /// 2.5 ops 关闭 learned on another tab: back on the detail the banner is gone and both counts say so at once, though the
+    /// 60-second refresh reads neither.
+    @MainActor func testBannerAndCountsLeaveOnceOpsIsTurnedOffElsewhere() {
+        openGroup(2)
+        defer { diagnostics("group-detail-ops-turned-off-final") }
+        let banner = element("group.detail.alert")
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
+        expectValue("group.records.errors", "近 24 小时 37 条")
+        turnOpsOffOnMonitorTab()
+        app.openSearchTab()
+        XCTAssertTrue(app.navigationBars["标准组"].waitForExistence(timeout: 10), app.debugDescription)
+        expectValue("group.records.errors", "运维监控未开启")
+        expectValue("group.records.upstream", "运维监控未开启")
+        app.scrollUntilExists(element("group.detail.card"), towardBottom: false)
+        XCTAssertFalse(banner.exists, app.debugDescription)
+    }
+    /// 监控's ··· → 关闭运维监控… → 关闭运维监控 → 仍要关闭 (U10).
+    @MainActor private func turnOpsOffOnMonitorTab() {
+        app.tabBars.buttons["监控"].tap()
+        let byIdentifier = element("monitor.more")
+        let more = byIdentifier.waitForExistence(timeout: 10) ? byIdentifier : app.navigationBars.buttons["更多"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 5), app.debugDescription)
+        more.tap()
+        for title in ["关闭运维监控…", "关闭运维监控"] {
+            let item = menuItem(title)
+            XCTAssertTrue(item.waitForExistence(timeout: 5), "\(title) missing\n\(app.debugDescription)")
+            item.tap()
+        }
+        let last = app.alerts.firstMatch
+        XCTAssertTrue(last.waitForExistence(timeout: 5), app.debugDescription)
+        last.buttons["仍要关闭"].firstMatch.tap()
+        waitForReceipt("已关闭运维监控")
+    }
 }
