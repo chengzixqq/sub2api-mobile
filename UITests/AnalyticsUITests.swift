@@ -543,4 +543,131 @@ final class AnalyticsUITests: XCTestCase {
         XCTAssertTrue(retry.exists && !retry.isEnabled, app.debugDescription)
         diagnostics("analytics-profit-throttled")
     }
+
+    // MARK: S4-14 单图页（40 §3）
+
+    @MainActor private var billingHead: XCUIElement { element("analytics.body.billing.head") }
+    @MainActor private func billingDetailRow(_ index: Int) -> XCUIElement { element("analytics.body.billing.row.\(index)") }
+    @MainActor private var selectedBillingRows: XCUIElementQuery {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND isSelected == true", "analytics.body.billing.row."))
+    }
+    /// 计费趋势's foot → 计费明细, once its head has the total.
+    @MainActor private func openBillingDetail(file: StaticString = #filePath, line: UInt = #line) {
+        let foot = element("analytics.billing.foot")
+        app.scrollUntilExists(foot, file: file, line: line)
+        foot.tap()
+        XCTAssertTrue(app.navigationBars["计费明细"].waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        app.waitForLabel(billingHead, containing: "实际 $", file: file, line: line)
+    }
+    @MainActor private func goBack() { app.navigationBars.buttons.element(boundBy: 0).tap() }
+
+    @MainActor func testBillingDetailOpensFromTheCardAndListsEveryBucket() {
+        launch()
+        defer { diagnostics("analytics-billing-detail-final") }
+        app.openAnalyticsFromSearch()
+        app.waitForValue(amount, equal: Expected.week)
+        openBillingDetail()
+        XCTAssertTrue(subtitle(containing: "计费 · 近 7 天").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["计费明细"].buttons["analytics.filter.button"].exists, app.debugDescription)
+        XCTAssertTrue(element("analytics.chart.page").exists, app.debugDescription)
+        // The session's totals and trend: shown at once, not read again.
+        XCTAssertEqual(billingHead.label, "实际 " + Expected.week)
+        for (key, value) in zip(["accountCost", "standardCost", "profit"], Expected.weekFigures) {
+            app.waitForValue(element("analytics.body.billing." + key), equal: value)
+        }
+        XCTAssertTrue(element("analytics.body.billing.chart").exists, app.debugDescription)
+        diagnostics("analytics-billing-detail")
+        // Every bucket, newest on top, nothing folded on the full page.
+        for index in (0...6).reversed() {
+            let row = billingDetailRow(index)
+            app.scrollUntilExists(row)
+            for part in ["，实际 $", "，标准 $", "，请求 "] { XCTAssertTrue(row.label.contains(part), row.label) }
+        }
+        XCTAssertLessThan(billingDetailRow(1).frame.minY, billingDetailRow(0).frame.minY, app.debugDescription)
+        XCTAssertFalse(billingDetailRow(7).exists, app.debugDescription)
+        XCTAssertFalse(element("analytics.body.billing.expand").exists, app.debugDescription)
+        goBack()
+        XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(amount.value as? String, Expected.week)
+    }
+
+    @MainActor func testBillingDetailHighlightsTheRowOfTheSelectedBar() {
+        launch()
+        defer { diagnostics("analytics-billing-detail-selection-final") }
+        app.openAnalyticsFromSearch()
+        app.waitForValue(amount, equal: Expected.week)
+        openBillingDetail()
+        let bars = billingBars
+        XCTAssertEqual(bars.count, 7, app.debugDescription)
+        guard bars.count == 7 else { return }
+        bars[4].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let row = billingDetailRow(4)
+        XCTAssertTrue(row.poll(NSPredicate(format: "isSelected == true"), timeout: 5), app.debugDescription)
+        XCTAssertEqual(selectedBillingRows.count, 1, app.debugDescription)
+        // The head names the row's bucket and its actual charge: “10月14日 周三 · $1,202.04”.
+        let parts = row.label.components(separatedBy: "，")
+        XCTAssertGreaterThan(parts.count, 1, row.label)
+        guard parts.count > 1 else { return }
+        app.waitForLabel(billingHead, containing: parts[0] + " · " + parts[1].replacingOccurrences(of: "实际 ", with: ""))
+        diagnostics("analytics-billing-detail-selection")
+        // The same bar again clears both.
+        billingBars[4].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(row.poll(NSPredicate(format: "isSelected == false"), timeout: 5), app.debugDescription)
+        XCTAssertEqual(selectedBillingRows.count, 0, app.debugDescription)
+        app.waitForLabel(billingHead, containing: "实际 " + Expected.week)
+    }
+
+    @MainActor func testChartPageRangeChangeStaysAfterReturning() {
+        launch()
+        defer { diagnostics("analytics-chart-range-final") }
+        app.openAnalyticsFromSearch()
+        app.waitForValue(amount, equal: Expected.week)
+        openBillingDetail()
+        app.selectRangeSegment("30 天")
+        XCTAssertTrue(subtitle(containing: "计费 · 近 30 天").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(billingDetailRow(29).waitForExistence(timeout: 10), app.debugDescription)
+        app.scrollUntilExists(billingDetailRow(0))
+        XCTAssertFalse(billingDetailRow(30).exists, app.debugDescription)
+        goBack()
+        XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
+        app.scrollUntilExists(app.rangeSegment("30 天"), towardBottom: false)
+        assertSegmentSelected("30 天")
+        app.waitForLabel(amount, containing: "实际扣费 · 近 30 天")
+        openBillingDetail()
+        XCTAssertTrue(subtitle(containing: "计费 · 近 30 天").waitForExistence(timeout: 10), app.debugDescription)
+        assertSegmentSelected("30 天")
+    }
+
+    @MainActor func testProfitDetailEndsWithTotalAndNote() {
+        launch(["-ui-analytics-loss"])
+        defer { diagnostics("analytics-profit-detail-final") }
+        app.openAnalyticsFromSearch()
+        revealProfitCard()
+        app.waitForValue(profitAmount, equal: ProfitExpected.week)
+        element("analytics.profit.foot").tap()
+        XCTAssertTrue(app.navigationBars["利润明细"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(subtitle(containing: "计费 · 近 7 天").waitForExistence(timeout: 5), app.debugDescription)
+        app.waitForLabel(element("analytics.body.profit.head"), containing: "利润 " + ProfitExpected.week)
+        app.waitForValue(element("analytics.body.profit.profit"), equal: ProfitExpected.week)
+        let lossRow = element("analytics.body.profit.row.5")
+        app.scrollUntilExists(lossRow)
+        app.waitForLabel(lossRow, containing: "，利润 " + ProfitExpected.loss)
+        // 合计 after the oldest row, then the note.
+        let total = element("analytics.body.profit.row.total")
+        app.scrollUntilExists(total)
+        XCTAssertTrue(total.label.hasPrefix("合计，实际 $") && total.label.hasSuffix("，利润 " + ProfitExpected.week), total.label)
+        let oldest = element("analytics.body.profit.row.0")
+        XCTAssertTrue(oldest.exists && oldest.frame.maxY <= total.frame.minY + 1, app.debugDescription)
+        let note = element("analytics.body.profit.note")
+        app.scrollUntilExists(note)
+        XCTAssertEqual(note.label, "每天的利润 = 这段的实际扣费 − 账号成本，逐段相加等于合计。")
+        diagnostics("analytics-profit-detail")
+        // By the hour.
+        app.scrollUntilExists(app.rangeSegment("今天"), towardBottom: false)
+        app.selectRangeSegment("今天")
+        XCTAssertTrue(subtitle(containing: "计费 · 今天").waitForExistence(timeout: 10), app.debugDescription)
+        app.scrollUntilExists(note)
+        app.waitForLabel(note, containing: "每小时的利润 = 这段的实际扣费 − 账号成本，逐段相加等于合计。")
+    }
 }

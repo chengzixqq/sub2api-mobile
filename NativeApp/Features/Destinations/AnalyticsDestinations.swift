@@ -12,7 +12,9 @@ struct AnalyticsRouteDestination: View {
         // .analyticsMore：S4-17
         case .analyticsMore: ComingSoonView(title: route.placeholderTitle)
         // .analyticsChart：S4-14
-        case .analyticsChart: ComingSoonView(title: route.placeholderTitle)
+        case .analyticsChart(let chart):
+            // 40 §3.1: the other charts have no way in; 更多图表 shows them.
+            if chart.hasSinglePage { AnalyticsChartView(chart: chart) } else { ComingSoonView(title: chart.title) }
         // .analyticsRank：S4-15
         case .analyticsRank(let dimension): AnalyticsRankView(dimension: dimension)
         // .analyticsModel：S4-19
