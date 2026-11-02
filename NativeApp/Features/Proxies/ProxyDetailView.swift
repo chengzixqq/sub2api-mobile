@@ -217,7 +217,8 @@ struct ProxyDetailView: View {
         // Under -ui-testing the catalog's source is this session's FixtureProxySource, shared with the list (S6D1-12).
         let source = (store?.source as? any ProxyDetailSource) ?? ClientProxySource(client: session.client)
         let created = ProxyDetailModel(id: id, seed: store?.proxy(id: id), source: source, store: store, receipts: model.receipts,
-                                       isCurrent: { [weak model] in model?.sessionGeneration == generation })
+                                       isCurrent: { [weak model] in model?.sessionGeneration == generation },
+                                       onWrite: { [weak model] in model?.noteProxyWrite() })
         detail = created
         detailGeneration = generation
         await created.load()
@@ -233,4 +234,10 @@ struct ProxyDetailView: View {
         guard ProxyFallbackSignal.matches(notification, proxyID: id, generation: model.sessionGeneration), let detail else { return }
         Task { await detail.load() }
     }
+}
+
+extension AppModel {
+    /// 10 §1.4, X17: a proxy's 停用 / 启用, 恢复原代理 or an edit of its network fields or expiry ran or may have run, so the home
+    /// page reads past the server cache the next time it shows (S6D2a-01).
+    func noteProxyWrite() { liveOps?.noteExternalWrite() }
 }

@@ -41,12 +41,14 @@ private func failure(_ status: Int, _ reason: String, _ metadata: [String: Strin
 }
 
 @Test func statusLineForEnabledDevice() {
-    #expect(PushPresentation.statusLine(device(success: at("2026-10-17T01:41:00Z")), timeZone: shanghai) == "已开启 · 上次送达 10/17 09:41")
-    #expect(PushPresentation.statusLine(device(), timeZone: shanghai) == "已开启 · 还没有送达记录")
-    #expect(PushPresentation.statusLine(device(success: at("2026-03-05T00:07:00Z")), timeZone: shanghai) == "已开启 · 上次送达 03/05 08:07")
+    let now = at("2026-10-21T02:00:00Z")
+    #expect(PushPresentation.statusLine(device(success: at("2026-10-17T01:41:00Z")), now: now, timeZone: shanghai) == "已开启 · 上次送达 10/17 09:41")
+    #expect(PushPresentation.statusLine(device(), now: now, timeZone: shanghai) == "已开启 · 还没有送达记录")
+    #expect(PushPresentation.statusLine(device(success: at("2026-03-05T00:07:00Z")), now: now, timeZone: shanghai) == "已开启 · 上次送达 03/05 08:07")
 }
 
 @Test func statusLineForEachDisabledReason() {
+    let now = at("2026-10-21T02:00:00Z")
     let texts: [(PushDisabledReason?, String)] = [
         (.unregistered, "设备令牌已失效，关掉再打开即可恢复"), (.badDeviceToken, "设备令牌无效"),
         (.topicMismatch, "App 的包名与站点 APNs 配置不符"), (.secretUndecryptable, "站点更换了加密密钥，关掉再打开即可恢复"),
@@ -54,22 +56,23 @@ private func failure(_ status: Int, _ reason: String, _ metadata: [String: Strin
     ]
     for (reason, text) in texts {
         #expect(PushPresentation.disabledText(reason) == text)
-        #expect(PushPresentation.statusLine(device(enabled: false, reason: reason, success: at("2026-10-17T01:41:00Z")), timeZone: shanghai) == text)
+        #expect(PushPresentation.statusLine(device(enabled: false, reason: reason, success: at("2026-10-17T01:41:00Z")), now: now, timeZone: shanghai) == text)
     }
 }
 
 @Test func statusLineAppendsRecentFailureUnlessOlderThanSuccess() {
+    let now = at("2026-10-21T02:00:00Z")
     let success = at("2026-10-17T01:00:00Z"), later = at("2026-10-17T02:00:00Z"), earlier = at("2026-10-17T00:00:00Z")
     let error = "HTTP 410: Unregistered"
-    #expect(PushPresentation.statusLine(device(success: success, error: error, errorAt: later), timeZone: shanghai)
+    #expect(PushPresentation.statusLine(device(success: success, error: error, errorAt: later), now: now, timeZone: shanghai)
             == "已开启 · 上次送达 10/17 09:00 · 最近失败：HTTP 410: Unregistered")
-    #expect(PushPresentation.statusLine(device(success: success, error: error, errorAt: earlier), timeZone: shanghai) == "已开启 · 上次送达 10/17 09:00")
-    #expect(PushPresentation.statusLine(device(success: success, error: error), timeZone: shanghai).hasSuffix(" · 最近失败：HTTP 410: Unregistered"))
-    #expect(PushPresentation.statusLine(device(error: error, errorAt: later), timeZone: shanghai) == "已开启 · 还没有送达记录 · 最近失败：HTTP 410: Unregistered")
-    #expect(PushPresentation.statusLine(device(enabled: false, reason: .unregistered, error: error, errorAt: later), timeZone: shanghai)
+    #expect(PushPresentation.statusLine(device(success: success, error: error, errorAt: earlier), now: now, timeZone: shanghai) == "已开启 · 上次送达 10/17 09:00")
+    #expect(PushPresentation.statusLine(device(success: success, error: error), now: now, timeZone: shanghai).hasSuffix(" · 最近失败：HTTP 410: Unregistered"))
+    #expect(PushPresentation.statusLine(device(error: error, errorAt: later), now: now, timeZone: shanghai) == "已开启 · 还没有送达记录 · 最近失败：HTTP 410: Unregistered")
+    #expect(PushPresentation.statusLine(device(enabled: false, reason: .unregistered, error: error, errorAt: later), now: now, timeZone: shanghai)
             == "设备令牌已失效，关掉再打开即可恢复 · 最近失败：HTTP 410: Unregistered")
-    #expect(PushPresentation.statusLine(device(error: "  ", errorAt: later), timeZone: shanghai) == "已开启 · 还没有送达记录")
-    #expect(PushPresentation.statusLine(device(error: "line\none", errorAt: later), timeZone: shanghai).hasSuffix("最近失败：line one"))
+    #expect(PushPresentation.statusLine(device(error: "  ", errorAt: later), now: now, timeZone: shanghai) == "已开启 · 还没有送达记录")
+    #expect(PushPresentation.statusLine(device(error: "line\none", errorAt: later), now: now, timeZone: shanghai).hasSuffix("最近失败：line one"))
 }
 
 // MARK: Subscription summary (60 §7.3)
@@ -206,4 +209,11 @@ private func failure(_ status: Int, _ reason: String, _ metadata: [String: Strin
     #expect(PushPresentation.loadFailed == "加载失败 · 重试")
     #expect(PushPresentation.pendingDeletionNotice == "有设备未能从站点移除，可在 Web 删除")
     #expect(PushPresentation.buildWithoutPush == "这个 App 构建没有开启推送能力；APNs 只适用于用站点同一 Apple Team 的 p8 私钥构建的 App。可改用 Bark / ntfy / Webhook。")
+}
+
+@Test func statusLineWritesTheYearForAnOlderDelivery() {
+    let now = at("2026-01-02T02:00:00Z")
+    #expect(PushPresentation.statusLine(device(success: at("2025-12-31T15:00:00Z")), now: now, timeZone: shanghai) == "已开启 · 上次送达 2025/12/31 23:00")
+    // 16:00 UTC on 31 December is already 2026 on the server's calendar.
+    #expect(PushPresentation.statusLine(device(success: at("2025-12-31T16:00:00Z")), now: now, timeZone: shanghai) == "已开启 · 上次送达 01/01 00:00")
 }

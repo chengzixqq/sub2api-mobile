@@ -107,7 +107,7 @@ struct SessionsView: View {
     }
 
     @ViewBuilder private func row(_ item: AuthSessionItem, now: Date, timeZone: TimeZone) -> some View {
-        let activity = item.activityLine(now: now, timeZone: timeZone), lifetime = item.lifetimeLine(timeZone: timeZone)
+        let activity = item.activityLine(now: now, timeZone: timeZone), lifetime = item.lifetimeLine(now: now, timeZone: timeZone)
         let parts: [String?] = [item.displayTitle, item.current ? AuthSessionItem.currentBadgeText : nil, DisplayFormat.spoken(activity),
                                 DisplayFormat.spoken(lifetime)]
         let spoken = parts.compactMap { $0 }.joined(separator: "，")

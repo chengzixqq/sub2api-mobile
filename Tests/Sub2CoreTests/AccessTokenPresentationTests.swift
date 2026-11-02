@@ -53,7 +53,7 @@ private func token(name: String? = "监控脚本", prefix: String? = "sat_3f9a",
     #expect(token(expires: "2027-01-16T03:00:00Z").expiryLine(now: now, timeZone: shanghai) == "2027/01/16 到期 · 还剩 87 天")
     #expect(token(expires: "2027-01-16T03:00:00Z").daysLeft(now: now, timeZone: shanghai) == 87)
     // 17:00 UTC is already the next day in Shanghai, though the same day in UTC.
-    #expect(token(expires: "2026-10-21T17:00:00Z").expiryLine(now: now, timeZone: shanghai) == "2026/10/22 到期 · 还剩 1 天")
+    #expect(token(expires: "2026-10-21T17:00:00Z").expiryLine(now: now, timeZone: shanghai) == "10/22 到期 · 还剩 1 天")
     #expect(token(expires: "2026-10-21T17:00:00.123456789Z").daysLeft(now: now, timeZone: shanghai) == 1)
     #expect(token(expires: "2027-01-16T11:00:00+08:00").expiryLine(now: now, timeZone: shanghai) == "2027/01/16 到期 · 还剩 87 天")
 }

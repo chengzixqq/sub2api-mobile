@@ -387,4 +387,22 @@ final class SettingsUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
     }
+
+    // MARK: - S6-26
+
+    /// U48: turning Face ID off is verified too; a refused check leaves it on, with its threshold, and says nothing.
+    @MainActor func testDeniedCheckKeepsTheSwitchOnWhenTurningOff() {
+        launchAndLogin(arguments: ["-ui-faceid-on", "-ui-biometric-deny"])
+        defer { diagnostics("settings-faceid-off-denied") }
+        app.openSearchItem("search.item.interface")
+        let toggle = faceIDSwitch()
+        let threshold = app.buttons["settings.faceid.threshold"]
+        XCTAssertTrue(threshold.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(toggle.value as? String, "1")
+        tapSwitch(toggle)
+        let off = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: threshold)
+        XCTAssertEqual(XCTWaiter().wait(for: [off], timeout: 3), .timedOut, app.debugDescription)
+        XCTAssertEqual(toggle.value as? String, "1")
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+    }
 }

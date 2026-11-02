@@ -78,18 +78,18 @@ func resolveFailureClassifiesEveryAnswer(_ item: ResolveFailureCase) {
 }
 
 @Test func settingResolvedChangesOnlyTheMark() throws {
-    let zone = TimeZone(identifier: "Asia/Shanghai")!
+    let zone = TimeZone(identifier: "Asia/Shanghai")!, now = ServerTime.parseTimestamp("2026-10-21T02:00:00Z")!
     let handled = try resolveRow(2006, ["resolved": true, "resolved_at": "2026-10-16T01:52:00Z", "resolved_by_user_name": "admin@example.invalid"])
-    #expect(RequestDetailPresentation.resolvedNote(handled, timeZone: zone) != nil)
+    #expect(RequestDetailPresentation.resolvedNote(handled, now: now, timeZone: zone) != nil)
     let reopened = handled.settingResolved(false)
     #expect(!reopened.resolved && reopened.resolvedAt == nil && reopened.resolvedByUserName == nil)
     #expect(reopened.id == handled.id && reopened.requestID == handled.requestID && reopened.clientRequestID == handled.clientRequestID)
     #expect(reopened.statusCode == 429 && reopened.message == handled.message && reopened.accountID == 4 && reopened.createdAt == handled.createdAt)
     let marked = try resolveRow().settingResolved(true)
-    #expect(marked.resolved && marked.resolvedAt == nil && RequestDetailPresentation.resolvedNote(marked, timeZone: zone) == nil)
+    #expect(marked.resolved && marked.resolvedAt == nil && RequestDetailPresentation.resolvedNote(marked, now: now, timeZone: zone) == nil)
     let same = handled.settingResolved(true)
     #expect(same.resolvedAt == handled.resolvedAt && same.resolvedByUserName == "admin@example.invalid")
-    #expect(RequestDetailPresentation.resolvedNote(same, timeZone: zone) == RequestDetailPresentation.resolvedNote(handled, timeZone: zone))
+    #expect(RequestDetailPresentation.resolvedNote(same, now: now, timeZone: zone) == RequestDetailPresentation.resolvedNote(handled, now: now, timeZone: zone))
 }
 
 @Test func listRowTakesTheMarkInPlace() throws {

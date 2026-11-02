@@ -86,6 +86,8 @@ final class ProxyDetailModel {
     @ObservationIgnored let isCurrent: @MainActor @Sendable () -> Bool
     @ObservationIgnored private let now: @MainActor () -> Date
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
+    /// 停用 / 启用 and their 撤销 ran or may have run: the home page reads past the cache (X17).
+    @ObservationIgnored private let onWrite: @MainActor @Sendable () -> Void
     @ObservationIgnored private var detailTicket = UUID()
     @ObservationIgnored private var accountsTicket = UUID()
     @ObservationIgnored private var reprobeTicket = UUID()
@@ -94,9 +96,10 @@ final class ProxyDetailModel {
 
     init(id: Int, seed: AdminProxy?, source: any ProxyDetailSource, store: ProxyStore?, receipts: ReceiptCenter,
          isCurrent: @escaping @MainActor @Sendable () -> Bool, now: @escaping @MainActor () -> Date = { Date() },
-         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+         onWrite: @escaping @MainActor @Sendable () -> Void = {}) {
         self.id = id; self.source = source; self.store = store; self.receipts = receipts; self.isCurrent = isCurrent
-        self.now = now; self.sleep = sleep
+        self.now = now; self.sleep = sleep; self.onWrite = onWrite
         detail = seed.map { .loaded($0, at: now()) } ?? .idle
     }
 
@@ -221,7 +224,7 @@ final class ProxyDetailModel {
         let toggle = ProxyStatusToggle(shown, now: serverNow)
         guard let target = toggle.target, let back = toggle.undoTarget else { return }
         isUpdatingStatus = true
-        let outcome = await ProxyStatusWrite(id: id, source: source, isCurrent: isCurrent).send(target, onto: shown)
+        let outcome = await ProxyStatusWrite(id: id, source: source, isCurrent: isCurrent, onWrite: onWrite).send(target, onto: shown)
         isUpdatingStatus = false
         guard isCurrent() else { return }
         switch outcome {
@@ -242,7 +245,7 @@ final class ProxyDetailModel {
     /// The receipt's 撤销: only Sendable parts are captured, so the write still goes out once this page is gone (then onto the
     /// catalog's row, if it has one).
     private func undoAction(_ status: ProxyStatusChange) -> @MainActor @Sendable () -> Void {
-        let write = ProxyStatusWrite(id: id, source: source, isCurrent: isCurrent)
+        let write = ProxyStatusWrite(id: id, source: source, isCurrent: isCurrent, onWrite: onWrite)
         let receipts = receipts, store = store
         return { [weak self] in
             Task { @MainActor in

@@ -505,11 +505,12 @@ extension APIClient {
     }
     /// `POST :id/test`, no body: not a read, so never retried on its own. A failed probe is a 200 with `success: false`.
     public func testProxy(id: Int) async throws -> ProxyTestResult {
-        try await request("admin/proxies/\(validID(id))/test", method: "POST")
+        // The probe writes the latency back (admin_proxy.go TestProxy): a write, never resent on its own.
+        try await request("admin/proxies/\(validID(id))/test", method: "POST", requestClass: .unkeyedWrite)
     }
     /// `POST :id/quality-check`, no body, sent once; it can take about 80 seconds, hence its own timeout.
     public func checkProxyQuality(id: Int) async throws -> ProxyQualityResult {
-        try await request("admin/proxies/\(validID(id))/quality-check", method: "POST", timeout: ProxyRequestTimeout.qualityCheck)
+        try await request("admin/proxies/\(validID(id))/quality-check", method: "POST", requestClass: .unkeyedWrite, timeout: ProxyRequestTimeout.qualityCheck)
     }
     /// `GET :id/accounts`; an entry without an id is skipped.
     public func proxyAccounts(id: Int) async throws -> [ProxyAccountRef] {

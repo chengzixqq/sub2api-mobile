@@ -33,3 +33,26 @@ private let newYorkZone = ServerTimeZone(identifier: "America/New_York", utcOffs
     #expect(DisplayFormat.monthDayClock(try moment("2025-12-31T16:00:00Z"), timeZone: utcZone, now: now) == "2025/12/31 16:00")
     #expect(DisplayFormat.monthDayClock(try moment("2027-01-03T00:00:00Z"), timeZone: utcZone, now: now) == "2027/01/03 00:00")
 }
+
+@Test func monthDayDropsTheYearOnlyInNowsYear() throws {
+    let now = try moment("2026-10-27T04:00:00Z")
+    #expect(DisplayFormat.monthDay(try moment("2026-10-16T01:20:00Z"), zone: shanghaiZone.timeZone, now: now) == "10/16")
+    #expect(DisplayFormat.monthDay(try moment("2027-01-31T01:20:00Z"), zone: shanghaiZone.timeZone, now: now) == "2027/01/31")
+    // Either side of midnight on 31 December, by each zone's own calendar.
+    #expect(DisplayFormat.monthDay(try moment("2025-12-31T16:00:00Z"), zone: shanghaiZone.timeZone, now: now) == "01/01")
+    #expect(DisplayFormat.monthDay(try moment("2025-12-31T16:00:00Z"), zone: utcZone.timeZone, now: now) == "2025/12/31")
+    #expect(DisplayFormat.monthDay(try moment("2026-12-31T16:00:00Z"), zone: shanghaiZone.timeZone, now: now) == "2027/01/01")
+    #expect(DisplayFormat.monthDay(nil, zone: utcZone.timeZone, now: now) == DisplayFormat.missing)
+    #expect(DisplayFormat.monthDayClock(try moment("2027-01-31T01:20:00Z"), zone: shanghaiZone.timeZone, now: now) == "2027/01/31 09:20")
+    #expect(DisplayFormat.monthDayClock(nil, zone: shanghaiZone.timeZone, now: now) == DisplayFormat.missing)
+}
+
+@Test func zoneVariantMatchesTheServerVariant() throws {
+    let now = try moment("2026-10-27T04:00:00Z")
+    let moments = try ["2026-10-15T16:30:00Z", "2025-12-31T16:00:00Z", "2027-01-03T00:00:00Z"].map(moment)
+    for zone in [shanghaiZone, utcZone, newYorkZone] {
+        for date in moments {
+            #expect(DisplayFormat.monthDayClock(date, zone: zone.timeZone, now: now) == DisplayFormat.monthDayClock(date, timeZone: zone, now: now))
+        }
+    }
+}

@@ -107,8 +107,8 @@ public enum PushPresentation {
     }
     /// `timeZone` is the server's (00 §6.3). The backend keeps `last_error` after a later delivery, so an error older than
     /// `last_success_at` is left out.
-    public static func statusLine(_ device: PushDevice, timeZone: TimeZone) -> String {
-        let delivered = device.lastSuccessAt.map { "上次送达 " + timestamp($0, timeZone: timeZone) } ?? "还没有送达记录"
+    public static func statusLine(_ device: PushDevice, now: Date, timeZone: TimeZone) -> String {
+        let delivered = device.lastSuccessAt.map { "上次送达 " + DisplayFormat.monthDayClock($0, zone: timeZone, now: now) } ?? "还没有送达记录"
         let state = device.enabled ? "已开启 · " + delivered : disabledText(device.disabledReason)
         guard let error = device.lastError.flatMap({ singleLine($0, limit: 300) }) else { return state }
         if let failed = device.lastErrorAt, let succeeded = device.lastSuccessAt, failed < succeeded { return state }
@@ -246,14 +246,6 @@ public enum PushPresentation {
 
     // MARK: Internals
 
-    /// “10/17 09:41” in the server's zone; S6-26 moves this to DisplayFormat.monthDayClock (S6D1-16).
-    private static func timestamp(_ date: Date, timeZone: TimeZone) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let day = calendar.dateComponents([.month, .day], from: date)
-        return pad(day.month ?? 0) + "/" + pad(day.day ?? 0) + " " + DisplayFormat.clock(date, timeZone: timeZone)
-    }
-    private static func pad(_ value: Int) -> String { value < 10 ? "0\(value)" : String(value) }
     /// Control characters become spaces and whitespace runs one space; nil when nothing is left.
     private static func singleLine(_ text: String, limit: Int) -> String? {
         let words = text.components(separatedBy: .controlCharacters).joined(separator: " ").split(whereSeparator: \.isWhitespace)

@@ -96,7 +96,7 @@ struct UserKeySummarySection: View {
             }
             .accessibilityIdentifier("user.logs")
         } header: {
-            UserDetailSectionHeader(title: UserDetailPresentation.keysTitle, ordinal: "壹", meta: detail.keySummary?.meta, id: "user.keys.header") {
+            NumberedSectionHeader(title: UserDetailPresentation.keysTitle, ordinal: "壹", meta: detail.keySummary?.meta, id: "user.keys.header") {
                 BlockStatusAccessory(detail.keys, id: "user.keys.block") { Task { await detail.reloadKeys() } }
             }
         } footer: {
@@ -145,8 +145,8 @@ struct UserLedgerPeekSection: View {
                 records(page)
             }
         } header: {
-            UserDetailSectionHeader(title: UserDetailPresentation.ledgerTitle, ordinal: "贰", meta: detail.ledger.value.flatMap(UserDetailPresentation.ledgerMeta),
-                                    id: "user.ledger.header") {
+            NumberedSectionHeader(title: UserDetailPresentation.ledgerTitle, ordinal: "贰", meta: detail.ledger.value.flatMap(UserDetailPresentation.ledgerMeta),
+                                  id: "user.ledger.header") {
                 BlockStatusAccessory(detail.ledger, id: "user.ledger.block") { Task { await detail.reloadLedger() } }
             }
         }
@@ -184,7 +184,7 @@ struct UserProfileSection: View {
             }
             .padding(.vertical, 6)
         } header: {
-            UserDetailSectionHeader(title: UserDetailPresentation.profileTitle, ordinal: "叁", meta: nil, id: "user.profile.header") { EmptyView() }
+            NumberedSectionHeader(title: UserDetailPresentation.profileTitle, ordinal: "叁", id: "user.profile.header")
         }
     }
 
@@ -219,33 +219,5 @@ struct UserDetailSkeleton: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("正在加载用户"))
         .accessibilityIdentifier("user.detail.loading")
-    }
-}
-
-/// The title with its number on the right and an optional meta before it; NumberedSectionHeader takes a meta from S1-09b on,
-/// and S6-26 moves these sections over (S3D1-25). VoiceOver reads the title, then the meta as its value.
-private struct UserDetailSectionHeader<Accessory: View>: View {
-    let title: String
-    let ordinal: String
-    let meta: String?
-    let id: String
-    @ViewBuilder let accessory: Accessory
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink2)
-                Spacer(minLength: 8)
-                if let meta { Text(meta).font(.subheadline).monospacedDigit().foregroundStyle(Palette.ink3) }
-                Text(ordinal).font(.subheadline).foregroundStyle(Palette.ink3).accessibilityHidden(true)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(title))
-            .accessibilityValue(Text(meta ?? ""))
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier(id)
-            accessory
-        }
-        .textCase(nil)
     }
 }

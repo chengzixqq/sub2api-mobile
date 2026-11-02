@@ -540,3 +540,26 @@ private func body(_ request: URLRequest?) throws -> [String: Any] {
     coordinator.forgetLocalDevice()
     #expect(bumped())
 }
+
+/// S6-26: a teardown of an older login (another site id) still running at the same address, written differently, holds the new
+/// site's registration until it ends (BACKLOG “推送登记要等待该站点的收尾结束”).
+@MainActor @Test func registrationWaitsForTheTeardownOfAnotherSiteIDAtTheSameAddress() async throws {
+    let store = PushTestDefaults(); defer { store.clear() }
+    let tracker = SiteTeardownTracker(), gate = SessionGate()
+    let oldAddress = MoneyRecordOrigin.addressKey(of: try #require(URL(string: "https://Push.Example.invalid:443")))
+    let newAddress = MoneyRecordOrigin.addressKey(of: try #require(URL(string: "https://push.example.invalid")))
+    let teardown = Task { await tracker.run(address: oldAddress) { await gate.wait() } }
+    await waitUntil { await gate.arrived }
+    let newSite = UUID(), api = PushStubAPI()
+    store.records.setLocalPushOn(true, serverID: newSite)
+    let coordinator = makePushCoordinator(store.records)
+    coordinator.didReceiveDeviceToken(pushTestToken)
+    coordinator.siteDidConnect(PushSite(serverID: newSite, generation: UUID(), supportsPush: true, api: api,
+                                        waitForTeardowns: { await tracker.waitForTeardowns(address: newAddress) }))
+    for _ in 0..<50 { await Task.yield() }
+    #expect(await api.calls.isEmpty)
+    await gate.open()
+    await teardown.value
+    await coordinator.settle()
+    #expect(await api.calls == ["POST " + newSite.uuidString])
+}

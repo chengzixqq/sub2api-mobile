@@ -319,4 +319,19 @@ final class RedeemReconcileUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
     }
+
+    // MARK: - S6-26
+
+    /// 60 §11.1: the overview's row of the batch opens 兑换码 with the banner's 核对 highlighted (BACKLOG “兑换码列表入口的 UI 测试”).
+    @MainActor func testOverviewRowOpensTheCheckHighlighted() {
+        launchAndLogin(["-ui-pending-money"])
+        defer { diagnostics("reconcile-overview-entry-final") }
+        let row = element("home.attention.pending-" + Self.batch.lowercased())
+        app.scrollUntilExists(row)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["兑换码"].waitForExistence(timeout: 10), app.debugDescription)
+        let check = app.buttons["redeem.pending.check"]
+        XCTAssertTrue(check.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(check.value as? String, "primary")
+    }
 }

@@ -391,3 +391,43 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     let address = ProxyAddressSignal.notification(ProxyAddressChange(proxyID: 4, generation: generation))
     #expect(!ProxyFallbackSignal.matches(address, proxyID: 4, generation: generation))
 }
+
+// MARK: - 首页刷新（S6-26，X17）
+
+@MainActor private final class WriteCounter { var count = 0 }
+
+@MainActor private func countingPage(_ stub: StubFallback, _ counter: WriteCounter, recorder: Recorder = Recorder()) -> ProxyFallbackAccountsModel {
+    ProxyFallbackAccountsModel(proxyID: 4, seed: hk01, isSupported: true, endpoints: stub.endpoints, store: nil, accountSignal: nil,
+                               receipts: quietReceipts(), authorize: { _ in recorder.allows }, isCurrent: { recorder.isCurrent },
+                               now: { recorder.clock }, onWrite: { counter.count += 1 })
+}
+
+/// 10 §1.4: a revert that was answered, read back or may have run (a 500) tells the home page; Face ID refused, the origin
+/// unavailable, a refusal or an ended session do not.
+@MainActor @Test func fallbackRevertNotesHomeWhenItMayHaveApplied() async {
+    func count(_ stub: StubFallback, scope: ProxyFallbackScope = .all, recorder: Recorder = Recorder()) async -> Int {
+        let counter = WriteCounter()
+        let page = countingPage(stub, counter, recorder: recorder)
+        await page.load()
+        _ = await page.revert(scope)
+        return counter.count
+    }
+    let denied = Recorder()
+    denied.allows = false
+    #expect(await count(StubFallback(), recorder: denied) == 0)
+    #expect(await count(StubFallback(revert: { _, _ in throw APIError.server(status: 409, reason: ProxyReason.fallbackOriginUnavailable) })) == 0)
+    #expect(await count(StubFallback(revert: { _, _ in throw APIError.server(status: 400, reason: "TOO_MANY_ACCOUNTS") })) == 0)
+    #expect(await count(StubFallback(revert: { _, _ in throw APIError.server(status: 500, reason: nil) })) == 1)
+    #expect(await count(StubFallback(accounts: { call in call == 1 ? movedRows : [] })) == 1)
+    #expect(await count(StubFallback(accounts: { call in call == 1 ? movedRows : [minimax] }, revert: { _, _ in throw lost }), scope: .account(9)) == 1)
+
+    let gate = Gate(), ended = Recorder(), counter = WriteCounter()
+    let page = countingPage(StubFallback(revert: { _, _ in await gate.wait(); return allReverted }), counter, recorder: ended)
+    await page.load()
+    let running = Task { await page.revert(.all) }
+    #expect(await eventually { await gate.waiting == 1 })
+    ended.isCurrent = false
+    await gate.open()
+    _ = await running.value
+    #expect(counter.count == 0)
+}

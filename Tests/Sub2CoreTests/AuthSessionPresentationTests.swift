@@ -72,20 +72,22 @@ private func item(name: String? = nil, client: String? = nil, agent: String? = n
 
 @Test func lifetimeLineUsesServerTimeZone() {
     let session = item(created: "2026-10-17T01:41:00Z", expires: "2026-11-16T01:41:00Z")
-    #expect(session.lifetimeLine(timeZone: shanghai) == "登录于 10/17 09:41 · 11/16 到期")
-    #expect(session.lifetimeLine(timeZone: utc) == "登录于 10/17 01:41 · 11/16 到期")
+    let now = instant("2026-10-21T02:00:00Z")
+    #expect(session.lifetimeLine(now: now, timeZone: shanghai) == "登录于 10/17 09:41 · 11/16 到期")
+    #expect(session.lifetimeLine(now: now, timeZone: utc) == "登录于 10/17 01:41 · 11/16 到期")
     let offset = item(created: "2026-10-17T09:41:00.123456+08:00", expires: "2026-11-16T09:41:00.5+08:00")
-    #expect(offset.lifetimeLine(timeZone: shanghai) == "登录于 10/17 09:41 · 11/16 到期")
+    #expect(offset.lifetimeLine(now: now, timeZone: shanghai) == "登录于 10/17 09:41 · 11/16 到期")
     let september = item(created: "2026-09-05T01:00:00Z", expires: "2026-10-05T01:00:00Z")
-    #expect(september.lifetimeLine(timeZone: shanghai) == "登录于 09/05 09:00 · 10/05 到期")
+    #expect(september.lifetimeLine(now: now, timeZone: shanghai) == "登录于 09/05 09:00 · 10/05 到期")
 }
 
 @Test func lifetimeLineOmitsMissingParts() {
-    #expect(item(expires: "2026-11-16T01:41:00Z").lifetimeLine(timeZone: shanghai) == "11/16 到期")
-    #expect(item(created: "2026-10-17T01:41:00Z").lifetimeLine(timeZone: shanghai) == "登录于 10/17 09:41")
-    #expect(item(created: "2026-10-17T01:41:00Z", expires: "0001-01-01T00:00:00Z").lifetimeLine(timeZone: shanghai) == "登录于 10/17 09:41")
-    #expect(item(created: "", expires: "nonsense").lifetimeLine(timeZone: shanghai) == "—")
-    #expect(item().lifetimeLine(timeZone: shanghai) == "—")
+    let now = instant("2026-10-21T02:00:00Z")
+    #expect(item(expires: "2026-11-16T01:41:00Z").lifetimeLine(now: now, timeZone: shanghai) == "11/16 到期")
+    #expect(item(created: "2026-10-17T01:41:00Z").lifetimeLine(now: now, timeZone: shanghai) == "登录于 10/17 09:41")
+    #expect(item(created: "2026-10-17T01:41:00Z", expires: "0001-01-01T00:00:00Z").lifetimeLine(now: now, timeZone: shanghai) == "登录于 10/17 09:41")
+    #expect(item(created: "", expires: "nonsense").lifetimeLine(now: now, timeZone: shanghai) == "—")
+    #expect(item().lifetimeLine(now: now, timeZone: shanghai) == "—")
 }
 
 @Test func otherDeviceCountIgnoresThisDevice() {
@@ -144,4 +146,13 @@ private func item(name: String? = nil, client: String? = nil, agent: String? = n
     let bare = try JSONDecoder().decode(AuthSessionItem.self, from: Data(#"{"id":"ff00"}"#.utf8))
     #expect(bare == AuthSessionItem(id: "ff00"))
     #expect(!AuthSessionItem(id: "ff00").current)
+}
+
+@Test func lifetimeLineWritesTheYearAcrossYears() {
+    let now = instant("2026-01-05T02:00:00Z")
+    let session = item(created: "2025-12-30T01:41:00Z", expires: "2026-01-29T01:41:00Z")
+    #expect(session.lifetimeLine(now: now, timeZone: shanghai) == "登录于 2025/12/30 09:41 · 01/29 到期")
+    #expect(item(created: "2026-01-02T01:41:00Z", expires: "2027-01-02T01:41:00Z").lifetimeLine(now: now, timeZone: shanghai)
+            == "登录于 01/02 09:41 · 2027/01/02 到期")
+    #expect(item(created: "0001-01-01T00:00:00Z", expires: "2026-01-29T01:41:00Z").lifetimeLine(now: now, timeZone: shanghai) == "01/29 到期")
 }

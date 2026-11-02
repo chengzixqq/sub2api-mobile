@@ -85,10 +85,10 @@ extension AdminAccessToken {
         let calendar = timeZone.calendar
         return calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: expires)).day
     }
-    /// “2027/01/16 到期 · 还剩 87 天”; the expiry day itself is “今天到期”.
+    /// “2027/01/16 到期 · 还剩 87 天”, the year left out in `now`'s (C-30); the expiry day itself is “今天到期”.
     public func expiryLine(now: Date, timeZone: ServerTimeZone) -> String {
         guard let expires = Self.date(expiresAt), let days = daysLeft(now: now, timeZone: timeZone) else { return DisplayFormat.missing }
-        return days <= 0 ? "今天到期" : Self.day(expires, timeZone: timeZone) + " 到期 · 还剩 \(days) 天"
+        return days <= 0 ? "今天到期" : DisplayFormat.monthDay(expires, zone: timeZone.timeZone, now: now) + " 到期 · 还剩 \(days) 天"
     }
     /// Seven days or less draws the expiry in caution (60 §6.3).
     public func isExpiringSoon(now: Date, timeZone: ServerTimeZone) -> Bool { daysLeft(now: now, timeZone: timeZone).map { $0 <= 7 } ?? false }
@@ -108,10 +108,5 @@ extension AdminAccessToken {
     private static func trimmed(_ text: String?) -> String? {
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
-    }
-    /// yyyy/MM/dd in the server's zone; S6-26 moves this to the shared date formats (S6D1-16).
-    private static func day(_ date: Date, timeZone: ServerTimeZone) -> String {
-        let parts = timeZone.calendar.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d/%02d/%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 }

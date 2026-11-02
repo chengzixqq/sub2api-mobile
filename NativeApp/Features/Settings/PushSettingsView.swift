@@ -75,7 +75,7 @@ struct PushSettingsView: View {
         return List {
             banners(store, session: session)
             PushLocalSection(isOn: requestedLocal ?? state.isToggleOn, controls: controls,
-                             statusLine: local.map { PushPresentation.statusLine($0, timeZone: zone) },
+                             statusLine: local.map { PushPresentation.statusLine($0, now: session.client.serverClock.now(), timeZone: zone) },
                              permissionDenied: coordinator.authorization == .denied, errorText: localError,
                              isTesting: local.map { store.testingID == $0.id } ?? false, listFailed: store.listFailed,
                              onToggle: { setLocal($0, store: store, localID: localID) }, onOpenSystemSettings: openSystemSettings,

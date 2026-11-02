@@ -3,6 +3,8 @@ import Sub2Core
 
 /// One PUT of a proxy's status (停用 / 启用 and their 撤销), sent once without a key (R06; 60 §13.4). The reply is the plain
 /// `dto.AdminProxy`, so it is merged onto the shown row to keep its counts, latency and quality. A lost reply is read back.
+/// `onWrite` runs when the write ran or may have run (AccountWriteMark's rule, 10 §1.4, X17), not when the read-back shows the
+/// old status.
 struct ProxyStatusWrite: Sendable {
     enum Outcome: Sendable {
         case applied(AdminProxy)
@@ -14,6 +16,12 @@ struct ProxyStatusWrite: Sendable {
     let id: Int
     let source: any ProxyDetailSource
     let isCurrent: @MainActor @Sendable () -> Bool
+    let onWrite: @MainActor @Sendable () -> Void
+
+    init(id: Int, source: any ProxyDetailSource, isCurrent: @escaping @MainActor @Sendable () -> Bool,
+         onWrite: @escaping @MainActor @Sendable () -> Void = {}) {
+        self.id = id; self.source = source; self.isCurrent = isCurrent; self.onWrite = onWrite
+    }
 
     /// Without `base` (the page is gone and the catalog has no row) the reply stands as it came.
     @MainActor func send(_ status: ProxyStatusChange, onto base: AdminProxy?) async -> Outcome {
@@ -21,13 +29,16 @@ struct ProxyStatusWrite: Sendable {
         do {
             let reply = try await source.updateProxy(id: id, ProxyUpdateRequest(status: status))
             guard isCurrent() else { return .ignored }
+            onWrite()
             return .applied(base?.mergingConfiguration(from: reply) ?? reply)
         } catch {
             guard isCurrent() else { return .ignored }
             switch ProxyDetailFailure.classify(error) {
             case .cancelled: return .ignored
             case .unconfirmed: return await readBack(status, after: error, onto: base)
-            case let failure: return .failed(failure, fresh: nil)
+            case let failure:
+                if AccountWriteMark.mayHaveApplied(error) { onWrite() }
+                return .failed(failure, fresh: nil)
             }
         }
     }
@@ -38,9 +49,12 @@ struct ProxyStatusWrite: Sendable {
         do {
             let fresh = try await source.proxy(id: id).keepingCounts(of: base)
             guard isCurrent() else { return .ignored }
-            return fresh.status == status.rawValue ? .applied(fresh) : .failed(.rejected(error.localizedDescription), fresh: fresh)
+            guard fresh.status == status.rawValue else { return .failed(.rejected(error.localizedDescription), fresh: fresh) }
+            onWrite()
+            return .applied(fresh)
         } catch {
             guard isCurrent() else { return .ignored }
+            onWrite()
             return .failed(ProxyDetailFailure.isGone(error) ? .gone : .unconfirmed, fresh: nil)
         }
     }

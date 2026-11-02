@@ -255,6 +255,30 @@ final class BalanceKeypadUITests: XCTestCase {
         XCTAssertTrue(waitUntil(receipt, "label BEGINSWITH '已核对'"), receipt.label)
         XCTAssertTrue(pendingCheck.waitForNonExistence(timeout: 10), app.debugDescription)
     }
+
+    // MARK: - S6-26
+
+    /// 60 §19.4 step 9 (S6D2a-06): the check back in the foreground leaves a top-up that is still going out alone, so 稍后核对
+    /// afterwards keeps it to be checked. Before the send was marked, the check found it executed and settled it.
+    @MainActor func testForegroundCheckSkipsTheTopUpGoingOut() {
+        launchAndLogin([BalanceArgument.slow, "-ui-reconcile-executed"])
+        defer { diagnostics("keypad-going-out-final") }
+        openUser(1, name: "Alice")
+        topUpFromDetail("5")
+        let status = element("balance.status")
+        XCTAssertTrue(waitUntil(status, "label CONTAINS '已等待'"), status.label)
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), app.debugDescription)
+        let checked = app.staticTexts.matching(NSPredicate(format: "identifier == 'receipt.text' AND label BEGINSWITH '已核对'")).firstMatch
+        XCTAssertFalse(checked.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(status.exists, app.debugDescription)
+        app.buttons["balance.later"].tap()
+        waitForReceipt(Self.pendingReceipt)
+        XCTAssertTrue(pendingCheck.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(labelled(containing: "充值 $5.00 结果待核对").exists, app.debugDescription)
+        XCTAssertFalse(checked.exists, app.debugDescription)
+    }
 }
 
 private enum BalanceArgument {

@@ -555,3 +555,15 @@ private let hkCreateBody = #"{"backup_proxy_id":2,"expires_at":1792108800,"expir
     #expect(String(decoding: try update.requestBody(proxyID: 7), as: UTF8.self).contains("fixture-pass"))
     #expect(try hkCreate.requestBody() == Data(hkCreateBody.utf8))
 }
+
+/// X17: what changes whether accounts can reach out through the proxy makes the home page read past the cache.
+@Test func changesConnectivityCoversNetworkStatusAndExpiryOnly() {
+    let quiet = ProxyUpdateRequest(name: "hk-02b", fallbackMode: .proxy, backupProxyID: .set(2), expiryWarnDays: 3)
+    #expect(!quiet.changesConnectivity)
+    #expect(!ProxyUpdateRequest(backupProxyID: .clear).changesConnectivity)
+    let connecting = [ProxyUpdateRequest(scheme: "http"), ProxyUpdateRequest(host: "203.0.113.25"), ProxyUpdateRequest(port: 1081),
+                      ProxyUpdateRequest(username: "relay"), ProxyUpdateRequest(password: "fixture-pass"), ProxyUpdateRequest(status: .inactive),
+                      ProxyUpdateRequest(status: .active), ProxyUpdateRequest(expiresAt: .clear),
+                      ProxyUpdateRequest(expiresAt: .set(Date(timeIntervalSince1970: 1_800_000_000)))]
+    for request in connecting { #expect(request.changesConnectivity) }
+}

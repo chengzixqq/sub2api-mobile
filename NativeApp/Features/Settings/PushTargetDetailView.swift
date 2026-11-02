@@ -60,7 +60,7 @@ struct PushTargetDetailView: View {
 
     private func page(_ device: PushDevice, store: PushSettingsModel, session: SessionContext) -> some View {
         let isLocal = model.pushCoordinator.registeredDeviceID(serverID: session.serverID) == device.id
-        let statusLine = PushPresentation.statusLine(device, timeZone: session.site.serverTimeZone.timeZone)
+        let statusLine = PushPresentation.statusLine(device, now: session.client.serverClock.now(), timeZone: session.site.serverTimeZone.timeZone)
         return List {
             Section {
                 PushTargetRowLabel(row: PushPresentation.targetRow(device), statusLine: statusLine)

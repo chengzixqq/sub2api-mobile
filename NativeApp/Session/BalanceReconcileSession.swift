@@ -114,6 +114,7 @@ struct BalanceRetry {
         case .failure(let error):
             // A local check sent nothing (checkSender, the station guard, the body).
             if let local = error as? APIError, local.statusCode == nil, local.kind == .validation { return .refused(local.localizedDescription) }
+            if let busy = error as? MoneyWriteInFlight.Busy { return .refused(busy.localizedDescription) }
             switch BalanceReconciliation.balanceWriteOutcome(for: error, retrying: true) {
             case .executed(let user, let replayed):
                 settleRecord(record)

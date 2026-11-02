@@ -211,9 +211,10 @@ func unqueryableRequestIDsAreNeverSent(id: String) async throws {
     let kinds: [ErrorLogKind?] = [nil, .request, .upstream]
     #expect(kinds.map { P.title(kind: $0) } == ["请求详情", "失败请求", "上游错误"])
     #expect(kinds.map { P.sourceName(kind: $0) } == ["用量明细", "错误请求", "上游错误"])
-    #expect(P.subtitle(createdAt: date("2026-10-16T01:41:07.9Z"), kind: .request, timeZone: siteZone) == "10/16 09:41:07 · 错误请求")
-    #expect(P.subtitle(createdAt: date("2026-03-05T01:02:03Z"), kind: .upstream, timeZone: siteZone) == "3/5 09:02:03 · 上游错误")
-    #expect(P.subtitle(createdAt: nil, kind: nil, timeZone: siteZone) == "— · 用量明细")
+    let now = date("2026-10-21T02:00:00Z")
+    #expect(P.subtitle(createdAt: date("2026-10-16T01:41:07.9Z"), kind: .request, now: now, timeZone: siteZone) == "10/16 09:41:07 · 错误请求")
+    #expect(P.subtitle(createdAt: date("2026-03-05T01:02:03Z"), kind: .upstream, now: now, timeZone: siteZone) == "03/05 09:02:03 · 上游错误")
+    #expect(P.subtitle(createdAt: nil, kind: nil, now: now, timeZone: siteZone) == "— · 用量明细")
 }
 
 @Test func phaseOwnerAndRequestTypeNames() throws {
@@ -283,13 +284,14 @@ func unqueryableRequestIDsAreNeverSent(id: String) async throws {
     #expect(P.costCells(follower).map(\.value) == ["—", "$0.0000", "$0.5000"])
     #expect(P.followerCostNote(follower) == "合并探测的跟随请求，没有上游成本")
 
-    #expect(P.resolvedNote(detail.record, timeZone: siteZone) == "已处理 · 值班 · 10/16 09:52")
+    let now = date("2026-10-21T02:00:00Z")
+    #expect(P.resolvedNote(detail.record, now: now, timeZone: siteZone) == "已处理 · 值班 · 10/16 09:52")
     let nameless = try decoded(RequestErrorDetail.self, errorJSON(fields: #","resolved_by_user_name":"""#)).record
-    #expect(P.resolvedNote(nameless, timeZone: siteZone) == "已处理 · 10/16 09:52")
+    #expect(P.resolvedNote(nameless, now: now, timeZone: siteZone) == "已处理 · 10/16 09:52")
     let open = try decoded(RequestErrorDetail.self, errorJSON(fields: #","resolved":false"#)).record
-    #expect(P.resolvedNote(open, timeZone: siteZone) == nil)
+    #expect(P.resolvedNote(open, now: now, timeZone: siteZone) == nil)
     let undated = try decoded(RequestErrorDetail.self, errorJSON(fields: #","resolved_at":null"#)).record
-    #expect(P.resolvedNote(undated, timeZone: siteZone) == nil)
+    #expect(P.resolvedNote(undated, now: now, timeZone: siteZone) == nil)
 }
 
 @Test func timingFallsBackToPhaseSumAndKeepsFirstTokenVisible() throws {
@@ -387,4 +389,15 @@ func unqueryableRequestIDsAreNeverSent(id: String) async throws {
 
     #expect(P.fallbackSuccessFilter(clientRequestID: clientRequestID) == RequestLogFilter(time: .none, requestID: "client:" + clientRequestID, pageSize: 1))
     #expect(P.fallbackSuccessFilter(clientRequestID: " ") == nil && P.fallbackSuccessFilter(clientRequestID: nil) == nil)
+}
+
+/// S6-26 (S6D2a-02 / 03): the subtitle and the 已处理 note go through DisplayFormat's month-day, padded, with the year outside now's.
+@Test func stampsUseMonthDayClockWithSeconds() throws {
+    typealias P = RequestDetailPresentation
+    let nextYear = date("2027-02-01T00:00:00Z")
+    #expect(P.subtitle(createdAt: date("2026-10-16T01:41:07Z"), kind: .request, now: nextYear, timeZone: siteZone) == "2026/10/16 09:41:07 · 错误请求")
+    #expect(P.stamp(date("2026-03-05T01:02:03Z"), now: date("2026-10-21T02:00:00Z"), timeZone: siteZone, seconds: true) == "03/05 09:02:03")
+    #expect(P.stamp(date("2026-03-05T01:02:03Z"), now: nextYear, timeZone: siteZone, seconds: false) == "2026/03/05 09:02")
+    let detail = try decoded(RequestErrorDetail.self, errorJSON(fields: ""))
+    #expect(P.resolvedNote(detail.record, now: nextYear, timeZone: siteZone) == "已处理 · 值班 · 2026/10/16 09:52")
 }

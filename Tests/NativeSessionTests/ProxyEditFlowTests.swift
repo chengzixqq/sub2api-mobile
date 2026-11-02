@@ -351,3 +351,46 @@ private func twin(id: Int, created: Date?, username: String? = nil) -> AdminProx
     edit.flow.checkLater()
     #expect(await eventually { await edit.stub.lists == 2 })
 }
+
+// MARK: - 首页刷新（S6-26，X17）
+
+@MainActor private final class WriteCounter { var count = 0 }
+
+@MainActor private func countedFlow(_ stub: StubEditSource, original: AdminProxy?, _ counter: WriteCounter) async -> ProxyEditFlow {
+    let generation = UUID()
+    let store = ProxyStore(generation: generation, source: stub, isCurrent: { true })
+    await store.reload()
+    return ProxyEditFlow(original: original, source: stub, store: store, receipts: ReceiptCenter(sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }),
+                         generation: generation, isCurrent: { true }, now: { noon }, pause: { _ in }, onWrite: { counter.count += 1 })
+}
+
+/// 10 §1.4: an edit of the address, the status or the expiry (renewal) that ran or may have run tells the home page; a rename,
+/// a refusal, a read-back that differs, an add or closing without changes do not.
+@MainActor @Test func proxyEditNotesHomeForConnectivityChangesOnly() async {
+    func count(_ stub: StubEditSource, original: AdminProxy? = hk02, _ draft: ProxyEditDraft, recheck: Bool = false) async -> Int {
+        let counter = WriteCounter()
+        let flow = await countedFlow(stub, original: original, counter)
+        await flow.submit(draft)
+        if recheck { await flow.recheck() }
+        return counter.count
+    }
+    var renamed = ProxyEditDraft(editing: hk02, now: noon)
+    renamed.name = "hk-02b"
+    var moved = ProxyEditDraft(editing: hk02, now: noon)
+    moved.host = "203.0.113.25"
+    var renewed = ProxyEditDraft(editing: jpTokyo, now: noon)
+    renewed.selectExpiry(.days(30))
+    let movedReply = applied(ProxyUpdateRequest(host: "203.0.113.25"), to: hk02)
+
+    #expect(await count(StubEditSource(), renamed) == 0)
+    #expect(await count(StubEditSource(), moved) == 1)
+    #expect(await count(StubEditSource(update: { request, _ in applied(request, to: jpTokyo) }), original: jpTokyo, renewed) == 1)
+    #expect(await count(StubEditSource(update: { _, _ in throw APIError.server(status: 500, reason: nil) }), moved) == 1)
+    #expect(await count(StubEditSource(update: { _, _ in throw APIError.server(status: 400, reason: nil) }), moved) == 0)
+    #expect(await count(StubEditSource(update: { _, _ in throw lost }, read: { _, _ in movedReply }), moved) == 1)
+    #expect(await count(StubEditSource(update: { _, _ in throw lost }, read: { _, _ in hk02 }), moved) == 0)
+    #expect(await count(StubEditSource(update: { _, _ in throw lost }, read: { _, _ in throw APIError.server(status: 502, reason: nil) }), moved) == 1)
+    #expect(await count(StubEditSource(update: { _, _ in throw lost }, read: { _, _ in throw APIError.server(status: 502, reason: nil) }), renamed) == 0)
+    #expect(await count(StubEditSource(), original: nil, newProxy()) == 0)
+    #expect(await count(StubEditSource(), ProxyEditDraft(editing: hk02, now: noon)) == 0)
+}

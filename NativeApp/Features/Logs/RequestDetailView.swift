@@ -120,7 +120,7 @@ private struct RequestDetailScreen: View {
     }
     private var subtitle: String {
         guard let stamp = detail.usage?.createdAt ?? detail.record?.createdAt else { return "" }
-        return RequestDetailPresentation.subtitle(createdAt: ServerTime.parseTimestamp(stamp), kind: detail.kind, timeZone: timeZone)
+        return RequestDetailPresentation.subtitle(createdAt: ServerTime.parseTimestamp(stamp), kind: detail.kind, now: model.serverNow(), timeZone: timeZone)
     }
 
     /// 40 §7.5: the page says the record is gone; 返回 leaves it.
@@ -201,7 +201,7 @@ private struct RequestDetailScreen: View {
     @ViewBuilder private var actions: some View {
         if let record = detail.record, detail.kind != nil {
             let accountID = record.accountID.flatMap { $0 > 0 ? $0 : nil }
-            let resolved = RequestDetailPresentation.resolvedNote(resolve?.record ?? record, timeZone: timeZone)
+            let resolved = RequestDetailPresentation.resolvedNote(resolve?.record ?? record, now: model.serverNow(), timeZone: timeZone)
             if resolve != nil || accountID != nil || resolved != nil {
                 RequestDetailActions(resolve: resolve, accountID: accountID, resolvedNote: resolved) { router.push(.account(id: $0)) }
             }

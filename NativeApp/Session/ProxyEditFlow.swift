@@ -54,14 +54,17 @@ final class ProxyEditFlow {
     @ObservationIgnored private let deviceNow: @MainActor () -> Date
     @ObservationIgnored private let pause: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let makeKey: @Sendable () -> UUID
+    /// An edit of the network fields, the status or the expiry ran or may have run: the home page reads past the cache (X17).
+    @ObservationIgnored private let onWrite: @MainActor () -> Void
     @ObservationIgnored private var attempt: ProxyAddAttempt?
     @ObservationIgnored private var sent: (request: ProxyUpdateRequest, draft: ProxyEditDraft)?
 
     init(original: AdminProxy?, source: any ProxyEditSource, store: ProxyStore?, receipts: ReceiptCenter, generation: UUID,
          isCurrent: @escaping @MainActor @Sendable () -> Bool, now: @escaping @MainActor () -> Date, deviceNow: @escaping @MainActor () -> Date = { Date() },
-         pause: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }, makeKey: @escaping @Sendable () -> UUID = { UUID() }) {
+         pause: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }, makeKey: @escaping @Sendable () -> UUID = { UUID() },
+         onWrite: @escaping @MainActor () -> Void = {}) {
         self.original = original; self.source = source; self.store = store; self.receipts = receipts; self.generation = generation
-        self.isCurrent = isCurrent; self.now = now; self.deviceNow = deviceNow; self.pause = pause; self.makeKey = makeKey
+        self.isCurrent = isCurrent; self.now = now; self.deviceNow = deviceNow; self.pause = pause; self.makeKey = makeKey; self.onWrite = onWrite
     }
 
     var isBusy: Bool {
@@ -216,6 +219,7 @@ final class ProxyEditFlow {
     }
     private func saveFailed(_ error: any Error, request: ProxyUpdateRequest) async {
         let failure = ProxyWriteFailure.classify(error, sentBackup: Self.sendsBackup(request))
+        if !Self.leavesTheMarkToItsCase(failure), AccountWriteMark.mayHaveApplied(error) { noteWrite() }
         switch failure {
         case .cancelled: phase = .editing
         case .unconfirmed: await readBack()
@@ -242,8 +246,12 @@ final class ProxyEditFlow {
             if sent.request.matches(fresh) { return finishSave(row) }
             store?.replace(row)
             phase = .failed(ProxyEditCopy.readBackMismatch, section: nil)
-        case .failure(let error) where ProxyDetailFailure.isGone(error): finishGone()
-        case .failure: phase = .updateUnconfirmed
+        case .failure(let error) where ProxyDetailFailure.isGone(error):
+            noteWrite()
+            finishGone()
+        case .failure:
+            noteWrite()
+            phase = .updateUnconfirmed
         }
     }
     /// 404 PROXY_NOT_FOUND after sending a backup: the backup, unless the proxy itself is gone too.
@@ -260,6 +268,7 @@ final class ProxyEditFlow {
     private func finishSave(_ row: AdminProxy) {
         guard let sent else { return }
         store?.replace(row)
+        noteWrite()
         if sent.request.touchesNetwork { ProxyAddressSignal.post(ProxyAddressChange(proxyID: row.id, generation: generation)) }
         receipts.show(Receipt(text: sent.draft.successReceipt(saved: row)))
         phase = .editing
@@ -274,6 +283,18 @@ final class ProxyEditFlow {
 
     // MARK: - Helpers
 
+    /// X17: only an edit that changes whether accounts can reach out through the proxy; an add never (the list changes, not the
+    /// accounts).
+    private func noteWrite() {
+        if sent?.request.changesConnectivity == true { onWrite() }
+    }
+    /// A cancel never went out; a lost reply is decided by its read-back.
+    private nonisolated static func leavesTheMarkToItsCase(_ failure: ProxyWriteFailure) -> Bool {
+        switch failure {
+        case .cancelled, .unconfirmed: true
+        default: false
+        }
+    }
     /// The catalog's row (with its counts and probe), else the proxy the sheet opened with.
     private func shown(_ original: AdminProxy) -> AdminProxy { store?.proxy(id: original.id) ?? original }
     /// The backup candidates read again after a backup turned out missing.

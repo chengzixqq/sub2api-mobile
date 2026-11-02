@@ -60,8 +60,8 @@ public enum RequestDetailPresentation {
         }
     }
     /// “10/16 09:41:07 · 错误请求”.
-    public static func subtitle(createdAt: Date?, kind: ErrorLogKind?, timeZone: TimeZone) -> String {
-        (createdAt.map { stamp($0, timeZone: timeZone, seconds: true) } ?? DisplayFormat.missing) + " · " + sourceName(kind: kind)
+    public static func subtitle(createdAt: Date?, kind: ErrorLogKind?, now: Date, timeZone: TimeZone) -> String {
+        (createdAt.map { stamp($0, now: now, timeZone: timeZone, seconds: true) } ?? DisplayFormat.missing) + " · " + sourceName(kind: kind)
     }
 
     // MARK: Names (40 §0.4): unknown values are shown as they are.
@@ -120,9 +120,9 @@ public enum RequestDetailPresentation {
         usage.providerCostRecorded == false ? "合并探测的跟随请求，没有上游成本" : nil
     }
     /// “已处理 · 值班 · 10/16 09:52” under the buttons, once the detail has `resolved_at`.
-    public static func resolvedNote(_ record: RequestErrorRecord, timeZone: TimeZone) -> String? {
+    public static func resolvedNote(_ record: RequestErrorRecord, now: Date, timeZone: TimeZone) -> String? {
         guard record.resolved, let at = record.resolvedAt else { return nil }
-        return (["已处理", record.resolvedByUserName].compactMap { $0 } + [stamp(at, timeZone: timeZone, seconds: false)]).joined(separator: " · ")
+        return (["已处理", record.resolvedByUserName].compactMap { $0 } + [stamp(at, now: now, timeZone: timeZone, seconds: false)]).joined(separator: " · ")
     }
 
     // MARK: Timing
@@ -163,15 +163,9 @@ extension RequestDetailPresentation {
         let text = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return text.isEmpty ? nil : text
     }
-    /// “10/16 09:41:07”, or “10/16 09:52” without seconds.
-    static func stamp(_ date: Date, timeZone: TimeZone, seconds: Bool) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let parts = calendar.dateComponents([.month, .day, .hour, .minute, .second], from: date)
-        let clock = ([parts.hour, parts.minute] + (seconds ? [parts.second] : [])).map { value in
-            let number = value ?? 0
-            return number < 10 ? "0\(number)" : String(number)
-        }
-        return "\(parts.month ?? 0)/\(parts.day ?? 0) " + clock.joined(separator: ":")
+    /// “10/16 09:41:07”, or “10/16 09:52” without seconds; the year outside `now`'s (C-30).
+    static func stamp(_ date: Date, now: Date, timeZone: TimeZone, seconds: Bool) -> String {
+        guard seconds else { return DisplayFormat.monthDayClock(date, zone: timeZone, now: now) }
+        return DisplayFormat.monthDay(date, zone: timeZone, now: now) + " " + DisplayFormat.clockWithSeconds(date, timeZone: timeZone)
     }
 }

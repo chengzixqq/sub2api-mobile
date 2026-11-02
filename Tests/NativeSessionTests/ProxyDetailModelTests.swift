@@ -387,3 +387,63 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     await open.toggleStatus(now: checked)
     #expect(await stub.updates == [ProxyUpdateRequest(status: .active)])
 }
+
+// MARK: - 首页刷新（S6-26，X17）
+
+@MainActor private final class WriteCounter { var count = 0 }
+
+@MainActor private func counted(_ stub: StubDetailSource, _ counter: WriteCounter,
+                                isCurrent: @escaping @MainActor @Sendable () -> Bool = { true }) -> ProxyDetailModel {
+    ProxyDetailModel(id: 1, seed: hk02, source: stub, store: nil, receipts: quietReceipts(), isCurrent: isCurrent, now: { checked },
+                     sleep: { _ in }, onWrite: { counter.count += 1 })
+}
+
+/// 10 §1.4: a status write that ran or may have run tells the home page (AccountWriteMark's rule, so a 500 does too); a refusal,
+/// a read-back that still shows the old status, a cancel or an ended session do not.
+@MainActor @Test func proxyDetailStatusWritesNoteHomeOnlyWhenTheyMayHaveApplied() async throws {
+    let applied = WriteCounter()
+    let model = counted(StubDetailSource(), applied)
+    await model.toggleStatus(now: checked)
+    #expect(applied.count == 1)
+    let receipt = try #require(model.receipts.current)
+    model.receipts.performAction(id: receipt.id)
+    #expect(await eventually { await MainActor.run { applied.count == 2 && !model.isUpdatingStatus } })
+
+    for (status, expected) in [(400, 0), (500, 1)] {
+        let counter = WriteCounter()
+        await counted(StubDetailSource(update: { _, _ in throw APIError.server(status: status, reason: nil) }), counter).toggleStatus(now: checked)
+        #expect(counter.count == expected, "HTTP \(status)")
+    }
+    let landed = WriteCounter()
+    await counted(StubDetailSource(proxy: { _, _ in withStatus("inactive") }, update: { _, _ in throw lost }), landed).toggleStatus(now: checked)
+    #expect(landed.count == 1)
+    let missed = WriteCounter()
+    await counted(StubDetailSource(proxy: { _, _ in hk02 }, update: { _, _ in throw lost }), missed).toggleStatus(now: checked)
+    #expect(missed.count == 0)
+    let unknown = WriteCounter()
+    await counted(StubDetailSource(proxy: { _, _ in throw lost }, update: { _, _ in throw lost }), unknown).toggleStatus(now: checked)
+    #expect(unknown.count == 1)
+
+    let cancelled = WriteCounter()
+    await counted(StubDetailSource(update: { _, _ in throw CancellationError() }), cancelled).toggleStatus(now: checked)
+    #expect(cancelled.count == 0)
+    let gate = Gate(), flag = TestFlag(), ended = WriteCounter()
+    let late = counted(StubDetailSource(update: { request, _ in await gate.wait(); return reply(status: request.status) }), ended,
+                       isCurrent: { flag.value })
+    let running = Task { await late.toggleStatus(now: checked) }
+    #expect(await eventually { await gate.waiting == 1 })
+    flag.value = false
+    await gate.open()
+    await running.value
+    #expect(ended.count == 0)
+
+    // The receipt's 撤销 still goes out once the page is gone, and still tells the home page.
+    let released = WriteCounter()
+    var page: ProxyDetailModel? = counted(StubDetailSource(), released)
+    await page?.toggleStatus(now: checked)
+    let receipts = try #require(page?.receipts)
+    let undo = try #require(receipts.current)
+    page = nil
+    receipts.performAction(id: undo.id)
+    #expect(await eventually { await MainActor.run { released.count == 2 } })
+}

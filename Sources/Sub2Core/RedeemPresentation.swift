@@ -238,21 +238,15 @@ public enum RedeemPresentation {
         return days >= 0 ? .today : days == -1 ? .yesterday : .earlier
     }
 
-    // MARK: Dates (S6-26 moves these to DisplayFormat.monthDayClock, S6D1-16)
+    // MARK: Dates (C-30's zone variants, S6-26)
 
     /// “10/16 09:20”; another year than `now` keeps it: “2027/01/31 09:20”.
     public static func timestamp(_ date: Date?, now: Date, timeZone: TimeZone) -> String {
-        guard let date else { return DisplayFormat.missing }
-        let parts = calendar(timeZone).dateComponents([.hour, .minute], from: date)
-        return day(date, now: now, timeZone: timeZone) + " " + String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+        DisplayFormat.monthDayClock(date, zone: timeZone, now: now)
     }
     /// “10/16”, or “2027/01/31” in another year.
     public static func day(_ date: Date?, now: Date, timeZone: TimeZone) -> String {
-        guard let date else { return DisplayFormat.missing }
-        let calendar = calendar(timeZone)
-        let parts = calendar.dateComponents([.year, .month, .day], from: date)
-        let monthDay = String(format: "%02d/%02d", parts.month ?? 0, parts.day ?? 0)
-        return parts.year == calendar.component(.year, from: now) ? monthDay : String(format: "%04d/", parts.year ?? 0) + monthDay
+        DisplayFormat.monthDay(date, zone: timeZone, now: now)
     }
     /// Server calendar days from today to `date`'s day; negative in the past.
     public static func daysUntil(_ date: Date, now: Date, timeZone: TimeZone) -> Int {

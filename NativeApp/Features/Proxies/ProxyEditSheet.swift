@@ -159,7 +159,7 @@ struct ProxyEditSheet: View {
         let generation = session.generation
         flow = ProxyEditFlow(original: proxy, source: model.proxyEditSource(for: session), store: store, receipts: model.receipts,
                              generation: generation, isCurrent: { [weak model] in model?.sessionGeneration == generation },
-                             now: { session.client.serverClock.now() })
+                             now: { session.client.serverClock.now() }, onWrite: { [weak model] in model?.noteProxyWrite() })
         flowGeneration = generation
     }
 }

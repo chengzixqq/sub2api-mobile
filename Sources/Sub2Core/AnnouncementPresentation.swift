@@ -138,15 +138,10 @@ public enum AnnouncementPresentation {
 
     // MARK: Times (15.3, 16.3)
 
-    /// “10/16 08:00”, “2027/01/31 09:20” in another year than `now`. S6-26 moves this to DisplayFormat.monthDayClock (S6D1-16).
+    /// “10/16 08:00”, “2027/01/31 09:20” in another year than `now`; in the zone given (C-30's zone variant): the phone's for
+    /// the start and end, the server's for 更新于 and the read times.
     public static func timestamp(_ date: Date?, now: Date, timeZone: TimeZone) -> String {
-        guard let date else { return DisplayFormat.missing }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
-        let stamp = pad(parts.month) + "/" + pad(parts.day) + " " + pad(parts.hour) + ":" + pad(parts.minute)
-        guard let year = parts.year, year != calendar.component(.year, from: now) else { return stamp }
-        return String(year) + "/" + stamp
+        DisplayFormat.monthDayClock(date, zone: timeZone, now: now)
     }
     public static func startText(_ date: Date?, now: Date, timeZone: TimeZone) -> String {
         date == nil ? startNowText : timestamp(date, now: now, timeZone: timeZone)
@@ -225,9 +220,5 @@ public enum AnnouncementPresentation {
     private static func nonBlank(_ text: String?) -> String? {
         guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return text
-    }
-    private static func pad(_ value: Int?) -> String {
-        let value = value ?? 0
-        return value < 10 ? "0\(value)" : String(value)
     }
 }

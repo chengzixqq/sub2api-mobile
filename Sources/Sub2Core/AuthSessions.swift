@@ -113,10 +113,10 @@ extension AuthSessionItem {
         }
         return Self.joined([Self.trimmed(ip), time])
     }
-    /// “登录于 10/17 09:41 · 11/16 到期” in the server's zone; a missing half is left out.
-    public func lifetimeLine(timeZone: TimeZone) -> String {
-        let created = Self.sessionDate(createdAt).map { "登录于 " + Self.monthDay($0, timeZone: timeZone) + " " + DisplayFormat.clock($0, timeZone: timeZone) }
-        let expires = Self.sessionDate(expiresAt).map { Self.monthDay($0, timeZone: timeZone) + " 到期" }
+    /// “登录于 10/17 09:41 · 11/16 到期” in the server's zone, with the year outside `now`'s (C-30); a missing half is left out.
+    public func lifetimeLine(now: Date, timeZone: TimeZone) -> String {
+        let created = Self.sessionDate(createdAt).map { "登录于 " + DisplayFormat.monthDayClock($0, zone: timeZone, now: now) }
+        let expires = Self.sessionDate(expiresAt).map { DisplayFormat.monthDay($0, zone: timeZone, now: now) + " 到期" }
         return Self.joined([created, expires])
     }
     /// 让其他所有设备下线 shows from one; a pre-deployment session has no current entry, so every row counts.
@@ -147,12 +147,4 @@ extension AuthSessionItem {
         let present = parts.compactMap { $0 }
         return present.isEmpty ? DisplayFormat.missing : present.joined(separator: " · ")
     }
-    /// MM/dd; S6-26 moves this to DisplayFormat.monthDayClock (S6D1-16).
-    private static func monthDay(_ date: Date, timeZone: TimeZone) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let day = calendar.dateComponents([.month, .day], from: date)
-        return pad(day.month ?? 0) + "/" + pad(day.day ?? 0)
-    }
-    private static func pad(_ value: Int) -> String { value < 10 ? "0\(value)" : String(value) }
 }

@@ -96,6 +96,9 @@ public struct ProxyUpdateRequest: Encodable, Sendable, Equatable {
     public var hasChanges: Bool { !sentKeys.isEmpty }
     /// Scheme, host, port, username or password is sent: the server drops the latency snapshot and probes again (H04, 60 §13.6).
     public var touchesNetwork: Bool { scheme != nil || host != nil || port != nil || username != nil || password != nil }
+    /// The network fields, 停用 / 启用 or the expiry (续期): whether accounts can reach out through the proxy changes, so the home
+    /// page reads past the server cache the next time it shows (10 §1.4, X17).
+    public var changesConnectivity: Bool { touchesNetwork || status != nil || expiresAt != nil }
     /// The create checks for the keys present, at least one key, and a backup other than the proxy itself.
     public func validate(proxyID: Int) throws {
         guard hasChanges else { throw ProxyWriteCheck.error("没有要保存的修改。") }

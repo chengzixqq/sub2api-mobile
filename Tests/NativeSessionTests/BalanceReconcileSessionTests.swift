@@ -278,3 +278,12 @@ private func text(_ outcome: BalanceRetry.Outcome) -> String {
     #expect(await ForegroundReconcilePass(effects: stopping.effects).run().isEmpty)
     #expect(stopping.checked == [exact.id] && stopping.applied.isEmpty)
 }
+
+/// S6D2a-06: the keypad's first send of this record is still out, so the retry sends nothing: it says so, and the record stays
+/// without a cooldown.
+@MainActor @Test func retryOfARecordGoingOutSaysSoAndKeepsIt() async {
+    let harness = RetryHarness(refund()); harness.sendResult = .failure(MoneyWriteInFlight.Busy())
+    #expect(text(await harness.run()) == "refused:这笔正在发送，请稍候")
+    #expect(harness.resolved.isEmpty && harness.holds.isEmpty)
+    #expect(harness.records[recordID] != nil)
+}

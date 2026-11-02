@@ -59,14 +59,17 @@ final class ProxyFallbackAccountsModel {
     @ObservationIgnored private let now: @MainActor () -> Date
     /// A revert was answered or read back: the view tells the proxy's detail (ProxyFallbackSignal).
     @ObservationIgnored private let afterRevert: @MainActor () -> Void
+    /// A revert ran or may have run: the home page reads past the cache (X17); separate from `afterRevert`, which tells the
+    /// detail only when there is something to read.
+    @ObservationIgnored private let onWrite: @MainActor () -> Void
     @ObservationIgnored private var ticket = UUID()
 
     init(proxyID: Int, seed: AdminProxy?, isSupported: Bool, endpoints: ProxyFallbackEndpoints, store: ProxyStore?, accountSignal: AccountListSignal?,
          receipts: ReceiptCenter, authorize: @escaping @MainActor (GatedAction) async -> Bool, isCurrent: @escaping @MainActor () -> Bool,
-         now: @escaping @MainActor () -> Date, afterRevert: @escaping @MainActor () -> Void = {}) {
+         now: @escaping @MainActor () -> Date, afterRevert: @escaping @MainActor () -> Void = {}, onWrite: @escaping @MainActor () -> Void = {}) {
         self.proxyID = proxyID; proxy = seed; self.isSupported = isSupported; self.endpoints = endpoints; self.store = store
         self.accountSignal = accountSignal; self.receipts = receipts; self.authorize = authorize; self.isCurrent = isCurrent; self.now = now
-        self.afterRevert = afterRevert
+        self.afterRevert = afterRevert; self.onWrite = onWrite
         isUnsupported = !isSupported
     }
 
@@ -150,6 +153,7 @@ final class ProxyFallbackAccountsModel {
         show(ProxyFallbackPresentation.receipt(result, proxyName: proxyName))
         if !result.revertedIDs.isEmpty { accountSignal?.bump() }
         afterRevert()
+        onWrite()
         let listed = await refresh()
         guard isCurrent() else { return .ignored }
         let known = names.merging(Self.names(listed ?? [])) { old, _ in old }
@@ -170,6 +174,7 @@ final class ProxyFallbackAccountsModel {
             return .proxyGone
         case .unconfirmed: return await readBack(scope, targets: targets, proxyName: proxyName)
         case .reconfirm, .rejected:
+            if AccountWriteMark.mayHaveApplied(error) { onWrite() }
             ProxyStatusWrite.report(failure, to: receipts, rejected: ProxyFallbackPresentation.rejectedText)
             return .failed
         }
@@ -181,6 +186,7 @@ final class ProxyFallbackAccountsModel {
         guard isCurrent() else { return .ignored }
         if isGone { return .proxyGone }
         afterRevert()
+        onWrite()
         guard let remaining else {
             show(ProxyFallbackNotice(text: ProxyDetailCopy.unconfirmed, tone: .caution), retry: scope)
             return .unconfirmed

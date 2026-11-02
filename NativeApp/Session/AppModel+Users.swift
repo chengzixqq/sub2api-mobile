@@ -208,15 +208,19 @@ extension AppModel {
     // MARK: - 余额写
     /// The only sender of a balance write (S3D1-16; S3-07's retry, S3-08's keypad): another administrator's record is refused
     /// before anything goes out, because the server derives action_id from the sender. Records of an older login at this
-    /// address are accepted (C-26); a reply echoing another X-Request-ID marks the site (30 §3.4).
+    /// address are accepted (C-26); a reply echoing another X-Request-ID marks the site (30 §3.4). The record is marked going
+    /// out for the whole send (moneyWritesInFlight, as the compensations, 60 §19.4 step 9).
     func updateBalance(_ write: PersistedMoneyWrite<PendingBalanceOperation>, onEvent: @escaping KeyedWriteEventHandler) async throws -> WriteOutcome<AdminUser> {
-        let record = write.record, sameAddress = sameAddressServerIDs()
-        try MoneyRecordOrigin.checkSender(actorUserID: record.actorUserID, currentUserID: siteSession?.me.user?.id, recordServerID: record.serverID,
-                                          currentServerID: activeProfile?.id, sameAddress: sameAddress)
-        if isUITesting { return try await fixtureUpdateBalance(record, onEvent: onEvent) }
-        let outcome = try await requireClient().updateBalance(write, sameAddress: sameAddress, onEvent: onEvent)
-        noteRequestIDEcho(outcome.requestID, for: record)
-        return outcome
+        let record = write.record
+        return try await AppModel.moneyWritesInFlight.sending(record.id) {
+            let sameAddress = sameAddressServerIDs()
+            try MoneyRecordOrigin.checkSender(actorUserID: record.actorUserID, currentUserID: siteSession?.me.user?.id, recordServerID: record.serverID,
+                                              currentServerID: activeProfile?.id, sameAddress: sameAddress)
+            if isUITesting { return try await fixtureUpdateBalance(record, onEvent: onEvent) }
+            let outcome = try await requireClient().updateBalance(write, sameAddress: sameAddress, onEvent: onEvent)
+            noteRequestIDEcho(outcome.requestID, for: record)
+            return outcome
+        }
     }
     /// Runs the write on the session's users. `-ui-balance-retry-step-up` with `-ui-step-up-required` refuses it until verified,
     /// through the same interception as a real refusal.

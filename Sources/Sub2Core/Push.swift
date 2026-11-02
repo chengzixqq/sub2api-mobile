@@ -303,7 +303,8 @@ extension APIClient {
     /// The server waits up to 15 seconds for the provider; a refusal is 502 PUSH_DELIVERY_FAILED with `provider_reason`.
     @discardableResult
     public func testPushDevice(id: Int) async throws -> PushTestResult {
-        try await request("admin/push/devices/\(validID(id))/test", method: "POST")
+        // It sends a real notification: a write, never resent on its own.
+        try await request("admin/push/devices/\(validID(id))/test", method: "POST", requestClass: .unkeyedWrite)
     }
     public func pushConfig() async throws -> PushAPNsConfig { try await request("admin/push/config") }
     /// Behind step-up: the page verifies first (S6-25); a refusal is thrown and never resent.

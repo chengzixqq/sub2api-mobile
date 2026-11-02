@@ -65,8 +65,9 @@ extension APIClient {
             throw APIError(kind: .validation, message: "混合渠道检查的平台或分组无效。")
         }
         guard !groupIDs.isEmpty else { return MixedChannelCheck(hasRisk: false) }
+        // A read by meaning, but not on 00 §2.4's list of reads: sent once.
         return try await request("admin/accounts/check-mixed-channel", method: "POST",
-                                 body: encode(MixedChannelCheckBody(accountID: accountID, groupIDs: groupIDs, platform: platform)))
+                                 body: encode(MixedChannelCheckBody(accountID: accountID, groupIDs: groupIDs, platform: platform)), requestClass: .unkeyedWrite)
     }
 }
 
