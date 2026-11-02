@@ -621,6 +621,9 @@
 | 分组名的 Core 校验改为按字节 | Sub2Core 的 GroupWriteValidation.name 仍按 Character 计 1–100，编辑 sheet 已按 UTF-8 ≤ 100 字节先拦；Core 改按字节后，其他入口也不会送出 34 个以上汉字的名称（后端 ent MaxLen 按字节，超长返回无 reason 的 500）。要改 GroupManagement.swift，避开与 S5-12 同时改。 |
 | 新建分组平台下拉只列 App 已知平台 | meta.catalog 里 App 不认识的新平台暂不提供新建（Core 的 GroupCreateRequest.validate 只认 GroupPlatform.concrete），需在 Web 创建，或随 App 更新加入 GroupPlatform.values。 |
 | 订阅限额 0 的含义待后端确认 | 后端 normalizeLimit 保留 0（不允许用量），计费检查又把 0 当不限；App 照规格允许输入 0，确认框写“$0”。是否加提示句待用户与后端确认。 |
+| 分组编辑 sheet 超过 2000 个成员 | 编辑 sheet 打开时按详情同一查询最多读 20 页（2000 个），超出的成员不显示，也不计入“保存后可用 x / n”和归零判断 |
+| 添加账号页超过 200 个候选的翻页 | GroupAccountPicker（直接打开与编辑 sheet 内子页同一实现）只读第 1 页 200 个候选，更多候选只能靠搜索找到 |
+| 编辑 sheet 结果不明后“稍后核对”丢弃成员改动 | 分组写结果不明时用户选“稍后核对”关闭 sheet，本次的成员加减不发送也不提示，需要到详情里重新调整；是否要在关闭确认里写明，待定 |
 
 ### App 与设计 · 阶段 6
 
