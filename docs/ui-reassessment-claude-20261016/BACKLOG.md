@@ -589,6 +589,7 @@
 | 服务器日历整天数的多份同算法 | AccessTokens.daysLeft、ProxyExpiry.days、RedeemPresentation.daysUntil 三份；S5-12 的订阅剩余天数只转调 ProxyExpiry.days，建议在 S6-26 收口时统一到 ServerTimeZone 上的一个函数 |
 | 添加账号页超过 200 个候选不翻页 | 50 §4.2 只读第 1 页 200 个（S5-08）：同平台账号超过 200 时多出的不在列表里，也没有提示，只能靠搜索找到；需要时加“还有 N 个账号未列出，输入名称搜索”或翻页 |
 | 成员行状态动作后不就地替换行 | S5-08 的成员行恢复状态、启停调度完成后，靠重拉成员刷新该行；真实站点上回执先出、行稍后变化。要立即变化，需要给 S5-06 的 GroupMemberList 加替换入口 |
+| 逐项结果页的账号状态用提交时快照 | 50 §5.2 要求账号名与状态取 App 账号缓存，但 App 没有会话级账号缓存（AccountListModel 属于账号 Tab，AccountDemoStore 只在 -ui-testing）。S5-09 用 S5-03 GroupBatchAccount 的提交时快照，没有快照时画“停用”图形。以后若加会话级账号缓存，可改为显示实时状态。 |
 
 ### App 与设计 · 阶段 6
 
