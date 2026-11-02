@@ -5,7 +5,8 @@ import Sub2Core
 // two confirmations (S5D2a-04, -05). The class is NativeApp/Session/GroupActionsCore.swift, so its flows are unit-tested.
 
 /// Writes through the session's client, or under `-ui-testing` the session's GroupFixtures after the same checks APIClient makes
-/// (site, identity, session). S5-13 wraps the three sends for the home refresh (X17).
+/// (site, identity, session), answering as simple mode does on such a site (GroupFixtures+SimpleMode). The three sends mark the
+/// home refresh (GroupWriteMark, X17).
 @MainActor final class AppGroupActionSource: GroupActionSource {
     private weak var model: AppModel?
 
@@ -20,7 +21,10 @@ import Sub2Core
     }
     func groupWriteIdentity() async throws -> UUID { try await client().userWriteIdentity() }
     func fetchGroupStats(id: Int) async throws -> GroupStats? {
-        if model?.isUITesting == true { return GroupFixtures.servedStats(groupID: id) }
+        if model?.isUITesting == true {
+            if isSimpleMode, let refusal = GroupFixtures.simpleModeRefusal(.stats) { throw refusal }
+            return GroupFixtures.servedStats(groupID: id)
+        }
         return try await client().groupStats(id: id)
     }
     func fetchGroup(id: Int) async throws -> AdminGroup {
@@ -28,27 +32,44 @@ import Sub2Core
         return try await store.fetch(id: id)
     }
     func sendGroupUpdate(_ operation: GroupWriteOperation, request: GroupUpdateRequest) async throws -> WriteOutcome<AdminGroup> {
-        if let fixture = try await fixtureWrite(operation) {
-            guard case .update(let id) = operation.kind else { throw CancellationError() }
-            return WriteOutcome(value: try fixture.fixtures.updateGroup(id: id, request, accounts: fixture.accounts, now: fixture.now))
+        try await GroupWriteMark.run(liveModel()) {
+            if let fixture = try await fixtureWrite(operation) {
+                guard case .update(let id) = operation.kind else { throw CancellationError() }
+                let fixtures = fixture.fixtures
+                return WriteOutcome(value: try isSimpleMode ? fixtures.simpleModeUpdate(id: id, request, accounts: fixture.accounts, now: fixture.now)
+                                    : fixtures.updateGroup(id: id, request, accounts: fixture.accounts, now: fixture.now))
+            }
+            return try await client().updateGroup(operation)
         }
-        return try await client().updateGroup(operation)
     }
     func sendGroupDelete(_ operation: GroupWriteOperation) async throws -> WriteOutcome<GroupDeleteResult> {
-        if let fixture = try await fixtureWrite(operation), let accounts = model?.accountDemo {
-            guard case .delete(let id) = operation.kind else { throw CancellationError() }
-            return WriteOutcome(value: fixture.fixtures.deleteGroup(id: id, accounts: accounts))
+        try await GroupWriteMark.run(liveModel()) {
+            if let fixture = try await fixtureWrite(operation), let accounts = model?.accountDemo {
+                guard case .delete(let id) = operation.kind else { throw CancellationError() }
+                if isSimpleMode, let refusal = fixture.fixtures.simpleModeDeleteRefusal(id: id, accounts: fixture.accounts, now: fixture.now) {
+                    throw refusal
+                }
+                return WriteOutcome(value: fixture.fixtures.deleteGroup(id: id, accounts: accounts))
+            }
+            return try await client().deleteGroup(operation)
         }
-        return try await client().deleteGroup(operation)
     }
     func sendGroupDuplicate(_ operation: GroupWriteOperation) async throws -> WriteOutcome<AdminGroup> {
-        if let fixture = try await fixtureWrite(operation), let accounts = model?.accountDemo {
-            guard case .duplicate(let id) = operation.kind else { throw CancellationError() }
-            return WriteOutcome(value: try fixture.fixtures.duplicateGroup(sourceID: id, accounts: accounts, now: fixture.now))
+        try await GroupWriteMark.run(liveModel()) {
+            if let fixture = try await fixtureWrite(operation), let accounts = model?.accountDemo {
+                guard case .duplicate(let id) = operation.kind else { throw CancellationError() }
+                if isSimpleMode, let refusal = GroupFixtures.simpleModeRefusal(.duplicate) { throw refusal }
+                return WriteOutcome(value: try fixture.fixtures.duplicateGroup(sourceID: id, accounts: accounts, now: fixture.now))
+            }
+            return try await client().duplicateGroup(operation)
         }
-        return try await client().duplicateGroup(operation)
     }
 
+    private var isSimpleMode: Bool { model?.sessionContext?.site.me.isSimpleRunMode == true }
+    private func liveModel() throws -> AppModel {
+        guard let model else { throw CancellationError() }
+        return model
+    }
     private func client() throws -> APIClient {
         guard let client = model?.sessionContext?.client else { throw CancellationError() }
         return client
@@ -212,5 +233,16 @@ private struct GroupActionsHost: ViewModifier {
         let leaving = self.leaving
         deleteRequest = DeleteRequest(objectNoun: GroupCopy.objectNoun, displayName: prompt.group.name, siteName: prompt.siteName,
                                       consequences: prompt.consequences) { _ = await actions.performDelete(prompt, leaving: leaving) }
+    }
+}
+
+// MARK: - 首页刷新接线（S5-13）
+
+@MainActor enum GroupWriteMark {
+    /// 10 §1.4, X17: a group write that ran, or may have run (AccountWriteMark's rule), in a session that is still current makes the
+    /// home page read past the server cache the next time it shows. `generation` defaults to the current session's.
+    static func run<T: Sendable>(_ model: AppModel, generation: UUID? = nil, _ operation: @MainActor () async throws -> T) async throws -> T {
+        try await AccountWriteMark.run(generation: generation ?? model.sessionGeneration, isCurrent: { model.sessionGeneration == $0 },
+                                       mark: { model.liveOps?.noteExternalWrite() }, operation)
     }
 }

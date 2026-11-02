@@ -487,4 +487,164 @@ final class GroupDetailUITests: XCTestCase {
         last.buttons["仍要关闭"].firstMatch.tap()
         waitForReceipt("已关闭运维监控")
     }
+
+    // MARK: - S5-13 只读令牌、旧服务端、QA 对账与首页下钻
+
+    /// C-1 on the detail: the button row and the members' 添加 row greyed with “只读令牌”, ⋯'s writes greyed, no member swipe, the
+    /// members' today still read (today-stats/batch is allowed for a read-only token), and 肆's rows open no sheet.
+    @MainActor func testReadOnlyTokenGreysDetailWriteEntries() {
+        signIn(readOnly: true)
+        app.openSearchItem("search.item.groups")
+        openListedGroup(1)
+        defer { diagnostics("group-detail-read-only-final") }
+        for id in ["addAccounts", "edit"] {
+            let button = app.buttons["group.action.\(id)"]
+            XCTAssertTrue(button.exists && !button.isEnabled, "group.action.\(id)\n\(app.debugDescription)")
+        }
+        XCTAssertTrue(element("readonly.caption").exists, app.debugDescription)
+        let premium = member(1)
+        app.scrollUntilExists(premium)
+        waitForLabel(premium, contains: "今日 $")
+        premium.swipeLeft()
+        // A row without swipe actions takes the swipe as a tap.
+        if element("account.detail.card").waitForExistence(timeout: 2) { goBack() }
+        XCTAssertTrue(app.navigationBars["高级组"].waitForExistence(timeout: 10), app.debugDescription)
+        let swipes = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'group.member.1.' OR label IN %@", ["移出", "停止调度"]))
+        XCTAssertFalse(swipes.firstMatch.exists, app.debugDescription)
+        let add = element("group.members.add")
+        app.scrollUntilExists(add)
+        XCTAssertFalse(add.isEnabled, app.debugDescription)
+        let rate = element("group.config.rate")
+        app.scrollUntilExists(rate)
+        rate.tap()
+        XCTAssertFalse(element("group-edit.name").waitForExistence(timeout: 2), app.debugDescription)
+        app.buttons["group.more"].tap()
+        for title in ["编辑分组", "添加账号", "停用分组…", "复制分组", "删除分组…"] {
+            XCTAssertTrue(menuItem(title).waitForExistence(timeout: 5), "\(title) missing\n\(app.debugDescription)")
+            XCTAssertFalse(menuItem(title).isEnabled, "\(title)\n\(app.debugDescription)")
+        }
+    }
+
+    /// 50 §0.1 on an older server: the members' whole-site today and its footnote, capacity filtered here, the key count from the
+    /// key list's total, a disable confirmation without a number, and the member fallback's note.
+    @MainActor func testLegacyServerDetailUsesFallbacks() {
+        openGroup(1, arguments: [Fixture.withoutCapabilities, Self.legacyCapabilities])
+        defer { diagnostics("group-detail-legacy-final") }
+        let footnote = element("group.members.footnote")
+        app.scrollUntilExists(footnote)
+        XCTAssertEqual(footnote.label, "成员行的“今日”是账号今日，含这个账号在其他分组的用量；分组今日按 Key 所属分组统计。")
+        expectPremiumCapacity()
+        expectValue("group.records.keys", "38 个")
+        app.buttons["group.more"].tap()
+        let disable = menuItem("停用分组…")
+        XCTAssertTrue(disable.waitForExistence(timeout: 5), app.debugDescription)
+        disable.tap()
+        let alert = app.alerts["停用「高级组」？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        let keys = alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "使用这个分组的 API 密钥会被拒绝")).firstMatch
+        XCTAssertTrue(keys.exists, app.debugDescription)
+        XCTAssertFalse(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "个 API 密钥")).firstMatch.exists, app.debugDescription)
+        alert.buttons["取消"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5), app.debugDescription)
+        app.buttons["group.more"].tap()
+        let add = menuItem("添加账号")
+        XCTAssertTrue(add.waitForExistence(timeout: 5), app.debugDescription)
+        add.tap()
+        let notice = element("group.pick.legacy")
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(notice.label, "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改。")
+    }
+
+    /// 50 §9: the detail's 今日 is the list's, and the members' today in the group's terms adds up to no more than it (a rate-limited
+    /// row shows its recovery instead of today, so it adds nothing here).
+    @MainActor func testQATodayReconcilesWithListAndMembers() {
+        launchAndOpenGroups()
+        defer { diagnostics("group-detail-qa-today-final") }
+        for (id, today, members) in [(1, "$933.30", [1, 2, 3]), (5, "$52.75", [1, 2])] {
+            let listed = row(id)
+            app.scrollUntilExists(listed)
+            waitForLabel(listed, contains: "今日 \(today)")
+            listed.tap()
+            XCTAssertTrue(element("group.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+            waitForLabel(member(1), contains: "今日 $")
+            var membersCents = 0
+            for account in members {
+                let item = member(account)
+                app.scrollUntilExists(item)
+                membersCents += Self.cents(after: "今日 ", in: item.label) ?? 0
+            }
+            XCTAssertGreaterThan(membersCents, 0, "group \(id)")
+            expectValue("group.usage.today", today)
+            XCTAssertLessThanOrEqual(membersCents, Self.cents(after: "", in: today) ?? 0, "group \(id)")
+            goBack()
+        }
+    }
+
+    /// 50 §8.1: the overview's 可用不足 1 个分组 opens the group detail on 概览's own stack, and back returns there.
+    @MainActor func testHomeShortGroupRowOpensGroupDetail() {
+        signIn()
+        defer { diagnostics("group-detail-home-shortage-final") }
+        let groups = element("home.attention.groups")
+        XCTAssertTrue(groups.waitForExistence(timeout: 15), app.debugDescription)
+        reveal(groups)
+        XCTAssertTrue(groups.label.contains("企业专线 0/1"), groups.label)
+        groups.tap()
+        XCTAssertTrue(element("group.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["企业专线"].waitForExistence(timeout: 5), app.debugDescription)
+        let warning = element("group.detail.card.warning")
+        XCTAssertTrue(warning.poll(NSPredicate(format: "label BEGINSWITH %@", "没有可用的账号，这个分组的新请求会失败。"), timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("group.accounts").exists, app.debugDescription)
+        XCTAssertTrue(app.tabBars.buttons["概览"].isSelected, app.debugDescription)
+        goBack()
+        XCTAssertTrue(groups.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// 50 §8.1: the alert's scope row opens the group detail with its banner; back returns to the alert.
+    @MainActor func testAlertScopeGroupRowOpensGroupDetail() {
+        signIn()
+        defer { diagnostics("group-detail-alert-scope-final") }
+        let alertRow = element("home.attention.alert-41")
+        XCTAssertTrue(alertRow.waitForExistence(timeout: 15), app.debugDescription)
+        reveal(alertRow)
+        alertRow.tap()
+        let scope = element("alert.detail.scope.group")
+        XCTAssertTrue(scope.waitForExistence(timeout: 10), app.debugDescription)
+        reveal(scope)
+        scope.tap()
+        XCTAssertTrue(element("group.detail.card").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["标准组"].waitForExistence(timeout: 5), app.debugDescription)
+        let banner = element("group.detail.alert")
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(banner.label.contains("告警中") && banner.label.contains("标准组"), banner.label)
+        goBack()
+        XCTAssertTrue(element("alert.detail.status").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    private static let legacyCapabilities = "groups.account_buckets,groups.capacity_filter,groups.member_batch,accounts.status_summary,"
+        + "accounts.today_stats_group,accounts.list_query"
+    /// Password sign-in, or a read-only `sat_` access token, up to the overview.
+    @MainActor private func signIn(readOnly: Bool = false) {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-accounts-long-windows"] + (readOnly ? ["-ui-readonly-token"] : [])
+        app.launchQuietly()
+        XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
+        enter("分组详情验收", in: "login.name")
+        enter("https://group-detail.example.invalid", in: "login.url")
+        if readOnly {
+            let method = element("login.method.accessToken"); reveal(method); method.tap()
+            enter("sat_fixture-readonly", in: "login.key")
+        } else {
+            enter("admin@example.com", in: "login.email")
+            enter("fixture-password", in: "login.password")
+        }
+        let submit = app.buttons["login.submit"]; reveal(submit); submit.tap()
+        XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+    /// “$1,234.56” after `prefix` in `text`, in cents.
+    private static func cents(after prefix: String, in text: String) -> Int? {
+        let pattern = NSRegularExpression.escapedPattern(for: prefix) + "\\$[0-9,]+\\.[0-9]{2}"
+        guard let range = text.range(of: pattern, options: .regularExpression) else { return nil }
+        return Int(String(text[range].dropFirst(prefix.count).filter(\.isNumber)))
+    }
 }

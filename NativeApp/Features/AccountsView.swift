@@ -2,8 +2,7 @@ import SwiftUI
 import Sub2Core
 
 /// 20 §1: the account tab, platform sections of three-line rows under the filter chips. Data and timers are AccountListModel
-/// (S2-03), one per session: the tabs are rebuilt with the session. `initialGroupID` is the group page's transitional entry
-/// (“查看与管理分组账号”, X32: removed in S5-13); it reads that group's accounts and pushes details itself.
+/// (S2-03), one per session: the tabs are rebuilt with the session.
 struct AccountsView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
@@ -19,8 +18,6 @@ struct AccountsView: View {
     @State private var leftTab = false
     /// Moves “N 分钟前更新” forward.
     @State private var clockTick = Date()
-    /// The transitional entry pushes details the way it was pushed itself; changing the path would pop the group page.
-    @State private var openedAccountID: Int?
     /// 20 §1.4 (S2-22): the 告警 sheet a header's alert opened, and the alert detail to push once it has closed.
     @State private var alertSheetEvent: AlertEvent?
     @State private var alertDetailAfterSheet: Int?
@@ -29,9 +26,6 @@ struct AccountsView: View {
     /// A write elsewhere (a detail, its sheets, a test) asked for the whole list while this page was covered (20 §1.6, S2-23):
     /// it is read once the page shows again, so the list never redraws under a detail and its sheets.
     @State private var reloadsWhenShown = false
-    private let initialGroupID: Int?
-
-    init(initialGroupID: Int? = nil) { self.initialGroupID = initialGroupID }
 
     var body: some View {
         List {
@@ -43,7 +37,6 @@ struct AccountsView: View {
         .background(Palette.canvas)
         .navigationTitle(AccountListChrome.title)
         .navigationSubtitle(subtitle)
-        .navigationDestination(item: $openedAccountID) { AccountDestination(id: $0) }
         .refreshable { await store?.pullToRefresh() }
         .onAppear(perform: appeared)
         .onDisappear(perform: disappeared)
@@ -63,7 +56,7 @@ struct AccountsView: View {
         .onChange(of: alertSheetEvent?.id) { _, _ in store?.setSheetPresented(hasSheet) }
         .sheet(item: $alertSheetEvent, onDismiss: openAlertDetailAfterSheet) { alertSheet($0) }
         .toolbar {
-            if initialGroupID == nil, store?.isSelecting != true {
+            if store?.isSelecting != true {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { router.present(.accountNew) } label: { Image(systemName: "plus") }
                         .accessibilityLabel("新建账号")
@@ -151,10 +144,9 @@ struct AccountsView: View {
             .padding(.trailing, 12)
     }
 
-    /// 20 §1.3 (S2-22): the account tab's own list only; the group page's entry shows none.
+    /// 20 §1.3 (S2-22).
     private func alertBadge(_ store: AccountListModel, platform: String) -> AccountAlertBadge? {
-        guard initialGroupID == nil else { return nil }
-        return AccountAlertMatch.badge(for: store.firingAlerts(platform: platform), now: serverNow, timeZone: serverZone)
+        AccountAlertMatch.badge(for: store.firingAlerts(platform: platform), now: serverNow, timeZone: serverZone)
     }
     /// 20 §1.4: 只看需处理的账号 closes the sheet and picks the chip; 告警详情 closes it, then pushes the alert (10 §3).
     private func alertSheet(_ event: AlertEvent) -> some View {
@@ -229,10 +221,8 @@ struct AccountsView: View {
 
     // MARK: - Navigation, intents and lifecycle
 
-    /// The row goes along, so the detail opens on it (20 §2.1); the transitional entry reads by id (S2D1-18).
-    private func open(_ account: UpstreamAccount) {
-        if initialGroupID == nil { router.push(.account(id: account.id, preload: RoutePreload(account))) } else { openedAccountID = account.id }
-    }
+    /// The row goes along, so the detail opens on it (20 §2.1).
+    private func open(_ account: UpstreamAccount) { router.push(.account(id: account.id, preload: RoutePreload(account))) }
 
     private func appeared() {
         let current = store ?? makeStore()
@@ -252,21 +242,20 @@ struct AccountsView: View {
     private func disappeared() {
         isShown = false
         store?.setVisible(false)
-        leftTab = initialGroupID == nil && router.path(for: .accounts).isEmpty
+        leftTab = router.path(for: .accounts).isEmpty
     }
     /// A pending intent picks the first query, so the list is read once.
     private func makeStore() -> AccountListModel {
-        let selection = initialGroupID == nil ? takeSelection(fixture: true) : nil
-        let made = AccountListModel(model: model, chip: selection?.chip ?? .all, platform: selection?.platform ?? "", groupID: initialGroupID)
+        let selection = takeSelection(fixture: true)
+        let made = AccountListModel(model: model, chip: selection?.chip ?? .all, platform: selection?.platform ?? "")
         store = made
         // 20 §5.6: a write's account replaces its row, then the list is read again.
         actions = AccountActions(model: model, onChange: { [weak made] in made?.applyWrite($0) },
                                  onMissing: { [weak made] in made?.noteMissing(id: $0) })
-        // The group page's transitional entry has no selection mode.
-        if initialGroupID == nil { batch = AccountBatchRunner(model: model, list: made) }
+        batch = AccountBatchRunner(model: model, list: made)
         // X39 (S2-23): `-ui-testing` may open a detail on one of its sections once per session (DemoData.AccountFixture.detailFocus).
         // The stack takes the path after this first appearance.
-        if initialGroupID == nil, model.isUITesting, let route = DemoData.AccountFixture.launchDetailRoute(arguments: ProcessInfo.processInfo.arguments) {
+        if model.isUITesting, let route = DemoData.AccountFixture.launchDetailRoute(arguments: ProcessInfo.processInfo.arguments) {
             let router = router
             Task { router.setPath(router.path(for: .accounts) + [route], for: .accounts) }
         }
@@ -274,7 +263,7 @@ struct AccountsView: View {
     }
     /// 10 §0.7-4: the tab's root takes the intent once. `-ui-testing` may start the session with one (DemoData.AccountFixture.intent).
     private func applyIntent() {
-        guard initialGroupID == nil, let store, let selection = takeSelection(fixture: false) else { return }
+        guard let store, let selection = takeSelection(fixture: false) else { return }
         if store.isSelecting, batch?.isRunning != true { store.endSelecting() }
         Task { await store.select(selection.chip, platform: selection.platform ?? "") }
     }

@@ -366,3 +366,44 @@ private let qaMembers: [AccountStateInput] = [
     #expect(viaD02.activeAccountCount == served.activeAccountCount && viaD02.errorAccountCount == served.errorAccountCount)
     #expect(viaD02.accountCount == served.accountCount)
 }
+
+// MARK: - QA 对账（S5-13）
+
+/// The backend's simpleModeGroupResponse: the three omitempty counts drop out at 0, error / idle always come, nothing billing.
+private let simpleModeReply = Data("""
+{"id":1,"name":"高级组","description":"","platform":"anthropic","status":"active","account_count":3,"active_account_count":2,
+ "error_account_count":1,"idle_account_count":0,"sort_order":1,"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-02T00:00:00Z"}
+""".utf8)
+private let simpleModeEmptyReply = Data("""
+{"id":10,"name":"Antigravity 组","platform":"antigravity","status":"active","error_account_count":0,"idle_account_count":0,"sort_order":10}
+""".utf8)
+
+@Test func qaSimpleModeReplyDecodesAndBucketsAddUp() throws {
+    let decoded = try JSONDecoder().decode(AdminGroup.self, from: simpleModeReply)
+    #expect(decoded.rateMultiplier == nil && decoded.isExclusive == nil && decoded.subscriptionType == nil && decoded.rpmLimit == nil)
+    #expect(decoded.dailyLimitUSD == nil && decoded.billingLocked == nil && decoded.claudeCodeOnly == nil && decoded.fallbackGroupID == nil)
+    let buckets = GroupBuckets(group: decoded)
+    #expect(buckets.usesServerBuckets && buckets.available == 2 && buckets.limited == 0 && buckets.error == 1 && buckets.idle == 0)
+    #expect(buckets.available + buckets.limited + buckets.error + buckets.idle == decoded.accountCount ?? 0)
+    #expect(GroupFormat.detailSubtitle(decoded, isSimpleMode: true) == "Anthropic")
+    #expect(!GroupFormat.detailSubtitle(decoded, isSimpleMode: false).contains(" · "))
+
+    let empty = try JSONDecoder().decode(AdminGroup.self, from: simpleModeEmptyReply)
+    let none = GroupBuckets(group: empty)
+    #expect(empty.accountCount == nil && none.total == 0 && none.cellCount == 0)
+    #expect(none.available + none.limited + none.error + none.idle == empty.accountCount ?? 0)
+    let health = GroupHealth.resolve(group: empty, buckets: none, shortage: nil)
+    #expect(health == .noAvailable && health.badge(none) == "没有账号")
+}
+
+/// 50 §9: the list's 今日 and the detail's 今日 column are one amount from one function.
+@Test func qaListAndDetailTodayShareOneAmountText() {
+    let summary = GroupUsageSummary(groupID: 1, todayCost: Decimal(string: "933.3"), yesterdayCost: Decimal(string: "2985.6"),
+                                    totalCost: Decimal(string: "186420.55"))
+    let listed = GroupFormat.todayText(summary)
+    #expect(listed.hasPrefix("今日 ") && String(listed.dropFirst("今日 ".count)) == GroupUsageFigures(summary).today)
+    #expect(GroupUsageFigures(summary).today == "$933.30")
+    #expect(GroupFormat.todayText(nil) == "今日 —" && GroupUsageFigures(nil).today == "—")
+    let unread = GroupUsageSummary(groupID: 1, todayCost: nil, yesterdayCost: 1, totalCost: 1)
+    #expect(String(GroupFormat.todayText(unread).dropFirst("今日 ".count)) == GroupUsageFigures(unread).today)
+}

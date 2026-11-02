@@ -25,8 +25,6 @@ final class AccountListModel {
     private(set) var chip: AccountListChip
     /// Empty = every platform.
     private(set) var platform: String
-    /// The group page's transitional entry (X32; removed with it in S5-13).
-    let groupID: Int?
     /// No value + loading = first load; value + loading = “正在刷新…”; value + failed = the stale-data banner; failed alone = error page.
     private(set) var list: BlockState<AccountListSnapshot> = .idle
     /// Pages after the first are still coming (“正在加载更多账号…”).
@@ -77,12 +75,11 @@ final class AccountListModel {
         return AccountListLayout.overflowNote(total: snapshot.total, loaded: snapshot.loadedCount)
     }
 
-    init(model: AppModel, chip: AccountListChip = .all, platform: String = "", groupID: Int? = nil) {
+    init(model: AppModel, chip: AccountListChip = .all, platform: String = "") {
         app = model
         generation = model.sessionGeneration
         self.chip = chip
         self.platform = platform.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.groupID = groupID
         let clock = model.sessionContext?.client.serverClock, site = model.activeProfile?.id
         serverNow = { clock?.now() ?? Date() }
         siteID = site
@@ -197,10 +194,9 @@ final class AccountListModel {
     }
 
     /// 20 §1.3 header alerts (S2-22): a platform's events in LiveOpsStore's firing list, the monitor's 告警中 (10 §0.5); none
-    /// while that list is unread or its last read failed (a retry's old list included) or ops monitoring is off (20 §1.5), and
-    /// none on the group page's entry.
+    /// while that list is unread or its last read failed (a retry's old list included) or ops monitoring is off (20 §1.5).
     func firingAlerts(platform: String) -> [AlertEvent] {
-        guard groupID == nil, isLive, let ops = app?.liveOps,
+        guard isLive, let ops = app?.liveOps,
               AccountAlertMatch.isListUsable(ops.firing, opsDisabled: ops.opsDisabled) else { return [] }
         return ops.firingAlerts(platform: platform)
     }
@@ -389,7 +385,7 @@ final class AccountListModel {
     }
     /// 20 §1.2, §1.6: while the tab shows, the monitor's refresh of the one firing list, which reuses a read under 60 seconds old.
     private func refreshFiringAlerts() async {
-        guard groupID == nil, isVisible, isLive, let ops = app?.liveOps else { return }
+        guard isVisible, isLive, let ops = app?.liveOps else { return }
         await ops.refreshFiringAlerts()
     }
     private func refreshGroups() async {
@@ -471,7 +467,7 @@ final class AccountListModel {
         AccountListRefresh.Gate(isForeground: app.map { !$0.isSuspended } ?? false, isVisible: isVisible, isSelecting: isSelecting, hasSheet: hasSheet)
     }
     private func currentQuery() -> AccountListQuery {
-        AccountListLayout.listQuery(chip: chip, platform: platform, groupID: groupID, supportsListQuery: !forcesLegacy && has(.accountsListQuery))
+        AccountListLayout.listQuery(chip: chip, platform: platform, groupID: nil, supportsListQuery: !forcesLegacy && has(.accountsListQuery))
     }
     private var supportsRuntime: Bool { has(.accountsRuntimeBatch) }
     private func has(_ capability: Capability) -> Bool { isLive && app?.sessionContext?.has(capability) == true }

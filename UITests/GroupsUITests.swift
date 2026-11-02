@@ -331,4 +331,85 @@ final class GroupsUITests: XCTestCase {
         let shown = app.staticTexts["receipt.text"].poll(NSPredicate(format: "label == %@", text), timeout: 10)
         XCTAssertTrue(shown, "receipt “\(text)” not shown\n\(app.debugDescription)")
     }
+
+    // MARK: - S5-13 只读令牌、旧服务端与 QA 对账
+
+    /// C-1 on the list: no swipe at all, every long-press write item there but greyed.
+    @MainActor func testReadOnlyTokenGreysListWriteEntries() {
+        launchAndOpenGroups(arguments: ["-ui-readonly-token"], accessToken: "sat_fixture-readonly")
+        defer { diagnostics("groups-list-read-only-entries-final") }
+        XCTAssertFalse(app.buttons["groups.create"].isEnabled, app.debugDescription)
+        let premium = row(1)
+        app.scrollUntilExists(premium)
+        premium.swipeLeft()
+        XCTAssertFalse(swipeButton("edit", titled: "编辑").waitForExistence(timeout: 2), app.debugDescription)
+        XCTAssertFalse(swipeButton("disable", titled: "停用").exists, app.debugDescription)
+        leaveDetailIfPushed()
+        app.scrollUntilExists(premium)
+        premium.swipeRight()
+        XCTAssertFalse(swipeButton("addAccounts", titled: "添加账号").waitForExistence(timeout: 2), app.debugDescription)
+        // A right swipe the row does not take pops the page (iOS 26 lets it start anywhere).
+        if !app.buttons["groups.create"].waitForExistence(timeout: 2) { app.openSearchItem("search.item.groups") }
+        leaveDetailIfPushed()
+        app.scrollUntilExists(premium)
+        premium.press(forDuration: 1.0)
+        for title in ["编辑分组", "添加账号", "停用分组…", "复制分组", "删除分组…"] {
+            let item = app.buttons[title]
+            XCTAssertTrue(item.waitForExistence(timeout: 5), "\(title) missing\n\(app.debugDescription)")
+            XCTAssertFalse(item.isEnabled, "\(title)\n\(app.debugDescription)")
+        }
+    }
+
+    /// 50 §0.1 on a server without F04, the capacity filter, the member batch, D02, today_stats_group and the list query: errors
+    /// from the error accounts' group_ids, the local half rule, every section still there.
+    @MainActor func testLegacyServerListFallsBackLocally() {
+        launchAndOpenGroups(arguments: [Fixture.withoutCapabilities, Self.legacyCapabilities])
+        defer { diagnostics("groups-list-legacy-final") }
+        waitForLabel(row(4), contains: "错误 1")
+        XCTAssertTrue(row(4).label.contains("无可用账号"), row(4).label)
+        app.scrollUntilExists(row(2))
+        waitForLabel(row(2), contains: "错误 1")
+        XCTAssertFalse(row(2).label.contains("可用偏低"), row(2).label)
+        let normal = element("groups.section.normal")
+        app.scrollUntilExists(normal)
+        XCTAssertEqual(normal.label, "正常 5")
+        app.scrollUntilExists(element("groups.section.off"))
+        XCTAssertEqual(element("groups.section.off").label, "停用 1")
+    }
+
+    /// 50 §9: on every row 可用 + 受限 + 错误 + 暂停·停用 = 总数, read from the row's own words (the fixture's buckets).
+    @MainActor func testQABucketsAddUpOnEveryRow() {
+        launchAndOpenGroups()
+        defer { diagnostics("groups-list-qa-buckets-final") }
+        for id in [4, 7, 9, 10, 11, 2, 1, 3, 5, 8, 6] {
+            let item = row(id)
+            app.scrollUntilExists(item)
+            let label = item.label
+            guard let shown = Self.number(in: label, after: "可用 ", before: " / "), let total = Self.number(in: label, after: " / ") else {
+                XCTFail("no availability in “\(label)”"); continue
+            }
+            let others = ["受限 ", "错误 ", "暂停·停用 "].map { Self.number(in: label, after: $0) ?? 0 }
+            XCTAssertEqual(shown + others.reduce(0, +), total, "group.row.\(id): \(label)")
+        }
+    }
+
+    private static let legacyCapabilities = "groups.account_buckets,groups.capacity_filter,groups.member_batch,accounts.status_summary,"
+        + "accounts.today_stats_group,accounts.list_query"
+    /// The digits right after `prefix` (and before `suffix` when given) in a row's label.
+    private static func number(in label: String, after prefix: String, before suffix: String? = nil) -> Int? {
+        let pattern = NSRegularExpression.escapedPattern(for: prefix) + "([0-9,]+)" + (suffix.map(NSRegularExpression.escapedPattern(for:)) ?? "")
+        guard let match = label.range(of: pattern, options: .regularExpression) else { return nil }
+        let digits = label[match].dropFirst(prefix.count).prefix { $0.isNumber || $0 == "," }.filter(\.isNumber)
+        return Int(String(digits))
+    }
+    /// The left / right swipe's button, by identifier or, where the swipe drops it, by title.
+    @MainActor private func swipeButton(_ action: String, titled title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "group.swipe.\(action)", title)).firstMatch
+    }
+    /// A row without swipe actions may take the swipe as a tap.
+    @MainActor private func leaveDetailIfPushed() {
+        guard element("group.detail.card").waitForExistence(timeout: 2) else { return }
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["groups.create"].waitForExistence(timeout: 10), app.debugDescription)
+    }
 }

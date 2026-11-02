@@ -3,8 +3,8 @@ import Sub2Core
 
 /// 50 §3.4–§3.5's source for the group sheet: the session, identity, stats and one group as the group actions read them
 /// (AppGroupActionSource); the write through the session's client, or under `-ui-testing` the session's GroupFixtures after the
-/// checks APIClient makes, a read-only token's 403, `-ui-group-write-timeout` and the strict PUT. S5-13 wraps `sendGroupWrite`
-/// for the home refresh (X17) and adds simple mode's sanitising to its fixture branch.
+/// checks APIClient makes, a read-only token's 403, `-ui-group-write-timeout`, the strict PUT and simple mode's sanitising
+/// (GroupFixtures+SimpleMode). `sendGroupWrite` marks the home refresh (GroupWriteMark, X17).
 @MainActor final class AppGroupEditSource: GroupEditSource {
     private weak var model: AppModel?
     private let actions: AppGroupActionSource
@@ -20,11 +20,17 @@ import Sub2Core
     func fetchGroup(id: Int) async throws -> AdminGroup { try await actions.fetchGroup(id: id) }
 
     func sendGroupWrite(_ intent: GroupWriteDraft.Intent, operation: GroupWriteOperation, onEvent: KeyedWriteEventHandler?) async throws -> WriteOutcome<AdminGroup> {
-        if let fixture = try await fixtureWrite(operation) { return WriteOutcome(value: try Self.written(intent, in: fixture)) }
-        let client = try client()
-        switch intent {
-        case .create: return try await client.createGroup(operation, onEvent: onEvent)
-        case .update: return try await client.updateGroup(operation, onEvent: onEvent)
+        guard let model else { throw CancellationError() }
+        return try await GroupWriteMark.run(model) {
+            if let fixture = try await fixtureWrite(operation) {
+                let simpleMode = model.sessionContext?.site.me.isSimpleRunMode == true
+                return WriteOutcome(value: try Self.written(intent, in: fixture, simpleMode: simpleMode))
+            }
+            let client = try client()
+            switch intent {
+            case .create: return try await client.createGroup(operation, onEvent: onEvent)
+            case .update: return try await client.updateGroup(operation, onEvent: onEvent)
+            }
         }
     }
     func searchGroups(name: String, platform: String) async throws -> [AdminGroup] {
@@ -51,15 +57,18 @@ import Sub2Core
         try context.fixtures.interruptFirstWrite(operation)
         return context
     }
-    private static func written(_ intent: GroupWriteDraft.Intent, in fixture: GroupFixtureContext) throws -> AdminGroup {
+    private static func written(_ intent: GroupWriteDraft.Intent, in fixture: GroupFixtureContext, simpleMode: Bool) throws -> AdminGroup {
+        let fixtures = fixture.fixtures
         switch intent {
         case .create(let request):
-            return try fixture.fixtures.createGroup(request, accounts: fixture.accounts, now: fixture.now)
+            return try simpleMode ? fixtures.simpleModeCreate(request, accounts: fixture.accounts, now: fixture.now)
+                : fixtures.createGroup(request, accounts: fixture.accounts, now: fixture.now)
         case .update(let id, let request):
-            if let current = fixture.fixtures.groups.first(where: { $0.id == id }), !GroupFixtures.sendsOnlyChanges(request, current: current) {
+            if let current = fixtures.groups.first(where: { $0.id == id }), !GroupFixtures.sendsOnlyChanges(request, current: current) {
                 throw APIError.server(status: 400, reason: "VALIDATION_ERROR")
             }
-            return try fixture.fixtures.updateGroup(id: id, request, accounts: fixture.accounts, now: fixture.now)
+            return try simpleMode ? fixtures.simpleModeUpdate(id: id, request, accounts: fixture.accounts, now: fixture.now)
+                : fixtures.updateGroup(id: id, request, accounts: fixture.accounts, now: fixture.now)
         }
     }
 }

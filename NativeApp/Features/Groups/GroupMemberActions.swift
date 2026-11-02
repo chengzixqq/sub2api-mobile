@@ -79,8 +79,9 @@ extension GroupMemberWriter {
     }
 }
 
-/// The writer's source: the session's client, or under `-ui-testing` the session's GroupFixtures on AccountDemoStore. S5-13 wraps
-/// the two sends for the home refresh (X17, S5D2a-07); they are not in `recordingAccountWrite`.
+/// The writer's source: the session's client, or under `-ui-testing` the session's GroupFixtures on AccountDemoStore (simple mode's
+/// refusal included, GroupFixtures+SimpleMode). The two sends mark the home refresh through GroupWriteMark (X17, S5D2a-07), not
+/// through the account writes' wrapper.
 extension AppModel: GroupMemberWriteSource {
     var groupMemberWriteSession: GroupMemberWriteSession? {
         guard let session = sessionContext else { return nil }
@@ -89,14 +90,18 @@ extension AppModel: GroupMemberWriteSource {
                                        allowsLegacy: !session.site.me.isSimpleRunMode, isReadOnlyToken: session.isReadOnlyToken)
     }
     func sendGroupMemberBatch(groupID: Int, _ request: GroupMemberBatchRequest, generation: UUID) async throws -> GroupMemberBatchResult {
-        if isUITesting { return try memberFixture(groupID: groupID, request, generation: generation, legacy: false) }
-        return try await accountWriteClient(generation).groupMemberBatch(groupID: groupID, request)
+        try await GroupWriteMark.run(self, generation: generation) {
+            if isUITesting { return try memberFixture(groupID: groupID, request, generation: generation, legacy: false) }
+            return try await accountWriteClient(generation).groupMemberBatch(groupID: groupID, request)
+        }
     }
     func sendGroupMembersLegacy(groupID: Int, _ request: GroupMemberBatchRequest, generation: UUID) async throws -> GroupMemberBatchResult {
-        if isUITesting { return try memberFixture(groupID: groupID, request, generation: generation, legacy: true) }
-        let client = try accountWriteClient(generation)
-        let executor = GroupMembersLegacyExecutor(client: client, sendsIdempotencyKey: sessionContext?.has(.adminIdempotentWrites) == true)
-        return try await executor.run(groupID: groupID, request)
+        try await GroupWriteMark.run(self, generation: generation) {
+            if isUITesting { return try memberFixture(groupID: groupID, request, generation: generation, legacy: true) }
+            let client = try accountWriteClient(generation)
+            let executor = GroupMembersLegacyExecutor(client: client, sendsIdempotencyKey: sessionContext?.has(.adminIdempotentWrites) == true)
+            return try await executor.run(groupID: groupID, request)
+        }
     }
     func noteMemberBatchUnsupported() { groupStore?.noteMemberBatchUnsupported() }
     /// The list and the detail read the group again; the account tab shows the new group names when it next appears.
@@ -112,6 +117,7 @@ extension AppModel: GroupMemberWriteSource {
 
     private func memberFixture(groupID: Int, _ request: GroupMemberBatchRequest, generation: UUID, legacy: Bool) throws -> GroupMemberBatchResult {
         guard generation == sessionGeneration, let fixtures = groupStore?.fixtures else { throw CancellationError() }
+        if !legacy, sessionContext?.site.me.isSimpleRunMode == true, let refusal = fixtures.simpleModeMemberRefusal(groupID: groupID) { throw refusal }
         return try fixtures.memberBatch(groupID: groupID, request, store: accountDemo, now: accountFixtureNow(), legacy: legacy)
     }
 }

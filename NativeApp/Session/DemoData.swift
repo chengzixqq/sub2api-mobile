@@ -14,6 +14,8 @@ enum DemoData {
         return TokenPair(accessToken: "ui-test-access", refreshToken: "", expiresAt: Date().addingTimeInterval(2 * 3_600))
     }
     static let passwordCredential = Credential.tokens(passwordTokens)
+    /// 50 §0.7 (S5-13): the site runs in simple mode. A feature switch (X05); any chapter's simple-mode tests may pass it.
+    static let simpleModeArgument = "-ui-simple-mode"
     /// Every capability, compliance accepted and step-up off, so all gated entries show (D30 zone). S0-13's launch
     /// arguments require compliance (`-ui-compliance-required`) or turn step-up on with TOTP (`-ui-step-up-required`) or
     /// without it (`-ui-step-up-no-totp`).
@@ -32,8 +34,8 @@ enum DemoData {
                 features: .init(opsMonitoringEnabled: ops == .on, opsRealtimeMonitoringEnabled: ops == .on,
                                 opsMonitoringDisabledReason: ops.disabledReason, channelMonitorEnabled: channelMonitor,
                                 backendModeEnabled: false, paymentEnabled: false, subscriptionEnabled: false),
-                server: .init(version: "ui-test", runMode: "standard", serverTimezone: serverTimeZone.identifier,
-                              serverUTCOffset: serverTimeZone.rawUTCOffset,
+                server: .init(version: "ui-test", runMode: arguments.contains(simpleModeArgument) ? "simple" : "standard",
+                              serverTimezone: serverTimeZone.identifier, serverUTCOffset: serverTimeZone.rawUTCOffset,
                               capabilities: Set(Capability.allCases.map(\.rawValue)).subtracting(withheldCapabilities(arguments: arguments))))
     }
     /// X05: `-ui-without-capabilities a,b` takes those raw values out of the fixture site's capabilities; chapters build

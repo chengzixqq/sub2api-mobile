@@ -103,8 +103,10 @@ final class GroupStore {
     func fetch(id: Int) async throws -> AdminGroup {
         guard isLive, let session = app?.sessionContext, session.generation == generation else { throw CancellationError() }
         let group: AdminGroup
-        if let context = fixtureContext { group = try context.fixtures.group(id: id, accounts: context.accounts, now: context.now) }
-        else { group = try await session.client.group(id: id) }
+        if let context = fixtureContext {
+            group = try session.site.me.isSimpleRunMode ? context.fixtures.simpleModeGroup(id: id, accounts: context.accounts, now: context.now)
+                : context.fixtures.group(id: id, accounts: context.accounts, now: context.now)
+        } else { group = try await session.client.group(id: id) }
         guard isLive else { throw CancellationError() }
         list = list.updatingValue { rows in rows.map { $0.id == group.id ? group : $0 } }
         return group
@@ -173,8 +175,10 @@ final class GroupStore {
         list = list.withLoading()
         do {
             let read: [AdminGroup]
-            if let context = fixtureContext { read = try context.fixtures.readList(accounts: context.accounts, now: context.now) }
-            else { read = try await session.client.groupList() }
+            if let context = fixtureContext {
+                read = try session.site.me.isSimpleRunMode ? context.fixtures.simpleModeList(accounts: context.accounts, now: context.now)
+                    : context.fixtures.readList(accounts: context.accounts, now: context.now)
+            } else { read = try await session.client.groupList() }
             guard isLive else { return }
             let now = Date()
             list = .loaded(GroupStoreRules.applying(pendingEdits, to: read), at: now)
@@ -198,8 +202,10 @@ final class GroupStore {
         usage = usage.withLoading()
         do {
             let rows: [GroupUsageSummary]
-            if let fixtures { rows = try await fixtures.usageSummary() }
-            else {
+            if let fixtures {
+                if permissions.isSimpleMode, let refusal = GroupFixtures.simpleModeRefusal(.usageSummary) { throw refusal }
+                rows = try await fixtures.usageSummary()
+            } else {
                 let zone = GroupStoreRules.usageTimeZone(isVendor: permissions.isVendor, siteZone: session.site.serverTimeZone)
                 rows = try await session.client.groupUsageSummary(timezone: zone)
             }

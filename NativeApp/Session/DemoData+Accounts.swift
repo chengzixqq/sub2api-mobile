@@ -32,9 +32,6 @@ extension DemoData {
         static let removed = "-ui-account-removed"
         /// `GET :id` answers eight seconds late, so something covering the detail meanwhile cancels it (S2-08).
         static let slowDetail = "-ui-account-detail-slow"
-        /// OpenAI-主力-01 and OpenAI-备用-A also belong to group 10 (Antigravity 组 on the group list), so the old group detail's
-        /// transitional “查看与管理分组账号” has rows (S2-08).
-        static let groupTransition = "-ui-account-group-transition"
         /// The detail's first `GET :id/today-stats` answers 429 with retry_after 8 (S2-09); later reads work.
         static let todayThrottled = "-ui-account-today-throttled"
         /// The same first 429 with retry_after 20, long enough for a sheet to open and close within the wait (S2-23 review).
@@ -278,18 +275,9 @@ final class AccountDemoStore {
         self.base = base; self.arguments = arguments
         let demo = arguments.contains(DemoData.AccountFixture.empty)
             ? [] : DemoData.demoAccounts(base: base, longWindows: arguments.contains(DemoData.AccountFixture.longWindows))
-        let grouped = arguments.contains(DemoData.AccountFixture.groupTransition) ? Self.joiningGroupTen(demo) : demo
-        let expiring = arguments.contains(DemoData.AccountFixture.expired) ? Self.expiringDeepSeek(grouped, base: base) : grouped
+        let expiring = arguments.contains(DemoData.AccountFixture.expired) ? Self.expiringDeepSeek(demo, base: base) : demo
         let backup = arguments.contains(DemoData.AccountFixture.bedrockError) ? Self.bedrockBackup(expiring) : expiring
         accounts = Self.tokenFixtures(backup, base: base, arguments: arguments)
-    }
-    private static func joiningGroupTen(_ rows: [UpstreamAccount]) -> [UpstreamAccount] {
-        rows.map { row in
-            guard [4, 7].contains(row.id) else { return row }
-            var member = row
-            member.groupIDs.append(10)
-            return member
-        }
     }
     /// Only the newest session's store is kept.
     static func current(for generation: UUID, base: @autoclosure () -> Date) -> AccountDemoStore {
