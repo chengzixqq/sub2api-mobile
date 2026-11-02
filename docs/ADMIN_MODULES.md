@@ -36,6 +36,32 @@
 
 简易模式只有名称、描述、平台与计数：没有停用 / 启用、复制、用量汇总、容量、Key 与订阅行，新建只填名称、描述与平台（请求里的计费等字段由服务端覆盖为默认值），有成员的分组删除被拒（GROUP_NOT_EMPTY），后端不列组合分组、对组合分组的成员写入回 SIMPLE_MODE_GROUP_NOT_BINDABLE，也不走逐个账号的退路。只读管理访问令牌下写入口置灰、不提供滑动操作。模型白名单、组合路由、图片计费、客户端限制仍在 Web 编辑；首版不支持 vendor 登录（U01）。
 
+## 兑换码与补偿
+
+列表读 `GET admin/redeem-codes`（状态、类型、搜索与分页由后端执行）与 `GET admin/redeem-codes/stats`，定位读 `GET admin/redeem-codes/:id`；编辑、续期、禁用 / 启用走 `POST admin/redeem-codes/batch-update`（不带 key，不自动重发），删除走 `DELETE admin/redeem-codes/:id`，管理员调整产生的码不删。批量生成 `POST admin/redeem-codes/generate` 与补偿 `POST admin/redeem-codes/create-and-redeem` 在确认时生成编号作为 Idempotency-Key，先落盘再发送，结果不明记为待核对（批次与补偿各一个文件，与余额共用不可读暂停）。
+
+同一规范化地址下三类待核对记录都按当前身份核对（C-26），门控也按地址计数；“仍要生成新的一批”是批次唯一的例外，补偿没有例外。回到前台只自动核对余额与补偿，不核对批次；概览、设置、用户详情横幅与兑换码横幅读同一份记录，任一处处理完后其余同时消失。
+
+## 代理
+
+列表读 `GET admin/proxies`（账号的代理选择另读 `GET admin/proxies/all`，只含启用的代理）；详情读 `GET admin/proxies/:id` 与 `:id/accounts`，被改走的账号读 `:id/fallback-accounts`，恢复走 `POST :id/fallback-accounts/revert`。添加 `POST admin/proxies` 带 Idempotency-Key；编辑、停用 / 启用、续期走 `PUT admin/proxies/:id`，删除走 `DELETE`，都不带 key、只发一次，应答丢失时读回核对。测试 `POST :id/test` 与质量检测 `POST :id/quality-check` 会写回延迟与质量，按写处理、不自动重发。停用 / 启用、恢复原代理、改网络字段或有效期成功或可能已生效后，概览下次可见时绕过服务端缓存刷新。
+
+## 公告
+
+列表、计数与 H07 退路读 `GET admin/announcements`，详情 `GET :id`，已读情况 `GET :id/read-status` 与 `:id/read-summary`（有 `announcements.read_stats` 时）。新建 `POST admin/announcements` 在有 `announcements.idempotent_create` 时带 key，结果不明可用同一编号重试；没有时只发一次，按标题查近期公告核对。编辑、发布、归档走 `PUT :id`（读回核对），删除走 `DELETE :id`。编辑 sheet 结果未确认时关闭先问“结果未确认”，稍后核对会让列表重读。
+
+## 推送
+
+`GET / POST admin/push/devices`、`DELETE :id`、`PUT :id/subscription`、`POST :id/test`（真的发一条通知，按写处理）管理本机 APNs 与 Bark / ntfy / Webhook 接收方式；`GET / PUT admin/push/config` 读写站点 APNs 配置。站点开启二次验证时，改 APNs 配置需要用账号登录并通过二次验证，Admin Key 与管理访问令牌这时不能改；没开时直接保存。本机登记前先等同一地址的站点收尾结束，删除站点与退出时先删推送设备。Debug 构建登记为 sandbox，Release 不带 environment。真实 APNs 令牌与点按通知尚未在真机验收。
+
+## 全局搜索
+
+搜索 Tab 输入后按账号、用户、分组、代理扇出到各自既有的列表接口（`managedAccounts`、`users`、`groups`、`proxies`），不新增后端读；形如请求 ID 的输入直接查 `admin/usage` 与 `ops/request-errors`。各分区独立加载、失败与重试，“查看全部”进入同一查询的分页列表。
+
+## 登录设备与访问令牌
+
+登录设备读 `GET auth/sessions`，下线走 `DELETE auth/sessions/:id`，让其他设备下线走 `POST auth/revoke-all-sessions`（保留本机）；只在账号密码登录时显示。管理访问令牌读 `GET admin/access-tokens`，吊销走 `DELETE admin/access-tokens/:id`，吊销本机令牌即退出该站点；App 不签发令牌。
+
 ## 概览 RPM
 
 `/admin/dashboard/stats` 的 `rpm` 是服务端近 60 秒成功上游请求数；同时解码 `rpm_available`：true 的 0 才是真实零，false 显示“不可用”。未带该字段的旧站点保留数值并注明窗口由站点决定，不能宣称它是滚动 60 秒。TPM 仍为近 5 分钟平均，卡片分别标明两个口径。账号 `current_rpm` 已支持各平台/API Key/OAuth，读取同一滚动窗口；缺失值保持不可用。账号容量中的限流使用独立 `scheduling_rpm` 自然分钟计数，不把滚动计数与自然分钟限额作比。历史性能趋势仍按吞吐时间桶计算，统计范围与成功请求口径不同，不要求它与概览实时值相等。
