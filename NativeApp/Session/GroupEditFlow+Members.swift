@@ -3,7 +3,9 @@ import Sub2Core
 
 // 50 §3.4 新建 3–4 / 编辑 3–4 and §3.5 成员写入失败 (S5-11): after the group's own step the members go out through S5-08's
 // GroupMemberWriter, and one receipt carries the group's prefix (0.4.3). A failure of the members never takes back the group's
-// success. All done gives no 撤销 here: it would undo the members only, not the creation or the fields.
+// success. All done gives no 撤销 here: it would undo the members only, not the creation or the fields. With members only there
+// is no success of the group's to report: a refusal stays on the sheet (§3.5 其他明确失败), and 已保存「名称」 leads the receipt
+// only when a member changed.
 
 extension GroupEditSaved {
     /// 已创建「名称」 / 已保存「名称」 in front of the member words.
@@ -18,12 +20,29 @@ extension GroupEditSaved {
     var activeBefore: Int { kind == .created ? 0 : group.counts.activeAccountCount }
 }
 
+/// The members' answer for the sheet: close with one receipt (nil when the answer was for another session), or stay with the
+/// refusal in red when it was the sheet's only write.
+enum GroupEditMemberStep: Sendable {
+    case close(Receipt?)
+    case refused(String)
+}
+
 extension GroupEditFlow {
-    /// The members' write and its one receipt; nil when the answer was for another session.
-    func memberReceipt(_ plan: GroupMemberCommitPlan, after saved: GroupEditSaved, writer: GroupMemberWriter) async -> Receipt? {
+    /// The members' write and what the sheet does with its answer. `wroteGroup` false: only members changed.
+    func memberStep(_ plan: GroupMemberCommitPlan, after saved: GroupEditSaved, wroteGroup: Bool, writer: GroupMemberWriter) async -> GroupEditMemberStep {
         let write = GroupEditMemberWrite(writer: writer, receipts: receipts, openResults: openResults, plan: plan, group: saved.group,
                                          activeBefore: saved.activeBefore)
-        return write.receipt(await writer.send(plan.request, to: saved.group.id), prefix: saved.memberPrefix)
+        let sent = await writer.send(plan.request, to: saved.group.id)
+        if !wroteGroup, case .rejected(let reason) = sent { return .refused(reason) }
+        return .close(write.receipt(sent, prefix: wroteGroup || sent.changedMembers ? saved.memberPrefix : .none))
+    }
+}
+
+private extension GroupMemberSendResult {
+    /// At least one item went through.
+    var changedMembers: Bool {
+        guard case .result(let result, _) = self else { return false }
+        return result.failed < result.results.count
     }
 }
 

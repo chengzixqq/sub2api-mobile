@@ -530,9 +530,31 @@ final class GroupEditUITests: XCTestCase {
         XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
     }
 
+    /// 3.5 其他明确失败 with members only: the refused member write was the sheet's one write, so the sheet stays with the reason
+    /// in red, the draft kept and no receipt. `-ui-group-simple-unbindable` makes every member batch answer 400.
+    @MainActor func testMembersOnlyRefusalKeepsTheSheetOpen() {
+        launchAndOpenGroups(arguments: [MemberFixture.simpleMode, MemberFixture.simpleUnbindable])
+        defer { diagnostics("group-edit-members-refused-final") }
+        editRow(1)
+        reveal(memberState(3))
+        removeMember(3)
+        submit()
+        let error = element("group-edit.error")
+        XCTAssertTrue(error.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(error.label, "简易模式下不能给组合分组添加账号。")
+        XCTAssertFalse(app.staticTexts["receipt.text"].exists, app.debugDescription)
+        XCTAssertTrue(app.navigationBars["编辑分组"].exists, app.debugDescription)
+        let removed = element("group-edit.members.removed")
+        reveal(removed, towardBottom: false)
+        XCTAssertEqual(removed.label, "将移出：Claude-官方-03")
+        XCTAssertTrue(app.buttons["group-edit.submit"].isEnabled, app.debugDescription)
+    }
+
     private enum MemberFixture {
         static let batchPartial = "-ui-group-batch-partial"
         static let withoutCapabilities = "-ui-without-capabilities"
+        static let simpleMode = "-ui-simple-mode"
+        static let simpleUnbindable = "-ui-group-simple-unbindable"
     }
     /// The members section's 添加 row → 添加账号 inside the sheet.
     @MainActor private func openAddAccounts(titled title: String) {

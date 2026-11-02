@@ -601,9 +601,10 @@ private func premiumDraft(_ change: (GroupMemberDraft) -> GroupMemberDraft, fiel
     members.replies = [.failure(offline), .success(GroupMemberBatchResult(groupID: 1, results: [left(2), left(3)], counts: memberCounts(active: 1, total: 1)))]
     await harness.save(premiumDraft { $0.removing(2).removing(3) })
     let receipt = try #require(harness.receipts.current)
-    #expect(receipt.text == "已保存「高级组」 · 成员改动未确认" && receipt.action?.title == "重试" && receipt.tone == .caution)
+    // Members only: nothing is known to be saved, so no “已保存「高级组」” in front.
+    #expect(receipt.text == "成员改动未确认" && receipt.action?.title == "重试" && receipt.tone == .caution && harness.flow.isFinished)
     harness.receipts.performAction(id: receipt.id)
-    await settle { members.calls.count == 2 && harness.receiptText != nil }
+    await settle { members.calls.count == 2 && harness.receiptText != "成员改动未确认" }
     #expect(members.calls.count == 2 && members.calls[0] == members.calls[1])
     #expect(harness.receiptText == "已移出 2 个账号 · 可用 2 → 1" && harness.receipts.current?.action == nil)
 }
@@ -611,9 +612,14 @@ private func premiumDraft(_ change: (GroupMemberDraft) -> GroupMemberDraft, fiel
 @MainActor @Test func rejectedOrGoneMemberWriteStillReportsTheGroup() async throws {
     let (refusal, refusalMembers) = memberHarness(premiumCounted)
     refusalMembers.replies = [.failure(APIError.server(status: 400, reason: "TOO_MANY_ACCOUNTS"))]
-    await refusal.save(premiumDraft { $0.removing(3) })
-    #expect(refusal.receiptText == "已保存「高级组」 · 成员没有改动：提交的成员有误，请重试。" && refusal.receipts.current?.tone == .caution)
-    #expect(refusal.receipts.current?.action == nil && refusal.flow.isFinished)
+    await refusal.save(premiumDraft({ $0.removing(3) }, fields: { $0.name = "高级组 A" }))
+    #expect(refusal.receiptText == "已保存「高级组 A」 · 成员没有改动：提交的成员有误，请重试。" && refusal.receipts.current?.tone == .caution)
+    #expect(refusal.receipts.current?.action == nil && refusal.flow.isFinished && refusal.source.writes.count == 1)
+
+    let (lost, lostMembers) = memberHarness(premiumCounted)
+    lostMembers.replies = [.failure(offline)]
+    await lost.save(premiumDraft({ $0.removing(3) }, fields: { $0.name = "高级组 A" }))
+    #expect(lost.receiptText == "已保存「高级组 A」 · 成员改动未确认" && lost.receipts.current?.action?.title == "重试" && lost.flow.isFinished)
 
     let (gone, goneMembers) = memberHarness(premiumCounted)
     goneMembers.replies = [.failure(missing)]
@@ -623,8 +629,40 @@ private func premiumDraft(_ change: (GroupMemberDraft) -> GroupMemberDraft, fiel
 
 @MainActor @Test func simpleModeLegacyIsRejectedWithPrefix() async {
     let (harness, members) = memberHarness(premiumCounted, members: EditMemberSource(usesBatch: false, allowsLegacy: false))
+    await harness.save(premiumDraft({ $0.removing(3) }, fields: { $0.name = "高级组 A" }))
+    #expect(harness.receiptText == "已保存「高级组 A」 · 成员没有改动：服务器暂不支持批量调整成员。" && members.calls.isEmpty)
+    #expect(harness.source.writes.count == 1 && harness.flow.isFinished)
+}
+
+/// 50 §3.5 其他明确失败: with members only the refusal is the sheet's one write, so it stays with the reason in red and keeps the
+/// draft; the next 保存 sends the members again.
+@MainActor @Test func membersOnlyRefusalKeepsTheSheetAndItsDraft() async throws {
+    let (harness, members) = memberHarness(premiumCounted)
+    members.replies = [.failure(APIError.server(status: 400, reason: "TOO_MANY_ACCOUNTS")),
+                       .success(GroupMemberBatchResult(groupID: 1, results: [left(3)], counts: memberCounts(active: 2, total: 2)))]
+    let draft = premiumDraft { $0.removing(3) }
+    await harness.save(draft)
+    #expect(harness.flow.phase == .failed(.message("提交的成员有误，请重试。")) && harness.flow.failureMessage == "提交的成员有误，请重试。")
+    #expect(!harness.flow.isFinished && !harness.flow.locksForm && harness.receiptText == nil)
+    #expect(harness.source.writes.isEmpty && harness.store.upserts.isEmpty)
+    await harness.save(draft)
+    #expect(members.calls.count == 2 && members.calls[0] == members.calls[1])
+    #expect(harness.receiptText == "已保存「高级组」 · 已移出 1 个账号" && harness.flow.isFinished)
+
+    let (simple, simpleMembers) = memberHarness(premiumCounted, members: EditMemberSource(usesBatch: false, allowsLegacy: false))
+    await simple.save(premiumDraft { $0.removing(3) })
+    #expect(simple.flow.failureMessage == "服务器暂不支持批量调整成员。" && !simple.flow.isFinished)
+    #expect(simple.receiptText == nil && simpleMembers.calls.isEmpty)
+}
+
+/// Members only and every item failed: nothing was saved, so the receipt reads as the detail page's, with 查看.
+@MainActor @Test func membersOnlyWithNothingDoneLeavesOutTheSavedPrefix() async throws {
+    let (harness, members) = memberHarness(premiumCounted)
+    let failed = GroupMemberResultItem(accountID: 3, action: .remove, status: .failed, reason: "ACCOUNT_NOT_FOUND")
+    members.replies = [.success(GroupMemberBatchResult(groupID: 1, results: [failed], counts: nil))]
     await harness.save(premiumDraft { $0.removing(3) })
-    #expect(harness.receiptText == "已保存「高级组」 · 成员没有改动：服务器暂不支持批量调整成员。" && members.calls.isEmpty)
+    let receipt = try #require(harness.receipts.current)
+    #expect(receipt.text == "移出失败 · 1 个账号没有改动" && receipt.action?.title == "查看" && harness.flow.isFinished)
 }
 
 @MainActor @Test func legacyServerGoesThroughTheFallbackWithoutCountsSuffix() async throws {

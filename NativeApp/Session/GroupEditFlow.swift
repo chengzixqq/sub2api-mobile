@@ -57,7 +57,7 @@ struct GroupEditUnconfirmed: Equatable, Sendable {
 }
 
 /// What the server holds after a write that went through; the members go out from here (S5-11). Only members changed: the group
-/// as the sheet opened it.
+/// as the sheet opened it, nothing written yet.
 struct GroupEditSaved: Sendable, Equatable {
     enum Kind: Sendable, Equatable { case created, saved(droppedFields: Bool) }
     let kind: Kind
@@ -358,7 +358,8 @@ final class GroupEditFlow {
     // MARK: - 完成
 
     /// The one way out of a write that went through: the list and the directory, then the members while the sheet stays busy, one
-    /// receipt (none when the members' answer was for another session), and the sheet closes. `wroteGroup` false: only members.
+    /// receipt (none when the members' answer was for another session), and the sheet closes. `wroteGroup` false: only members,
+    /// whose refusal keeps the sheet (GroupEditFlow+Members.swift).
     private func finish(_ saved: GroupEditSaved, wroteGroup: Bool = true) async {
         let renames = saved.kind == .created || pendingRenames
         let plan = memberPlan
@@ -372,7 +373,10 @@ final class GroupEditFlow {
         var receipt: Receipt? = Self.receipt(saved)
         if let plan, let memberWriter {
             phase = .saving(nil)
-            receipt = await memberReceipt(plan, after: saved, writer: memberWriter)
+            switch await memberStep(plan, after: saved, wroteGroup: wroteGroup, writer: memberWriter) {
+            case .refused(let reason): return fail(.message(reason))
+            case .close(let memberReceipt): receipt = memberReceipt
+            }
         }
         if let receipt { receipts.show(receipt) }
         phase = .editing
