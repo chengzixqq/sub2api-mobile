@@ -243,16 +243,16 @@ private func named(_ name: String) -> GroupEditDraft {
 @Test func diffAsksOnlyForRiskyChanges() throws {
     let quiet = editing(premium) { $0.name = "高级组 A"; $0.description = "新的说明" }
     let quietRequest = try #require(try quiet.updateRequest(editable: everyField))
-    let quietDiff = try #require(quiet.diff(quietRequest))
+    let quietDiff = try #require(quiet.diff(quietRequest, now: Date()))
     #expect(!quietDiff.requiresConfirmation)
     let risky = editing(premium) { $0.stepRate(up: true) }
     let riskyRequest = try #require(try risky.updateRequest(editable: everyField))
-    let riskyDiff = try #require(risky.diff(riskyRequest))
+    let riskyDiff = try #require(risky.diff(riskyRequest, now: Date()))
     #expect(riskyDiff.requiresConfirmation)
     let confirmation = riskyDiff.confirmation(siteName: "X", activeAPIKeys: nil)
     #expect(confirmation.title == "保存「高级组」的修改？" && confirmation.confirmTitle == "保存修改")
     #expect(confirmation.lines == ["站点 X · 分组「高级组」", "费率倍数 ×0.8 → ×0.9", "此后的请求按新倍率计费，已产生的记录不变。"])
-    #expect(GroupEditDraft.creating().diff(GroupUpdateRequest(name: "x")) == nil)
+    #expect(GroupEditDraft.creating().diff(GroupUpdateRequest(name: "x"), now: Date()) == nil)
 }
 
 @Test func reconcileTakesOnlyANewExactNameOnTheSamePlatform() {

@@ -5,7 +5,7 @@ import Sub2Core
 /// 50 §3.3: 基本, 计费 and 订阅限额 (or the standard billing note) as GroupPermissions lets this identity see them — a field it
 /// may change is a control, one it may not reads as text, a hidden one is left out — then the Web note and the last write's
 /// result at the bottom, scrolled to when it changes.
-struct GroupEditForm: View {
+struct GroupEditForm<Members: View>: View {
     @Binding var draft: GroupEditDraft
     let permissions: GroupPermissions
     let platforms: [String]
@@ -14,6 +14,8 @@ struct GroupEditForm: View {
     let flow: GroupEditFlow?
     /// A write runs, its result is open or the group is gone.
     let isLocked: Bool
+    /// S5-11 成员账号 N, before the Web note.
+    let members: Members
 
     private var group: AdminGroup? { draft.original }
     private func access(_ field: GroupPermissions.Field) -> GroupPermissions.FieldAccess { permissions.access(field, in: group) }
@@ -24,7 +26,7 @@ struct GroupEditForm: View {
                 basicSection.disabled(isLocked)
                 if access(.rateMultiplier) != .hidden { billingSection.disabled(isLocked) }
                 if access(.limits) != .hidden { limitsSection.disabled(isLocked) }
-                // S5-11：成员账号区插在这里
+                members.disabled(isLocked)
                 Section {} footer: {
                     Text(GroupEditCopy.webNote).accessibilityIdentifier("group-edit.web")
                 }
