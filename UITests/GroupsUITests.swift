@@ -1,8 +1,8 @@
 import XCTest
 
 /// 50 §1 (S5-04): the group list on the `-ui-testing` site — eleven groups whose buckets are counted from the demo accounts
-/// (GroupFixtures). Timed windows run an hour longer so GLM 组's overload holds for the whole test. Creating and editing still
-/// go through the old editor, entered from the list and the detail's 编辑分组 (S5-06).
+/// (GroupFixtures). Timed windows run an hour longer so GLM 组's overload holds for the whole test. Creating and editing go
+/// through the group sheet (S5-10), entered from the list and the detail's 编辑分组; its own cases are GroupEditUITests.
 final class GroupsUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
 
@@ -126,8 +126,8 @@ final class GroupsUITests: XCTestCase {
         let create = app.buttons["groups.empty.create"]
         XCTAssertTrue(create.isEnabled, app.debugDescription)
         create.tap()
-        XCTAssertTrue(element("group-editor.name").waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(app.navigationBars["创建分组"].exists, app.debugDescription)
+        XCTAssertTrue(element("group-edit.name").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["新建分组"].exists, app.debugDescription)
     }
 
     @MainActor func testReadOnlyTokenGreysNewGroup() {
@@ -152,11 +152,14 @@ final class GroupsUITests: XCTestCase {
         launchAndOpenGroups()
         defer { diagnostics("group-lifecycle-final") }
         app.buttons["groups.create"].tap()
-        set("移动分组", field: "group-editor.name", towardBottom: false)
-        set("iPhone 管理", field: "group-editor.description")
-        set("1.25", field: "group-editor.rate")
-        set("90", field: "group-editor.rpm")
-        confirmEditor()
+        set("移动分组", field: "group-edit.name", towardBottom: false)
+        set("iPhone 管理", field: "group-edit.description")
+        set("1.25", field: "group-edit.rate")
+        set("90", field: "group-edit.rpm")
+        // S5-10: a public group with nothing available asks first.
+        submitEditor()
+        confirmAlert("仍然创建")
+        waitForReceipt("已创建「移动分组」")
         // A new group has no account yet: 需处理, “没有账号”.
         let created = row(12)
         XCTAssertTrue(created.waitForExistence(timeout: 10), app.debugDescription)
@@ -167,9 +170,10 @@ final class GroupsUITests: XCTestCase {
         // S5-06: the detail's button row; a group without accounts has only 编辑分组 until S5-08.
         reveal(app.buttons["group.action.edit"])
         app.buttons["group.action.edit"].tap()
-        set("移动分组更新", field: "group-editor.name", towardBottom: false)
-        set("仅修改描述与名称", field: "group-editor.description")
-        confirmEditor()
+        set("移动分组更新", field: "group-edit.name", towardBottom: false)
+        set("仅修改描述与名称", field: "group-edit.description")
+        // Only the name and the description: saved without asking.
+        submitEditor()
         // An Any query by the new title also matches the editor TextField's
         // value while the sheet is dismissing. Wait for the destination bar.
         XCTAssertTrue(app.navigationBars["移动分组更新"].waitForExistence(timeout: 10), app.debugDescription)
@@ -185,22 +189,6 @@ final class GroupsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["groups.create"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(created.waitForNonExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(row(4).exists, app.debugDescription)
-    }
-
-    @MainActor func testGroupEditorValidation() {
-        launchAndOpenGroups()
-        defer { diagnostics("group-validation-final") }
-        app.buttons["groups.create"].tap()
-        reveal(app.buttons["group-editor.prepare"])
-        app.buttons["group-editor.prepare"].tap()
-        reveal(element("group-editor.result"))
-        XCTAssertTrue(element("group-editor.result").label.contains("名称"), app.debugDescription)
-        set("验证分组", field: "group-editor.name", towardBottom: false)
-        set("0", field: "group-editor.rate")
-        reveal(app.buttons["group-editor.prepare"])
-        app.buttons["group-editor.prepare"].tap()
-        reveal(element("group-editor.result"))
-        XCTAssertTrue(element("group-editor.result").label.contains("倍率"), app.debugDescription)
     }
 
     /// 00 §4.6: a slow usage-summary does not hold back 重试; the list is read again at once.
@@ -268,12 +256,14 @@ final class GroupsUITests: XCTestCase {
     @MainActor private func text(containing part: String) -> XCUIElement {
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", part)).firstMatch
     }
-    @MainActor private func confirmEditor() {
-        reveal(app.buttons["group-editor.prepare"]); app.buttons["group-editor.prepare"].tap()
-        confirmDialog()
+    /// The sheet's 创建 / 保存 once the form passes.
+    @MainActor private func submitEditor() {
+        let submit = app.buttons["group-edit.submit"]
+        XCTAssertTrue(submit.poll(NSPredicate(format: "isEnabled == true"), timeout: 5), app.debugDescription)
+        submit.tap()
     }
-    @MainActor private func confirmDialog() {
-        let button = app.buttons["确认发送"]
+    @MainActor private func confirmAlert(_ title: String) {
+        let button = app.alerts.buttons[title]
         XCTAssertTrue(button.waitForExistence(timeout: 5), app.debugDescription); button.tap()
     }
     @MainActor private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
@@ -281,8 +271,11 @@ final class GroupsUITests: XCTestCase {
         let field = element(id); reveal(field, towardBottom: towardBottom); field.tap()
         let current = field.value as? String ?? ""
         if !current.isEmpty && current != field.placeholderValue {
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+            // The group sheet's inputs are right-aligned (S5-10): the caret goes to the trailing edge, again while text is left.
+            for _ in 0..<6 where !(field.value as? String ?? "").isEmpty && field.value as? String != field.placeholderValue {
+                field.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (field.value as? String ?? "").count))
+            }
             XCTAssertTrue((field.value as? String ?? "").isEmpty || field.value as? String == field.placeholderValue, app.debugDescription)
         }
         field.typeText(value)

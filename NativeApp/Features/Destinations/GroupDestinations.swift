@@ -28,7 +28,7 @@ struct GroupSheetDestination: View {
     var body: some View {
         switch sheet {
         // .groupEdit：S5-04（临时接旧编辑器）→ S5-10
-        case .groupEdit(let id): LegacyGroupEditSheet(id: id)
+        case .groupEdit(let id): GroupEditDestination(id: id)
         // .groupPick：S5-08
         case .groupPick(let groupID): NavigationStack { GroupAccountPicker(mode: .submit(groupID: groupID)) }
         // 其他区域：SheetDestination 不会分派到这里

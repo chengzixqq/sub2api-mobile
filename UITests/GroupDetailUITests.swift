@@ -154,15 +154,18 @@ final class GroupDetailUITests: XCTestCase {
         XCTAssertFalse(element("account.detail.card").exists, app.debugDescription)
     }
 
-    /// 编辑分组 opens the group editor; ⋯ lists the actions this identity has (添加账号 since S5-08), and 删除分组… asks for
+    /// 编辑分组 opens the group sheet (S5-10); ⋯ lists the actions this identity has (添加账号 since S5-08), and 删除分组… asks for
     /// the name while Face ID is off.
     @MainActor func testEditButtonAndMoreMenuOpenTheirSheets() {
         openGroup(1)
         defer { diagnostics("group-detail-edit-more-final") }
         app.buttons["group.action.edit"].tap()
-        let name = element("group-editor.name")
+        let name = element("group-edit.name")
         XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["group-editor.close"].tap()
+        XCTAssertTrue(app.navigationBars["编辑分组"].exists, app.debugDescription)
+        let platform = element("group-edit.platform.value")
+        XCTAssertTrue(platform.label.contains("Anthropic"), platform.label)
+        app.buttons["group-edit.cancel"].tap()
         XCTAssertTrue(name.waitForNonExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(element("group.detail.card").exists, app.debugDescription)
 
@@ -404,9 +407,9 @@ final class GroupDetailUITests: XCTestCase {
         let rate = element("group.config.rate")
         app.scrollUntilExists(rate, towardBottom: false)
         rate.tap()
-        let name = element("group-editor.name")
+        let name = element("group-edit.name")
         XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
-        app.buttons["group-editor.close"].tap()
+        app.buttons["group-edit.cancel"].tap()
         XCTAssertTrue(name.waitForNonExistence(timeout: 10), app.debugDescription)
         let web = element("group.config.web")
         app.scrollUntilExists(web)

@@ -266,4 +266,19 @@ final class AppNavigationUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
     }
+
+    /// S5-10: the groups page's + opens the new group sheet; 取消 without changes closes it at once.
+    @MainActor func testGroupsCreateOpensTheNewGroupSheet() {
+        launchDirectorySite()
+        defer { diagnostics("search-directory-groups-create-final") }
+        app.openSearchItem("search.item.groups")
+        let create = app.buttons["groups.create"]
+        XCTAssertTrue(create.waitForExistence(timeout: 10), app.debugDescription)
+        create.tap()
+        XCTAssertTrue(app.navigationBars["新建分组"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("group-edit.name").exists, app.debugDescription)
+        app.buttons["group-edit.cancel"].tap()
+        XCTAssertTrue(app.navigationBars["新建分组"].waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(create.isHittable, app.debugDescription)
+    }
 }
