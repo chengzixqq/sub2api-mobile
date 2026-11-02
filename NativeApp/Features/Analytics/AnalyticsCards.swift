@@ -40,7 +40,8 @@ extension AnalyticsCard where Trailing == EmptyView {
     }
 }
 
-/// The card's way on, “全部 10 小时 · 计费明细 ›”: the whole row is the button (at least 44pt), read as one line. Identifier `<id>`.
+/// The card's way on, “全部 10 小时 · 计费明细 ›”: the whole row is the button (at least 44pt), read as one line; without a meta it
+/// reads the title alone. Identifier `<id>`.
 struct AnalyticsCardFoot: View {
     private let title: String
     private let meta: String
@@ -68,7 +69,7 @@ struct AnalyticsCardFoot: View {
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(title) · \(meta)")
+            .accessibilityLabel(meta.isEmpty ? title : "\(title) · \(meta)")
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier(id)
         }

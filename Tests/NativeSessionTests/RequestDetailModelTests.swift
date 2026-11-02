@@ -213,14 +213,14 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     let stub = RequestDetailStub(detail: { _ in await detailGate.wait(); return try detailReply() },
                                  chain: { _, _ in await chainGate.wait(); return try detailChain(count: 2, clientStatus: 429) })
     let model = harness.model(.error(id: 2006, kind: .request, initial: RoutePreload(row)), stub)
-    #expect(model.page == .content && model.record?.id == 2006 && model.record?.upstreamStatusCode == nil && model.style == .failed)
+    #expect(model.page == .content && model.record?.id == 2006 && model.detail.value == nil && model.style == .failed)
     let loading = Task { await model.load() }
     #expect(await eventually { let detailArrived = await detailGate.arrived; let chainArrived = await chainGate.arrived; return detailArrived && chainArrived })
     #expect(model.detail.isLoading && model.attempts == .loading && model.showsAttempts)
     await detailGate.open()
     await chainGate.open()
     await loading.value
-    #expect(model.detail.value != nil && model.record?.upstreamStatusCode == 429 && model.detailRevision == 1)
+    #expect(model.detail.value?.upstreamStatusCode == 429 && model.detailRevision == 1)
     #expect(model.chain?.attempts.count == 2 && model.attemptsMeta == "2 次 · 返回客户端 429")
     #expect(model.sections == [.timing, .attempts, .links, .identifiers])
     #expect(harness.reports == ["nil", "nil"])

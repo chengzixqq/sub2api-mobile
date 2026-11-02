@@ -192,11 +192,10 @@ extension LogFixtures {
                                      "message": row.message]
         let optional: [String: Any?] = [
             "upstream_model": row.upstreamModel, "user_id": row.userID, "account_id": row.accountID, "group_id": row.groupID,
-            "account_name": row.accountName, "group_name": row.groupName, "upstream_status_code": row.upstreamStatusCode,
-            "upstream_error_message": row.upstreamMessage, "upstream_latency_ms": row.upstreamLatencyMs, "response_latency_ms": row.responseLatencyMs,
-            "time_to_first_token_ms": row.firstTokenMs, "duration_ms": row.durationMs, "error_owner": row.errorOwner, "error_source": row.errorSource,
-            "severity": row.severity, "client_request_id": row.clientRequestID, "user_email": row.userEmail, "api_key_id": row.apiKeyID,
-            "api_key_name": row.apiKeyName, "stream": row.stream, "request_type": row.requestType.map { Int($0) },
+            "account_name": row.accountName, "group_name": row.groupName, "time_to_first_token_ms": row.firstTokenMs, "duration_ms": row.durationMs,
+            "error_owner": row.errorOwner, "error_source": row.errorSource, "severity": row.severity, "client_request_id": row.clientRequestID,
+            "user_email": row.userEmail, "api_key_id": row.apiKeyID, "api_key_name": row.apiKeyName, "stream": row.stream,
+            "request_type": row.requestType.map { Int($0) },
             "resolved_by_user_name": row.resolvedByUserName, "resolved_at": row.resolvedAt.map(ServerTime.utcTimestamp),
         ]
         for (key, value) in optional { if let value { fields[key] = value } }

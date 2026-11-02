@@ -175,7 +175,7 @@ public enum HomeFallback {
     // MARK: hourly, ops, alerts, channels
 
     /// The buckets of today and yesterday by their `yyyy-MM-dd` prefix in the reply's zone, each in time order; others are dropped.
-    /// `account_cost` is not in a trend point yet (S4-02).
+    /// A bucket without `account_cost` keeps it nil, never 0.
     public static func hourly(_ reply: DashboardTrendReply, now: Date) -> HomeHourly {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US_POSIX"); calendar.timeZone = reply.timeZone
@@ -184,7 +184,8 @@ public enum HomeFallback {
         func points(on day: Date) -> [HomeHourlyPoint] {
             let prefix = formatter.string(from: day)
             return reply.points.filter { $0.date.prefix(prefix.count) == prefix }.sorted { $0.date < $1.date }.map {
-                HomeHourlyPoint(date: $0.date, requests: $0.requests, totalTokens: $0.totalTokens, actualCost: $0.actualCost ?? 0)
+                HomeHourlyPoint(date: $0.date, requests: $0.requests, totalTokens: $0.totalTokens, actualCost: $0.actualCost ?? 0,
+                                accountCost: $0.accountCost)
             }
         }
         let yesterday = calendar.date(byAdding: .day, value: -1, to: now) ?? now

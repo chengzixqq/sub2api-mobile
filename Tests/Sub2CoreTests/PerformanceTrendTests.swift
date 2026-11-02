@@ -201,8 +201,8 @@ func throughputRejectsInvalidWindowsBeforeSending(span: TimeInterval, groupID: I
     #expect(PerformanceMetric.tpm.format(987_654) == "987.7K")
 }
 
-/// Axis ticks of a quiet site sit below 1: they keep two decimals so neighbouring ticks never share a label (like
-/// DashboardTrendMetric.axisLabel); rates and the selected value keep `format`.
+/// Axis ticks of a quiet site sit below 1: they keep two decimals so neighbouring ticks never share a label; rates and the
+/// selected value keep `format`.
 @Test func performanceAxisLabelsKeepSmallTicksDistinct() {
     #expect(PerformanceMetric.rpm.axisLabel(0) == "0")
     #expect(PerformanceMetric.rpm.axisLabel(0.05) == "0.05"); #expect(PerformanceMetric.rpm.axisLabel(0.15) == "0.15")

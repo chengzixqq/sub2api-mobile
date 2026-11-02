@@ -330,9 +330,7 @@ private struct TimeFields: Decodable {
     let reported = ScriptedTransport { _ in okReply(#"{"trend":[\#(bucket)],"query":{"timezone":"Asia/Shanghai","generated_at":"2026-10-15T09:00:00+08:00"}}"#) }
     let reply = try await timeClient(reported, zone: utcZone).dashboardTrend()
     #expect(reply.timeZone == zone("Asia/Shanghai"))
-    let series = DashboardTrend.series(reply.points, timeZone: reply.timeZone)
-    #expect(series.samples.first?.date == utc("2026-10-15T00:00:00Z"))
-    #expect(series.timeZone == zone("Asia/Shanghai"))
+    #expect(DashboardPresentation.trendDate(reply.points[0].date, timeZone: reply.timeZone) == utc("2026-10-15T00:00:00Z"))
     let silent = ScriptedTransport { _ in okReply(#"{"trend":[\#(bucket)],"query":"unexpected"}"#) }
     let fallback = try await timeClient(silent, zone: utcZone).dashboardTrend()
     #expect(fallback.timeZone == zone("UTC")); #expect(fallback.points.count == 1)

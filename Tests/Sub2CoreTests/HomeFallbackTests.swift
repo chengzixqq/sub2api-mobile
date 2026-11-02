@@ -327,3 +327,14 @@ private func trendClient(_ transport: ScriptedTransport) -> APIClient {
     _ = await watcher.value
     await #expect(throws: CancellationError.self) { _ = try await pending.value }
 }
+
+/// BACKLOG “首页退路每小时图的账号成本”: the bucket's account_cost reaches the hourly point; a bucket without the key stays nil, not 0.
+@Test func hourlyCarriesTrendAccountCost() throws {
+    let body = #"[{"date":"2026-10-16 09:00","requests":3,"total_tokens":30,"cost":"2","actual_cost":"3","account_cost":"1.25"},"#
+        + #"{"date":"2026-10-16 08:00","requests":2,"total_tokens":20,"cost":"1","actual_cost":"2"}]"#
+    let points = try JSONDecoder().decode([TrendPoint].self, from: Data(body.utf8))
+    let hourly = HomeFallback.hourly(DashboardTrendReply(points: points, timeZone: shanghai.timeZone), now: at("2026-10-16T02:30:00Z"))
+    #expect(hourly.today.map(\.date) == ["2026-10-16 08:00", "2026-10-16 09:00"])
+    #expect(hourly.today.map(\.accountCost) == [nil, Decimal(string: "1.25")])
+    #expect(hourly.today.map(\.actualCost) == [2, 3] && hourly.today.map(\.requests) == [2, 3])
+}

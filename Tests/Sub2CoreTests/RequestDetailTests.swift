@@ -318,7 +318,6 @@ func unqueryableRequestIDsAreNeverSent(id: String) async throws {
     let json = errorJSON(fields: #","time_to_first_token_ms":800"#)
     let detail = try decoded(RequestErrorDetail.self, json)
     let listRow = try decoded(RequestErrorRecord.self, json.replacingOccurrences(of: #""upstream_latency_ms":3000,"response_latency_ms":158,"#, with: ""))
-    #expect(listRow.upstreamLatencyMs == nil && listRow.responseLatencyMs == nil)
     #expect(P.timing(listRow, detail: detail) == RequestTiming(firstToken: "0.8s", total: "约 3.2s", isEstimated: true, firstTokenShare: 0.25))
     #expect(P.timing(listRow, detail: nil) == RequestTiming(firstToken: "0.8s", total: "—", isEstimated: false, firstTokenShare: nil))
 }
