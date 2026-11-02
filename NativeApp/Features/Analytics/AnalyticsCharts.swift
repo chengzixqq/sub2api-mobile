@@ -413,3 +413,99 @@ enum AnalyticsStripes {
         return ImagePaint(image: image)
     }
 }
+
+// MARK: - 运行类（S4-18）
+
+/// 40 §2.3 平均账号切换's line: switches per request at each bucket's start on a continuous time axis over the page range, broken
+/// where a bucket had no request (a lone point is a dot), marks at the summary's ticks (现在 in a stronger grey), two decimals on the
+/// right. It takes no selection (S4D2b-04 ⑧); VoiceOver gets an AXChartDescriptor and “今天 09:40，0.012 次/请求” per point.
+/// Identifier `<id>`.
+struct AnalyticsRatioLineChart: View {
+    private let summary: OpsSwitchSummary
+    private let range: AnalyticsRange
+    private let id: String
+    private let height: CGFloat
+
+    private static let lineStroke = StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)
+    private static let headroom = 1.15
+    /// The axis of a range without switches.
+    private static let floorMax = 0.01
+    private static let dotSize: CGFloat = 16
+
+    init(summary: OpsSwitchSummary, range: AnalyticsRange, id: String, height: CGFloat) {
+        self.summary = summary; self.range = range; self.id = id; self.height = height
+    }
+
+    var body: some View {
+        let yMax = max((summary.highest ?? 0) * Self.headroom, Self.floorMax)
+        chart(yMax: yMax)
+            .frame(height: height)
+            .accessibilityChartDescriptor(AnalyticsRatioChartDescriptor(summary: summary, range: range, yMax: yMax))
+            .accessibilityIdentifier(id)
+    }
+
+    private func chart(yMax: Double) -> some View {
+        let ticks = OpsSwitchSummary.axisTicks(for: range)
+        let lone = Set(Dictionary(grouping: summary.points, by: \.segment).filter { $0.value.count == 1 }.keys)
+        return Chart {
+            ForEach(summary.points) { point in line(point) }
+            ForEach(summary.points.filter { lone.contains($0.segment) }) { point in dot(point) }
+        }
+        .chartXScale(domain: range.start...range.end)
+        .chartYScale(domain: 0...yMax)
+        .chartXAxis {
+            AxisMarks(values: ticks.map(\.date)) { value in
+                AxisGridLine().foregroundStyle(Palette.hairline)
+                if let date = value.as(Date.self), let tick = ticks.first(where: { $0.date == date }) {
+                    AxisValueLabel(anchor: .top) {
+                        Text(tick.label).font(.caption2).monospacedDigit().foregroundStyle(tick.isNow ? Palette.ink2 : Palette.ink3)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
+                AxisGridLine().foregroundStyle(Palette.hairline)
+                AxisValueLabel {
+                    if let rate = value.as(Double.self) {
+                        Text(OpsSwitchSummary.axisLabel(rate)).font(.caption2).monospacedDigit().foregroundStyle(Palette.ink3)
+                    }
+                }
+            }
+        }
+        .chartLegend(.hidden)
+    }
+
+    private func line(_ point: OpsSwitchSummary.Point) -> some ChartContent {
+        LineMark(x: .value("时间", point.date), y: .value("次/请求", point.rate), series: .value("段", point.segment))
+            .foregroundStyle(Palette.chartMain)
+            .lineStyle(Self.lineStroke)
+            .accessibilityLabel(OpsSwitchSummary.spokenPoint(point, range: range))
+    }
+    private func dot(_ point: OpsSwitchSummary.Point) -> some ChartContent {
+        PointMark(x: .value("时间", point.date), y: .value("次/请求", point.rate))
+            .foregroundStyle(Palette.chartMain)
+            .symbolSize(Self.dotSize)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The line for VoiceOver: one category per drawn bucket against its switches per request.
+private struct AnalyticsRatioChartDescriptor: AXChartDescriptorRepresentable {
+    let summary: OpsSwitchSummary
+    let range: AnalyticsRange
+    let yMax: Double
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let range = range
+        let names = summary.points.map { DisplayFormat.dayTime($0.date, now: range.now, timeZone: range.zone.timeZone) }
+        let xAxis = AXCategoricalDataAxisDescriptor(title: "时间", categoryOrder: names)
+        let yAxis = AXNumericDataAxisDescriptor(title: "次/请求", range: 0...yMax, gridlinePositions: []) { OpsSwitchSummary.perRequest($0) }
+        let points = zip(names, summary.points).map { name, point in
+            AXDataPoint(x: name, y: point.rate, label: OpsSwitchSummary.spokenPoint(point, range: range))
+        }
+        let series = AXDataSeriesDescriptor(name: AnalyticsChartKey.accountSwitch.title, isContinuous: true, dataPoints: points)
+        return AXChartDescriptor(title: AnalyticsChartKey.accountSwitch.title, summary: summary.footnote, xAxis: xAxis, yAxis: yAxis,
+                                 additionalAxes: [], series: [series])
+    }
+}
