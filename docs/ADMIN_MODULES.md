@@ -4,7 +4,7 @@
 
 ## 入口与范围
 
-使用记录、统计分析、分组管理从搜索 Tab 的目录进入（阶段 0 起不再有底部“管理”）。概览右上角可以打开统计分析；告警、账号 / 用户 / 分组详情与模型页可跳到带条件的使用记录，账号与分组详情还可跳到账号列表。
+使用记录、统计分析、分组管理从搜索 Tab 的目录进入（阶段 0 起不再有底部“管理”）。概览右上角可以打开统计分析；告警、账号 / 用户 / 分组详情与模型页可跳到带条件的使用记录，账号详情还可跳到账号列表；分组详情的“记录与关联”另可进入该分组的 API 密钥页与订阅页，成员直接列在详情里。
 
 请求记录读取 `GET /admin/usage`，使用 `count_mode=deferred`、每页 100 条、时间倒序、按需分页，`timezone` 为站点时区。`total`/`pages` 可以为 null，按 `has_more` 判断是否继续；不要求大站点先执行全量计数。时间、用户、账号、分组、API Key、模型、请求 ID 等过滤由后端执行。实际扣费读取 `actual_cost`；账号成本优先读取服务端算好的 `account_cost`，旧服务端没有该键时按 `provider_cost_recorded ? (account_stats_cost ?? total_cost) × (account_rate_multiplier ?? 1) : 0` 计算，保留 Decimal 和缺失值。站点有 `api_keys.masked_view` 时请求带 `key_view=masked`；无论哪种服务端，App 都不解码 `api_key.key` 明文，只读名称与 `key_masked`。请求详情分成功 / 失败 / 恢复三种样子，展示耗时、Token 分解、费用、上游尝试（没有尝试链能力时按上游错误事件估算）、关联对象与标识，错误可标记已处理并撤销，不读取请求/响应正文。
 
@@ -28,9 +28,13 @@
 
 ## 分组
 
-分页搜索、平台/状态筛选、详情、创建、稀疏编辑、启停和删除均调用 `/admin/groups` 的现有接口。可编辑名称、描述、倍率、专属、计费类型、RPM 及日/周/月限额；创建选择平台，编辑保留平台和未开放的路由/渠道配置。nil 表示不修改，取消限额显式发送 JSON null；删除/停用由服务器校验关联关系。结果不明先读取核对，不自动重发。
+列表：`GET admin/groups` 按最大页长逐页读完（最多 20 页，ETag / 304 由 `ConditionalCache` 处理），与 `groups/usage-summary`（今日 / 昨日 / 累计实际扣费，按服务器时区 00:00 切分）、`accounts/status-summary` 的分组 shortage 各自读取，后两者失败只影响对应格子，有旧值时保留旧值。四桶（可用 / 受限 / 错误 / 暂停·停用）有 F04 的 `error_account_count` / `idle_account_count` 就直接用；没有时读一页 `status=error` 的账号按 `group_ids` 计错误，其余记暂停·停用。没有 `accounts.status_summary` 时按“可用 < 总数 × 0.5”本地判定可用偏低。列表分需处理 / 正常 / 停用三段，前台每 60 秒刷新。
 
-容量读取真实 `/admin/groups/capacity-summary`，不使用仍为占位实现的 `/:id/stats`。分组账号跳转到带过滤的账号页，通过账号快捷编辑管理归属；统计/日志使用真实聚合和记录接口。
+详情：各区块并发、各自成败。分组本身读 `GET :id`，404 显示“这个分组已删除”。成员读 `accounts?group=<id>` 按 urgency 排序；成员今日读 `today-stats/batch`，有 `accounts.today_stats_group` 时带 `group_id`，响应回显了才算分组口径，否则脚注说明是账号全站今日。贰读 usage-summary 的三栏金额、`dashboard/groups` 的请求 · Tokens · 账号成本和 `groups/capacity-summary?group_id=`（没有 `groups.capacity_filter` 时拉全量后本地过滤）。叁是近 24 小时错误请求 / 上游错误计数（运维监控关闭时写“运维监控未开启”）、使用记录、API 密钥与订阅；Key 与订阅数读 `groups/:id/stats`，旧服务端没有 `subscriptions_total` 键时退回 Key 列表与订阅列表的 total。分组 Key 页带 `key_view=masked`，不解码明文，只读令牌下今日消费显示“—”。告警横幅读告警中列表。
+
+写入：新建、修改、删除、复制走 `admin/groups` 的写接口。有 `admin.idempotent_writes` 时带 Idempotency-Key，编号在最后一次确认时生成，传输失败用同一编号自动重试 2 次；复制一律带 key。删除遇 404 视为已删除；结果不明（5xx、408、传输失败）先自动读服务器核对一次，定不了再给“用同一编号重试”，不自动重发。停用与删除确认读一次 stats 写出受影响的 Key 与订阅数，拿不到时写不带数字的后果；删除走输入完整名称或 Face ID 的删除确认。成员加减用 `POST groups/:id/accounts/batch`，每批 ≤ 200，网络失败同体重试 1 次；逐项结果页可重试、撤销成功的项、确认混合渠道风险。没有 `groups.member_batch`（或收到 500 GROUP_REPOSITORY_UNSUPPORTED）时逐个账号只写 `group_ids`。成员写入不过 Face ID。分组写与成员写成功或可能已生效后，概览下次可见时跳过服务端缓存刷新。
+
+简易模式只有名称、描述、平台与计数：没有停用 / 启用、复制、用量汇总、容量、Key 与订阅行，新建只填名称、描述与平台（请求里的计费等字段由服务端覆盖为默认值），有成员的分组删除被拒（GROUP_NOT_EMPTY），后端不列组合分组、对组合分组的成员写入回 SIMPLE_MODE_GROUP_NOT_BINDABLE，也不走逐个账号的退路。只读管理访问令牌下写入口置灰、不提供滑动操作。模型白名单、组合路由、图片计费、客户端限制仍在 Web 编辑；首版不支持 vendor 登录（U01）。
 
 ## 概览 RPM
 
