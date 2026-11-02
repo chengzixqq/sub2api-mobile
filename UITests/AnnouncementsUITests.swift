@@ -721,4 +721,33 @@ final class AnnouncementsUITests: XCTestCase {
     @MainActor private func readsSortItem(_ title: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == '' AND (label == %@ OR label BEGINSWITH %@)", title, title + ",")).firstMatch
     }
+
+    // MARK: - 结果未确认时的关闭（S6-26）
+
+    /// 00 §2.5.4: with a create's result open, 取消 and a downward swipe ask “结果未确认” instead of “放弃修改？”; 稍后核对 closes
+    /// and the list reads again.
+    @MainActor func testUnconfirmedCreateAsksBeforeClosing() {
+        launchAnnouncements(["-ui-announcement-save-lost"])
+        defer { diagnostics("announcement-edit-unconfirmed-final") }
+        XCTAssertTrue(segmentButton(labeled: "草稿 1").waitForExistence(timeout: 10), app.debugDescription)
+        app.buttons["announcements.compose"].tap()
+        XCTAssertTrue(app.navigationBars["新建公告"].waitForExistence(timeout: 10), app.debugDescription)
+        fillEdit(title: "系统升级预告", content: "本周六凌晨升级")
+        editButton("trailing").tap()
+        XCTAssertTrue(editButton("retry").waitForExistence(timeout: 10), app.debugDescription)
+        let later = app.alerts["结果未确认"]
+        editButton("cancel").tap()
+        XCTAssertTrue(later.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.alerts["放弃修改？"].exists, app.debugDescription)
+        diagnostics("announcement-edit-unconfirmed")
+        later.buttons["继续核对"].tap()
+        XCTAssertTrue(later.waitForNonExistence(timeout: 5) && app.navigationBars["新建公告"].exists, app.debugDescription)
+        app.navigationBars["新建公告"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        XCTAssertTrue(later.waitForExistence(timeout: 5), app.debugDescription)
+        later.buttons["稍后核对"].tap()
+        XCTAssertTrue(app.navigationBars["新建公告"].waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+        XCTAssertTrue(segmentButton(labeled: "草稿 1").waitForExistence(timeout: 10), app.debugDescription)
+    }
 }

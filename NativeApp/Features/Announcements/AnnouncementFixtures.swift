@@ -17,6 +17,8 @@ extension DemoData {
         static let countsError = "-ui-announcements-counts-error"
         /// The first page-2 read fails.
         static let pageError = "-ui-announcements-page-error"
+        /// S6-26: the session's first create is lost before it reaches the store, so its result stays unconfirmed.
+        static let saveLost = "-ui-announcement-save-lost"
     }
 
     static func announcementFixtures(base: Date, arguments: [String]) -> [Announcement] {
@@ -83,6 +85,7 @@ final class AnnouncementDemoStore {
     private let arguments: [String]
     private var firstPageReads = 0
     private var secondPageReads = 0
+    private var lostCreate = false
     private static var latest: (generation: UUID, store: AnnouncementDemoStore)?
     private static let failure = APIError.server(status: 502, reason: nil)
 
@@ -205,6 +208,11 @@ extension AnnouncementDemoStore {
     /// `POST admin/announcements`: checked like the server, then the next id, created and updated now; read_stats once it is
     /// not a draft.
     func create(_ request: AnnouncementCreateRequest, now: Date) throws -> Announcement {
+        if arguments.contains(DemoData.AnnouncementFixture.saveLost), !lostCreate {
+            lostCreate = true
+            throw KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: "", actionID: nil,
+                                    lastError: APIError(kind: .transport, message: "无法连接站点"))
+        }
         _ = try request.requestBody()
         let stats = request.status == .draft ? nil : AnnouncementReadStats(eligibleCount: 0, readCount: 0, eligibleReadCount: 0)
         let item = Announcement(id: (items.map(\.id).max() ?? 0) + 1, title: Self.trimmed(request.title), content: Self.trimmed(request.content),

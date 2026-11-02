@@ -341,4 +341,38 @@ final class RedeemGrantUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
     }
+
+    // MARK: - S6-26
+
+    /// X34 (C-26): an older login's compensation at this address may be retried by the same administrator; abandoned from Bob's
+    /// banner, it leaves the banner, the overview and 设置 → 待核对 together, and the older login's other records stay.
+    @MainActor func testOldLoginCompensationAbandonedLeavesEveryEntry() {
+        let grant = "0B000000-0000-4000-8000-000000000003", topUp = "0B000000-0000-4000-8000-000000000001"
+        let batch = "0B000000-0000-4000-8000-000000000002"
+        launchAndLogin(["-ui-pending-old-site", "-ui-reconcile-notfound"])
+        defer { diagnostics("grant-old-login-abandon-final") }
+        XCTAssertTrue(app.scrollUntilExists(element("home.attention.pending-" + grant.lowercased())), app.debugDescription)
+        openUser(2, name: "Bob")
+        let check = app.buttons["user.pending.check.\(grant)"]
+        XCTAssertTrue(check.waitForExistence(timeout: 10), app.debugDescription)
+        check.tap()
+        XCTAssertTrue(element("grant.pending").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["grant.pending.retry"].exists, app.debugDescription)
+        app.buttons["grant.pending.check"].tap()
+        waitForLabel(element("grant.pending.header.title"), equals: "服务器上没有这次发放")
+        XCTAssertTrue(app.buttons["grant.pending.retry"].exists, app.debugDescription)
+        app.buttons["grant.pending.abandon"].tap()
+        let confirm = app.alerts["放弃这次发放？"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), app.debugDescription)
+        confirm.buttons["放弃这次发放"].tap()
+        waitForReceipt("已放弃 · 不再提醒")
+        XCTAssertTrue(element("user.pending.\(grant)").waitForNonExistence(timeout: 10), app.debugDescription)
+        app.tabBars.buttons["概览"].tap()
+        XCTAssertTrue(app.scrollUntilExists(element("home.attention.pending-" + topUp.lowercased())), app.debugDescription)
+        XCTAssertFalse(element("home.attention.pending-" + grant.lowercased()).exists, app.debugDescription)
+        app.openSitesSettings()
+        XCTAssertTrue(app.scrollUntilExists(element("settings.pending.check.\(batch)")), app.debugDescription)
+        XCTAssertTrue(element("settings.pending.check.\(topUp)").exists, app.debugDescription)
+        XCTAssertFalse(element("settings.pending.compensation.\(grant)").exists, app.debugDescription)
+    }
 }

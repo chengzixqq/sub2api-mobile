@@ -139,3 +139,8 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(row.action == .check && row.originNote == nil)
     #expect(row == SettingsPresentation.PendingRow(title: "兑换码生成结果待核对", detail: "主站 · 20 个 · 刚刚 · 未确认是否生成", amount: "$200.00"))
 }
+
+/// S6-26: the one spelling of “打开原站点核对”, shared by 设置 → 待核对 and the login page (S6D2a-04).
+@Test func openOriginalSiteTitleIsShared() {
+    #expect(SettingsPresentation.openOriginalSiteTitle == "打开原站点核对")
+}

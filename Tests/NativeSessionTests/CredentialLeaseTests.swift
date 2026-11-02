@@ -69,3 +69,16 @@ private actor LeaseGate {
     try await current.save(.adminKey("active-refreshed"), serverID: serverID)
     #expect(try await vault.load(serverID: serverID) == .adminKey("active-refreshed"))
 }
+
+/// S6-26 ⑥: only a credential that reads as missing counts; an entry that cannot be read or decoded is not taken for one.
+@Test func siteIDsWithoutCredentialSkipsUnreadableEntries() async throws {
+    let items = MemorySecureItems()
+    let vault = KeychainCredentialStore(items: items)
+    let signedIn = UUID(), cleared = UUID(), damaged = UUID()
+    try await vault.save(.adminKey("fixture-key"), serverID: signedIn)
+    try items.write(Data("not json".utf8), account: KeychainCredentialStore.credentialAccount(for: damaged))
+    #expect(await vault.siteIDsWithoutCredential([signedIn, cleared, damaged]) == [cleared])
+    #expect(await vault.siteIDsWithoutCredential([]).isEmpty)
+    let locked = KeychainCredentialStore(items: FailingSecureItems(.read) { $0 == cleared.uuidString })
+    #expect(await locked.siteIDsWithoutCredential([cleared, signedIn]) == [signedIn])
+}

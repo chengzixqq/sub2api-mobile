@@ -187,6 +187,8 @@ public enum AnnouncementEditCopy {
     public static let subscriptionPrompt = "持有以下任一套餐", noSubscriptionGroups = "没有可选的订阅套餐"
     public static let specifiedTime = "指定时间"
     public static let discardTitle = "放弃修改？", discardConfirm = "放弃修改", keepEditing = "继续编辑"
+    /// 00 §2.5.4 closing while the result is open, in the proxy sheet's words (ProxyEditCopy).
+    public static let unconfirmedCloseTitle = "结果未确认", keepChecking = "继续核对", checkLater = "稍后核对"
     public static let keyConflict = "该编号已用于另一份公告内容，请重新打开新建页"
     public static let gone = "这条公告已被删除"
     public static let saving = "正在保存…", confirming = "正在确认结果…", checking = "正在核对…"
@@ -195,6 +197,10 @@ public enum AnnouncementEditCopy {
     public static let viewExisting = "查看", createAnyway = "仍要新建", recheck = "再次核对", retrySame = "用同一编号重试"
     public static let loading = "正在读取公告…"
 
+    public static func unconfirmedCloseMessage(creating: Bool) -> String {
+        creating ? "服务器可能已经创建了这条公告。关闭后不再保留这次的编号，公告列表会重新读取；再次新建前先在列表里核对，避免重复。"
+            : "服务器可能已经保存了这次修改。关闭后公告列表会重新读取，再次修改前先在详情里核对。"
+    }
     /// While a save runs: transport retries, then the server still working on the same key.
     public static func savingText(_ event: KeyedWriteEvent?) -> String {
         switch event {

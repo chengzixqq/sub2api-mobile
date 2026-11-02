@@ -113,6 +113,8 @@ public enum SettingsPresentation {
     /// C-26: a record of this address is checked here with the current identity (“去核对 ›”); only another address's opens
     /// that site (“打开原站点核对”), whose credential may be gone (D17).
     public enum PendingRowAction: Sendable, Equatable { case check, openOriginalSite }
+    /// The one spelling of `.openOriginalSite`, here and on the login page.
+    public static let openOriginalSiteTitle = "打开原站点核对"
     /// The note of a row from an older login at this address; S6-04 / S6-06 reuse it (S3D1-08).
     public static var oldLoginRowNote: String { MoneyRecordOrigin.oldLoginNote }
 

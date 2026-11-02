@@ -184,7 +184,7 @@ private struct LoginForm: View {
     }
 }
 
-/// The root page's saved sites and the balance requests still awaiting reconciliation (unchanged from before S0-16).
+/// The root page's saved sites, then the money records awaiting their check (LoginPendingSection, S6-26).
 private struct LoginSavedSections: View {
     @Environment(AppModel.self) private var model
 
@@ -198,19 +198,6 @@ private struct LoginSavedSections: View {
                 }
             }
         }
-        if !model.pendingBalances.isEmpty {
-            Section("待核对的余额请求") {
-                Text("以下请求保留原操作编号。退出后新增登录属于独立身份；请在原站点 Web 后台核对账务，勿新建重复操作。")
-                    .font(.footnote).foregroundStyle(.secondary)
-                ForEach(model.pendingBalances) { item in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(model.profileForRecord(serverID: item.serverID)?.name ?? "原站点") · 用户 #\(item.userID)")
-                        Text("\(item.operation.rawValue) \(DisplayFormat.moneyExact(item.amount))").font(.caption)
-                        Text(item.id.uuidString).font(.caption2).textSelection(.enabled)
-                        if let profile = model.profileForRecord(serverID: item.serverID) { Link("打开原站点核对", destination: profile.baseURL).frame(minHeight: 44) }
-                    }
-                }
-            }
-        }
+        LoginPendingSection()
     }
 }

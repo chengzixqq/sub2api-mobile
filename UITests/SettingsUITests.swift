@@ -405,4 +405,45 @@ final class SettingsUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, "1")
         XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
     }
+
+    /// ⑥ (C-26, D17, S6D2a-04): signed out, the login page leads a record to a saved site of its address (“登录「X」后核对”) and
+    /// only another address to its Web. Signed in again there, the older login says so, is not a button, and its records are
+    /// checked here with the current identity.
+    @MainActor func testOldLoginRowAndRootPendingListFollowTheAddress() {
+        launchAndLogin(arguments: ["-ui-pending-money"])
+        defer { diagnostics("settings-old-login-final") }
+        let refund = "0A000000-0000-4000-8000-000000000001", grant = "0A000000-0000-4000-8000-000000000003"
+        app.openSitesSettings()
+        let logout = app.buttons["settings.logout"]
+        reveal(logout)
+        logout.tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "退出并清除凭据", "settings.logout")).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+        confirm.tap()
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 10), app.debugDescription)
+        let signIn = app.buttons["login.pending.signIn.\(refund)"]
+        reveal(signIn)
+        XCTAssertEqual(signIn.label, "登录「设置站点」后核对")
+        let web = element("login.pending.web.\(grant)")
+        reveal(web)
+        XCTAssertFalse(app.buttons["login.pending.signIn.\(grant)"].exists, app.debugDescription)
+        diagnostics("settings-old-login-root")
+        reveal(signIn, towardBottom: false)
+        signIn.tap()
+        let notice = app.staticTexts["login.notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(notice.label, "此站点凭据已清除，请重新登录。")
+        enter("admin@example.com", in: "login.email")
+        enter("fixture-password", in: "login.password")
+        let submit = app.buttons["login.submit"]; reveal(submit); submit.tap()
+        XCTAssertTrue(app.tabBars.buttons["概览"].waitForExistence(timeout: 10), app.debugDescription)
+        app.openSitesSettings()
+        XCTAssertTrue(element("settings.site.oldLogin.设置站点").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("settings.site.oldLogin.note.设置站点").label.contains("旧登录"), app.debugDescription)
+        XCTAssertFalse(app.buttons["settings.site.oldLogin.设置站点"].exists, app.debugDescription)
+        XCTAssertEqual(app.buttons.matching(identifier: "settings.site.设置站点").count, 1)
+        diagnostics("settings-old-login-row")
+        reveal(element("settings.pending.check.\(refund)"))
+        XCTAssertEqual(element("settings.pending.origin.\(refund)").label, "本站点的旧登录下发起")
+    }
 }

@@ -87,6 +87,7 @@ struct AnnouncementEditSheet: View {
     @State private var running: Action?
     @State private var confirmingPublish = false
     @State private var confirmingDiscard = false
+    @State private var confirmingLater = false
 
     init(original: Announcement?) {
         self.original = original
@@ -98,6 +99,7 @@ struct AnnouncementEditSheet: View {
     private var role: AnnouncementEditRole { AnnouncementEditRole(original: original) }
     private var hasChanges: Bool { draft.hasChanges(comparedTo: baseline) }
     private var isBusy: Bool { flow?.isBusy ?? false }
+    private var isUnconfirmed: Bool { flow?.isUnconfirmed ?? false }
     private var canSave: Bool { (flow.map { !$0.locksForm } ?? false) && draft.isValid }
 
     var body: some View {
@@ -107,8 +109,8 @@ struct AnnouncementEditSheet: View {
             .toolbar { toolbar }
             .safeAreaInset(edge: .top, spacing: 0) { modePicker }
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
-            .interactiveDismissDisabled(isBusy || hasChanges)
-            .onDismissAttempt { if hasChanges, !isBusy { confirmingDiscard = true } }
+            .interactiveDismissDisabled(isBusy || isUnconfirmed || hasChanges)
+            .onDismissAttempt { if !isBusy { cancel() } }
             .task(id: session?.generation) { prepare() }
             .task(id: session?.generation) { await model.groupDirectory?.ensureLoaded() }
             .onChange(of: flow?.exit) { _, exit in close(exit) }
@@ -124,6 +126,12 @@ struct AnnouncementEditSheet: View {
         .alert(AnnouncementEditCopy.discardTitle, isPresented: $confirmingDiscard) {
             Button(AnnouncementEditCopy.discardConfirm, role: .destructive) { dismiss() }
             Button(AnnouncementEditCopy.keepEditing, role: .cancel) {}
+        }
+        .alert(AnnouncementEditCopy.unconfirmedCloseTitle, isPresented: $confirmingLater) {
+            Button(AnnouncementEditCopy.checkLater, role: .destructive) { checkLater() }
+            Button(AnnouncementEditCopy.keepChecking, role: .cancel) {}
+        } message: {
+            Text(AnnouncementEditCopy.unconfirmedCloseMessage(creating: original == nil))
         }
     }
 
@@ -222,8 +230,14 @@ struct AnnouncementEditSheet: View {
 
     // MARK: - Actions
 
+    /// 00 §2.5.4 first: with the result open it asks “结果未确认”, then unsaved changes ask “放弃修改？”.
     private func cancel() {
-        if hasChanges { confirmingDiscard = true } else { dismiss() }
+        if isUnconfirmed { confirmingLater = true } else if hasChanges { confirmingDiscard = true } else { dismiss() }
+    }
+    /// 稍后核对: closes without the key; the list and the detail read again.
+    private func checkLater() {
+        flow?.checkLater()
+        dismiss()
     }
     private func start(_ action: Action) {
         guard let flow else { return }

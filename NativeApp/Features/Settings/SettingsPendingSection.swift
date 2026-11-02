@@ -42,7 +42,7 @@ struct SettingsPendingRows: View {
                         .accessibilityIdentifier("settings.pending.check.\(record.id.uuidString)")
                 }
                 if let profile, line.action == .openOriginalSite || (origin == .currentSite && record is PendingBalanceOperation) {
-                    Link(destination: profile.baseURL) { Text("打开原站点核对").frame(minHeight: 44).contentShape(Rectangle()) }
+                    Link(destination: profile.baseURL) { Text(SettingsPresentation.openOriginalSiteTitle).frame(minHeight: 44).contentShape(Rectangle()) }
                         .accessibilityIdentifier("settings.pending.web.\(record.id.uuidString)")
                 }
             }

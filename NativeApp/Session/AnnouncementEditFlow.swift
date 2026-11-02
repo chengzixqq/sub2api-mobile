@@ -72,6 +72,13 @@ final class AnnouncementEditFlow {
         default: false
         }
     }
+    /// 00 §2.5.4: the server may have run the save; closing now asks first (稍后核对).
+    var isUnconfirmed: Bool {
+        switch phase {
+        case .createUnconfirmed, .maybeCreated, .notFoundYet, .updateUnconfirmed: true
+        default: false
+        }
+    }
     /// The form waits while a save runs or its result is open.
     var locksForm: Bool {
         switch phase {
@@ -196,6 +203,12 @@ final class AnnouncementEditFlow {
               let fresh = try? AnnouncementCreateAttempt.next(for: previous.request, previous: nil, now: now()) else { return }
         attempt = fresh
         await sendCreate()
+    }
+
+    /// 稍后核对: the sheet closes without the key; the list and the detail read again so what the server did shows.
+    func checkLater() {
+        guard isUnconfirmed, exit == nil, isCurrent() else { return }
+        onChanged()
     }
 
     private func checkRecent() async {

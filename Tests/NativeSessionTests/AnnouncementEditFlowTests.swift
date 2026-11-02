@@ -262,3 +262,52 @@ private func draft(_ change: (inout AnnouncementDraft) -> Void = { _ in }) -> An
     await flow.saveTrailing(changed)
     #expect(flow.exit == nil && left.changed.count == 0 && left.receipts.current == nil)
 }
+
+// MARK: - 结果未确认时的关闭（S6-26，00 §2.5.4）
+
+/// The phases where the server may have saved: closing asks “结果未确认” first; the others do not.
+@MainActor @Test func unconfirmedPhasesAskBeforeClosing() async throws {
+    let keyed = makeBench(EditStub(create: { _, _ in throw lost }))
+    #expect(!keyed.flow.isUnconfirmed)
+    await keyed.flow.saveTrailing(draft())
+    #expect(keyed.flow.phase == .createUnconfirmed(retryNotBefore: nil) && keyed.flow.isUnconfirmed)
+
+    let notFound = makeBench(EditStub(create: { _, _ in throw lost }), keyed: false)
+    await notFound.flow.saveTrailing(draft())
+    #expect(notFound.flow.phase == .notFoundYet && notFound.flow.isUnconfirmed)
+    let found = makeBench(EditStub(create: { _, _ in throw lost }, recent: { _ in [saved(41)] }), keyed: false)
+    await found.flow.saveTrailing(draft())
+    #expect(found.flow.isUnconfirmed)
+    if case .maybeCreated = found.flow.phase {} else { Issue.record("expected maybeCreated, got \(found.flow.phase)") }
+
+    let original = Announcement(id: 7, title: "维护通知", content: "正文", status: .active, notifyMode: .silent)
+    var changed = AnnouncementDraft(announcement: original, now: start, timeZone: .current)
+    changed.content = "新正文"
+    let update = makeBench(EditStub(update: { _, _ in throw timedOut }, load: { _ in throw timedOut }), original: original)
+    await update.flow.saveTrailing(changed)
+    #expect(update.flow.phase == .updateUnconfirmed && update.flow.isUnconfirmed)
+
+    let refused = makeBench(EditStub(update: { _, _ in throw APIError.server(status: 400, reason: "ANNOUNCEMENT_TIME_RANGE_INVALID") }), original: original)
+    await refused.flow.saveTrailing(changed)
+    let gone = makeBench(EditStub(update: { _, _ in throw APIError.server(status: 404, reason: "ANNOUNCEMENT_NOT_FOUND") }), original: original)
+    await gone.flow.saveTrailing(changed)
+    #expect(!refused.flow.isUnconfirmed && !gone.flow.isUnconfirmed && !makeBench(EditStub()).flow.isUnconfirmed)
+}
+
+/// 稍后核对 tells the list and the detail to read again and keeps nothing; anywhere else, or for an ended session, it does nothing.
+@MainActor @Test func checkLaterTellsTheListAndKeepsNothing() async throws {
+    let bench = makeBench(EditStub(create: { _, _ in throw lost }))
+    await bench.flow.saveTrailing(draft())
+    bench.flow.checkLater()
+    #expect(bench.changed.count == 1 && bench.flow.exit == nil)
+
+    let editing = makeBench(EditStub())
+    editing.flow.checkLater()
+    #expect(editing.changed.count == 0)
+
+    let ended = makeBench(EditStub(create: { _, _ in throw lost }))
+    await ended.flow.saveTrailing(draft())
+    ended.current.value = false
+    ended.flow.checkLater()
+    #expect(ended.changed.count == 0)
+}

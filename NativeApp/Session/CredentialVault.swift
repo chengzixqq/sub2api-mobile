@@ -31,6 +31,13 @@ actor KeychainCredentialStore: CredentialStore {
     }
     /// The kind the saved credential decodes to (a `sat_` saved as an Admin Key is an access token); nil when none is readable.
     func storedAuthentication(serverID: UUID) -> AuthenticationKind? { (try? load(serverID: serverID))?.authenticationKind }
+    /// The sites whose credential reads as missing (S6-26 ⑥). Unlike `storedAuthentication`, an entry that cannot be read or
+    /// decoded right now does not count: a Keychain read failing for a moment must not turn a signed-in site into an old login.
+    func siteIDsWithoutCredential(_ ids: [UUID]) -> Set<UUID> {
+        Set(ids.filter { id in
+            do { return try load(serverID: id) == nil } catch { return false }
+        })
+    }
     /// Deleting a site (00 §1.1, §9.6): its credential, lease and device ID.
     func remove(serverID: UUID) throws {
         try eraseCredential(serverID: serverID)
