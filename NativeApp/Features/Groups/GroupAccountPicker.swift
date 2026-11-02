@@ -48,6 +48,7 @@ private struct GroupAccountPickerContent: View {
             .interactiveDismissDisabled(isSubmitting)
             .task(id: picker.search) { await picker.load(debounced: true) }
             .task { if writer == nil { writer = GroupMemberWriter(model: model, router: router) } }
+            .task(id: session?.generation) { await model.groupDirectory?.ensureLoaded() }
     }
 
     // MARK: - List (4.3)
@@ -184,8 +185,8 @@ private struct GroupAccountPickerContent: View {
     private var sectionTitle: String {
         GroupPickerPresentation.sectionTitle(platform: picker.platform ?? "composite", catalog: model.groupStore?.catalog)
     }
-    /// The session's group directory (C-10), then the name the row embedded, then “#id”.
-    private func groupName(_ id: Int) -> String? { model.groupDirectory?.name(for: id) }
+    /// The session's group directory (C-10), else the list's row; then the name the row embedded, then “#id”.
+    private func groupName(_ id: Int) -> String? { model.groupDirectory?.name(for: id) ?? model.groupStore?.group(id: id)?.name }
     private var serverNow: Date { session?.client.serverClock.now() ?? Date() }
 }
 

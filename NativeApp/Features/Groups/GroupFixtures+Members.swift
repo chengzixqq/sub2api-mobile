@@ -8,9 +8,10 @@ import Sub2Core
 /// group list's, counted after the write.
 extension GroupFixtures {
     enum MemberArgument {
-        /// S5D2a-12, only the adds of a request without `confirm_mixed_channel_risk`: with two or more, the highest id fails
-        /// ACCOUNT_NOT_FOUND; among the other adds the lowest Anthropic or Antigravity id fails MIXED_CHANNEL_RISK (current: its
-        /// platform's display name, other: the other one); the rest go in. Removals are untouched.
+        /// S5D2a-12, only the adds: with two or more, the highest id fails ACCOUNT_NOT_FOUND; without `confirm_mixed_channel_risk`,
+        /// among the other adds the lowest Anthropic or Antigravity id fails MIXED_CHANNEL_RISK (current: its platform's display
+        /// name, other: the other one); the rest go in. Removals are untouched. So Claude Code 组 adding 3 alone gets MIXED, Codex
+        /// 专线 adding 4 and 7 gets 7 NOT_FOUND, and a confirmed retry of 1 and 3 still gets 3 NOT_FOUND.
         static let batchPartial = "-ui-group-batch-partial"
         /// Every member write, batch or fallback, is lost on the way: nothing changes.
         static let batchOffline = "-ui-group-batch-offline"
@@ -26,8 +27,8 @@ extension GroupFixtures {
         if arguments.contains(MemberArgument.batchOffline) { throw APIError(kind: .transport, message: "网络连接已中断") }
         if !legacy, arguments.contains(MemberArgument.legacy) { throw APIError.server(status: 500, reason: GroupMemberReason.repositoryUnsupported) }
         guard let group = groups.first(where: { $0.id == groupID }) else { throw APIError.server(status: 404, reason: "GROUP_NOT_FOUND") }
-        let refused = arguments.contains(MemberArgument.batchPartial) && !request.confirmMixedChannelRisk
-            ? Self.partialFailures(request.add.map(\.accountID), store: store) : [:]
+        let refused = arguments.contains(MemberArgument.batchPartial)
+            ? Self.partialFailures(request.add.map(\.accountID), confirmed: request.confirmMixedChannelRisk, store: store) : [:]
         let adds = request.add.map { add in
             refused[add.accountID] ?? join(add, groupID: groupID, confirm: request.confirmMixedChannelRisk, store: store, arguments: arguments)
         }
@@ -55,9 +56,10 @@ extension GroupFixtures {
     }
 
     /// `-ui-group-batch-partial`'s failures by account id.
-    private static func partialFailures(_ ids: [Int], store: AccountDemoStore) -> [Int: GroupMemberResultItem] {
-        guard ids.count >= 2, let missing = ids.max() else { return [:] }
-        var failures = [missing: failed(missing, .add, GroupMemberReason.accountNotFound)]
+    private static func partialFailures(_ ids: [Int], confirmed: Bool, store: AccountDemoStore) -> [Int: GroupMemberResultItem] {
+        let missing = ids.count >= 2 ? ids.max() : nil
+        var failures = missing.map { [$0: failed($0, .add, GroupMemberReason.accountNotFound)] } ?? [:]
+        guard !confirmed else { return failures }
         let mixable = ids.filter { $0 != missing }.compactMap(store.account(id:)).filter { ["anthropic", "antigravity"].contains($0.platform) }
         if let first = mixable.min(by: { $0.id < $1.id }) {
             let current = GroupPlatform.title(first.platform), other = first.platform == "anthropic" ? "Antigravity" : "Anthropic"
