@@ -116,7 +116,7 @@ private func logClient(_ transport: ScriptedTransport) -> APIClient {
 
 @Test func errorRecordDropsRawBodiesAndCredentials() throws {
     let record = try JSONDecoder().decode(RequestErrorRecord.self, from: Data(requestErrorJSON.utf8))
-    #expect(record.upstreamStatusCode == 429 && record.upstreamLatencyMs == 900 && record.firstTokenMs == nil)
+    #expect(record.firstTokenMs == nil)
     let dump = String(reflecting: record)
     for raw in ["never-decode", "203.0.113.9", "super-secret"] { #expect(!dump.contains(raw)) }
     let scrubbed = RequestLogPresentation.safeMessage(#"{"access_token":"sensitive-access","password":"sensitive-password"} sk-123456789abc Bearer sensitive-bearer"#)
@@ -373,4 +373,26 @@ private actor LateRequestLogTransport: HTTPTransport {
     await transport.release()
     do { _ = try await read.value; Issue.record("A late old-session log response was accepted.") }
     catch { #expect(error is CancellationError) }
+}
+
+/// S4-03 → S4-20: upstream_status_code, upstream_error_message, upstream_latency_ms and response_latency_ms come only with the
+/// error detail (the backend's list item has none of them), so the list record does not keep them and the detail stores them.
+@Test func errorDetailOwnsTheDetailOnlyUpstreamFields() throws {
+    let detailJSON = requestErrorJSON.replacingOccurrences(of: #""upstream_latency_ms":900,"response_latency_ms":920"#,
+        with: #""upstream_latency_ms":3000,"response_latency_ms":158,"upstream_error_message":"slow down Authorization: Bearer leaked-token-123""#)
+    let detail = try JSONDecoder().decode(RequestErrorDetail.self, from: Data(detailJSON.utf8))
+    #expect(detail.upstreamStatusCode == 429 && detail.upstreamLatencyMs == 3000 && detail.responseLatencyMs == 158)
+    let message = try #require(detail.upstreamErrorMessage)
+    #expect(message.contains("已隐藏凭据") && !message.contains("leaked-token"))
+    let stored = Set(Mirror(reflecting: detail).children.compactMap(\.label))
+    #expect(stored.isSuperset(of: ["upstreamStatusCode", "upstreamErrorMessage", "upstreamLatencyMs", "responseLatencyMs"]))
+
+    let listJSON = requestErrorJSON.replacingOccurrences(of: #","upstream_status_code":429,"upstream_latency_ms":900,"response_latency_ms":920"#, with: "")
+    let record = try JSONDecoder().decode(RequestErrorRecord.self, from: Data(listJSON.utf8))
+    #expect(record.id == 51 && record.upstreamStatus == .code(429))
+    let keysOnTheRow = try JSONDecoder().decode(RequestErrorRecord.self, from: Data(requestErrorJSON.utf8))
+    let listFields = Set(Mirror(reflecting: keysOnTheRow).children.compactMap(\.label))
+    #expect(listFields.isDisjoint(with: ["upstreamStatusCode", "upstreamMessage", "upstreamLatencyMs", "responseLatencyMs"]))
+    let dump = String(reflecting: detail)
+    #expect(!dump.contains("never-decode") && !dump.contains("leaked-token"))
 }

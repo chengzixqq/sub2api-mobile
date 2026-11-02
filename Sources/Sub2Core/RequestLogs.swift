@@ -29,9 +29,9 @@ public struct RequestLogFilter: Hashable, Sendable {
     /// Goes to `admin/usage` with `model` only; the error endpoints match the requested model and take no source.
     public var modelSource: ModelSource?
     public var requestID: String?
-    /// 1…1000: 100 for lists (00 §4.3), 1 for counts, 5 for search.
+    /// 1…1000: 100 for lists (00 §4.3), 1 for counts, 20 for search (60 §2.2).
     public var pageSize: Int
-    // Conditions only the old filter editor still sets (40 §6.7 keeps them internal).
+    // No page sets these since the old filter editor went (S4-05); 40 §6.7 keeps them internal (S4D2b-18).
     public var apiKeyID: Int?
     public var requestType = ""
     public var category = ""
@@ -197,7 +197,8 @@ public struct UsageRequestRecord: Decodable, Identifiable, Sendable {
     }
 }
 
-/// No raw request/response body, upstream error detail, key prefix, client IP or user agent is retained.
+/// The list item of the error logs (the backend's OpsErrorLog); the detail-only upstream fields are RequestErrorDetail's. No raw
+/// request/response body, upstream error detail, key prefix, client IP or user agent is retained.
 public struct RequestErrorRecord: Decodable, Identifiable, Sendable {
     public let id: Int
     public let createdAt: String
@@ -215,10 +216,6 @@ public struct RequestErrorRecord: Decodable, Identifiable, Sendable {
     public let groupID: Int?
     public let accountName: String?
     public let groupName: String?
-    public let upstreamStatusCode: Int?
-    public let upstreamMessage: String?
-    public let upstreamLatencyMs: Int?
-    public let responseLatencyMs: Int?
     public let firstTokenMs: Int?
     // D04 and the other row fields of 40 §6.2; old rows send null or "" (read as nil).
     public let durationMs: Int?
@@ -238,8 +235,7 @@ public struct RequestErrorRecord: Decodable, Identifiable, Sendable {
         case id, phase, type, platform, model, resolved, message, severity, stream
         case requestedModel = "requested_model", upstreamModel = "upstream_model"
         case createdAt = "created_at", requestID = "request_id", statusCode = "status_code", userID = "user_id", accountID = "account_id", groupID = "group_id"
-        case accountName = "account_name", groupName = "group_name", upstreamStatusCode = "upstream_status_code", upstreamMessage = "upstream_error_message"
-        case upstreamLatencyMs = "upstream_latency_ms", responseLatencyMs = "response_latency_ms", firstTokenMs = "time_to_first_token_ms"
+        case accountName = "account_name", groupName = "group_name", firstTokenMs = "time_to_first_token_ms"
         case durationMs = "duration_ms", errorOwner = "error_owner", errorSource = "error_source", clientRequestID = "client_request_id"
         case userEmail = "user_email", apiKeyID = "api_key_id", apiKeyName = "api_key_name", requestType = "request_type"
         case resolvedAt = "resolved_at", resolvedByUserName = "resolved_by_user_name"
@@ -257,9 +253,7 @@ public struct RequestErrorRecord: Decodable, Identifiable, Sendable {
         message = RequestLogPresentation.safeMessage(try c.decode(String.self, forKey: .message))
         userID = try c.decodeIfPresent(Int.self, forKey: .userID); accountID = try c.decodeIfPresent(Int.self, forKey: .accountID); groupID = try c.decodeIfPresent(Int.self, forKey: .groupID)
         accountName = try c.nonEmptyString(.accountName); groupName = try c.nonEmptyString(.groupName)
-        upstreamStatusCode = try c.decodeIfPresent(Int.self, forKey: .upstreamStatusCode)
-        upstreamMessage = try c.decodeIfPresent(String.self, forKey: .upstreamMessage).map(RequestLogPresentation.safeMessage)
-        upstreamLatencyMs = try c.decodeIfPresent(Int.self, forKey: .upstreamLatencyMs); responseLatencyMs = try c.decodeIfPresent(Int.self, forKey: .responseLatencyMs); firstTokenMs = try c.decodeIfPresent(Int.self, forKey: .firstTokenMs)
+        firstTokenMs = try c.decodeIfPresent(Int.self, forKey: .firstTokenMs)
         durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
         errorOwner = try c.nonEmptyString(.errorOwner); errorSource = try c.nonEmptyString(.errorSource); severity = try c.nonEmptyString(.severity)
         clientRequestID = try c.nonEmptyString(.clientRequestID); userEmail = try c.nonEmptyString(.userEmail)
@@ -305,9 +299,6 @@ public enum RequestLogPresentation {
             value = value.replacingOccurrences(of: pattern, with: "[已隐藏凭据]", options: .regularExpression)
         }
         return value
-    }
-    public static func date(_ raw: String) -> String {
-        ServerTime.parseTimestamp(raw)?.formatted(date: .abbreviated, time: .standard) ?? raw
     }
 }
 

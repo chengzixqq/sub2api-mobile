@@ -4,8 +4,7 @@ import Sub2Core
 /// 40 §6 使用记录: the route's scope and conditions come in; LogsStore, registered for this tab and route (C-13), decides what to
 /// read. This view draws the segments, the capsules, the day sections and the states, and reports appearing, the tab, the rows on
 /// screen, the foreground and the ops switch; it polls while the page shows in an active App (40 §6.6; D18: the scene phase is
-/// read, not observed). A row pushes `.request` with its record. `pushesInPlace` is the old group page's entry only
-/// (LegacyLogsEntry): changing the path would pop that page, so the detail is pushed by the view and the store is not registered.
+/// read, not observed). A row pushes `.request` with its record.
 struct LogsView: View {
     static let title = "使用记录"
     static let loadingText = "正在读取记录…"
@@ -16,12 +15,8 @@ struct LogsView: View {
     @Environment(\.sessionContext) private var session
     @Environment(\.scenePhase) private var scenePhase
     private let route: LogsRoute
-    /// X20：S4-20 删除 LegacyLogsEntry 时一并删除。
-    private let pushesInPlace: Bool
     @State private var tab: MainTab?
     @State private var store: LogsStore?
-    /// X20：S4-20 删除 LegacyLogsEntry 时一并删除。
-    @State private var openedRequest: RequestRoute?
     @State private var pickingRange = false
     /// 40 §6.4 按对象筛选 (S4-07).
     @State private var pickingObject = false
@@ -35,7 +30,7 @@ struct LogsView: View {
         let polls: Bool
     }
 
-    init(route: LogsRoute, pushesInPlace: Bool = false) { self.route = route; self.pushesInPlace = pushesInPlace }
+    init(route: LogsRoute) { self.route = route }
 
     var body: some View {
         let key = autoRefreshKey
@@ -44,8 +39,6 @@ struct LogsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationSubtitle(subtitle)
             .logFilterPicker(isPresented: $pickingObject) { pick in Task { await store?.pick(pick) } }
-            // X20：S4-20 删除 LegacyLogsEntry 时一并删除。
-            .navigationDestination(item: $openedRequest) { LogRouteDestination(route: .request($0)) }
             .sheet(isPresented: $pickingRange) { if let store { customRange(store) } }
             .onAppear { onScreen = true; appear() }
             .onChange(of: model.sessionGeneration) { _, _ in appear() }
@@ -89,7 +82,7 @@ struct LogsView: View {
         if let store, !store.isStale(currentGeneration: session.generation) { return }
         let model = model, route = route
         let make = { LogsStore(model: model, context: session, route: route) }
-        guard !pushesInPlace, let pageStates = model.pageStates else { store = make(); return }
+        guard let pageStates = model.pageStates else { store = make(); return }
         let tab = self.tab ?? router.selectedTab
         self.tab = tab
         store = pageStates.state(PageStateKey.logs(route), tab: tab, prunedBy: router, make: make)
@@ -99,9 +92,7 @@ struct LogsView: View {
         guard let store, let tab else { return }
         if selected != tab { store.disappeared() } else if onScreen { Task { await store.appeared() } }
     }
-    private func open(_ request: RequestRoute) {
-        if pushesInPlace { openedRequest = request } else { router.push(.request(request)) }
-    }
+    private func open(_ request: RequestRoute) { router.push(.request(request)) }
     private func customRange(_ store: LogsStore) -> some View {
         let now = store.serverNow()
         return LogCustomRangeSheet(initial: Self.bounds(store.currentWindow(), now: now), timeZone: store.timeZone, now: now) { preset in

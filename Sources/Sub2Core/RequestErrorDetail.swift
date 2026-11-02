@@ -45,33 +45,39 @@ public struct UpstreamErrorEvent: Decodable, Sendable, Equatable {
 }
 
 /// `GET admin/ops/request-errors/:id` or `upstream-errors/:id` (one table, 40 §7.2): the list record plus the detail-only
-/// fields. `error_body` and `upstream_error_detail` are never decoded; messages are redacted by the record's decoding.
+/// fields (the backend's OpsErrorLogDetail; a list item has none of them). `error_body` and `upstream_error_detail` are never
+/// decoded; messages are redacted when decoded.
 public struct RequestErrorDetail: Decodable, Identifiable, Sendable {
     public let record: RequestErrorRecord
     public let upstreamEvents: [UpstreamErrorEvent]
+    public let upstreamStatusCode: Int?
+    public let upstreamErrorMessage: String?
     public let authLatencyMs: Int?
     public let routingLatencyMs: Int?
+    public let upstreamLatencyMs: Int?
+    public let responseLatencyMs: Int?
     /// SLA wording: a business limit, drawn grey instead of by its code (40 §0.4).
     public let isBusinessLimited: Bool
     /// The bound key's first 8 characters, snapshotted at error time; shown as “prefix…”.
     public let apiKeyPrefix: String?
 
     public var id: Int { record.id }
-    public var upstreamStatusCode: Int? { record.upstreamStatusCode }
-    public var upstreamErrorMessage: String? { record.upstreamMessage }
-    public var upstreamLatencyMs: Int? { record.upstreamLatencyMs }
-    public var responseLatencyMs: Int? { record.responseLatencyMs }
 
     enum CodingKeys: String, CodingKey {
-        case upstreamErrors = "upstream_errors", authLatencyMs = "auth_latency_ms", routingLatencyMs = "routing_latency_ms"
-        case isBusinessLimited = "is_business_limited", apiKeyPrefix = "api_key_prefix"
+        case upstreamErrors = "upstream_errors", upstreamStatusCode = "upstream_status_code", upstreamErrorMessage = "upstream_error_message"
+        case authLatencyMs = "auth_latency_ms", routingLatencyMs = "routing_latency_ms", upstreamLatencyMs = "upstream_latency_ms"
+        case responseLatencyMs = "response_latency_ms", isBusinessLimited = "is_business_limited", apiKeyPrefix = "api_key_prefix"
     }
     public init(from decoder: any Decoder) throws {
         record = try RequestErrorRecord(from: decoder)
         let c = try decoder.container(keyedBy: CodingKeys.self)
         upstreamEvents = UpstreamErrorEvent.parse(try? c.decodeIfPresent(String.self, forKey: .upstreamErrors))
+        upstreamStatusCode = try c.decodeIfPresent(Int.self, forKey: .upstreamStatusCode)
+        upstreamErrorMessage = try c.decodeIfPresent(String.self, forKey: .upstreamErrorMessage).map(RequestLogPresentation.safeMessage)
         authLatencyMs = try c.decodeIfPresent(Int.self, forKey: .authLatencyMs)
         routingLatencyMs = try c.decodeIfPresent(Int.self, forKey: .routingLatencyMs)
+        upstreamLatencyMs = try c.decodeIfPresent(Int.self, forKey: .upstreamLatencyMs)
+        responseLatencyMs = try c.decodeIfPresent(Int.self, forKey: .responseLatencyMs)
         isBusinessLimited = try c.decodeIfPresent(Bool.self, forKey: .isBusinessLimited) ?? false
         let prefix = try c.decodeIfPresent(String.self, forKey: .apiKeyPrefix) ?? ""
         apiKeyPrefix = prefix.isEmpty ? nil : String(prefix.prefix(8))

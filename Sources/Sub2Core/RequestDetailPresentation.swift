@@ -89,7 +89,7 @@ public enum RequestDetailPresentation {
     /// `status_code`; a business limit is grey (40 §0.4) and a missing code is “—”.
     public static func errorStatusLine(record: RequestErrorRecord, kind: ErrorLogKind, detail: RequestErrorDetail?, clientStatusCode: Int?) -> RequestStatusLine {
         guard style(kind: kind, statusCode: record.statusCode) != .recovered else {
-            let upstream = validCode(detail?.upstreamStatusCode ?? record.upstreamStatusCode).map(UpstreamErrorStatus.code) ?? record.upstreamStatus
+            let upstream = validCode(detail?.upstreamStatusCode).map(UpstreamErrorStatus.code) ?? record.upstreamStatus
             return switch upstream {
             case .code(let code): RequestStatusLine(label: "上游失败", badge: String(code), tone: Tone.httpStatus(code), capsule: nil)
             case .accountAuth: RequestStatusLine(label: "上游失败", badge: "鉴权", tone: .neutral, capsule: nil)
@@ -103,7 +103,7 @@ public enum RequestDetailPresentation {
     public static func recoveryNote(_ record: RequestErrorRecord) -> String { "已自动重试成功，客户端收到 \(record.statusCode)" }
     /// `upstream_error_message` ?? `message`, both redacted when decoded.
     public static func errorMessage(record: RequestErrorRecord, detail: RequestErrorDetail?) -> String {
-        [detail?.upstreamErrorMessage, record.upstreamMessage, record.message].compactMap { $0 }.first { trimmed($0) != nil } ?? "上游返回错误"
+        [detail?.upstreamErrorMessage, record.message].compactMap { $0 }.first { trimmed($0) != nil } ?? "上游返回错误"
     }
     /// Shown only when it differs from the model.
     public static func upstreamModel(model: String, upstream: String?) -> String? {
@@ -133,8 +133,7 @@ public enum RequestDetailPresentation {
     /// `record` may be the list row, which has no phase latencies; they come from the detail once it arrives.
     public static func timing(_ record: RequestErrorRecord, detail: RequestErrorDetail?) -> RequestTiming {
         timing(firstTokenMs: record.firstTokenMs, durationMs: record.durationMs,
-               phases: [detail?.authLatencyMs, detail?.routingLatencyMs, detail?.upstreamLatencyMs ?? record.upstreamLatencyMs,
-                        detail?.responseLatencyMs ?? record.responseLatencyMs])
+               phases: [detail?.authLatencyMs, detail?.routingLatencyMs, detail?.upstreamLatencyMs, detail?.responseLatencyMs])
     }
     /// Without `duration_ms` the total is the sum of the recorded phases (auth + routing + upstream + response), marked “约”.
     public static func timing(firstTokenMs: Int?, durationMs: Int?, phases: [Int?] = []) -> RequestTiming {

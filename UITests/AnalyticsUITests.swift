@@ -137,8 +137,7 @@ final class AnalyticsUITests: XCTestCase {
         let foot = element("analytics.billing.foot")
         app.scrollUntilExists(foot)
         foot.tap()
-        // 图表 until S4-14 builds 计费明细.
-        let detail = app.navigationBars.matching(NSPredicate(format: "identifier IN %@", ["图表", "计费明细"])).firstMatch
+        let detail = app.navigationBars["计费明细"]
         XCTAssertTrue(detail.waitForExistence(timeout: 10), app.debugDescription)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.navigationBars["统计分析"].waitForExistence(timeout: 10), app.debugDescription)
@@ -490,8 +489,7 @@ final class AnalyticsUITests: XCTestCase {
         app.waitForLabel(foot, containing: "全部 30 天 · 利润明细")
         app.scrollUntilExists(foot)
         foot.tap()
-        // 图表 until S4-14 builds 利润明细.
-        let detail = app.navigationBars.matching(NSPredicate(format: "identifier IN %@", ["图表", "利润明细"])).firstMatch
+        let detail = app.navigationBars["利润明细"]
         XCTAssertTrue(detail.waitForExistence(timeout: 10), app.debugDescription)
     }
 

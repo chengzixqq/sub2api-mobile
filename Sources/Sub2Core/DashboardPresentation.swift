@@ -1,7 +1,7 @@
 import Foundation
 
-/// Overview helpers that are not number formats: trend bucket dates and axis labels. Every number and amount goes through
-/// DisplayFormat (00 §6.2, R10).
+/// Overview helpers that are not number formats: trend bucket dates. Every number and amount goes through DisplayFormat
+/// (00 §6.2, R10).
 public enum DashboardPresentation {
     /// Backend buckets have no offset: interpret them in the server zone (the reply's `query.timezone`, else the one
     /// sent with the request), never in the phone's (00 §6.4).
@@ -12,11 +12,6 @@ public enum DashboardPresentation {
         let formatter = dateFormatter(timeZone: timeZone, format: hourly ? "yyyy-MM-dd HH:mm" : "yyyy-MM-dd")
         guard let date = formatter.date(from: raw), formatter.string(from: date) == raw else { return nil }
         return date
-    }
-
-    /// The zone is the server's (00 §6.3); callers pass it, there is no phone-zone default.
-    public static func trendAxisLabel(_ date: Date, hourly: Bool, timeZone: TimeZone) -> String {
-        dateFormatter(timeZone: timeZone, format: hourly ? "M/d HH:mm" : "M/d").string(from: date)
     }
 
     private static func dateFormatter(timeZone: TimeZone, format: String) -> DateFormatter {

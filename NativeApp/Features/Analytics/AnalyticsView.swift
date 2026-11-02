@@ -19,11 +19,7 @@ struct AnalyticsView: View {
 
     private let route: Route
 
-    /// No default: `AnalyticsView()` stays the compatibility initializer below.
     init(route: Route) { self.route = route }
-    /// X20: the old group detail's 统计分析 link still calls this; the arguments are ignored (the whole site, or the remembered filter).
-    /// S5-06 removes the link, S4-20 this initializer.
-    init(accountID: Int? = nil, groupID: Int? = nil) { route = Route() }
 
     var body: some View {
         AnalyticsSessionScope(entry: route.range) { session in

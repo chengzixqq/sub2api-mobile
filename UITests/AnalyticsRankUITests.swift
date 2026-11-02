@@ -104,11 +104,13 @@ final class AnalyticsRankUITests: XCTestCase {
         selectCardSegment("用户")
         app.waitForLabel(cardRow(1), containing: "Studio-K 团队")
         app.waitForLabel(cardFoot, containing: "查看前 50 位用户")
+        XCTAssertEqual(cardFoot.label, "查看前 50 位用户", "a foot without a meta reads no trailing “ · ”")
         selectCardSegment("分组")
         app.waitForLabel(cardRow(1), containing: "高级组")
         waitForValue(cardRow(1), containing: "$182.40")
         app.waitForLabel(cardRow(5), containing: "未分组")
         app.waitForLabel(cardFoot, containing: "全部 9 个分组")
+        XCTAssertEqual(cardFoot.label, "全部 9 个分组")
 
         // Remembered on this phone: the next entry opens on 分组.
         app.openAnalyticsFromSearch()

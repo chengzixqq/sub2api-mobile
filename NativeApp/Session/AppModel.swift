@@ -433,16 +433,6 @@ final class AppModel {
         if isUITesting { return DemoData.dashboard }
         return try await requireClient().dashboard()
     }
-    func dashboardTrend() async throws -> DashboardTrendReply {
-        if isUITesting {
-            if ProcessInfo.processInfo.arguments.contains("-ui-dashboard-detail-errors") {
-                throw APIError(kind: .transport, message: "趋势请求超时，请重试。")
-            }
-            let points = ProcessInfo.processInfo.arguments.contains("-ui-trend-long-series") ? DemoData.longHourlyTrend : DemoData.dashboard.trend
-            return DashboardTrendReply(points: points, timeZone: DemoData.serverTimeZone.timeZone)
-        }
-        return try await requireClient().dashboardTrend()
-    }
 
     // MARK: - 账号
     // The account wrappers and their fixture branches live in AppModel+Accounts.swift (S2-03, S2-04).
