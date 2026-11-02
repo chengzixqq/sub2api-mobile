@@ -178,12 +178,27 @@ final class GroupMembersUITests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 5), app.debugDescription)
         add.tap()
         XCTAssertTrue(app.navigationBars["添加到「企业专线」"].waitForExistence(timeout: 10), app.debugDescription)
+        let main = pickRow(4)
+        XCTAssertTrue(main.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(main.poll(NSPredicate(format: "label CONTAINS %@", "已在 标准组"), timeout: 5), main.label)
         app.buttons["group.pick.cancel"].tap()
         XCTAssertTrue(app.navigationBars["添加到「企业专线」"].waitForNonExistence(timeout: 10), app.debugDescription)
         let stopped = row(6)
         app.scrollUntilExists(stopped)
         stopped.swipeRight()
         XCTAssertFalse(add.waitForExistence(timeout: 2), app.debugDescription)
+    }
+
+    /// S5D2a-12: with -ui-group-batch-partial a lone Anthropic add fails MIXED_CHANNEL_RISK (S5-09's Claude Code 组 case).
+    @MainActor func testBatchPartialFailsALoneAnthropicAddOnMixedChannels() {
+        openGroup(5, arguments: [Fixture.batchPartial])
+        defer { diagnostics("group-members-partial-mixed-final") }
+        app.buttons["group.action.addAccounts"].tap()
+        XCTAssertTrue(pickRow(3).waitForExistence(timeout: 10), app.debugDescription)
+        pickRow(3).tap()
+        submitPicks(titled: "加入 1 个账号")
+        waitForReceipt("加入失败 · 1 个账号没有改动")
+        XCTAssertTrue(app.buttons["receipt.action"].poll(NSPredicate(format: "label == %@", "查看"), timeout: 3), app.debugDescription)
     }
 
     // MARK: - Helpers

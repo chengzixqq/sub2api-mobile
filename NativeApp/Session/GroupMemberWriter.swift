@@ -20,7 +20,8 @@ struct GroupMemberTarget: Sendable, Equatable {
     /// `active_account_count` before the write, for “可用 x → y”.
     let activeBefore: Int?
     init(id: Int, name: String, activeBefore: Int?) { self.id = id; self.name = name; self.activeBefore = activeBefore }
-    init(_ group: AdminGroup) { self.init(id: group.id, name: group.name, activeBefore: group.activeAccountCount) }
+    /// `active_account_count` is omitempty: a group without it had 0 available (00 §6.5).
+    init(_ group: AdminGroup) { self.init(id: group.id, name: group.name, activeBefore: group.counts.activeAccountCount) }
 }
 
 /// After a member write that ran or may have: GroupStore keeps the latest per group and the detail refreshes from it (S5D2a-10).
@@ -87,7 +88,8 @@ final class GroupMemberWriter {
         guard !session.isReadOnlyToken else { return .rejected(AccountActionCopy.readOnly.text) }
         return await deliver(request, groupID: groupID, session: session)
     }
-    /// 4.4 加入 k 个账号: in the order picked, without priorities. A refusal comes back without a receipt (the picker shows it).
+    /// 4.4 加入 k 个账号: in the order picked, without priorities. A refusal comes back without a receipt (the picker shows it);
+    /// a refusal of its 重试 gets one, the picker being closed by then.
     @discardableResult func add(_ accounts: [UpstreamAccount], to group: GroupMemberTarget) async -> GroupMemberSendResult {
         guard !isSubmitting, let session = writableSession(),
               let request = try? GroupMemberBatchRequest(add: accounts.map { GroupMemberAdd(accountID: $0.id) }) else { return .ignored }
@@ -120,19 +122,20 @@ final class GroupMemberWriter {
         guard !session.isReadOnlyToken else { show(AccountActionCopy.readOnly.text, systemImage: "exclamationmark.triangle", tone: .critical); return nil }
         return session
     }
-    private func write(_ write: MemberWrite, session: GroupMemberWriteSession) async -> GroupMemberSendResult {
+    /// `fromReceipt`: sent by a receipt's button, when the picker that shows an add's refusal is gone.
+    private func write(_ write: MemberWrite, session: GroupMemberWriteSession, fromReceipt: Bool = false) async -> GroupMemberSendResult {
         let ids = Set(write.request.accountIDs)
         busyAccounts.formUnion(ids)
         defer { busyAccounts.subtract(ids) }
         let sent = await deliver(write.request, groupID: write.group.id, session: session)
-        report(sent, of: write, session: session)
+        report(sent, of: write, session: session, fromReceipt: fromReceipt)
         return sent
     }
     /// A receipt's button, in the session it belongs to; the accounts are busy from the tap. The receipt holds the writer, so the
     /// button still works after the page that made it has closed.
     private func relaunch(_ next: MemberWrite, session: GroupMemberWriteSession) {
         busyAccounts.formUnion(next.request.accountIDs)
-        Task { _ = await self.write(next, session: session) }
+        Task { _ = await self.write(next, session: session, fromReceipt: true) }
     }
     /// The batch, or the fallback; GROUP_REPOSITORY_UNSUPPORTED switches once and is remembered, except in simple mode.
     private func deliver(_ request: GroupMemberBatchRequest, groupID: Int, session: GroupMemberWriteSession) async -> GroupMemberSendResult {
@@ -181,7 +184,7 @@ final class GroupMemberWriter {
 
     // MARK: - Receipts
 
-    private func report(_ sent: GroupMemberSendResult, of write: MemberWrite, session: GroupMemberWriteSession) {
+    private func report(_ sent: GroupMemberSendResult, of write: MemberWrite, session: GroupMemberWriteSession, fromReceipt: Bool) {
         switch sent {
         case .result(let result, _): reportResult(result, of: write, session: session)
         case .unconfirmed:
@@ -191,7 +194,7 @@ final class GroupMemberWriter {
         case .groupGone(let text): show(text, systemImage: "xmark.octagon", tone: .critical)
         case .rejected(let text):
             switch write.kind {
-            case .add: break
+            case .add: if fromReceipt { show(text, systemImage: "exclamationmark.triangle", tone: .critical) }
             case .remove: show(text, systemImage: "exclamationmark.triangle", tone: .critical)
             case .undo: show(AccountActionCopy.failureText(.undo, reason: text), systemImage: "exclamationmark.triangle", tone: .critical)
             }

@@ -172,6 +172,26 @@ private func memberArrived(_ gate: SessionGate) async {
     #expect(h.receiptText == "已加入 1 个账号 · 可用 0 → 1")
 }
 
+/// The picker is gone by the time 重试 is tapped, so a refusal of the resent add says so in a receipt (as a removal's does).
+@MainActor @Test func refusedRetryOfALostAddSaysGroupErrorCopy() async {
+    let h = MemberHarness()
+    h.source.batchReplies = [.failure(memberTransport), .failure(APIError.server(status: 403, reason: "FORBIDDEN"))]
+    #expect(await h.writer.add([mainAccount], to: enterprise) == .unconfirmed)
+    await h.tapReceipt()
+    #expect(h.source.calls.count == 2)
+    #expect(h.receiptText == "你的工作区没有这个权限。" && h.receiptButton == nil && h.receipts.current?.tone == .critical)
+}
+
+/// `active_account_count` is omitempty on the group DTO: a group without it had 0 available (00 §6.5), so the add still says “可用 0 → 1”.
+@MainActor @Test func targetOfAGroupWithoutTheActiveCountStartsFromZero() async {
+    let group = AdminGroup(id: 4, name: "企业专线", activeAccountCount: nil)
+    #expect(GroupMemberTarget(group).activeBefore == 0)
+    let h = MemberHarness()
+    h.source.batchReplies = [.success(answer([added(4)], counts: counts(active: 1, total: 2)))]
+    _ = await h.writer.add([mainAccount], to: GroupMemberTarget(group))
+    #expect(h.receiptText == "已加入 1 个账号 · 可用 0 → 1")
+}
+
 @MainActor @Test func repositoryUnsupportedSwitchesToTheFallbackOnce() async throws {
     let h = MemberHarness()
     h.source.batchReplies = [.failure(repositoryUnsupported)]
