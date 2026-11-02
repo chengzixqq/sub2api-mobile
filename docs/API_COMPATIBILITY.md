@@ -1,6 +1,6 @@
 # 首版接口适配边界
 
-源码核对基线：自用 Sub2API `e5ab7e4f4c136a8faf40fd06694ab0a6bf6f6925`；原生 App 阶段 0 起按 sub2 `main` `70116315d` 之后核对（本文其余部分留到阶段 4 按 FINAL-SPEC 统一更新）。新增模块的具体能力、独立日志筛选边界和滚动 RPM 见 [管理模块契约](ADMIN_MODULES.md)。以下路径均以 `/api/v1` 为前缀。传输使用显式 snake_case CodingKeys、`{code,data,reason}` 响应 envelope。Admin Key 与 `sat_` 管理访问令牌使用 `x-api-key`，邮箱会话使用 Bearer；禁止自动跨源重定向和共享 Cookie。
+源码核对基线：自用 Sub2API `e5ab7e4f4c136a8faf40fd06694ab0a6bf6f6925`；原生 App 阶段 0 起按 sub2 `main` `70116315d` 之后核对。新增模块的具体能力、独立日志筛选边界和滚动 RPM 见 [管理模块契约](ADMIN_MODULES.md)。以下路径均以 `/api/v1` 为前缀。传输使用显式 snake_case CodingKeys、`{code,data,reason}` 响应 envelope。Admin Key 与 `sat_` 管理访问令牌使用 `x-api-key`，邮箱会话使用 Bearer；禁止自动跨源重定向和共享 Cookie。
 
 | 能力 | 方法和路径 |
 | --- | --- |
@@ -11,7 +11,7 @@
 | 概览 | GET `/admin/dashboard/home`（`timezone`、可选 `include`、下拉刷新 `nocache=1`；ETag / 304）；平静布局的账号排行 GET `/admin/dashboard/accounts-ranking`；没有 `dashboard.home` 能力，或 home 返回 404 / 网络失败时逐接口退路：`dashboard/stats`、`dashboard/trend`、`dashboard/rates`、`ops/dashboard/overview`、`ops/alert-events`（及 `/counts`）、`accounts/status-summary`（没有时 `groups/all` 加 lite 账号列表）、`channel-monitor-v2/overview` |
 | 费用兼容快照 | GET `/admin/dashboard/snapshot-v2`，只开启 `include_stats`，禁用所有趋势和模型/分组统计；只在没有 `dashboard.account_cost` 能力的旧站点退路里补账号成本 |
 | 连接探针 | GET `/admin/me`（三种登录方式通用；旧服务端退路见 FINAL-SPEC 00 §1.9） |
-| 监控 | GET `/admin/ops/dashboard/overview`、`/admin/ops/dashboard/snapshot-v2`（45 分钟错误率）、`/admin/ops/concurrency`、`/admin/ops/system-metrics/history`、`/admin/ops/system-logs/health`、`/admin/ops/ingress-rejections`；GET / PUT `/admin/ops/monitoring-status`（没有 `ops.monitoring_status` 能力的旧服务端只在站点有 `/admin/me` 时用 PUT `/admin/settings` 开启，正文只带 `ops_monitoring_enabled` 一个键）；渠道 GET `/admin/channel-monitor-v2/overview`；告警 GET `/admin/ops/alert-events`、`/alert-events/counts`、`/alert-events/:id`、`/admin/ops/alert-rules`，PUT `/alert-events/:id/status`，POST `/admin/ops/alert-silences`，PUT / DELETE `/alert-silences/:id`（事件没有 `silence` 键的旧服务端不提供静默）；统计分析过渡页的性能另用 GET `/admin/ops/dashboard/throughput-trend` |
+| 监控 | GET `/admin/ops/dashboard/overview`、`/admin/ops/dashboard/snapshot-v2`（45 分钟错误率）、`/admin/ops/concurrency`、`/admin/ops/system-metrics/history`、`/admin/ops/system-logs/health`、`/admin/ops/ingress-rejections`；GET / PUT `/admin/ops/monitoring-status`（没有 `ops.monitoring_status` 能力的旧服务端只在站点有 `/admin/me` 时用 PUT `/admin/settings` 开启，正文只带 `ops_monitoring_enabled` 一个键）；渠道 GET `/admin/channel-monitor-v2/overview`；告警 GET `/admin/ops/alert-events`、`/alert-events/counts`、`/alert-events/:id`、`/admin/ops/alert-rules`，PUT `/alert-events/:id/status`，POST `/admin/ops/alert-silences`，PUT / DELETE `/alert-silences/:id`（事件没有 `silence` 键的旧服务端不提供静默）；统计分析的 RPM / TPM 卡与平均账号切换用 GET `/admin/ops/dashboard/throughput-trend` |
 | 账号列表 / 详情 / 今日统计 | GET `/admin/accounts`、`/admin/accounts/:id`、`/admin/accounts/:id/today-stats`；POST `/admin/accounts/today-stats/batch` |
 | 调度 / 刷新 / 测试 | POST `/admin/accounts/:id/schedulable`、`/refresh`、`/test` |
 | 用户列表 / 详情 / 更新 | GET `/admin/users`、`/admin/users/:id`；POST `/admin/users` 创建；PUT `/admin/users/:id` 只提交变化字段；含并发变更时固定 `Idempotency-Key` |
@@ -29,13 +29,9 @@
 
 阶段 1 起旧四卡、费用颜色区分与“运行健康”区已删除，概览改为 FINAL-SPEC 10 §1 的 6 格 + 待处理 + 今日 + 运行。
 
-趋势接口继续使用 GET `/admin/dashboard/trend`，查询范围不变；自动加载和前台轮询会发起请求。阶段 1 起这个接口只在统计分析的过渡页 LegacyTrendPage 与首页逐接口退路里使用（过渡页由阶段 4 删除），首页改读 `dashboard/home` 的 hourly 段。后端 `cost` 为标准计费，`actual_cost` 为用户实际消费；原生 `TrendPoint.actualCost` 为可选 Decimal，兼容原初始化接口。`actual_cost` 缺失或 null 时，实际消费显示不可用并跳过对应柱子，不使用 `cost`、零值或推算金额替代；请求数和 Tokens 指标仍可查看。响应中的重复日期桶保留最后一条，不累加重复的消费；非法日期单独提示并跳过。
+趋势接口 GET `/admin/dashboard/trend` 有两种读法：统计分析的计费趋势、利润明细与模型页按页面范围读（唯一实现 `usageAnalysisTrend`：`start_time` / `end_time` 写 UTC `Z`、显式 `granularity`、`timezone` 为站点时区，分组 / 模型筛选照带；首页“昨日同时”也转调它）；首页逐接口退路的每小时图按“昨日以来”的固定窗口读（`start_date` / `end_date` + `granularity=hour`），首页平时读 `dashboard/home` 的 hourly 段。阶段 4 起统计分析的过渡页 LegacyTrendPage 与旧的指标切换、缩放趋势图已删除。后端 `cost` 为标准计费，`actual_cost` 为用户实际消费，`account_cost` 为账号成本；原生 `TrendPoint` 的这三个金额都是可选 Decimal，键缺失或 null 时显示“—”，不用 `cost`、零值或推算金额替代。
 
-趋势默认显示“实际消费”，可切换“请求数”和“Tokens”。切换指标、左右滚动、点选柱子、双指缩放及加减按钮均处理已经加载的数据，不发起新请求，也不扩大“昨日以来”的小时查询。缩放改变真实可见时间跨度；上限按总跨度计算，最大放大时窗口为 3 个桶的时长，不足 3 桶时显示全部。极小非零金额使用随数据调整的 Y 轴范围，不用固定最小范围将柱高压成零。
-
-趋势桶 `yyyy-MM-dd HH:00` 按请求时区解析并排序，采用月/日与小时两行刻度，同时显示当前可见范围和完整起止时间。柱标签、点选读数和逐小时明细统一使用 `DashboardTrendMetric.displayValue`：金额通过 Decimal 四舍五入到固定两位小数，极小金额可显示 `$0.00`；Tokens 达到相应阈值后使用 K/M/B，选择和明细也采用相同格式；请求数保持完整整数。Y 轴金额同样显示两位小数；金额不缩写为 K。原始 Decimal 和整数不因显示格式而改变，`exactValue` 仅供原始数据与精度测试使用，只有绘图坐标转换为近似 Double。放大倍数达到 6×，或可见时间窗口不超过 6 个桶时，柱子显示数值；最大放大时仍为 3 个桶窗口，明细不依赖柱内标签的显示空间。
-
-图表交互使用 iOS 17 的原生 Swift Charts API：`chartScrollableAxes`、`chartXVisibleDomain`、`chartScrollPosition`、`chartXSelection` 和 `chartGesture`；双指手势与按钮共用可见时间窗口。加减按钮通过 `withAnimation` 执行 0.3 秒 ease-in-out 动画，显式 `AnimatableModifier` 插值缩放倍数，再按该倍数计算 `chartXVisibleDomain`；左侧时间边界固定，到达最大放大档时也不主动取整横向位置。系统开启“减弱动态效果”时停用该动画。双指缩放连续更新窗口，不等待按钮动画或轮询。动画实现本次未改；历史 `77a2462` / `20261015T073815Z-46faa0c1` 模拟器录屏观察到第二柱宽 17 → 21 → 29 → 34 → 37 像素、柱顶高度不变，范围左端保持 `10/14 00:00`；这是时间边界固定，首个可见柱栅格边缘仍有 2 像素差异。
+趋势桶 `yyyy-MM-dd HH:00` / `yyyy-MM-dd` 不带偏移，按回执的 `query.timezone`（没有时按请求时区）解析。统计分析的柱图不滚动、不缩放：整图点选，按下即选、按在已选的桶上不拖走就取消，明细表高亮跟随；缺失值不画柱、读“无数据”，亏损画在 0 线以下。读屏、选中行与明细的金额一律经 `DisplayFormat`（Decimal 四舍五入到两位），只有绘图坐标转换为近似 Double。
 
 共享显示格式仍使用 `NSDecimalRound` 与十进制字符串，金额固定两位；卡片最高 K，趋势和用户列表余额保留两位。历史账号容量版构建自干净源码 `d07091d5da137c3c58dc1a881c354b08c6f4d3ec`，运行 `20261015T115051Z-b20011a3`，Mac 全流程退出 0；81 项核心、4 项凭据、27 项 UI 测试通过，Debug 模拟器和 Release arm64 设备构建成功。未签名 IPA 为 3,324,867 字节，SHA-256 `978cbccbcc6b83028538a43e9e41c91d48e0ee44af5affed6b6bfe75c9ae3a43`。 本轮只验证当前自用后端契约，不扩大官方兼容承诺。
 
@@ -49,7 +45,7 @@
 
 ## 趋势、列表与用户管理
 
-用量趋势逐小时明细按时间倒序，最新桶置顶；图表本身仍按时间正序绘制。统计分析的 RPM / TPM 趋势卡（更多图表运行主题复用同一组件）按需读取独立吞吐接口：窗口近 1 / 6 / 24 小时、指标 RPM / TPM，按站点记住，从概览 RPM / TPM 格进入时以入口指标为准并记住；可见且前台时每次请求结束后间隔 30 秒刷新，切窗口立即重载，离开、后台或切站取消；点选与性能明细（最新在上，不满一桶标“只覆盖 N 秒”）；运维监控关闭（/admin/me 或 404 OPS_DISABLED）时整卡换成“运维监控未开启”组件并刷新 /admin/me；横轴按站点时区整刻度。不用费用趋势合成性能数据。
+计费明细与利润明细的逐段表按时间倒序，最新桶置顶；图表本身仍按时间正序绘制。统计分析的 RPM / TPM 趋势卡（更多图表运行主题复用同一组件）按需读取独立吞吐接口：窗口近 1 / 6 / 24 小时、指标 RPM / TPM，按站点记住，从概览 RPM / TPM 格进入时以入口指标为准并记住；可见且前台时每次请求结束后间隔 30 秒刷新，切窗口立即重载，离开、后台或切站取消；点选与性能明细（最新在上，不满一桶标“只覆盖 N 秒”）；运维监控关闭（/admin/me 或 404 OPS_DISABLED）时整卡换成“运维监控未开启”组件并刷新 /admin/me；横轴按站点时区整刻度。不用费用趋势合成性能数据。
 
 性能读取 `GET /admin/ops/dashboard/throughput-trend`：`start_time` / `end_time` 一律写 UTC `Z`（近 N 小时时，`end_time` 为服务器现在向下取整到整分钟，`start_time` 前推 N 小时）；不传 `mode`（后端不读它，带模型筛选时强制走原始日志）；有分组筛选时带 `group_id`；有模型筛选、站点有 `ops.dashboard_model_filter` 且口径为 requested / upstream 时带 `model` + `model_source`，映射口径或没有该能力时不带模型、按全站显示，卡头会说明。服务端按窗口返回 `1m` / `5m` / `1h` 桶（≤ 2 小时、≤ 24 小时、更长），标签缺失或不认识时 App 按同一规则从窗口推算。RPM = `request_count × 60 ÷ 覆盖秒数`，TPM = `token_consumed × 60 ÷ 覆盖秒数`，覆盖秒数 = `min(bucket_start + 桶秒数, end_time) − max(bucket_start, start_time)`：首尾不满一桶的按实际覆盖时长折算，≤ 0 的点丢弃；峰值取各点最大值，平均 = Σ数量 × 60 ÷ Σ覆盖秒数；不把已舍入的 `qps` / `tps` 乘 60。请求包含成功与错误请求（不含 count_tokens 错误），Tokens 来自成功请求并包含缓存。当前后端此接口仍扫描原始 usage/error 日志，较长范围可能较慢，App 只接受 31 天 + 1 小时以内的范围。
 
