@@ -593,6 +593,9 @@
 | 添加账号页超过 200 个候选不翻页 | 50 §4.2 只读第 1 页 200 个（S5-08）：同平台账号超过 200 时多出的不在列表里，也没有提示，只能靠搜索找到；需要时加“还有 N 个账号未列出，输入名称搜索”或翻页 |
 | 成员行状态动作后不就地替换行 | S5-08 的成员行恢复状态、启停调度完成后，靠重拉成员刷新该行；真实站点上回执先出、行稍后变化。要立即变化，需要给 S5-06 的 GroupMemberList 加替换入口 |
 | 逐项结果页的账号状态用提交时快照 | 50 §5.2 要求账号名与状态取 App 账号缓存，但 App 没有会话级账号缓存（AccountListModel 属于账号 Tab，AccountDemoStore 只在 -ui-testing）。S5-09 用 S5-03 GroupBatchAccount 的提交时快照，没有快照时画“停用”图形。以后若加会话级账号缓存，可改为显示实时状态。 |
+| 分组名的 Core 校验改为按字节 | Sub2Core 的 GroupWriteValidation.name 仍按 Character 计 1–100，编辑 sheet 已按 UTF-8 ≤ 100 字节先拦；Core 改按字节后，其他入口也不会送出 34 个以上汉字的名称（后端 ent MaxLen 按字节，超长返回无 reason 的 500）。要改 GroupManagement.swift，避开与 S5-12 同时改。 |
+| 新建分组平台下拉只列 App 已知平台 | meta.catalog 里 App 不认识的新平台暂不提供新建（Core 的 GroupCreateRequest.validate 只认 GroupPlatform.concrete），需在 Web 创建，或随 App 更新加入 GroupPlatform.values。 |
+| 订阅限额 0 的含义待后端确认 | 后端 normalizeLimit 保留 0（不允许用量），计费检查又把 0 当不限；App 照规格允许输入 0，确认框写“$0”。是否加提示句待用户与后端确认。 |
 
 ### App 与设计 · 阶段 6
 
