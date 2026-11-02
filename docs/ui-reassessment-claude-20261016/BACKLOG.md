@@ -567,6 +567,31 @@
 | 运行类其余四行磁贴 | 40 §2.3 里 RPM / TPM（最新一桶）、平均账号切换（平均 · 次/请求）、错误分布（47% / 429 占错误）、Token 请求统计（最快 · 模型）的“磁贴”行，只在未选的目录网格变体里出现；已定版式 AxMoreCard 只有 4 块，S4-18b 没做。以后改用目录网格时再补，OpsErrorDistribution.leading 与 OpsTokenStats.fastest 已备好（S4D2b-20，待用户拍板）。 |
 | Token 请求统计随模型筛选重读 | 卡键 ops.tokenStats 的 scope 是 .rangeAndFilter，请求本身不带 model，但换模型筛选也会重发一次 45 秒聚合查询。如果要省掉这次重读，需要给会话加“只跟分组变化”的 scope。 |
 | 测试组夹具口径 | -ui-testing 下测试组（6）筛选时，错误分布与 Token 请求统计为空，但 S4-18 的错误趋势、时长分布、平均账号切换夹具不随筛选变化（仍是 397 个错误）。夹具之间不一致，只影响 UI 测试演示数据。 |
+| RequestLogFilter 的五个旧编辑器条件与 AnalyticsSummary.cacheTokens | 仍保留（40 §6.7 允许留作内部用，S4D2b-18 ①）。S4-20 grep：没有页面设置 apiKeyID / requestType / category / resolved / statusCode（请求类型降级用的是 AnalyticsQuery.requestType），cacheTokens 只在 UsageAnalytics.swift 解码。确认第 2 波在途条目都没有引用后可删，连同 RequestLogsTests 的三个用例与 UsageAnalyticsTests 一行 |
+| 缺失值读屏的最终决定 | 全 App 已统一按 DisplayFormat.missingSpoken 读“无数据”（X33，S1-00 定），阶段 4 的统计与使用记录页面也是如此。请用户确认是否保留，或改成“暂无数据”“没有数据”；只改 DisplayFormat.swift 一处与 DisplayFormatTests |
+| 30 天 usage/stats 与 throughput-trend 的实测（U54） | 统计聚合客户端超时 45 秒（RequestTimeout.aggregate），超时后按读请求自动重试 2 次；平均账号切换按页面范围请求 throughput-trend（最长 31 天 + 1 小时，后端扫原始日志）。S4-20 未实测：未获授权访问测试环境（S1D1-27）。生产量级实测超过 45 秒时，把这两类放宽到 90 秒档，并决定超时后是否还自动重试（后端 B10 / 维护者 Q17） |
+| AnalyticsUITests.swift 超过 800 行 | 830 行（S4-13 / S4-13b / S4-14 / S4-16 共用，规则列为多阶段共用测试文件，S4-20 不重构，同 S1D1-14）。下次往这个类加用例时，按主题拆到 AnalyticsUITests+<主题>.swift 扩展，并把共用的私有 helper 改为模块内可见 |
+| 利润明细卡“最近 4 段”私有表 | S4-13b 的卡内私有表与 S4-14 的 AnalyticsDetailTableView 写法相近；S4-20 没有替换（S4D2b-09 ④ 的可选项），以后改利润卡时再换成 AnalyticsDetailTableView(limit: 4)，前提是 AnalyticsUITests 的利润用例照常通过 |
+| 阶段 4 待用户拍板的取舍 | 默认值都已实现，等用户确认：S4D1 三项（平均账号切换 31 天 + 1 小时、统计记忆只在用户改动时写入、旧服务端不发 key_view）；批次 2a 七项（第三种模型胶囊置灰、请求详情分区编号、分段计数写法、标记已处理撤回、恢复请求最后一行、用户胶囊文字、上游错误不校准）；批次 2b 九项（利润“空”的判定、逐段失败时的说明、旧站点逐段只重读当前与缺失段、无选中行的图不点选、模型页速度区旧服务端、请求类型降级一类失败整卡失败、排行卡刷新丢弃隐藏段、40 §2.3 六个磁贴行不做、性能明细写秒）；以及 dag.md 第 8 节第 8 条（长范围计数照取） |
+| 路由参数在旧页面上不生效 | （补充已有行）阶段 4 部分已处理：.logs 的 user / model / modelSource 经 LogsRoute.conditions 生效（S4-05 起）；.analytics 的 range（S4-12 / S4-13，有记忆时用记忆）、focus（S4-13 首次滚到 RPM / TPM 卡）、metric（S4-16，优先并写回记忆）都已生效；兼容入口 LegacyLogsEntry 与 AnalyticsView(accountID:groupID:) 已由 S4-20 删除 |
+| 跨 Tab 跳转撤不掉视图式推入的页面 | （补充已有行）阶段 4 部分已处理：S4-20 删除 LogsView 的 navigationDestination(item:) 后，grep Features/Logs、Features/Analytics 已没有 NavigationLink { 目的视图 }、NavigationLink(destination:)、navigationDestination(isPresented:) / (item:)，一律经 AppRoute 推入（X39） |
+| 页面状态注册表只对 AppRoute 推入的页面生效 | （补充已有行）过渡入口 LegacyLogsEntry 已由 S4-20 删除，LogsView 一律经 PageStateRegistry 登记；日志与统计页都经 AppRoute 推入，阶段 4 的风险已消除，可关闭 |
+| 删除 PerformanceTrend 的 Decodable 与 init(from:) | （补充已有行）S4-20 核对：S1-09b 已删除，struct PerformanceTrend 只是 Sendable、Equatable，只有 Point 与内部 Reply 解码，可关闭 |
+| 首页退路每小时图的账号成本 | （补充已有行）S4-20 已接上：HomeFallback.hourly 带上 TrendPoint.accountCost（键缺失为 nil），注释已更新，HomeFallbackTests.hourlyCarriesTrendAccountCost 覆盖，可关闭 |
+| S4-20 清理清单补充：旧趋势页的残留 | （补充已有行）S4-20 已删 AppModel.dashboardTrend() 与两个夹具分支、DemoData.longHourlyTrend、DashboardTrendMetric / Sample / Series / series / clampedZoom、DashboardPresentation.trendAxisLabel；API_COMPATIBILITY 的 LegacyTrendPage 段与旧趋势三段已改写，可关闭 |
+| AppModel 里随旧概览失去用途的夹具分支 | （补充已有行）-ui-trend-long-series、-ui-dashboard-detail-errors 随 AppModel.dashboardTrend() 由 S4-20 删除；-ui-performance-error 已由 S4-16 删除；-ui-dashboard-slow-trend、-ui-missing-account-cost、-ui-cost-snapshot-error 在 NativeApp / UITests 都是 0 处，可关闭 |
+| 现有页面按手机时区显示的时间 | （补充已有行）统计与日志已全部按站点时区。S4-20 grep：Sources / NativeApp 的 TimeZone.current 只剩 ServerTimeZone.device 与推送注册上报的设备时区，Calendar.current 0 处，设备时区只用于“（站点时间 UTC+8）”提示。剩余的是 ListFields 的时间列（简化模式字段）与按规格用本机时区的账号过期时间（U53）、公告起止 |
+| 缺失值“—”的读屏 | （补充已有行）阶段 4 的统计与使用记录页面统一读 DisplayFormat.missingSpoken（“无数据”）；最终文案见新增行“缺失值读屏的最终决定” |
+| 长超时读请求超时后的自动重试 | （补充已有行）S4-20 未实测：未获授权访问测试环境；见新增行“30 天 usage/stats 与 throughput-trend 的实测（U54）” |
+| AnalyticsCardFoot 的 meta 为空时读屏仍带“ · ” | （补充已有行）S4-20 已改：meta 为空时只读标题，AnalyticsRankUITests 断言“查看前 50 位用户”“全部 9 个分组”整句，可关闭 |
+| AnalyticsUITests 旧用例仍接受占位标题“图表” | （补充已有行）S4-20 已收紧：两处只认“计费明细 / 利润明细”，“until S4-14”注释已删，可关闭 |
+| 路由参数在旧页面上不生效（X39）补记 | （补充已有行）已在阶段 4 收口，见“路由参数在旧页面上不生效”的阶段 4 补充，可关闭 |
+| 使用记录用户胶囊文字统一 | （补充已有行）S4-20 暂不统一（S4D2a-18，列入需要用户拍板批次 2a 第 6 项）：从筛选 sheet 选用户写邮箱，从用户详情进入写显示名，等用户决定 |
+| 更多图表：.analyticsChart 非计费键转到更多图表页 | （补充已有行）S4-20 保留占位：应用内没有入口（40 §3.1），不影响任何用户路径；以后有入口需求时只改 AnalyticsRouteDestination 的这一个分支 |
+| Token 使用趋势长范围性能 | （补充已有行）S4-20 未评估：需要模拟器或真机交互测量，留到真机验收 |
+| 用户用量趋势回执时区与请求时区不同 | （补充已有行）S4-20 未改：维持按请求时区对齐桶，出现实际案例再统一按回执时区重建桶 |
+| OpsErrorTrend.bars(in:) 暂时没有调用方 | （补充已有行）S4-20 决定保留：它是 40 §2.7 点名用例（errorTrendHourlyBarsInSiteZoneStackOnlySLAAndBusinessLimited、errorTrendDailyBarsSplitAtSiteMidnightNotUTC 等 6 个）的被测对象，删除要同时改写这些用例；界面用的是 S4-18 按页面范围分的桶 |
+| B03 补漏：dashboard/groups 的 model_source 不生效（高优先级） | （补充已有行）后端 main 的 dd80618fe（2026-10-19）已修复，chore/upgrade-upstream-v0.2.18 也包含；App 不需要改。集成者核对生产已部署后可移出或注明已修复 |
 
 ### App 与设计 · 阶段 5
 
