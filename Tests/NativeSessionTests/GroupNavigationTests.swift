@@ -33,13 +33,20 @@ import Sub2Core
     #expect(router.path(for: .today).isEmpty)
 }
 
-/// S5-08: 0.4.3 查看 opens the member write's per-item results on the current tab (S5-09 carries the outcome along).
+/// S5-08: 0.4.3 查看 opens the member write's per-item results on the current tab; S5-09: the route carries the outcome.
 @MainActor @Test func showGroupBatchPushesTheResultPageOnTheCurrentTab() throws {
     let router = AppRouter(selectedTab: .search)
     router.setPath([.groups(), .group(id: 4)], for: .search)
     let request = try GroupMemberBatchRequest(add: [GroupMemberAdd(accountID: 7)])
-    router.showGroupBatch(GroupBatchOutcome(groupID: 4, groupName: "企业专线", request: request,
-                                            result: GroupMemberBatchResult(groupID: 4, results: [], counts: nil)))
-    #expect(router.path(for: .search) == [.groups(), .group(id: 4), .groupBatch(groupID: 4, name: "企业专线")])
+    let outcome = GroupBatchOutcome(groupID: 4, groupName: "企业专线", request: request,
+                                    result: GroupMemberBatchResult(groupID: 4, results: [], counts: nil))
+    router.showGroupBatch(outcome)
+    let path = router.path(for: .search)
+    #expect(path.count == 3)
+    #expect(Array(path.prefix(2)) == [.groups(), .group(id: 4)])
+    guard case .groupBatch(let groupID, let name, let pushed)? = path.last else { Issue.record("no batch route"); return }
+    #expect(groupID == 4 && name == "企业专线")
+    #expect(pushed.value == outcome)
+    #expect(pushed.value.items.map(\.result) == [.failed(.unconfirmed)])
     #expect(router.path(for: .accounts).isEmpty)
 }

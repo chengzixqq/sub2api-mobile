@@ -11,7 +11,7 @@ struct GroupRouteDestination: View {
         // .group：S5-06
         case .group(let id): GroupDetailView(id: id)
         // .groupBatch：S5-09
-        case .groupBatch: ComingSoonView(title: route.placeholderTitle)
+        case .groupBatch(let groupID, let name, let outcome): GroupBatchResultView(groupID: groupID, name: name, outcome: outcome.value)
         // .groupKeys：S5-12
         case .groupKeys(let groupID): GroupKeysView(groupID: groupID)
         // .groupSubscriptions：S5-12

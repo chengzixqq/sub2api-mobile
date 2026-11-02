@@ -27,9 +27,8 @@ extension AppRouter {
 }
 
 extension AppRouter {
-    /// 0.4.3 查看 → 50 §5 on the current tab: the one way there (S5D2a-08). Until S5-09 the route carries only the group, so the
-    /// page is the placeholder; S5-09 changes only this body to carry the outcome.
+    /// 0.4.3 查看 → 50 §5 on the current tab: the one way there (S5D2a-08); the route carries the outcome (S5-09).
     func showGroupBatch(_ outcome: GroupBatchOutcome) {
-        push(.groupBatch(groupID: outcome.groupID, name: outcome.groupName))
+        push(.groupBatch(groupID: outcome.groupID, name: outcome.groupName, outcome: RoutePreload(outcome)))
     }
 }

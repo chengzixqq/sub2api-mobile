@@ -117,7 +117,8 @@ import Sub2Core
     let routes: [AppRoute] = [
         .alert(id: 1), .account(id: 1), .accountScheduledTests(accountID: 1), .user(id: 1), .userLedger(userID: 1), .userNew,
         .userEdit(id: 1), .analytics(), .analyticsMore(), .analyticsChart(.tokens), .analyticsRank(.model), .analyticsModel(model: "gpt-x"),
-        .logs(LogsRoute()), .request(.usageRequestID("req")), .groups(), .group(id: 1), .groupBatch(groupID: 1, name: "g"),
+        .logs(LogsRoute()), .request(.usageRequestID("req")), .groups(), .group(id: 1),
+        .groupBatch(groupID: 1, name: "g", outcome: RoutePreload(routerBatchOutcome())),
         .groupKeys(groupID: 1), .groupSubscriptions(groupID: 1), .searchResults(kind: .users, query: "a"), .settings(), .sessions,
         .accessTokens, .push, .pushTarget(id: 1), .redeem(), .proxies(), .proxyDetail(id: 1), .proxyFallbackAccounts(proxyID: 1),
         .announcements(), .announcementDetail(id: 1), .announcementReads(announcementID: 1)
@@ -127,6 +128,7 @@ import Sub2Core
     #expect(AppRoute.analyticsModel(model: "gpt-x").placeholderTitle == "gpt-x")
     #expect(AppRoute.searchResults(kind: .proxies, query: "a").placeholderTitle == "代理")
     #expect(AppRoute.logs(LogsRoute()).placeholderTitle == "使用记录")
+    #expect(AppRoute.groupBatch(groupID: 1, name: "g", outcome: RoutePreload(routerBatchOutcome())).placeholderTitle == "逐项结果")
     let sheets: [AppSheet] = [
         .addSite, .accountNew, .accountTest(id: 1), .balanceKeypad(userID: 1, mode: .topup), .groupEdit(id: nil), .groupPick(groupID: 1),
         .redeemEdit(id: 1), .redeemGenerate, .redeemReconcile(batchID: UUID()), .redeemGrant(userID: 1, pendingID: nil), .proxyEdit(id: nil),
@@ -152,4 +154,29 @@ import Sub2Core
     router.push(first)
     guard case .account(_, _, let pushed)? = router.path(for: .accounts).last else { Issue.record("no account route"); return }
     #expect(pushed?.value.name == "a")
+}
+
+/// S5-09: the per-item results page gets the write's outcome with the route, compared by the preload's instance.
+@MainActor @Test func groupBatchRouteCarriesOutcomeByIdentity() {
+    let preload = RoutePreload(routerBatchOutcome())
+    let first = AppRoute.groupBatch(groupID: 5, name: "Claude Code 组", outcome: preload)
+    let second = AppRoute.groupBatch(groupID: 5, name: "Claude Code 组", outcome: preload)
+    #expect(first == second)
+    #expect(first.hashValue == second.hashValue)
+    #expect(Set([first, second]).count == 1)
+    #expect(AppRoute.groupBatch(groupID: 5, name: "Claude Code 组", outcome: RoutePreload(preload.value)) != first)
+    #expect(first.pageStateKeys.isEmpty)
+    let router = AppRouter()
+    router.selectedTab = .search
+    router.push(first)
+    guard case .groupBatch(let id, _, let pushed)? = router.path(for: .search).last else { Issue.record("no batch route"); return }
+    #expect(id == 5)
+    #expect(pushed.value.groupName == "Claude Code 组")
+    #expect(pushed.value.items.map(\.accountID) == [3])
+}
+
+private func routerBatchOutcome() -> GroupBatchOutcome {
+    GroupBatchOutcome(groupID: 5, groupName: "Claude Code 组", items: [
+        GroupBatchItem(accountID: 3, name: "Claude-官方-03", action: .add, result: .failed(.mixedChannel(nil)))
+    ])
 }

@@ -153,10 +153,10 @@ enum AppRoute: Hashable, Sendable {
     case analyticsModel(model: String, source: ModelSource = .requested)
     case logs(LogsRoute)
     case request(RequestRoute)
-    // 50; the batch result gains its items when stage 5 defines them.
+    // 50; .groupBatch carries the member write's outcome and compares by the preload's instance (S5-09).
     case groups(segment: GroupListSegment? = nil)
     case group(id: Int)
-    case groupBatch(groupID: Int, name: String)
+    case groupBatch(groupID: Int, name: String, outcome: RoutePreload<GroupBatchOutcome>)
     case groupKeys(groupID: Int)
     case groupSubscriptions(groupID: Int)
     // 60
