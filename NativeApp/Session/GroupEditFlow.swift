@@ -23,6 +23,8 @@ struct GroupEditContext: Sendable, Equatable {
     let knownGroupIDs: Set<Int>
     /// For the platform's name in the new group's confirmation.
     let catalog: MetaCatalog?
+    /// The server's clock, for the members' states (S5-11).
+    let now: Date
 }
 
 struct GroupEditPrompt: Identifiable, Equatable, Sendable {
@@ -54,7 +56,8 @@ struct GroupEditUnconfirmed: Equatable, Sendable {
     }
 }
 
-/// What the server holds after a write that went through; S5-11 sends the members from here.
+/// What the server holds after a write that went through; the members go out from here (S5-11). Only members changed: the group
+/// as the sheet opened it.
 struct GroupEditSaved: Sendable, Equatable {
     enum Kind: Sendable, Equatable { case created, saved(droppedFields: Bool) }
     let kind: Kind
@@ -64,7 +67,8 @@ struct GroupEditSaved: Sendable, Equatable {
 /// 50 §3.4–§3.5: 创建 / 保存 of the group sheet. A public group with nothing available and a risky edit ask first; the number is
 /// made at the last confirmation, or at the tap without one (R05), and kept for its retries. A refusal stays on the sheet; a
 /// result that may have run is read back once by itself and never sent again by itself (S5D2a-06) — the sheet keeps 核对 and,
-/// with a key, 用同一编号重试. Every way to success ends in `finish(_:)`. Answers for another session are dropped.
+/// with a key, 用同一编号重试. Every way to success ends in `finish(_:)`, which writes the members once the group's own step went
+/// through (S5-11, GroupEditFlow+Members.swift); a change of members only sends no PUT. Answers for another session are dropped.
 @MainActor @Observable
 final class GroupEditFlow {
     enum Phase: Equatable {
@@ -90,7 +94,11 @@ final class GroupEditFlow {
 
     @ObservationIgnored private let source: any GroupEditSource
     @ObservationIgnored private let store: @MainActor () -> (any GroupActionStore)?
-    @ObservationIgnored private let receipts: ReceiptCenter
+    @ObservationIgnored let receipts: ReceiptCenter
+    /// S5-08's one way member writes go out; nil sends no members.
+    @ObservationIgnored let memberWriter: GroupMemberWriter?
+    /// 查看 → the per-item results (S5-09).
+    @ObservationIgnored let openResults: (@MainActor @Sendable (GroupBatchOutcome) -> Void)?
     @ObservationIgnored private let makeKey: @MainActor () -> UUID
     @ObservationIgnored private let deviceNow: @MainActor () -> Date
     @ObservationIgnored private let pause: @Sendable (Duration) async throws -> Void
@@ -99,12 +107,17 @@ final class GroupEditFlow {
     @ObservationIgnored private var pending: GroupWriteDraft?
     @ObservationIgnored private var session: GroupWriteSession?
     @ObservationIgnored private var context: GroupEditContext?
+    /// The members to write after the group's own step, taken at the tap.
+    @ObservationIgnored private var memberPlan: GroupMemberCommitPlan?
+    /// Only members changed: no PUT and no number.
+    @ObservationIgnored private var savesMembersOnly = false
 
     init(original: AdminGroup?, source: any GroupEditSource, store: @escaping @MainActor () -> (any GroupActionStore)?, receipts: ReceiptCenter,
          makeKey: @escaping @MainActor () -> UUID = { UUID() }, deviceNow: @escaping @MainActor () -> Date = { Date() },
-         pause: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }, statsWait: Duration = GroupActions.statsWait) {
+         pause: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }, statsWait: Duration = GroupActions.statsWait,
+         memberWriter: GroupMemberWriter? = nil, openResults: (@MainActor @Sendable (GroupBatchOutcome) -> Void)? = nil) {
         self.original = original; self.source = source; self.store = store; self.receipts = receipts; self.makeKey = makeKey
-        self.deviceNow = deviceNow; self.pause = pause; self.statsWait = statsWait
+        self.deviceNow = deviceNow; self.pause = pause; self.statsWait = statsWait; self.memberWriter = memberWriter; self.openResults = openResults
     }
 
     private var isNew: Bool { original == nil }
@@ -144,8 +157,12 @@ final class GroupEditFlow {
     /// Nothing without a session or with a read-only token. Asks when 3.4 says so (reading the active key count before a disable,
     /// at most `statsWait`); otherwise the number is made now and the write goes out.
     func submit(_ draft: GroupEditDraft, context: GroupEditContext) async {
-        guard !locksForm, !isFinished, let session = source.groupWriteSession, !session.isReadOnlyToken,
-              let intent = try? makeIntent(draft, editable: context.editable) else { return }
+        guard !locksForm, !isFinished, let session = source.groupWriteSession, !session.isReadOnlyToken else { return }
+        let steps = draft.steps(editable: context.editable)
+        memberPlan = steps.sendsMembers ? (try? draft.members.commitPlan()) : nil
+        savesMembersOnly = steps == .membersOnly
+        if savesMembersOnly { return await submitMembers(draft, session: session, context: context) }
+        guard let intent = try? makeIntent(draft, editable: context.editable) else { return }
         phase = .preparing
         guard let identity = try? await source.groupWriteIdentity(), isCurrent(session) else { return settleIfCurrent(session) }
         do {
@@ -169,12 +186,15 @@ final class GroupEditFlow {
     func confirm() {
         guard case .confirming = phase, let session, isCurrent(session) else { return }
         phase = .saving(nil)
-        sending = Task { await self.sendConfirmed(session) }
+        sending = Task {
+            if self.savesMembersOnly { await self.saveMembersOnly() } else { await self.sendConfirmed(session) }
+        }
     }
     /// 取消: nothing is sent and no number was made.
     func cancelConfirmation() {
         guard case .confirming = phase else { return }
         pending = nil
+        memberPlan = nil
         phase = .editing
     }
     /// The form changed after a refusal: back to editing; the next tap makes a new number.
@@ -191,9 +211,10 @@ final class GroupEditFlow {
                               context: GroupEditContext) async -> GroupConfirmation? {
         switch intent {
         case .create(let request):
-            return GroupCopy.createConfirmation(request, siteName: session.siteName, availableAfter: 0, catalog: context.catalog)
+            let available = draft.members.availableAfter(now: context.now) ?? 0
+            return GroupCopy.createConfirmation(request, siteName: session.siteName, availableAfter: available, catalog: context.catalog)
         case .update(let id, let request):
-            guard let diff = draft.diff(request), diff.requiresConfirmation else { return nil }
+            guard let diff = draft.diff(request, now: context.now), diff.requiresConfirmation else { return nil }
             let disabling = request.status == "inactive" && draft.original?.status == "active"
             let stats = disabling ? await statsWithin(id, session: session) : nil
             return diff.confirmation(siteName: session.siteName, activeAPIKeys: stats?.activeAPIKeys)
@@ -203,6 +224,21 @@ final class GroupEditFlow {
         guard var write = pending, let operation = try? write.confirmedOperation(id: makeKey()) else { return settleIfCurrent(session) }
         pending = write
         await send(write.intent, operation: operation, session: session)
+    }
+    /// 3.4 编辑 2–3 with members only: asks only when the group would be left without an available account (S5-11).
+    private func submitMembers(_ draft: GroupEditDraft, session: GroupWriteSession, context: GroupEditContext) async {
+        guard memberPlan != nil, let diff = draft.diff(GroupUpdateRequest(), now: context.now) else { return }
+        self.session = session
+        self.context = context
+        guard diff.requiresConfirmation else {
+            phase = .saving(nil)
+            return await saveMembersOnly()
+        }
+        phase = .confirming(GroupEditPrompt(id: UUID(), confirmation: diff.confirmation(siteName: session.siteName, activeAPIKeys: nil)))
+    }
+    private func saveMembersOnly() async {
+        guard let original, let session, isCurrent(session) else { return }
+        await finish(GroupEditSaved(kind: .saved(droppedFields: false), group: original), wroteGroup: false)
     }
 
     // MARK: - 发送
@@ -214,9 +250,9 @@ final class GroupEditFlow {
             let outcome = try await source.sendGroupWrite(intent, operation: operation, onEvent: handler)
             guard isCurrent(session) else { return }
             switch intent {
-            case .create: finish(GroupEditSaved(kind: .created, group: outcome.value))
+            case .create: await finish(GroupEditSaved(kind: .created, group: outcome.value))
             case .update(_, let request):
-                finish(GroupEditSaved(kind: .saved(droppedFields: GroupEditReconcile.droppedFields(request, response: outcome.value)), group: outcome.value))
+                await finish(GroupEditSaved(kind: .saved(droppedFields: GroupEditReconcile.droppedFields(request, response: outcome.value)), group: outcome.value))
             }
         } catch {
             guard isCurrent(session) else { return }
@@ -274,7 +310,7 @@ final class GroupEditFlow {
         do {
             let fresh = try await source.fetchGroup(id: id)
             guard isCurrent(session) else { return }
-            if GroupEditReconcile.saved(request, server: fresh) { return finish(GroupEditSaved(kind: .saved(droppedFields: false), group: fresh)) }
+            if GroupEditReconcile.saved(request, server: fresh) { return await finish(GroupEditSaved(kind: .saved(droppedFields: false), group: fresh)) }
             notApplied(state, finding: .differs)
         } catch {
             guard isCurrent(session) else { return }
@@ -287,7 +323,7 @@ final class GroupEditFlow {
             let rows = try await source.searchGroups(name: request.name, platform: request.platform)
             guard isCurrent(session) else { return }
             if let found = GroupEditReconcile.created(request, in: rows, knownIDs: context?.knownGroupIDs ?? []) {
-                return finish(GroupEditSaved(kind: .created, group: found))
+                return await finish(GroupEditSaved(kind: .created, group: found))
             }
             notApplied(state, finding: .notFound)
         } catch {
@@ -321,14 +357,24 @@ final class GroupEditFlow {
 
     // MARK: - 完成
 
-    /// The one way out of a write that went through: the list and the directory, the receipt, then the sheet closes.
-    private func finish(_ saved: GroupEditSaved) {
+    /// The one way out of a write that went through: the list and the directory, then the members while the sheet stays busy, one
+    /// receipt (none when the members' answer was for another session), and the sheet closes. `wroteGroup` false: only members.
+    private func finish(_ saved: GroupEditSaved, wroteGroup: Bool = true) async {
         let renames = saved.kind == .created || pendingRenames
+        let plan = memberPlan
         pending = nil
-        let store = store()
-        store?.upsert(saved.group)
-        store?.refreshAfterWrite(directory: renames)
-        receipts.show(Self.receipt(saved))
+        memberPlan = nil
+        if wroteGroup {
+            let store = store()
+            store?.upsert(saved.group)
+            store?.refreshAfterWrite(directory: renames)
+        }
+        var receipt: Receipt? = Self.receipt(saved)
+        if let plan, let memberWriter {
+            phase = .saving(nil)
+            receipt = await memberReceipt(plan, after: saved, writer: memberWriter)
+        }
+        if let receipt { receipts.show(receipt) }
         phase = .editing
         isFinished = true
     }

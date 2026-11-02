@@ -78,10 +78,13 @@ struct GroupEditDestination: View {
 
 /// 50 §3.3–§3.5: the form, 取消 on the left and 创建 / 保存 on the right (greyed until the form passes and has something to send,
 /// a spinner while it writes). With unsaved changes 取消 and a downward swipe ask “放弃修改？”; with the result open (00 §2.5.4)
-/// “结果未确认” instead; a write or its result keeps the sheet up. GroupEditFlow writes and closes the sheet when done.
+/// “结果未确认” instead; a write or its result keeps the sheet up. GroupEditFlow writes and closes the sheet when done. S5-11: the
+/// members section, its 添加账号 page pushed inside the sheet (GroupAccountPicker `.draft`, back to 新建分组 / 编辑分组), and an
+/// edit's members read when it opens.
 struct GroupEditSheet: View {
     let original: AdminGroup?
     @Environment(AppModel.self) private var model
+    @Environment(AppRouter.self) private var router
     @Environment(\.sessionContext) private var session
     @Environment(\.dismiss) private var dismiss
     /// Taken once when the sheet opens, so a list refresh behind it never resets what is typed.
@@ -91,6 +94,8 @@ struct GroupEditSheet: View {
     @State private var catalog: MetaCatalog?
     @State private var confirmingDiscard = false
     @State private var confirmingLater = false
+    @State private var membersLoad: GroupEditMembersLoad?
+    @State private var addingAccounts = false
 
     init(original: AdminGroup?) {
         self.original = original
@@ -106,10 +111,19 @@ struct GroupEditSheet: View {
     private var isBusy: Bool { flow?.isBusy ?? false }
     private var isUnconfirmed: Bool { flow?.isUnconfirmed ?? false }
     private var canSubmit: Bool { flow.map { !$0.locksForm } == true && draft.isSubmittable(takenNames: takenNames, editable: editable) }
+    /// 50 §0.7: hidden for a vendor and simple mode's composite group.
+    private var membersEntry: GroupPermissions.Entry { GroupMemberDraftCopy.membersEntry(permissions, group: original) }
+    /// 0.4.4 without `groups.member_batch` (or after GROUP_REPOSITORY_UNSUPPORTED); never in simple mode, where it does not run.
+    private var showsLegacyNote: Bool { model.groupMemberWriteSession.map { !$0.usesBatch && $0.allowsLegacy } ?? false }
+    private var serverNow: Date { session?.client.serverClock.now() ?? Date() }
 
     var body: some View {
         GroupEditForm(draft: $draft, permissions: permissions, platforms: GroupEditDraft.platformOptions(catalog: catalog), catalog: catalog,
-                      issues: draft.issues(takenNames: takenNames), flow: flow, isLocked: flow?.locksForm ?? false)
+                      issues: draft.issues(takenNames: takenNames), flow: flow, isLocked: flow?.locksForm ?? false, members: membersSection)
+            .navigationDestination(isPresented: $addingAccounts) {
+                GroupAccountPicker(mode: .draft(platform: draft.platform, excluded: draft.members.excludedIDs, onAdd: { draft.members = draft.members.adding($0) }))
+                    .interactiveDismissDisabled(draft.hasUnsavedChanges)
+            }
             .navigationTitle(GroupEditCopy.title(isNew: original == nil))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
@@ -136,6 +150,7 @@ struct GroupEditSheet: View {
                 catalog = await model.metaCatalog()
                 await store?.loadIfNeeded()
             }
+            .task(id: session?.generation) { await loadMembers() }
             .onChange(of: draft) { _, _ in flow?.draftChanged() }
             .onChange(of: flow?.isFinished) { _, finished in if finished == true { dismiss() } }
             .onChange(of: model.sessionGeneration) { _, _ in dismiss() }
@@ -173,21 +188,40 @@ struct GroupEditSheet: View {
     private func submit() {
         guard let flow, canSubmit else { return }
         let snapshot = draft
-        let context = GroupEditContext(editable: editable, knownGroupIDs: Set(store?.groups.map(\.id) ?? []), catalog: catalog)
+        let context = GroupEditContext(editable: editable, knownGroupIDs: Set(store?.groups.map(\.id) ?? []), catalog: catalog, now: serverNow)
         Task { await flow.submit(snapshot, context: context) }
     }
     /// One flow per session; answers of an older one are dropped.
     private func prepare() {
         guard let session, session.generation == model.sessionGeneration, flowGeneration != session.generation else { return }
-        flow = GroupEditFlow(model: model, original: original)
+        flow = GroupEditFlow(model: model, router: router, original: original)
         flowGeneration = session.generation
+    }
+
+    // MARK: - 成员账号（S5-11）
+
+    @ViewBuilder private var membersSection: some View {
+        if membersEntry.isShown {
+            GroupEditMembersSection(draft: $draft, load: membersLoad?.state, catalog: catalog, showsLegacyNote: showsLegacyNote,
+                                    onAdd: { addingAccounts = true }, onRetry: { Task { await loadMembers() } })
+        }
+    }
+    /// An edit's members, once; a failure keeps 成员加载失败 · 重试 and the fields can still be saved.
+    private func loadMembers() async {
+        guard let original, membersEntry.isShown, !draft.members.isLoaded, session?.generation == model.sessionGeneration else { return }
+        let load = membersLoad ?? GroupEditMembersLoad(model: model, groupID: original.id)
+        membersLoad = load
+        await load.load()
+        if let list = load.state.value { draft.membersLoaded(list.rows) }
     }
 }
 
 extension GroupEditFlow {
-    /// Writes through AppGroupEditSource into the session's GroupStore; receipts on the App's center.
-    convenience init(model: AppModel, original: AdminGroup?) {
-        self.init(original: original, source: AppGroupEditSource(model: model), store: { [weak model] in model?.groupStore }, receipts: model.receipts)
+    /// Writes through AppGroupEditSource into the session's GroupStore and the members through GroupMemberWriter; receipts on the
+    /// App's center, 查看 on the current tab (S5D2a-08).
+    convenience init(model: AppModel, router: AppRouter, original: AdminGroup?) {
+        self.init(original: original, source: AppGroupEditSource(model: model), store: { [weak model] in model?.groupStore }, receipts: model.receipts,
+                  memberWriter: GroupMemberWriter(model: model, router: router), openResults: { [weak router] in router?.showGroupBatch($0) })
     }
 }
 

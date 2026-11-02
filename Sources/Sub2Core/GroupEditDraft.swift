@@ -46,7 +46,10 @@ public struct GroupEditDraft: Sendable, Equatable {
     public let original: AdminGroup?
     public var name: String
     public var description: String
-    public var platform: String
+    /// A new group's other platform drops the accounts picked so far (3.3).
+    public var platform: String {
+        didSet { if isNew, platform != oldValue { members = members.resetting(platform: platform) } }
+    }
     public var isActive: Bool
     public var isExclusive: Bool
     public var rateText: String
@@ -57,6 +60,8 @@ public struct GroupEditDraft: Sendable, Equatable {
     public var dailyLimit: String
     public var weeklyLimit: String
     public var monthlyLimit: String
+    /// 成员账号 N (S5-11): none for a new group; an edit's arrive with `membersLoaded`.
+    public var members: GroupMemberDraft
 
     /// 3.2: name and description blank, Anthropic, active, public, ×1.0, standard billing, no RPM limit, no subscription limits.
     public static func creating() -> GroupEditDraft {
@@ -75,7 +80,10 @@ public struct GroupEditDraft: Sendable, Equatable {
         self.original = original; self.name = name; self.description = description; self.platform = platform; self.isActive = isActive
         self.isExclusive = isExclusive; self.rateText = rateText; self.subscriptionType = subscriptionType; self.rpmText = rpmText
         self.dailyLimit = dailyLimit; self.weeklyLimit = weeklyLimit; self.monthlyLimit = monthlyLimit
+        members = original == nil ? .new(platform: platform) : .pending(platform: platform)
     }
+    /// The edit's members as the detail reads them; once only.
+    public mutating func membersLoaded(_ accounts: [UpstreamAccount]) { members = members.loaded(accounts) }
 
     public var isNew: Bool { original == nil }
     public var isSubscription: Bool { subscriptionType == "subscription" }
@@ -98,7 +106,13 @@ public struct GroupEditDraft: Sendable, Equatable {
     }
     /// What the sheet opened with.
     private var opening: GroupEditDraft { original.map(GroupEditDraft.init(editing:)) ?? .creating() }
-    public var hasUnsavedChanges: Bool { self != opening }
+    /// The members read after opening are not a change; joining or leaving is.
+    public var hasUnsavedChanges: Bool {
+        let start = opening
+        var fields = self
+        fields.members = start.members
+        return fields != start || members.hasChanges
+    }
 
     // MARK: - 校验
 
@@ -121,13 +135,22 @@ public struct GroupEditDraft: Sendable, Equatable {
         }
         return found
     }
-    /// No issue, and something to send: always for a new group, an edit only with a change it may make.
+    /// No issue, and something to send: always for a new group, an edit only with a change it may make or a member change.
     public func isSubmittable(takenNames: Set<String>, editable: Set<GroupPermissions.Field>) -> Bool {
         guard issues(takenNames: takenNames).isEmpty else { return false }
-        return isNew ? (try? createRequest()) != nil : hasFieldChanges(editable: editable)
+        return isNew ? (try? createRequest()) != nil : hasFieldChanges(editable: editable) || members.hasChanges
     }
     public func hasFieldChanges(editable: Set<GroupPermissions.Field>) -> Bool {
         ((try? updateRequest(editable: editable)) ?? nil) != nil
+    }
+    public func steps(editable: Set<GroupPermissions.Field>) -> GroupEditSteps {
+        .resolve(isNew: isNew, hasFieldChanges: hasFieldChanges(editable: editable), hasMemberChanges: members.hasChanges)
+    }
+    /// 3.3 成员账号 N 的脚注; nil until an edit's members are read. “分组正常” is the state after saving.
+    public func membersFootnote(now: Date) -> GroupMemberFootnote? {
+        guard let after = members.availableAfter(now: now) else { return nil }
+        return GroupMemberDraftCopy.footnote(isNew: isNew, isPublic: !isExclusive, isActiveAfterSave: isActive, count: members.count, availableAfter: after,
+                                             availableNow: members.availableNow(now: now))
     }
     private func nameIssue(takenNames: Set<String>) -> GroupEditIssue? {
         let trimmed = trimmedName
@@ -192,9 +215,13 @@ public struct GroupEditDraft: Sendable, Equatable {
         try request.validate()
         return request
     }
-    /// 编辑确认 (S5-02); nil for a new group.
-    public func diff(_ request: GroupUpdateRequest) -> GroupEditDiff? {
-        original.map { GroupEditDiff(original: $0, update: request) }
+    /// 编辑确认 (S5-02) with the members' line and, once they are read, the zeroing check (S5-11); nil for a new group. An edit of
+    /// members only passes an empty request.
+    public func diff(_ request: GroupUpdateRequest, now: Date) -> GroupEditDiff? {
+        original.map {
+            GroupEditDiff(original: $0, update: request, membersAdded: members.addedCount, membersRemoved: members.removedCount,
+                          availableNow: members.availableNow(now: now), availableAfter: members.availableAfter(now: now))
+        }
     }
     private func addLimitChanges(to request: inout GroupUpdateRequest, from start: GroupEditDraft, original: AdminGroup) throws {
         let current: [GroupLimitPeriod: Decimal?] = [.daily: original.dailyLimitUSD, .weekly: original.weeklyLimitUSD, .monthly: original.monthlyLimitUSD]

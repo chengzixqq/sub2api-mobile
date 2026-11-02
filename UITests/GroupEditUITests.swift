@@ -395,4 +395,177 @@ final class GroupEditUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
     }
+
+    // MARK: - 成员账号（S5-11）
+
+    /// 3.4 新建 3–4: three accounts picked inside the sheet; `-ui-group-batch-partial` fails 3 (missing) and 1 (mixed channels).
+    @MainActor func testCreatingNightGroupWithThreeAccountsShowsPartialFailureThenResults() {
+        launchAndOpenGroups(arguments: [MemberFixture.batchPartial])
+        defer { diagnostics("group-edit-members-create-final") }
+        openCreate()
+        set("Claude 夜间组", field: "group-edit.name", towardBottom: false)
+        let footnote = element("group-edit.members.footnote")
+        reveal(footnote)
+        XCTAssertEqual(footnote.label, "公开分组没有可用账号时，选它的请求会失败。可以现在添加，也可以创建后在详情里添加。")
+        openAddAccounts(titled: "添加 Anthropic 账号…")
+        pick([1, 2, 3])
+        for id in [1, 2, 3] {
+            let state = memberState(id)
+            reveal(state)
+            XCTAssertEqual(state.label, "新加入", "\(id)\n\(app.debugDescription)")
+        }
+        let header = element("group-edit.members.header")
+        reveal(header, towardBottom: false)
+        XCTAssertEqual(header.label, "成员账号 3")
+        reveal(footnote)
+        XCTAssertTrue(footnote.poll(NSPredicate(format: "label == %@", "创建后可用 2 / 3"), timeout: 5), footnote.label)
+        submit()
+        waitForReceipt("已创建「Claude 夜间组」 · 已加入 1 个，2 个失败")
+        tapReceiptAction("查看")
+        XCTAssertTrue(app.navigationBars["逐项结果"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("group.batch.card.failed").label.contains("2 个失败"), app.debugDescription)
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+    }
+
+    /// 3.4 编辑 2–4: two members taken out and the rate raised — one confirmation with both, PUT first, then the members.
+    @MainActor func testEditingPremiumGroupRemovingTwoMembersConfirmsTheMemberLine() {
+        launchAndOpenGroups()
+        defer { diagnostics("group-edit-members-edit-final") }
+        editRow(1)
+        let limited = memberState(3)
+        reveal(limited)
+        XCTAssertTrue(limited.label.contains("限流"), limited.label)
+        XCTAssertEqual(memberState(1).label, "可调度")
+        XCTAssertEqual(memberState(2).label, "可调度")
+        removeMember(2)
+        removeMember(3)
+        let removed = element("group-edit.members.removed")
+        XCTAssertTrue(removed.waitForExistence(timeout: 5), app.debugDescription)
+        // The members' order: the server sorts by urgency, the rate-limited 03 first.
+        XCTAssertEqual(removed.label, "将移出：Claude-官方-03、Claude-官方-02")
+        let footnote = element("group-edit.members.footnote")
+        reveal(footnote)
+        XCTAssertEqual(footnote.label, "保存后可用 1 / 1（现在 2）")
+        let rate = element("group-edit.rate")
+        reveal(rate, towardBottom: false)
+        app.buttons["group-edit.rate.increment"].tap()
+        XCTAssertTrue(rate.poll(NSPredicate(format: "value == %@", "0.9"), timeout: 5), app.debugDescription)
+        submit()
+        let alert = app.alerts["保存「高级组」的修改？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        for line in ["费率倍数 ×0.8 → ×0.9", "成员：移出 2 个"] {
+            XCTAssertTrue(alertText(alert, containing: line).exists, "\(line)\n\(app.debugDescription)")
+        }
+        alert.buttons["保存修改"].tap()
+        waitForReceipt("已保存「高级组」 · 已移出 2 个账号 · 可用 2 → 1")
+        XCTAssertTrue(element("group-edit.name").waitForNonExistence(timeout: 10), app.debugDescription)
+        let premium = row(1)
+        app.scrollUntilExists(premium)
+        premium.tap()
+        XCTAssertTrue(app.buttons["group.member.1"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["group.member.2"].exists || app.buttons["group.member.3"].exists, app.debugDescription)
+    }
+
+    /// 3.3 新建改平台时清空已选成员.
+    @MainActor func testChangingPlatformClearsPickedAccounts() {
+        launchAndOpenGroups()
+        defer { diagnostics("group-edit-members-platform-final") }
+        openCreate()
+        openAddAccounts(titled: "添加 Anthropic 账号…")
+        pick([1])
+        XCTAssertEqual(memberState(1).label, "新加入")
+        let footnote = element("group-edit.members.footnote")
+        reveal(footnote)
+        XCTAssertEqual(footnote.label, "创建后可用 1 / 1")
+        let platform = element("group-edit.platform")
+        reveal(platform, towardBottom: false)
+        platform.tap()
+        let openAI = app.buttons.matching(NSPredicate(format: "label == %@", "OpenAI")).firstMatch
+        XCTAssertTrue(openAI.waitForExistence(timeout: 5), app.debugDescription)
+        openAI.tap()
+        XCTAssertTrue(element("group-edit.member.1").waitForNonExistence(timeout: 5), app.debugDescription)
+        let add = element("group-edit.members.add")
+        reveal(add)
+        XCTAssertEqual(element("group-edit.members.header").label, "成员账号 0")
+        reveal(footnote)
+        XCTAssertEqual(footnote.label, "公开分组没有可用账号时，选它的请求会失败。可以现在添加，也可以创建后在详情里添加。")
+        XCTAssertEqual(add.label, "添加 OpenAI 账号…")
+    }
+
+    /// 3.4 编辑 2: leaving the active group without an available account asks with the destructive 仍然保存, even for members only.
+    @MainActor func testRemovingEveryAvailableMemberAsksBeforeSaving() {
+        launchAndOpenGroups()
+        defer { diagnostics("group-edit-members-empty-final") }
+        editRow(1)
+        reveal(memberState(1))
+        removeMember(1)
+        removeMember(2)
+        let footnote = element("group-edit.members.footnote")
+        reveal(footnote)
+        XCTAssertTrue(footnote.poll(NSPredicate(format: "label == %@", "保存后可用 0 / 1（现在 2）"), timeout: 5), footnote.label)
+        submit()
+        let alert = app.alerts["保存「高级组」的修改？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        for line in ["成员：移出 2 个", "保存后这个分组没有可用的账号，新请求会失败。"] {
+            XCTAssertTrue(alertText(alert, containing: line).exists, "\(line)\n\(app.debugDescription)")
+        }
+        XCTAssertFalse(alert.buttons["保存修改"].exists, app.debugDescription)
+        alert.buttons["仍然保存"].tap()
+        waitForReceipt("已保存「高级组」 · 已移出 2 个账号 · 可用 2 → 0")
+    }
+
+    /// 0.4.4: without `groups.member_batch` the section says the members go one by one; members only save without a PUT or a
+    /// confirmation, and the fallback brings no counts back.
+    @MainActor func testLegacyServerShowsFallbackNoteAndSavesMembersOnly() {
+        launchAndOpenGroups(arguments: [MemberFixture.withoutCapabilities, "groups.member_batch"])
+        defer { diagnostics("group-edit-members-legacy-final") }
+        editRow(1)
+        let notice = element("group-edit.members.legacy")
+        reveal(notice)
+        XCTAssertEqual(notice.label, "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改。")
+        reveal(memberState(3), towardBottom: false)
+        removeMember(3)
+        submit()
+        waitForReceipt("已保存「高级组」 · 已移出 1 个账号")
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+    }
+
+    private enum MemberFixture {
+        static let batchPartial = "-ui-group-batch-partial"
+        static let withoutCapabilities = "-ui-without-capabilities"
+    }
+    /// The members section's 添加 row → 添加账号 inside the sheet.
+    @MainActor private func openAddAccounts(titled title: String) {
+        let add = element("group-edit.members.add")
+        reveal(add)
+        XCTAssertEqual(add.label, title)
+        add.tap()
+        XCTAssertTrue(app.navigationBars["添加账号"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+    /// Picks in this order, then 添加 N back to the form.
+    @MainActor private func pick(_ ids: [Int]) {
+        for id in ids {
+            let row = app.buttons["group.pick.\(id)"]
+            XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+            row.tap()
+        }
+        let add = app.buttons["group.pick.add"]
+        XCTAssertTrue(add.poll(NSPredicate(format: "label == %@", "添加 \(ids.count)"), timeout: 5), app.debugDescription)
+        add.tap()
+        XCTAssertTrue(app.navigationBars["添加账号"].waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(memberState(ids[0]).waitForExistence(timeout: 5), app.debugDescription)
+    }
+    @MainActor private func memberState(_ id: Int) -> XCUIElement { element("group-edit.member.\(id).state") }
+    @MainActor private func removeMember(_ id: Int) {
+        let button = app.buttons["group-edit.member.\(id).remove"]
+        reveal(button)
+        button.tap()
+        XCTAssertTrue(element("group-edit.member.\(id)").waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+    /// Right after the receipt shows: it is up for 4.2 seconds.
+    @MainActor private func tapReceiptAction(_ title: String) {
+        let action = app.buttons["receipt.action"]
+        XCTAssertTrue(action.poll(NSPredicate(format: "label == %@", title), timeout: 3), app.debugDescription)
+        action.tap()
+    }
 }
