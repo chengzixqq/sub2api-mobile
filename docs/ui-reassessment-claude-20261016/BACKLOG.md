@@ -624,6 +624,21 @@
 | 分组编辑 sheet 超过 2000 个成员 | 编辑 sheet 打开时按详情同一查询最多读 20 页（2000 个），超出的成员不显示，也不计入“保存后可用 x / n”和归零判断 |
 | 添加账号页超过 200 个候选的翻页 | GroupAccountPicker（直接打开与编辑 sheet 内子页同一实现）只读第 1 页 200 个候选，更多候选只能靠搜索找到 |
 | 编辑 sheet 结果不明后“稍后核对”丢弃成员改动 | 分组写结果不明时用户选“稍后核对”关闭 sheet，本次的成员加减不发送也不提示，需要到详情里重新调整；是否要在关闭确认里写明，待定 |
+| 路由参数在旧页面上不生效 | （补充已有行）阶段 5 部分已处理：.groups 的 segment（S5-04）与 .groupBatch 的结果（S5-09）已生效；.group(id:) 由首页“可用不足 1 个分组”与告警范围区推入新详情，有 UI 用例（GroupDetailUITests.testHomeShortGroupRowOpensGroupDetail / testAlertScopeGroupRowOpensGroupDetail）；N>1 时推 .groups(segment: .attention)，由 AttentionItemsTests / HomeDestinationActionTests 证明 |
+| 跨 Tab 跳转撤不掉视图式推入的页面 | （补充已有行）阶段 5 部分已处理：grep Features/Groups，没有推入 Tab path 的 NavigationLink { 目的视图 } / NavigationLink(destination:)；唯一一处 navigationDestination(isPresented:) 在编辑 sheet 自带的 NavigationStack 里（内嵌添加账号页）；AccountsView 的 navigationDestination(item:) 与 init(initialGroupID:) 已由 S5-13 删除 |
+| 渠道行点进旧分组详情 | 已处理：S5-06 起 .group(id:) 落到新详情，新夹具 id 1–11 与渠道夹具一致，可关闭 |
+| AccountsView 手写 composite 过滤改用 GroupPlatform.concrete | 已处理：AccountsView.swift 已没有 values.filter / != "composite"（S2-04 重写时去掉），可关闭 |
+| 分组页旧夹具与账号夹具的分组 id 不一致 | 已处理：GroupsView 旧夹具随 S5-10 删除，-ui-account-group-transition（AccountFixture.groupTransition、joiningGroupTen）由 S5-13 删除，可关闭 |
+| status-summary 分组 shortage 的数值单位 | （补充已有行）分组页只用 is_short，不显示 threshold / current，阶段 5 部分不需要按来源格式化 |
+| 简易模式组合分组详情的整页文案 | 从告警、渠道或请求详情推入组合分组详情时，简易模式服务端回 400 SIMPLE_MODE_GROUP_NOT_BINDABLE，详情按读取失败页显示固定文案、可手动重试；是否给专门的整页文案待用户定 |
+| 简易模式详情与按钮行的默认取舍 | 贰只留“请求 · Tokens · 账号成本”，肆只留描述与 Web 行，停用分组按钮行只剩“编辑分组”且不提升为主按钮，新建脚注只写“平台创建后不能修改。”（S5D2a-13，需要用户拍板第 7 条） |
+| 简易模式新建请求体仍带默认计费字段 | GroupCreateRequest 总会编码 rate_multiplier / is_exclusive / subscription_type / rpm_limit / 三档限额，后端 sanitizeCreateGroupRequestForSimpleMode 覆盖为同样的默认值；要严格只发名称、描述、平台，需另立条目给 GroupCreateRequest 加简易模式编码 |
+| 简易模式夹具没有组合分组 | 夹具 11 个分组都不是组合分组（X11），SIMPLE_MODE_GROUP_NOT_BINDABLE 用 -ui-group-simple-unbindable 在 Codex 专线上验证；组合分组在简易模式隐藏“添加账号”只有 GroupPermissionsTests 单测 |
+| vendor 视角的分组页没有 UI 夹具 | U01 首版拒绝 vendor 登录，GroupPermissions 的 vendor 分支（U37）只有单测；放开 vendor 登录时补夹具与 UI 用例 |
+| 成员批量写入不过 Face ID | S5-13 核查：GroupMemberWriter、GroupBatchResult*、GroupEdit* 都不调 BiometricGate，删除仍经 DeleteConfirmationSheet → BiometricGate.authorize(.delete)；如用户要求验证，三处一起加（需要用户拍板第 9 条） |
+| 阶段 5 BACKLOG 重复行 | “订阅限额 0 的语义”（S5-12）与“订阅限额 0 的含义待后端确认”（S5-10）是同一件事（需要用户拍板第 14 条）；“添加账号页超过 200 个候选不翻页”（S5-08）与“添加账号页超过 200 个候选的翻页”（S5-11）也重复；集成者可各合并为一行 |
+| 只读令牌下右滑列表行会触发返回 | 分组列表行在只读令牌下没有滑动操作（C-1），iOS 26 把行上的右滑当作导航返回手势，页面退回搜索目录；账号列表等其他不给滑动操作的列表同理。是否要拦截（例如给行加空的 leading swipeActions）待定 |
+| 简易模式且无 groups.member_batch 的站点，成员入口仍可编辑 | 这类站点上编辑 sheet 的成员区和详情页的加入 / 移出照常可点，但成员写入一定被拒（“服务器暂不支持批量调整成员。”）。S5-11 审查修正后，只改成员保存会留在 sheet 显示红字；是否在这类站点把成员入口置灰或隐藏，待定。 |
 
 ### App 与设计 · 阶段 6
 
