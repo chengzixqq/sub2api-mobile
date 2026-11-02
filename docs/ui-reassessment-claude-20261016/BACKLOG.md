@@ -717,3 +717,27 @@
 | 推送两个 sheet 的下滑关闭确认 | PushTargetSheet / APNsConfigSheet 有输入时只禁用下滑关闭、不弹“放弃修改？”；等 S6-26 的共用 DismissAttemptBridge 合入后接上 |
 | 推送 sheet 的 App 切换器遮挡真机验收 | 打开添加接收方式 / 站点 APNs 配置 sheet 并填写后切到后台，App 切换器里看不到地址、Key、私钥（S6D2b-10，UI 测试查不了，并入 S6-23 真机验收清单） |
 | Bark 推送地址自动拆分与 ntfy 公开主题提示 | 粘贴 https://api.day.app/<Key>/… 时自动拆出服务器与设备 Key，以及 ntfy.sh 公开主题的安全提示；规格未列，暂不做 |
+| 让其他设备下线可能连本机一起下线（改原行） | 已由 S6-01 处理（SessionsUITests.testRevokingAllWithLegacySessionSignsThisDeviceOut），结案。 |
+| 登录设备名（改原行） | 阶段 6 没改，仍发 UIDevice.current.name。需要用户拍板：申请 user-assigned-device-name 权限，或改为“机型 + 用户自定义名称”。这不是实机验收项。 |
+| 推送登记要等待该站点的收尾结束（改原行） | 已由 S6-23 处理：SiteTeardownTracker 按规范化地址等待（PushCoordinatorTests.connectWaitsForTeardownOfSameAddress、teardownTrackerWaitsForSameAddressOnly）。S6-26 已核对，并补 registrationWaitsForTheTeardownOfAnotherSiteIDAtTheSameAddress。结案。 |
+| 待核对门控跨站点 id（改原行 :192 / :408 / :471） | 阶段 6 部分已处理（兑换码横幅与核对页、补偿 sheet 与打开前拦截），S6-26 已逐处复核，对照表与测试名见阶段 6 小结。站点列表和登录页根视图由 S6-26 补齐（81657e4）。本行结案，站点菜单另记一行。 |
+| 资金写待核对的界面与回前台自动核对（改原行 :189 / :288 / :473 / :547） | 全部完成。三类记录在概览、设置、用户详情和兑换码横幅都有入口；回到前台只核对余额和补偿，不核对批次（60 §11.6，CompensationForegroundUITests.testForegroundCheckCoversSameAddressOldLoginOnly）。结案。 |
+| 余额发送登记 MoneyWriteInFlight（改原行 :545） | 已由 S6-26 处理（S6D2a-06，32c0cee）：updateBalance 登记发送中，重试遇到 Busy 时说“这笔正在发送，请稍候”。 |
+| 读类 POST 的安全重发（改原行 :199 / :420 / :472） | 已收口。00 §2.4 的批量读和 reveal 显式为读；阶段 6 的代理测试与质量检测、推送测试、check-mixed-channel 显式为 unkeyedWrite（只发一次）。check-mixed-channel 语义是读，但 00 §2.4 的读列表里没有它，请规格维护时写明。 |
+| 搜索 Tab 在实机上的样子（改原行 :201） | S6-26 没有实机，未实机验证，行保留。 |
+| 用户详情分区头 meta（改原行 :429） | 已由 S6-26 处理：换成 NumberedSectionHeader 的 meta 版（32c0cee）。 |
+| 有待核对记录的站点重新登录会多出一个同名站点（改原行 :475） | 阶段 6 部分已由 S6-26 处理：设置站点列表把这种行标为“旧登录”，点按改去同地址的站点（当前站点 ＞ 有凭据的 ＞ 能复用 id 的）；登录页根视图列出三类记录，记录所在地址有已保存站点的给“登录「X」后核对”，只有地址不在站点列表里才“打开原站点核对”。文案是自拟的，待用户看截图；站点菜单没改，见“站点菜单里的同地址旧登录”。 |
+| 站点菜单里的同地址旧登录（新增） | 概览和账号标题的站点菜单仍能选中凭据已清除的旧登录，打开它的登录页后会按 D17 再新建一个站点 id。需要用户拍板；建议在 AppModel.switchTo 里统一改去同地址的站点，站点菜单和设置页一起生效。 |
+| 请求详情日期格式归属（改原行 :494） | 已由 S6-26 处理：副标题和“已处理”小字改为转调 DisplayFormat，月日补零，跨年加年份。 |
+| 合并下滑先确认的 UIKit 桥（改原行 :573） | 已由 S6-26 处理（NativeApp/Views/DismissAttemptBridge.swift，contracts.md C-40，645089f）。 |
+| 代理有效期日期改用 monthDayClock（改原行 :574） | 结论：按 60 §12.3 / §13.3 / §14.3 的写法保留“MM/DD”和“yyyy-MM-dd”，不改。 |
+| 公告编辑 sheet 结果未确认时仍可关闭（改原行 :577） | 已由 S6-26 处理（81657e4）：取消和下滑都先问“结果未确认”，稍后核对让列表重读。文案是自拟的。 |
+| 兑换码列表入口的 UI 测试（改原行 :542） | 已处理：补偿回执入口已由 RedeemGrantUITests.testBalanceGrantFromUserDetail 覆盖，概览待处理行入口补 RedeemReconcileUITests.testOverviewRowOpensTheCheckHighlighted。-ui-redeem-open / -ui-redeem-reconcile 两个参数保留，因为“定位不到 9999”“读取失败”“429”“横幅高亮”这四条状态用例只能靠它们进入。 |
+| 保留四行（:479 / :524 / :541 / :572） | 缺失值读屏（用户章其余位置）、“刷新失败 · 重试”横幅收口、筛选胶囊样式重复、待核对页重试的 Face ID 覆盖层，本条都不做。理由依次是：不在收口裁定里、纯重构、纯重构、交互变化要等用户。 |
+| 服务器日历整天数有三份实现（新增） | AccessTokens.daysLeft、ProxyExpiry.days、RedeemPresentation.daysUntil 算法相同，以后统一成 ServerTimeZone 上的一个函数（S5-12 方案的观察）。 |
+| 全局搜索的两处显示细节待确认（新增） | “查看全部 N 个”不带“›”；不足 2 个字符时提示“至少输入 2 个字符”（S6D2b-02）。默认如此，用户可以推翻。 |
+| 按 run_id 只读的测试结果 sheet（新增） | 默认不做，等用户决定。 |
+| 停用设备的恢复文案（新增） | 默认照抄规格，待定。 |
+| “可在 Web 删除”的提示（新增） | 默认照规格原文（S6D2b-12），用户同意前不改。 |
+| 推送真机验收（新增） | 以下几项都没有在真机上验收：真实 APNs 令牌的登记、冷启动和后台时点按通知、Release 不带 environment（代码核对过：APNS_SANDBOX 只在 Debug）、App 切换器里遮住敏感输入（S6D2b-10）。 |
+| UITests/AnalyticsUITests.swift 超过 800 行（新增） | 现在 830 行，阶段 4 的文件、不在 S6-26 范围。以后改它的条目按类末尾拆分出扩展文件。 |
