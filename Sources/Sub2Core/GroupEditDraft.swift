@@ -170,12 +170,12 @@ public struct GroupEditDraft: Sendable, Equatable {
         return request
     }
     /// 3.4 编辑 1: only fields changed and in `editable`; never platform or billing type. A limit cleared goes as null. nil when
-    /// there is nothing to send.
+    /// there is nothing to send. A name goes only once typed in: the server keeps outer spaces, so an untouched one is not trimmed.
     public func updateRequest(editable: Set<GroupPermissions.Field>) throws -> GroupUpdateRequest? {
         guard let original else { return nil }
         let start = opening
         var request = GroupUpdateRequest()
-        if editable.contains(.name), trimmedName != original.name { request.name = trimmedName }
+        if editable.contains(.name), name != start.name, trimmedName != original.name { request.name = trimmedName }
         if editable.contains(.description), description != (original.description ?? "") { request.description = description }
         if editable.contains(.exclusive), isExclusive != (original.isExclusive ?? false) { request.isExclusive = isExclusive }
         if editable.contains(.status), isActive != (original.status == "active") { request.status = isActive ? "active" : "inactive" }

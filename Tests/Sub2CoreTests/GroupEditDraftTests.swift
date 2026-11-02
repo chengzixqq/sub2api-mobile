@@ -202,6 +202,18 @@ private func named(_ name: String) -> GroupEditDraft {
     #expect(named("新分组").isSubmittable(takenNames: [], editable: everyField))
 }
 
+/// The Web and the server keep outer spaces, so a stored "高级组 " must not be renamed by an edit that left the name alone.
+@Test func anUntouchedNameWithOuterSpacesIsNotSent() throws {
+    var padded = premium
+    padded.name = "高级组 "
+    #expect(try sent(editing(padded) { _ in }) == nil)
+    #expect(!GroupEditDraft(editing: padded).isSubmittable(takenNames: ["高级组"], editable: everyField))
+    #expect(try sent(editing(padded) { $0.description = "夜间备用" }) == #"{"description":"夜间备用"}"#)
+    let trimmed = editing(padded) { $0.name = "高级组" }
+    #expect(try sent(trimmed) == #"{"name":"高级组"}"#)
+    #expect(trimmed.issues(takenNames: ["高级组"]) == [.nameTaken])
+}
+
 @Test func unsavedChangesCompareWithTheOpeningValues() {
     #expect(!GroupEditDraft.creating().hasUnsavedChanges)
     #expect(named("x").hasUnsavedChanges)
