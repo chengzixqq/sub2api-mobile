@@ -111,3 +111,27 @@ extension AppModel {
         try? await reloadSiteSession()
     }
 }
+
+// MARK: - 运维图表读取（S4-18）
+
+extension AnalyticsSession {
+    /// 40 §2.2: the ops charts but RPM / TPM read the page range, its end not rounded.
+    var opsRangeQuery: OpsQuery { opsQuery(start: range.start, end: range.end) }
+
+    /// An ops chart's read (S4D2b-06): nothing goes out while ops monitoring is off (00 §0.3); a new answer is reported, a success
+    /// as nil and a failure with its error, so a 404 OPS_DISABLED turns ops off (and reads admin/me again).
+    func loadOps<Value: Sendable>(_ key: AnalyticsCardKey, refresh: Bool = false, model: AppModel,
+                                  fixture: @escaping @MainActor @Sendable (AnalyticsSessionState) async throws -> Value,
+                                  operation: @escaping @MainActor @Sendable (APIClient, AnalyticsSessionState) async throws -> Value) async {
+        guard !model.analyticsOpsDisabled else { return }
+        let before = state(key, as: Value.self)
+        let succeededAt = before?.updatedAt, failedAt = before?.lastErrorAt
+        await load(key, refresh: refresh, fixture: fixture, operation: operation)
+        guard let after = state(key, as: Value.self) else { return }
+        if after.lastErrorAt != failedAt, let error = after.lastError {
+            await model.recordAnalyticsOpsResponse(error)
+        } else if after.updatedAt != succeededAt, after.value != nil, after.lastErrorAt == nil {
+            await model.recordAnalyticsOpsResponse(nil)
+        }
+    }
+}

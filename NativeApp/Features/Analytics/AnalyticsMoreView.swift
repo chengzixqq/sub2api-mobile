@@ -210,7 +210,7 @@ private struct AnalyticsMoreChartCard: View {
         }
     }
 
-    /// The ops charts come with S4-18 / S4-18b; each replaces its own case.
+    /// 错误分布 and Token 请求统计 come with S4-18b; each replaces its own case.
     @ViewBuilder private var chartBody: some View {
         switch chart {
         case .billing: AnalyticsBillingBody(size: .card)
@@ -219,6 +219,10 @@ private struct AnalyticsMoreChartCard: View {
         case .userTrend: UserTrendBody(size: .card)
         case .endpoints: EndpointShareBody(size: .card)
         case .reqType: RequestTypeBody(size: .card)
+        case .perf: OpsPerfBody(size: .card)
+        case .accountSwitch: OpsSwitchBody(size: .card)
+        case .latency: OpsLatencyBody(size: .card)
+        case .errTrend: OpsErrorTrendBody(size: .card)
         default:
             Text("这张图会在后续版本提供。").font(.subheadline).foregroundStyle(Palette.ink2)
                 .frame(maxWidth: .infinity, minHeight: 88)
@@ -227,8 +231,8 @@ private struct AnalyticsMoreChartCard: View {
     }
 }
 
-/// 40 §2.5 运行 while ops monitoring is off: one card with OpsDisabledNotice (S4-18's AnalyticsOpsTopic shows it too). Identifier
-/// analytics.more.ops.off.
+/// 40 §2.5 运行 while ops monitoring is off (admin/me, or a 404 OPS_DISABLED an ops chart reported): one card with OpsDisabledNotice.
+/// Identifier analytics.more.ops.off.
 struct AnalyticsOpsOffCard: View {
     var body: some View {
         VStack(spacing: 0) { OpsDisabledNotice(style: .emptyState) }

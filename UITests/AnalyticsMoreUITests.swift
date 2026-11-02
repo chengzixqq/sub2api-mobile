@@ -337,4 +337,96 @@ final class AnalyticsMoreUITests: XCTestCase {
         app.scrollUntilExists(nova)
         app.waitForLabel(nova, containing: "24.8M")
     }
+
+    // MARK: 运行主题（40 §2.3、§2.5，S4-18）
+
+    private enum OpsArgument {
+        /// admin/me says ops monitoring is on, yet every ops chart answers 404 OPS_DISABLED (AnalyticsFixtures.opsGoneArgument).
+        static let gone = "-ui-analytics-ops-gone"
+        static let siteWide = "运行类图表不支持按这个模型筛选，这里显示全站"
+    }
+
+    /// 全部图表, then the 运行 capsule.
+    @MainActor private func openOpsTopic(_ arguments: [String] = [], file: StaticString = #filePath, line: UInt = #line) {
+        openMoreCard(arguments, file: file, line: line)
+        openAllCharts(file: file, line: line)
+        selectTopic("ops", file: file, line: line)
+    }
+
+    @MainActor func testOpsTopicRendersSwitchLatencyAndErrorTrend() {
+        openOpsTopic()
+        let highest = element("analytics.ops.switch.highest")
+        app.scrollUntilExists(highest)
+        app.waitForValue(highest, equal: "0.032")
+        XCTAssertTrue(element("analytics.ops.switch.chart").exists, app.debugDescription)
+        app.waitForLabel(element("analytics.ops.switch.footnote"), containing: "曲线每小时一点。请求因限流、过载或错误换到另一个账号，记一次切换。")
+        attachScreenshot("more-ops-switch")
+
+        let footnote = element("analytics.ops.latency.footnote")
+        app.scrollUntilExists(footnote)
+        app.waitForLabel(footnote, containing: "成功请求 18,204 次的总耗时分布")
+        app.waitForLabel(element("analytics.ops.latency.column.2"), containing: "30%，5,461 次")
+        let duration = element("analytics.ops.latency.row.duration")
+        app.scrollUntilExists(duration)
+        XCTAssertTrue(duration.poll(NSPredicate(format: "value CONTAINS %@", "P50 2.4s，P90 5.1s"), timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("analytics.ops.latency.row.ttft").poll(NSPredicate(format: "value CONTAINS %@", "P50 820ms"), timeout: 5),
+                      app.debugDescription)
+        attachScreenshot("more-ops-latency")
+
+        let upstream = element("analytics.ops.errTrend.upstream")
+        app.scrollUntilExists(upstream)
+        app.waitForLabel(upstream, containing: "上游失败（含重试成功）：429 186 · 529 64 · 其他 53")
+        app.waitForValue(element("analytics.ops.errTrend.errors"), equal: "397")
+        app.waitForValue(element("analytics.ops.errTrend.rate"), equal: "1.7%")
+        app.waitForValue(element("analytics.ops.errTrend.sla"), equal: "317")
+        app.waitForLabel(element("analytics.ops.errTrend.legend"), containing: "SLA 错误 317，业务限制 80")
+        XCTAssertTrue(element("analytics.ops.errTrend.chart").exists, app.debugDescription)
+        app.waitForLabel(element("analytics.ops.errTrend.footnote"), containing: "后端每小时一桶，这里按天合计。")
+        attachScreenshot("more-ops-error-trend")
+
+        // 错误分布 and Token 请求统计 come with S4-18b.
+        app.scrollUntilExists(element("analytics.more.chart.tokenSpeed.placeholder"))
+        XCTAssertTrue(element("analytics.more.chart.errDist.placeholder").exists, app.debugDescription)
+        XCTAssertFalse(element("analytics.more.ops.off").exists, app.debugDescription)
+    }
+
+    /// 40 §2.5: a 404 OPS_DISABLED (the switch just turned off) swaps the whole topic for the notice.
+    @MainActor func testOps404SwapsTheWholeTopicForTheNotice() {
+        openMoreCard([OpsArgument.gone])
+        // RPM / TPM on 统计分析 got the 404 first: six charts are left.
+        app.waitForLabel(element("analytics.moreCard.count"), containing: "6 张")
+        openAllCharts()
+        app.waitForLabel(element("analytics.more.topic.ops"), containing: "运行，未开启")
+        selectTopic("ops")
+        let off = element("analytics.more.ops.off")
+        XCTAssertTrue(off.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(off.staticTexts["运维监控未开启"].exists, app.debugDescription)
+        for chart in ["analytics.more.chart.perf", "analytics.more.chart.switch", "analytics.ops.switch.chart", "analytics.ops.errTrend.upstream"] {
+            XCTAssertFalse(element(chart).exists, "\(chart)\n\(app.debugDescription)")
+        }
+        attachScreenshot("more-ops-gone")
+    }
+
+    @MainActor func testOpsChartsSayTheyShowTheWholeSiteWithoutModelFilter() {
+        openMoreCard([UsageArgument.without, "ops.dashboard_model_filter"])
+        openAllCharts()
+        app.navigationBars.buttons["analytics.filter.button"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].waitForExistence(timeout: 5), app.debugDescription)
+        app.segmentedControls["analytics.filter.kind"].buttons["模型"].tap()
+        let row = element("analytics.filter.row.model.claude-opus-4")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].pollGone(timeout: 5), app.debugDescription)
+
+        selectTopic("ops")
+        for chart in ["perf", "switch", "latency", "errTrend"] {
+            let note = element("analytics.ops.\(chart).notes.siteWide")
+            app.scrollUntilExists(note)
+            app.waitForLabel(note, containing: OpsArgument.siteWide)
+        }
+        // 近 7 天 starts within the 30 days the error logs keep.
+        XCTAssertFalse(element("analytics.ops.errTrend.notes.retention").exists, app.debugDescription)
+        app.waitForValue(element("analytics.ops.errTrend.errors"), equal: "397")
+        attachScreenshot("more-ops-site-wide")
+    }
 }
