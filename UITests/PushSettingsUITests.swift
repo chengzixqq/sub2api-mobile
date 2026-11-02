@@ -658,4 +658,35 @@ final class PushSettingsUITests: XCTestCase {
         XCTAssertFalse(element("apns.error.enabled").exists, app.debugDescription)
         XCTAssertFalse(app.buttons["apns.save"].isEnabled, app.debugDescription)
     }
+
+    // MARK: - 下滑拦截（S6-26）
+
+    /// With something typed a downward swipe asks “放弃修改？” like 取消 (the shared DismissAttemptBridge), on both sheets.
+    @MainActor func testSwipeDownOnAChangedTargetSheetAsks() {
+        launchAndLogin()
+        defer { diagnostics("push-swipe-final") }
+        openAddTarget()
+        typeInSheet("值班", into: "push.add.name")
+        dragSheetDown("添加接收方式")
+        let discard = app.alerts["放弃修改？"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5), app.debugDescription)
+        discard.buttons["继续编辑"].tap()
+        XCTAssertTrue(discard.waitForNonExistence(timeout: 5) && element("push.add.sheet").exists, app.debugDescription)
+        XCTAssertEqual(element("push.add.name").value as? String, "值班")
+        dragSheetDown("添加接收方式")
+        XCTAssertTrue(discard.waitForExistence(timeout: 5), app.debugDescription)
+        discard.buttons["放弃修改"].tap()
+        XCTAssertTrue(element("push.add.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        openAPNsEditor()
+        typeInSheet("com.example.sub2", into: "apns.topic")
+        dragSheetDown("站点 APNs 配置")
+        XCTAssertTrue(discard.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(element("apns.sheet").exists, app.debugDescription)
+        discard.buttons["放弃修改"].tap()
+        XCTAssertTrue(element("apns.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+    }
+    @MainActor private func dragSheetDown(_ title: String) {
+        app.navigationBars[title].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+    }
 }

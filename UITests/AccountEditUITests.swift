@@ -641,4 +641,29 @@ final class AccountEditUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(waitUntil(row, "label CONTAINS '改名-'", timeout: 5), "\(row.label)\n\(app.debugDescription)")
     }
+
+    // MARK: - 下滑拦截（S6-26）
+
+    /// 20 §3.4: with a change a downward swipe asks like 取消 (the shared DismissAttemptBridge); without one it just closes.
+    @MainActor func testSwipeDownWithChangesAsksBeforeDiscarding() {
+        openSheet(4, section: "basic")
+        defer { diagnostics("account-edit-swipe-final") }
+        let save = app.buttons["account.edit.save"]
+        dragSheetDown("编辑基础信息")
+        XCTAssertTrue(save.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+        openSection("basic")
+        addText("临时名", to: "account.edit.name")
+        dragSheetDown("编辑基础信息")
+        let alert = app.alerts["放弃未保存的改动？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), app.debugDescription)
+        alert.buttons["继续编辑"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5) && save.exists, app.debugDescription)
+        let shown = (element("account.edit.name").value as? String) ?? ""
+        XCTAssertTrue(shown.contains("临时名"), "\(shown)\n\(app.debugDescription)")
+    }
+    @MainActor private func dragSheetDown(_ title: String) {
+        app.navigationBars[title].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+    }
 }

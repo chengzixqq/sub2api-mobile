@@ -30,6 +30,7 @@ struct PushTargetSheet: View {
                 .toolbar { toolbar }
         }
         .interactiveDismissDisabled(isSubmitting || draft.hasInput)
+        .onDismissAttempt { if draft.hasInput, !isSubmitting { confirmingDiscard = true } }
         .pushPrivacyCover(isShown: scenePhase != .active, identifier: "push.add.privacyCover")
         .alert(PushEditCopy.discardTitle, isPresented: $confirmingDiscard) {
             Button(PushEditCopy.discardConfirm, role: .destructive) { dismiss() }

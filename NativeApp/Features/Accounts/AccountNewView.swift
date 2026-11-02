@@ -63,6 +63,7 @@ private struct AccountNewForm: View {
             .mixedChannelQuestion(model)
         }
         .interactiveDismissDisabled(model.blocksInteractiveDismiss)
+        .onDismissAttempt { if !model.submission.isBusy { cancel() } }
         .accountNewPrompts(model, dismiss: { dismiss() })
         .fileImporter(isPresented: $importingVertex, allowedContentTypes: [.json]) { model.importVertex($0.map { [$0] }) }
         .onChange(of: model.draft) { _, draft in model.submission.draftDidChange(try? draft.createRequest()) }

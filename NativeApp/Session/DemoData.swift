@@ -53,9 +53,6 @@ enum DemoData {
         return FixedBiometricAuthenticator(isAvailable: !arguments.contains("-ui-biometric-unavailable"),
                                            succeeds: !arguments.contains("-ui-biometric-deny"))
     }
-    /// Settings → 当前站点 counts (60 §3.6); the fixture sends no request.
-    static let authSessionCount = 3
-    static let accessTokenCount = 2
     /// `-ui-pending-money` (60 §3.3 柒): a refund and a redeem batch of the first connected site, and a compensation of a
     /// deleted site that is kept for its record. `-ui-pending-unreadable` also marks the batch file unreadable.
     static let archivedPendingSite = ServerProfile(id: UUID(uuidString: "6B1F3C2A-0D4E-4F5A-8B9C-1D2E3F4A5B6C")!, name: "旧站点",

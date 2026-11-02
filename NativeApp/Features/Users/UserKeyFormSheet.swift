@@ -32,6 +32,7 @@ struct UserKeyFormSheet: View {
             }
         }
         .interactiveDismissDisabled(model.isSubmitting || model.hasChanges)
+        .onDismissAttempt { if model.hasChanges, !model.isSubmitting { asksDiscard = true } }
     }
 
     private var form: some View {

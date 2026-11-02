@@ -43,6 +43,7 @@ struct APNsConfigSheet: View {
                 .toolbar { toolbar }
         }
         .interactiveDismissDisabled(isSaving || draft.hasChanges)
+        .onDismissAttempt { if draft.hasChanges, !isSaving { confirmingDiscard = true } }
         .onChange(of: config) { _, fresh in rebase(on: fresh) }
         .pushPrivacyCover(isShown: scenePhase != .active, identifier: "apns.privacyCover")
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data]) { importKey($0) }
