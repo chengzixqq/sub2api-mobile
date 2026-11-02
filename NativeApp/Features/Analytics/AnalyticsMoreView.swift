@@ -178,19 +178,20 @@ private struct AnalyticsMoreTopicHeader: View {
     }
 }
 
-/// A chart's card: its name and window over its body (a placeholder until a later item fills it). Landed on, its border is drawn
-/// once for `highlightDuration` from when it shows, and it reads 已定位 meanwhile. Identifier analytics.more.chart.<chart>.
+/// A chart's card: its name and window over its body (Token 请求统计 its own window). Landed on, its border is drawn once for
+/// `highlightDuration` from when it shows, and it reads 已定位 meanwhile. Identifier analytics.more.chart.<chart>.
 private struct AnalyticsMoreChartCard: View {
     let chart: AnalyticsChartKey
     let session: AnalyticsSession
     let isHighlighted: Bool
     let endHighlight: @MainActor () -> Void
+    @Environment(\.sessionContext) private var context
 
     static let highlightDuration: Duration = .seconds(2)
 
     var body: some View {
         AnalyticsCard(title: chart.title, id: "analytics.more.chart.\(chart.rawValue)") {
-            Text(AnalyticsChartCatalog.windowLabel(of: chart, rangeName: session.range.name))
+            Text(AnalyticsChartCatalog.windowLabel(of: chart, rangeName: session.range.name, tokenStatsWindow: tokenStatsWindow))
                 .font(.caption).monospacedDigit().foregroundStyle(Palette.ink3).lineLimit(1)
         } content: {
             chartBody.padding(.bottom, 12)
@@ -210,7 +211,11 @@ private struct AnalyticsMoreChartCard: View {
         }
     }
 
-    /// 错误分布 and Token 请求统计 come with S4-18b; each replaces its own case.
+    private var tokenStatsWindow: String? {
+        guard chart == .tokenSpeed else { return nil }
+        return OpsTokenStatsBody.windowTitle(session, supportsCustomRange: context?.has(.opsTokenStatsCustomRange) ?? false)
+    }
+
     @ViewBuilder private var chartBody: some View {
         switch chart {
         case .billing: AnalyticsBillingBody(size: .card)
@@ -223,10 +228,8 @@ private struct AnalyticsMoreChartCard: View {
         case .accountSwitch: OpsSwitchBody(size: .card)
         case .latency: OpsLatencyBody(size: .card)
         case .errTrend: OpsErrorTrendBody(size: .card)
-        default:
-            Text("这张图会在后续版本提供。").font(.subheadline).foregroundStyle(Palette.ink2)
-                .frame(maxWidth: .infinity, minHeight: 88)
-                .accessibilityIdentifier("analytics.more.chart.\(chart.rawValue).placeholder")
+        case .errDist: OpsErrorDistributionBody(size: .card)
+        case .tokenSpeed: OpsTokenStatsBody(size: .card)
         }
     }
 }

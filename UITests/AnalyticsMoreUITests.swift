@@ -106,7 +106,7 @@ final class AnalyticsMoreUITests: XCTestCase {
         assertTopicSelected("usage")
 
         // Scrolled to the end, the last topic lights up.
-        app.scrollUntilExists(element("analytics.more.chart.tokenSpeed.placeholder"), maxSwipes: 20)
+        app.scrollUntilExists(element("analytics.tokenStats.footnote"), maxSwipes: 20)
         for _ in 0..<2 { app.swipeUp() }
         assertTopicSelected("ops")
         selectTopic("billing")
@@ -384,9 +384,9 @@ final class AnalyticsMoreUITests: XCTestCase {
         app.waitForLabel(element("analytics.ops.errTrend.footnote"), containing: "后端每小时一桶，这里按天合计。")
         attachScreenshot("more-ops-error-trend")
 
-        // 错误分布 and Token 请求统计 come with S4-18b.
-        app.scrollUntilExists(element("analytics.more.chart.tokenSpeed.placeholder"))
-        XCTAssertTrue(element("analytics.more.chart.errDist.placeholder").exists, app.debugDescription)
+        // 错误分布 and Token 请求统计 follow (S4-18b).
+        app.scrollUntilExists(element("analytics.errDist.legend"))
+        app.scrollUntilExists(element("analytics.tokenStats.footnote"))
         XCTAssertFalse(element("analytics.more.ops.off").exists, app.debugDescription)
     }
 
@@ -428,5 +428,158 @@ final class AnalyticsMoreUITests: XCTestCase {
         XCTAssertFalse(element("analytics.ops.errTrend.notes.retention").exists, app.debugDescription)
         app.waitForValue(element("analytics.ops.errTrend.errors"), equal: "397")
         attachScreenshot("more-ops-site-wide")
+    }
+
+    // MARK: 错误分布、Token 请求统计与运行类磁贴（40 §1.4、§2.3、§2.5，S4-18b）
+
+    @MainActor private func tokenStatsRow(_ index: Int) -> XCUIElement { element("analytics.tokenStats.row.\(index)") }
+    @MainActor private var tokenStatsOrder: XCUIElement { app.segmentedControls["analytics.tokenStats.order"] }
+    /// The rows' labels start with these models, top first.
+    @MainActor private func assertTokenStatsModels(_ models: [String], file: StaticString = #filePath, line: UInt = #line) {
+        for (index, model) in models.enumerated() {
+            XCTAssertTrue(tokenStatsRow(index).poll(NSPredicate(format: "label BEGINSWITH %@", model + "，"), timeout: 10),
+                          "row \(index) should be \(model)\n\(app.debugDescription)", file: file, line: line)
+        }
+    }
+    /// Scrolled to, then out from under the pinned bar, so a tap reaches it.
+    @MainActor private func revealUnderTopicBar(_ item: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        app.scrollUntilExists(item, maxSwipes: 20, file: file, line: line)
+        let bar = element("analytics.more.topicBar")
+        for _ in 0..<4 where item.frame.minY < bar.frame.maxY {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62)))
+            item.waitUntilSettled()
+        }
+        XCTAssertGreaterThanOrEqual(item.frame.minY, bar.frame.maxY - 1, "\(item) under the bar\n\(app.debugDescription)", file: file, line: line)
+    }
+    /// The navigation bar's filter sheet, then a model row.
+    @MainActor private func filterByModel(_ name: String, file: StaticString = #filePath, line: UInt = #line) {
+        app.navigationBars.buttons["analytics.filter.button"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        app.segmentedControls["analytics.filter.kind"].buttons["模型"].tap()
+        let row = element("analytics.filter.row.model.\(name)")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].pollGone(timeout: 5), app.debugDescription, file: file, line: line)
+    }
+    /// 范围 Menu → 自定义… → 上月 → 应用; the menu can swallow a tap while the page redraws, so it is tried again.
+    @MainActor private func applyLastMonth(file: StaticString = #filePath, line: UInt = #line) {
+        let menu = element("analytics.range.menu"), shortcut = element("analytics.custom.preset.lastMonth")
+        let item = app.buttons.matching(NSPredicate(format: "label == %@", "自定义…")).firstMatch
+        for _ in 0..<3 where !shortcut.exists {
+            menu.tap()
+            if item.waitForExistence(timeout: 3) { item.tap() }
+            _ = shortcut.waitForExistence(timeout: 3)
+        }
+        XCTAssertTrue(shortcut.exists, app.debugDescription, file: file, line: line)
+        shortcut.tap()
+        XCTAssertTrue(shortcut.poll(NSPredicate(format: "isSelected == true"), timeout: 5), app.debugDescription, file: file, line: line)
+        element("analytics.custom.apply").tap()
+        XCTAssertTrue(app.navigationBars["自定义范围"].pollGone(timeout: 5), app.debugDescription, file: file, line: line)
+        XCTAssertTrue(menu.poll(NSPredicate(format: "value == %@", "上月"), timeout: 5), app.debugDescription, file: file, line: line)
+    }
+    /// U35 on the site's calendar (Asia/Shanghai): 上月 starts before the same moment 30 days ago, which early March and the 1st
+    /// after a 30-day month do not.
+    private static func lastMonthStartsBeyondRetention(now: Date = Date()) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let thisMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
+        return calendar.date(byAdding: .month, value: -1, to: thisMonth)! < calendar.date(byAdding: .day, value: -30, to: now)!
+    }
+
+    @MainActor func testTokenStatsSortsLocallyAndPinsFilteredModel() {
+        openOpsTopic()
+        revealUnderTopicBar(tokenStatsOrder)
+        XCTAssertTrue(element("analytics.more.chart.tokenSpeed").staticTexts["近 7 天 · 运维监控"].exists, app.debugDescription)
+        assertTokenStatsModels(["claude-opus-4", "gpt-5", "deepseek-v3", "gemini-2.5-pro", "gpt-4.1-mini"])
+        XCTAssertFalse(tokenStatsRow(5).exists, app.debugDescription)
+        app.waitForLabel(tokenStatsRow(4), containing: "gpt-4.1-mini，输出每秒 86.4，首 Token 410ms，平均时长 2.4s")
+        app.waitForLabel(element("analytics.tokenStats.footnote"), containing: "统计窗口与所选范围一致。")
+
+        tokenStatsOrder.buttons["按速度"].tap()
+        assertTokenStatsModels(["gpt-4.1-mini", "gemini-2.5-pro", "o4-mini"])
+        tokenStatsOrder.buttons["按首 Token"].tap()
+        assertTokenStatsModels(["gpt-4.1-mini", "o4-mini", "gemini-2.5-pro"])
+        attachScreenshot("more-token-stats-first-token")
+
+        // glm-4.6 is seventh by requests: its row follows the first five, lit.
+        filterByModel("glm-4.6")
+        selectTopic("ops")
+        revealUnderTopicBar(tokenStatsOrder)
+        tokenStatsOrder.buttons["按请求"].tap()
+        assertTokenStatsModels(["claude-opus-4", "gpt-5", "deepseek-v3", "gemini-2.5-pro", "gpt-4.1-mini", "glm-4.6"])
+        XCTAssertTrue(tokenStatsRow(5).poll(NSPredicate(format: "value == %@", "已筛选"), timeout: 5), app.debugDescription)
+        XCTAssertFalse(tokenStatsRow(6).exists, app.debugDescription)
+        attachScreenshot("more-token-stats-pinned")
+    }
+
+    @MainActor func testTokenStatsRollingWindowAndGroupWithoutModels() {
+        openOpsTopic([UsageArgument.without, "ops.token_stats_custom_range"])
+        app.scrollUntilExists(element("analytics.more.chart.tokenSpeed").staticTexts["近 15 天 · 运维监控"], maxSwipes: 20)
+        let footnote = element("analytics.tokenStats.footnote")
+        app.scrollUntilExists(footnote)
+        app.waitForLabel(footnote, containing: "统计窗口近 15 天，截至现在：后端只有 30 分钟、1 小时、1 天、15 天、30 天这几种滚动窗口，这里取能盖住所选范围的最小一个。")
+        assertTokenStatsModels(["claude-opus-4"])
+
+        // 测试组 (inactive) has no usage: neither chart has a row.
+        filterByGroup(6)
+        selectTopic("ops")
+        let empty = element("analytics.tokenStats.empty")
+        app.scrollUntilExists(empty, maxSwipes: 20)
+        app.waitForLabel(empty, containing: "这个分组在窗口内没有模型用量")
+        XCTAssertTrue(footnote.poll(NSPredicate(format: "label ENDSWITH %@", "只列「测试组」用到的模型。"), timeout: 10), app.debugDescription)
+        XCTAssertFalse(tokenStatsRow(0).exists, app.debugDescription)
+        let noErrors = element("analytics.errDist.empty")
+        app.scrollUntilExists(noErrors, towardBottom: false)
+        app.waitForLabel(noErrors, containing: "这个范围内没有错误")
+        attachScreenshot("more-token-stats-group-empty")
+    }
+
+    @MainActor func testErrorDistributionRowsLegendAndRetentionHint() {
+        openOpsTopic()
+        let legend = element("analytics.errDist.legend")
+        app.scrollUntilExists(legend, maxSwipes: 20)
+        app.waitForLabel(legend, containing: "429 限流，其他错误（含 504、529），业务限制（不计 SLA）")
+        let rows = [429, 502, 403, 529, 500, 504].map { element("analytics.errDist.row.\($0)") }
+        app.waitForLabel(rows[0], containing: "状态码 429，160 条，占 40%，SLA 148，业务限制 12")
+        app.waitForLabel(rows[2], containing: "状态码 403，68 条，占 17%，SLA 0，业务限制 68")
+        app.waitForLabel(rows[5], containing: "状态码 504，18 条，占 5%")
+        for (upper, lower) in zip(rows, rows.dropFirst()) {
+            XCTAssertLessThan(upper.frame.minY, lower.frame.minY, "\(upper) above \(lower)\n\(app.debugDescription)")
+        }
+        // 近 7 天 is within the 30 days the error logs keep.
+        let retention = element("analytics.ops.errDist.notes.retention")
+        XCTAssertFalse(retention.exists, app.debugDescription)
+        attachScreenshot("more-error-distribution")
+
+        applyLastMonth()
+        selectTopic("ops")
+        if Self.lastMonthStartsBeyondRetention() {
+            app.scrollUntilExists(retention, maxSwipes: 20)
+            app.waitForLabel(retention, containing: "运维日志默认只保留 30 天，更早的时段可能没有记录")
+        } else {
+            app.scrollUntilExists(legend, maxSwipes: 20)
+            XCTAssertFalse(retention.exists, app.debugDescription)
+        }
+        app.waitForLabel(rows[0], containing: "状态码 429，160 条")
+    }
+
+    @MainActor func testMoreCardOpsTilesShowValuesAndSiteWideTag() {
+        openMoreCard([UsageArgument.without, "ops.dashboard_model_filter"])
+        let errors = element("analytics.moreCard.tile.errTrend"), latency = element("analytics.moreCard.tile.latency")
+        app.waitForLabel(errors, containing: "错误趋势，1.7%，错误率 · SLA")
+        app.waitForLabel(latency, containing: "请求时长分布，2.4s，P50 总耗时")
+        attachScreenshot("more-card-ops-tiles")
+
+        // A model filter the ops charts cannot send: both tiles say they show the whole site; Token 使用趋势 does not.
+        filterByModel("claude-opus-4")
+        // The card's grid builds its second row only on screen.
+        app.scrollUntilExists(app.analyticsElement("analytics.moreCard.foot"))
+        app.waitForLabel(errors, containing: "1.7%，全站 错误率 · SLA")
+        app.waitForLabel(latency, containing: "2.4s，全站 P50 总耗时")
+        let tokens = element("analytics.moreCard.tile.tokens")
+        app.waitForLabel(tokens, containing: "Tokens")
+        XCTAssertFalse(tokens.label.contains("全站"), app.debugDescription)
+        attachScreenshot("more-card-ops-tiles-site-wide")
     }
 }

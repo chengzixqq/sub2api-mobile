@@ -27,14 +27,16 @@ struct AnalyticsMoreCard: View {
         }
     }
 
-    /// 错误趋势 and 请求时长分布 come with S4-18b; each replaces its own case.
+    /// The six charts AnalyticsChartCatalog.tileCharts gives; the others have no tile.
     @ViewBuilder private func tile(_ chart: AnalyticsChartKey, session: AnalyticsSession) -> some View {
         switch chart {
         case .tokens: AnalyticsTokenTile(session: session)
         case .userTrend: AnalyticsUserTrendTile(session: session)
         case .endpoints: AnalyticsEndpointTile(session: session)
         case .reqType: AnalyticsRequestTypeTile(session: session)
-        default: AnalyticsMoreTile(chart: chart, model: .placeholder)
+        case .errTrend: AnalyticsErrorTrendTile(session: session)
+        case .latency: AnalyticsLatencyTile(session: session)
+        default: EmptyView()
         }
     }
 }
@@ -48,14 +50,25 @@ struct AnalyticsTileModel: Equatable {
     /// “全站” before the label: an ops chart the model filter cannot reach (S4-18b).
     var isSiteWide = false
 
-    /// A tile a later item fills: “—” / “稍后提供”, no sketch.
-    static let placeholder = AnalyticsTileModel(text: AnalyticsTileText(value: DisplayFormat.missing, label: "稍后提供"), sketch: nil)
     static let failed = AnalyticsTileModel(text: AnalyticsTileText(value: DisplayFormat.missing, label: "加载失败"), sketch: nil)
+    /// A 404 OPS_DISABLED while ops monitoring still counts as on (LiveOpsStore's 30 seconds after turning it on, 40 §1.6).
+    static let opsDisabled = AnalyticsTileModel(text: AnalyticsTileText(value: DisplayFormat.missing, label: OpsDisabledPresentation.title),
+                                                sketch: nil)
 
     /// The tile over a session read: its value made into a tile, a failure without one, else nil (loading).
     @MainActor static func of<Value: Sendable>(_ load: LoadState<Value>?, _ make: (Value) -> AnalyticsTileModel) -> AnalyticsTileModel? {
         if let value = load?.value { return make(value) }
         return load?.error != nil ? failed : nil
+    }
+    /// An ops tile over two reads (S4-18b): 运维监控未开启 after a 404 OPS_DISABLED, nil until both have answered, a failure when
+    /// either has nothing to show.
+    @MainActor static func ops<First: Sendable, Second: Sendable>(_ first: LoadState<First>?, _ second: LoadState<Second>?,
+                                                                _ make: (First, Second) -> AnalyticsTileModel) -> AnalyticsTileModel? {
+        let errors = [first?.lastError, second?.lastError].compactMap { $0 }
+        if errors.contains(where: { AccountUpstreamErrors.isOpsDisabled($0) }) { return opsDisabled }
+        if let first = first?.value, let second = second?.value { return make(first, second) }
+        let failedWithout = (first?.value == nil && first?.error != nil) || (second?.value == nil && second?.error != nil)
+        return failedWithout ? failed : nil
     }
 }
 
@@ -181,14 +194,54 @@ private struct AnalyticsRequestTypeTile: View {
     }
 }
 
+/// 错误趋势's tile over the overview and the trend, as its card reads them (S4-18b): “1.7%” / “错误率 · SLA” and the bars in red.
+private struct AnalyticsErrorTrendTile: View {
+    let session: AnalyticsSession
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let range = session.range, siteWide = session.opsIsSiteWide
+        let overview = session.state(.opsOverview, as: OpsOverview.self), trend = session.state(.opsErrorTrend, as: OpsErrorTrend.self)
+        AnalyticsMoreTile(chart: .errTrend, model: .ops(overview, trend) { overview, trend in
+            let summary = OpsErrorTrendSummary(trend: trend, overview: overview, range: range)
+            return AnalyticsTileModel(text: AnalyticsTileText(value: summary.errorRateText, label: OpsErrorTrendSummary.tileCaption),
+                                      sketch: .columns(summary.sketchValues, isError: true), isSiteWide: siteWide)
+        })
+        .analyticsCardLoading("moreCard.tile.errTrend", session: session) { [session, model] refresh in
+            await OpsErrorTrendBody.load(session, model: model, refresh: refresh)
+        }
+    }
+}
+
+/// 请求时长分布's tile over the histogram and the overview, as its card reads them (S4-18b): “2.4s” / “P50 总耗时” and the six columns.
+private struct AnalyticsLatencyTile: View {
+    let session: AnalyticsSession
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let siteWide = session.opsIsSiteWide
+        let histogram = session.state(.opsLatency, as: OpsLatencyHistogram.self), overview = session.state(.opsOverview, as: OpsOverview.self)
+        AnalyticsMoreTile(chart: .latency, model: .ops(histogram, overview) { histogram, overview in
+            let summary = OpsLatencySummary(histogram: histogram, overview: overview)
+            return AnalyticsTileModel(text: AnalyticsTileText(value: summary.tileValue, label: OpsLatencySummary.tileCaption),
+                                      sketch: summary.isEmpty ? nil : .columns(summary.sketchValues, isError: false), isSiteWide: siteWide)
+        })
+        .analyticsCardLoading("moreCard.tile.latency", session: session) { [session, model] refresh in
+            await OpsLatencyBody.load(session, model: model, refresh: refresh)
+        }
+    }
+}
+
 // MARK: - 缩略图
 
-/// A tile's sketch (S4-18b adds its kinds): Token 使用趋势's columns, a share list's bars, a 0–1 line (用户用量's first user).
+/// A tile's sketch: Token 使用趋势's columns, a share list's bars, a 0–1 line (用户用量's first user), or columns (错误趋势's in red).
 enum AnalyticsSketch: Equatable, Sendable {
     case tokenStacks([TokenMix])
     /// The first five, in the order given; one at 0 has no bar.
     case hbars([Double])
     case line([Double])
+    /// From 0 to a little above the tallest.
+    case columns([Double], isError: Bool)
 }
 
 /// A sketch 34pt high, not read: the columns in TokenKindStyle's fills with a 1pt seam, up to five bars from the left, or a line.
@@ -206,6 +259,7 @@ struct AnalyticsSketchView: View {
             case .tokenStacks(let mixes): SketchDrawing.stacks(mixes, in: &context, size: size)
             case .hbars(let values): SketchDrawing.bars(values, in: &context, size: size)
             case .line(let values): SketchDrawing.line(values, in: &context, size: size)
+            case .columns(let values, let isError): SketchDrawing.columns(values, isError: isError, in: &context, size: size)
             }
         }
         .frame(height: Self.height)
@@ -219,6 +273,9 @@ private enum SketchDrawing {
     static let stripeLine: CGFloat = 1.4
     static let barRows = 5
     static let lineWidth: CGFloat = 1.5
+    /// The design's: 5% above the tallest column, the red softened toward the surface.
+    static let columnHeadroom = 1.05
+    static let errorOpacity = 0.7
 
     static func stacks(_ mixes: [TokenMix], in context: inout GraphicsContext, size: CGSize) {
         let columns = AnalyticsSeries.tokenColumns(mixes, only: nil)
@@ -243,6 +300,17 @@ private enum SketchDrawing {
             let width = max(3, size.width * value / top)
             context.fill(Path(roundedRect: CGRect(x: 0, y: CGFloat(index) * pitch, width: width, height: thickness), cornerRadius: 1),
                          with: .color(Palette.chartBar))
+        }
+    }
+
+    static func columns(_ values: [Double], isError: Bool, in context: inout GraphicsContext, size: CGSize) {
+        let top = (values.max() ?? 0) * columnHeadroom
+        guard top > 0 else { return }
+        let slot = size.width / CGFloat(values.count), color = isError ? Palette.critical.opacity(errorOpacity) : Palette.chartBar
+        for (index, value) in values.enumerated() where value > 0 {
+            let height = size.height * value / top
+            context.fill(Path(CGRect(x: CGFloat(index) * slot + slot * 0.15, y: size.height - height, width: slot * 0.7, height: height)),
+                         with: .color(color))
         }
     }
 
