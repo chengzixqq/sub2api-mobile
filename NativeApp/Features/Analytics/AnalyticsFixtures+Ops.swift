@@ -72,3 +72,40 @@ extension AnalyticsFixtures {
         return shares.indices.map { shares[$0] + (extra.contains($0) ? 1 : 0) }
     }
 }
+
+// MARK: 错误分布、Token 请求统计（S4-18b）
+
+/// 错误分布 adds up to `opsErrorTotals` (397 · SLA 317 · 业务限制 80, 429 first at 40%); Token 请求统计 lists ten models in the server's
+/// order, qwen3-coder without a speed or a first token and with the server's 0 for its duration. 测试组 (6, inactive) has neither.
+extension AnalyticsFixtures {
+    /// (status, total, SLA, business limits).
+    private static let errorCodes = [(429, 160, 148, 12), (502, 72, 72, 0), (403, 68, 0, 68), (529, 48, 48, 0), (500, 31, 31, 0), (504, 18, 18, 0)]
+    private static let tokenStatsRows: [OpsTokenStats.Item] = [
+        tokenStatsRow("claude-opus-4", 1_210, 42.6, 1_840, 14_200, 1_180), tokenStatsRow("gpt-5", 1_100, 61.3, 920, 8_600, 1_100),
+        tokenStatsRow("deepseek-v3", 620, 38.2, 1_210, 9_800, 600), tokenStatsRow("gemini-2.5-pro", 380, 74.8, 760, 5_200, 380),
+        tokenStatsRow("gpt-4.1-mini", 350, 86.4, 410, 2_400, 350), tokenStatsRow("claude-sonnet-4", 300, 55.1, 1_020, 6_800, 290),
+        tokenStatsRow("glm-4.6", 195, 33.0, 1_500, 7_400, 190), tokenStatsRow("qwen3-coder", 120, nil, nil, 0, 0),
+        tokenStatsRow("kimi-k2", 90, 48.9, 980, 5_600, 88), tokenStatsRow("o4-mini", 60, 70.2, 690, 3_100, 60),
+    ]
+    private static let unusedGroupID = 6
+
+    static func opsErrorDistribution(_ query: OpsQuery) throws -> OpsErrorDistribution {
+        try requireOps()
+        guard query.groupID != unusedGroupID else { return OpsErrorDistribution(items: []) }
+        return OpsErrorDistribution(items: errorCodes.map { OpsErrorDistribution.Item(statusCode: $0.0, total: $0.1, sla: $0.2, businessLimited: $0.3) })
+    }
+
+    /// The window the client would send; no 400 (the retry over 30 days is S4-11's tests').
+    static func opsTokenStats(_ query: OpsQuery, now: Date, zone: ServerTimeZone, supportsCustomRange: Bool) throws -> OpsTokenStats {
+        try requireOps()
+        let window = OpsTokenStatsWindow.select(start: query.start, end: query.end, now: now, zone: zone, supportsCustomRange: supportsCustomRange)
+        let timeRange = if case .rolling(let rolling, _) = window { rolling.rawValue } else { "custom" }
+        return OpsTokenStats(timeRange: timeRange, items: query.groupID == unusedGroupID ? [] : tokenStatsRows, window: window)
+    }
+
+    private static func tokenStatsRow(_ model: String, _ requests: Int, _ speed: Double?, _ firstToken: Double?, _ duration: Double,
+                                      _ withFirstToken: Int) -> OpsTokenStats.Item {
+        OpsTokenStats.Item(model: model, requestCount: requests, tokensPerSecond: speed, firstTokenMs: firstToken, durationMs: duration,
+                           requestsWithFirstToken: withFirstToken)
+    }
+}

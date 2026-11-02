@@ -282,3 +282,124 @@ func errorTrendFootnoteFollowsTheBucket(bucket: OpsBucket, opening: String) {
     #expect(OpsChartCopy.headerNotes(siteWide: false, readsErrorLogs: false, range: lastMonth).isEmpty)
     #expect(OpsChartCopy.siteWideNote == "运行类图表不支持按这个模型筛选，这里显示全站")
 }
+
+// MARK: - 错误分布、Token 请求统计与运行类磁贴（S4-18b）
+
+private enum OpsTableFixture {
+    /// The UI fixture's rows: 397 / SLA 317 / 业务限制 80, as 错误趋势's totals.
+    static let distribution = OpsErrorDistribution(items: [
+        .init(statusCode: 502, total: 72, sla: 72, businessLimited: 0), .init(statusCode: 429, total: 160, sla: 148, businessLimited: 12),
+        .init(statusCode: 403, total: 68, sla: 0, businessLimited: 68), .init(statusCode: 529, total: 48, sla: 48, businessLimited: 0),
+        .init(statusCode: 500, total: 31, sla: 31, businessLimited: 0), .init(statusCode: 504, total: 18, sla: 18, businessLimited: 0),
+    ])
+
+    static func item(_ model: String, _ requests: Int, _ speed: Double?, _ firstToken: Double?, _ duration: Double?) -> OpsTokenStats.Item {
+        OpsTokenStats.Item(model: model, requestCount: requests, tokensPerSecond: speed, firstTokenMs: firstToken, durationMs: duration,
+                           requestsWithFirstToken: requests)
+    }
+    /// The UI fixture's ten models in the server's order.
+    static let items = [item("claude-opus-4", 1_210, 42.6, 1_840, 14_200), item("gpt-5", 1_100, 61.3, 920, 8_600),
+                        item("deepseek-v3", 620, 38.2, 1_210, 9_800), item("gemini-2.5-pro", 380, 74.8, 760, 5_200),
+                        item("gpt-4.1-mini", 350, 86.44, 410, 2_400), item("claude-sonnet-4", 300, 55.1, 1_020, 6_800),
+                        item("glm-4.6", 195, 33, 1_500, 7_400), item("qwen3-coder", 120, nil, nil, 0),
+                        item("kimi-k2", 90, 48.9, 980, 5_600), item("o4-mini", 60, 70.2, 690, 3_100)]
+    static func stats(_ items: [OpsTokenStats.Item] = items, window: OpsTokenStatsWindow = .custom) -> OpsTokenStats {
+        OpsTokenStats(items: items, window: window)
+    }
+    static func table(_ order: OpsTokenStatsOrder = .requests, full: Bool = false, pinned: String? = nil, group: String? = nil,
+                      stats: OpsTokenStats = stats()) -> OpsTokenStatsTable {
+        OpsTokenStatsTable(stats, order: order, full: full, pinnedModel: pinned, groupName: group)
+    }
+}
+
+@Test func errorDistributionRowsKeepTheOrderWithWholeShares() {
+    let summary = OpsErrorDistributionSummary(OpsTableFixture.distribution)
+    #expect(!summary.isEmpty)
+    #expect(summary.rows.map(\.statusCode) == [429, 502, 403, 529, 500, 504])
+    #expect(summary.rows.map(\.codeText) == ["429", "502", "403", "529", "500", "504"])
+    #expect(summary.rows.map(\.countText) == ["160", "72", "68", "48", "31", "18"])
+    #expect(summary.rows.map(\.shareText) == ["40%", "18%", "17%", "12%", "8%", "5%"])
+    #expect(summary.rows.map(\.tone) == [.caution, .critical, .critical, .critical, .critical, .critical])
+    #expect(summary.rows.first?.bar == OpsErrorDistribution.BarLength(sla: 148.0 / 160, businessLimited: 12.0 / 160))
+    #expect(summary.rows.dropFirst(2).first?.bar == OpsErrorDistribution.BarLength(sla: 0, businessLimited: 68.0 / 160))
+}
+
+@Test func errorDistributionRowReadsCodeCountShareAndParts() {
+    let summary = OpsErrorDistributionSummary(OpsTableFixture.distribution)
+    #expect(summary.rows.first?.spokenLabel == "状态码 429，160 条，占 40%，SLA 148，业务限制 12")
+    #expect(summary.rows.dropFirst(2).first?.spokenLabel == "状态码 403，68 条，占 17%，SLA 0，业务限制 68")
+    let large = OpsErrorDistributionSummary(OpsErrorDistribution(items: [.init(statusCode: 500, total: 1_204, sla: 1_204, businessLimited: 0)]))
+    #expect(large.rows.first?.countText == "1,204" && large.rows.first?.shareText == "100%")
+    #expect(large.rows.first?.spokenLabel == "状态码 500，1,204 条，占 100%，SLA 1,204，业务限制 0")
+}
+
+@Test func errorDistributionEmptyAndLegend() {
+    let empty = OpsErrorDistributionSummary(OpsErrorDistribution(items: []))
+    #expect(empty.isEmpty && empty.rows.isEmpty && OpsErrorDistributionSummary.emptyText == "这个范围内没有错误")
+    #expect(OpsErrorDistributionSummary.legend.map(\.title) == ["429 限流", "其他错误（含 504、529）", "业务限制（不计 SLA）"])
+    #expect(OpsErrorDistributionSummary.legend.map(\.tone) == [.caution, .critical, .neutral])
+    #expect(OpsErrorDistributionSummary.legendSpoken == "429 限流，其他错误（含 504、529），业务限制（不计 SLA）")
+}
+
+@Test(arguments: [
+    (OpsTokenStatsOrder.requests, ["claude-opus-4", "gpt-5", "deepseek-v3", "gemini-2.5-pro", "gpt-4.1-mini"]),
+    (.speed, ["gpt-4.1-mini", "gemini-2.5-pro", "o4-mini", "gpt-5", "claude-sonnet-4"]),
+    (.firstToken, ["gpt-4.1-mini", "o4-mini", "gemini-2.5-pro", "gpt-5", "kimi-k2"]),
+])
+func tokenStatsCardShowsFiveRowsInTheOrder(order: OpsTokenStatsOrder, models: [String]) {
+    let table = OpsTableFixture.table(order)
+    #expect(table.rows.map(\.model) == models)
+    #expect(table.rows.allSatisfy { !$0.isPinned } && table.emptyText == nil)
+}
+
+@Test func tokenStatsFullSizeShowsNineRows() {
+    let table = OpsTableFixture.table(.speed, full: true)
+    #expect(table.rows.count == 9 && table.rows.last?.model == "glm-4.6")
+    // Without a speed it sorts last, so only the filter brings it in.
+    #expect(OpsTableFixture.table(.speed, full: true, pinned: "qwen3-coder").rows.map(\.model).suffix(2) == ["glm-4.6", "qwen3-coder"])
+    #expect(OpsTokenStatsTable.headers == ["模型", "输出/秒", "首 Token", "平均时长"])
+}
+
+@Test func tokenStatsPinsTheFilteredModelInPlaceOrAtTheEnd() {
+    let within = OpsTableFixture.table(pinned: "gpt-5")
+    #expect(within.rows.count == 5 && within.rows.map(\.isPinned) == [false, true, false, false, false])
+    let appended = OpsTableFixture.table(pinned: "glm-4.6")
+    #expect(appended.rows.map(\.model) == ["claude-opus-4", "gpt-5", "deepseek-v3", "gemini-2.5-pro", "gpt-4.1-mini", "glm-4.6"])
+    #expect(appended.rows.last?.isPinned == true && OpsTokenStatsTable.pinnedValue == "已筛选")
+    #expect(OpsTableFixture.table(pinned: "unknown-model").rows.count == 5)
+}
+
+@Test func tokenStatsNumbersUseOneDecimalAndPercentileTimes() {
+    let rows = Dictionary(uniqueKeysWithValues: OpsTableFixture.table(full: true).rows.map { ($0.model, $0) })
+    #expect(rows["gpt-4.1-mini"]?.values == ["86.4", "410ms", "2.4s"])
+    #expect(rows["claude-opus-4"]?.values == ["42.6", "1.8s", "14s"])
+    #expect(rows["glm-4.6"]?.values == ["33.0", "1.5s", "7.4s"])
+    // No speed, no first token, and the server's 0 for no duration.
+    #expect(rows["qwen3-coder"]?.values == ["—", "—", "—"])
+    #expect(rows["gpt-4.1-mini"]?.spokenLabel == "gpt-4.1-mini，输出每秒 86.4，首 Token 410ms，平均时长 2.4s")
+    #expect(rows["qwen3-coder"]?.spokenLabel == "qwen3-coder，输出每秒 无数据，首 Token 无数据，平均时长 无数据")
+}
+
+@Test func tokenStatsFootnoteAndEmptyText() {
+    #expect(OpsTableFixture.table().footnote == "统计窗口与所选范围一致。")
+    let rolling = OpsTableFixture.stats(window: .rolling(.fifteenDays, coversRange: true))
+    #expect(OpsTableFixture.table(group: "标准组", stats: rolling).footnote
+        == "统计窗口近 15 天，截至现在：后端只有 30 分钟、1 小时、1 天、15 天、30 天这几种滚动窗口，这里取能盖住所选范围的最小一个。只列「标准组」用到的模型。")
+    let empty = OpsTableFixture.stats([])
+    let grouped = OpsTableFixture.table(group: "测试组", stats: empty)
+    #expect(grouped.rows.isEmpty && grouped.emptyText == "这个分组在窗口内没有模型用量")
+    #expect(grouped.footnote == "统计窗口与所选范围一致。只列「测试组」用到的模型。")
+    #expect(OpsTableFixture.table(stats: empty).emptyText == "窗口内没有模型用量")
+}
+
+@Test func opsTilesReadTheSummaries() {
+    let week = OpsChartFixture.range(.preset(.last7))
+    let errors = OpsErrorTrendSummary(trend: OpsChartFixture.errorTrend(.hour, from: week.start, count: 154), overview: OpsChartFixture.overview,
+                                      range: week)
+    #expect(errors.errorRateText == "1.7%" && OpsErrorTrendSummary.tileCaption == "错误率 · SLA")
+    #expect(errors.figures.map(\.label).contains(OpsErrorTrendSummary.tileCaption))
+    #expect(errors.sketchValues == [72, 72, 72, 72, 72, 72, 30])
+    let latency = OpsLatencySummary(histogram: OpsChartFixture.histogram(), overview: OpsChartFixture.overview)
+    #expect(latency.sketchValues == [1_820, 3_640, 5_461, 4_187, 2_184, 912])
+    #expect(latency.tileValue == "2.4s" && OpsLatencySummary.tileCaption == "P50 总耗时")
+}

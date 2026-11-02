@@ -250,7 +250,7 @@ public struct OpsErrorTrendSummary: Sendable, Equatable {
     public var isEmpty: Bool { totals.total == 0 }
     public var figures: [AnalyticsFigure] {
         [AnalyticsFigure("errors", label: "错误", value: DisplayFormat.grouped(totals.total)),
-         AnalyticsFigure("rate", label: "错误率 · SLA", value: errorRateText),
+         AnalyticsFigure("rate", label: Self.tileCaption, value: errorRateText),
          AnalyticsFigure("sla", label: "SLA 口径", value: DisplayFormat.grouped(totals.sla))]
     }
     public var legendSLA: String { OpsErrorLayer.sla.title + " " + DisplayFormat.grouped(totals.sla) }
@@ -345,4 +345,107 @@ private enum BarUnit: Equatable {
             return Slot(start: start, end: end, label: label, spokenName: label + " 到 " + DisplayFormat.clock(end, timeZone: zone))
         }
     }
+}
+
+// MARK: - 错误分布（S4-18b）
+
+/// 40 §2.3 错误分布 over `error-distribution`: a row per status code in the reply's order (largest total first): the code in its
+/// codeTone, the bar of its SLA errors in that tone and of its business limits in grey, both against the first row's total, the
+/// count and the whole share of the reply's `total` (the sum of its rows); the legend.
+public struct OpsErrorDistributionSummary: Sendable, Equatable {
+    public struct Row: Sendable, Equatable, Identifiable {
+        public let statusCode: Int
+        public let tone: Tone
+        public let bar: OpsErrorDistribution.BarLength
+        public let countText: String
+        public let shareText: String
+        /// “状态码 429，160 条，占 40%，SLA 148，业务限制 12”.
+        public let spokenLabel: String
+        public var id: Int { statusCode }
+        public var codeText: String { String(statusCode) }
+    }
+    /// A swatch of the legend: 429's tone, any other failure's, and business limits' grey.
+    public struct LegendItem: Sendable, Equatable, Identifiable {
+        public let title: String
+        public let tone: Tone
+        public var id: String { title }
+    }
+
+    public static let emptyText = OpsErrorTrendSummary.emptyText
+    public static let legend = [LegendItem(title: "429 限流", tone: .httpStatus(429)), LegendItem(title: "其他错误（含 504、529）", tone: .httpStatus(504)),
+                                LegendItem(title: "业务限制（不计 SLA）", tone: .neutral)]
+
+    public let rows: [Row]
+    public let isEmpty: Bool
+
+    public init(_ distribution: OpsErrorDistribution) {
+        isEmpty = distribution.isEmpty
+        rows = distribution.items.map { item in
+            let count = DisplayFormat.grouped(item.total), share = DisplayFormat.wholePercent(distribution.share(item))
+            let spoken = "状态码 \(item.statusCode)，\(count) 条，占 " + DisplayFormat.spoken(share) + "，SLA " + DisplayFormat.grouped(item.sla)
+                + "，业务限制 " + DisplayFormat.grouped(item.businessLimited)
+            return Row(statusCode: item.statusCode, tone: .httpStatus(item.statusCode), bar: distribution.barLength(item), countText: count,
+                       shareText: share, spokenLabel: spoken)
+        }
+    }
+
+    /// The legend read as one line.
+    public static var legendSpoken: String { legend.map(\.title).joined(separator: "，") }
+}
+
+// MARK: - Token 请求统计（S4-18b）
+
+/// 40 §2.3 Token 请求统计: the models in the chosen order, the first 5 on a card or 9 at full size, the filtered model's row lit or
+/// added at the end; the numbers as the model page writes them (S4-19: one decimal, the percentile format, “—” for none or the
+/// server's 0); the window's footnote with the group's sentence.
+public struct OpsTokenStatsTable: Sendable, Equatable {
+    public struct Row: Sendable, Equatable, Identifiable {
+        public let model: String
+        /// 输出/秒, 首 Token, 平均时长.
+        public let values: [String]
+        /// The model the page filters by.
+        public let isPinned: Bool
+        public var id: String { model }
+
+        /// “gpt-4.1-mini，输出每秒 86.4，首 Token 410ms，平均时长 2.4s”, a missing value read as 无数据.
+        public var spokenLabel: String {
+            ([model] + zip(OpsTokenStatsTable.spokenNames, values).map { $0 + " " + DisplayFormat.spoken($1) }).joined(separator: "，")
+        }
+    }
+
+    public static let headers = ["模型", "输出/秒", "首 Token", "平均时长"]
+    /// The pinned row's VoiceOver value.
+    public static let pinnedValue = "已筛选"
+    private static let spokenNames = ["输出每秒", "首 Token", "平均时长"]
+    private static let cardRows = 5
+    private static let fullRows = 9
+
+    public let rows: [Row]
+    public let footnote: String
+    /// Only without rows.
+    public let emptyText: String?
+
+    /// `groupName` only under a group filter, `pinnedModel` only under a model filter.
+    public init(_ stats: OpsTokenStats, order: OpsTokenStatsOrder, full: Bool, pinnedModel: String?, groupName: String?) {
+        rows = stats.visibleRows(order, limit: full ? Self.fullRows : Self.cardRows, pinnedModel: pinnedModel).map { item in
+            let speed = OpsTokenSpeed(requestCount: item.requestCount, tokensPerSecond: item.tokensPerSecond, firstTokenMs: item.firstTokenMs,
+                                      durationMs: item.durationMs)
+            return Row(model: item.model, values: AnalyticsModelPresentation.speed(speed).map(\.value), isPinned: item.model == pinnedModel)
+        }
+        footnote = stats.window.footnote(groupName: groupName)
+        emptyText = rows.isEmpty ? (groupName == nil ? "" : "这个分组在") + "窗口内没有模型用量" : nil
+    }
+}
+
+// MARK: - 更多图表卡的运行类磁贴（S4-18b）
+
+extension OpsErrorTrendSummary {
+    public static let tileCaption = "错误率 · SLA"
+    /// The tile's sketch: each bar's errors.
+    public var sketchValues: [Double] { bars.map { Double($0.total) } }
+}
+
+extension OpsLatencySummary {
+    /// The tile's sketch: the six columns' requests.
+    public var sketchValues: [Double] { columns.map { Double($0.count) } }
 }
