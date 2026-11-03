@@ -1,6 +1,7 @@
 import Foundation
 
-/// Redaction of everything the account test shows (20 §4.3): bearer tokens, `sk-…` keys and URLs read “[已隐藏]”.
+/// Redaction of everything the account test shows (20 §4.3): bearer tokens, `sk-…` keys and URLs read “[已隐藏]”, and so do
+/// private keys, JWTs, AWS access key IDs, Google API keys and the values of secret-named keys (the key's name stays).
 public enum AccountTestOutput {
     public static let hidden = "[已隐藏]"
     public static let maxLineLength = 8_192
@@ -8,14 +9,29 @@ public enum AccountTestOutput {
     /// Redacted, then cut to `maxLineLength` characters.
     public static func sanitize(_ text: String) -> String { String(redact(text).prefix(maxLineLength)) }
     static func redact(_ text: String) -> String {
-        patterns.reduce(text) { $0.replacingOccurrences(of: $1, with: hidden, options: .regularExpression) }
+        patterns.reduce(text) { $0.replacingOccurrences(of: $1.pattern, with: $1.template, options: .regularExpression) }
     }
     /// Trimmed, or nil when blank.
     static func nonBlank(_ text: String?) -> String? {
         guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
         return trimmed
     }
-    private static let patterns = [#"(?i)Bearer\s+[^\s]+"#, #"(?i)sk-[A-Za-z0-9_-]{6,}"#, #"(?i)https?://[^\s]+"#]
+    /// Private keys and secret-named values go first, so no later rule takes a key's name and leaves its value; shaped tokens go
+    /// before `sk-…`, which could otherwise cut one in half. A value ends at a space, quote, backslash, `,`, `;`, `}` or a full-width
+    /// `，；。`, so JSON escaped inside an upstream error (`{\"x-api-key\":\"…\"}`) keeps its punctuation.
+    private static let patterns: [(pattern: String, template: String)] = [
+        (#"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"#, hidden),
+        (#"(?i)(?<![A-Za-z0-9_])("# + secretNames + #")(\\?["']?\s*[:=]\s*\\?["']?)(?:Bearer\s+)?[^\s"'\\,;}，；。]+"#, "$1$2" + hidden),
+        (#"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*"#, hidden),
+        (#"(?<![A-Za-z0-9])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])"#, hidden),
+        (#"AIza[0-9A-Za-z_-]{35}"#, hidden),
+        (#"(?i)Bearer\s+[^\s]+"#, hidden),
+        (#"(?i)sk-[A-Za-z0-9_-]{6,}"#, hidden),
+        (#"(?i)https?://[^\s]+"#, hidden),
+    ]
+    private static let secretNames = ["x-api-key", "api[-_]key", "x-goog-api-key", "anthropic-api-key", "x-amz-security-token",
+                                      "aws_secret_access_key", "secret_access_key", "access_token", "refresh_token", "id_token",
+                                      "session_token", "client_secret"].joined(separator: "|")
 }
 
 /// “首字 · 总耗时”: the server's trace (C07, C08), or this phone's monotonic clock when the server reports none.

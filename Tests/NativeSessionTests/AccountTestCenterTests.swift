@@ -219,7 +219,7 @@ private func isTerminated(_ stream: AsyncThrowingStream<AccountTestEvent, any Er
     h.center.detach(7)
     h.finishStream(partial, throwing: transportError)
     await settle { h.receipts.current != nil }
-    #expect(h.receipts.current?.text == "测试被中断，不能判定是否成功")
+    #expect(h.receipts.current?.text == "「主号」测试被中断，不能判定是否成功")
     #expect(h.receipts.current?.action?.title == "重新测试")
     #expect(h.source.count("latest") == 1)
     if let id = h.receipts.current?.id { h.receipts.performAction(id: id) }

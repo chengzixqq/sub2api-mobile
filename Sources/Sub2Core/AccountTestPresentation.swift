@@ -186,7 +186,11 @@ public enum AccountTestPresentation {
     }
 
     private static func authReason(_ credential: CredentialKind) -> String {
-        credential == .token ? "令牌无效或已撤销" : "API Key 无效或已撤销"
+        switch credential {
+        case .token: "令牌无效或已撤销"
+        case .apiKey: "API Key 无效或已撤销"
+        case .vertex, .bedrock: "凭据无效或已撤销"
+        }
     }
     private static func forbiddenReason(_ credential: CredentialKind, upstreamStatus: Int?) -> String {
         switch credential {
