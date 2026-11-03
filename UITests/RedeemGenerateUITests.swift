@@ -2,7 +2,8 @@ import XCTest
 
 /// S6-07: 批量生成兑换码 (60 §10) and the list's + interception (60 §8.4). The fixture server answers a new batch with its codes
 /// (5000 + 100 × the batch id's first byte on) and adds them to the list; `-ui-redeem-generate-unknown / -replayed / -rejected`
-/// change the answer, `-ui-redeem-no-subscription-groups` empties the subscription groups (RedeemFixtures). `-ui-pending-money`
+/// change the answer, `-ui-redeem-no-subscription-groups` empties the subscription groups (RedeemFixtures), `-ui-account-groups-error`
+/// fails the group directory with 502. `-ui-pending-money`
 /// gives the site a batch of 20 × $10.00 awaiting its result, `-ui-pending-old-site` an older login's 10 × $5.00 (S3-07).
 final class RedeemGenerateUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
@@ -226,6 +227,57 @@ final class RedeemGenerateUITests: XCTestCase {
         XCTAssertTrue(app.buttons["redeem.generate.type.balance"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.buttons["redeem.generate.type.balance"].isSelected, app.debugDescription)
         app.buttons["sheet.close"].tap()
+    }
+
+    /// U-17 (S6-高-6): a group directory that failed is not “站点还没有订阅类型的分组”; 读取失败 · 重试 reads it again.
+    @MainActor func testGroupDirectoryFailureOffersRetry() {
+        launchAndLogin(["-ui-account-groups-error"])
+        defer { diagnostics("generate-groups-failed-final") }
+        openGenerate()
+        app.buttons["redeem.generate.type.subscription"].tap()
+        let retry = app.buttons["redeem.generate.groups.retry"], next = app.buttons["redeem.generate.next"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(retry.label, "重试")
+        XCTAssertTrue(labelled(containing: "读取失败", in: element("redeem.generate.groups.failure")).exists, app.debugDescription)
+        XCTAssertFalse(element("redeem.generate.noGroups").exists, app.debugDescription)
+        XCTAssertFalse(labelled(containing: "站点还没有订阅类型的分组").exists, app.debugDescription)
+        XCTAssertFalse(next.isEnabled, app.debugDescription)
+        diagnostics("generate-groups-failed")
+        retry.tap()
+        // Read again and failed again: still nothing to pick.
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("redeem.generate.noGroups").exists, app.debugDescription)
+        XCTAssertFalse(next.isEnabled, app.debugDescription)
+    }
+
+    /// U-17 (S6-中-8): custom days missing or out of range keep the receipt with 过期 “—” and the range under the field.
+    @MainActor func testCustomExpiryWithoutDaysKeepsReceipt() {
+        launchAndLogin()
+        defer { diagnostics("generate-custom-expiry-final") }
+        openGenerate()
+        app.buttons["redeem.generate.type.balance"].tap()
+        press("1", "0")
+        app.buttons["redeem.generate.count.pick.20"].tap()
+        app.buttons["redeem.generate.next"].tap()
+        let custom = app.buttons["redeem.generate.expiry.custom"], submit = app.buttons["redeem.generate.submit"]
+        XCTAssertTrue(custom.waitForExistence(timeout: 5), app.debugDescription)
+        custom.tap()
+        let expiry = element("money.pending.receipt.expiry")
+        XCTAssertTrue(waitForLabel(expiry, containing: "—"), app.debugDescription)
+        for (row, value) in [("type", "余额"), ("each", "$10.00"), ("count", "× 20"), ("total", "$200.00")] {
+            XCTAssertTrue(element("money.pending.receipt.\(row)").label.contains(value), "\(row) ∌ \(value)\n\(app.debugDescription)")
+        }
+        XCTAssertEqual(element("redeem.generate.expiry.rangeNote").label, "填 1–3650 天")
+        XCTAssertFalse(submit.isEnabled, app.debugDescription)
+        diagnostics("generate-custom-expiry-empty")
+        let field = app.textFields["redeem.generate.expiry.field"]
+        field.tap()
+        field.typeText("5000")
+        XCTAssertTrue(waitForLabel(expiry, containing: "—"), app.debugDescription)
+        XCTAssertFalse(submit.isEnabled, app.debugDescription)
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "30")
+        XCTAssertTrue(waitForLabel(expiry, containing: "30 天后过期"), app.debugDescription)
+        XCTAssertTrue(submit.isEnabled, app.debugDescription)
     }
 
     // MARK: - Helpers

@@ -152,6 +152,51 @@ private func batch(_ id: String, minutesAgo: Double, spec: RedeemGenerateSpec, s
     #expect(subscription.advancing(subscriptionGroups: subscriptions).step == .expiry)
 }
 
+// U-17 (S6-高-6): only a read directory without subscription groups is “站点还没有订阅类型的分组”.
+@Test func groupsAvailabilityFollowsTheDirectory() {
+    let standard = AdminGroup(id: 2, name: "默认", sortOrder: 2)
+    let stopped = AdminGroup(id: 7, name: "停用专线", status: "inactive", subscriptionType: "subscription", sortOrder: 7)
+    #expect(RedeemGroupsAvailability(.idle) == .loading)
+    #expect(RedeemGroupsAvailability(.loading(previous: nil, at: nil)) == .loading)
+    #expect(RedeemGroupsAvailability(.disabled(reason: "GROUPS_DISABLED")) == .loading)
+    #expect(RedeemGroupsAvailability(.failed(reason: "加载失败", previous: nil, at: nil)) == .failed)
+    #expect(RedeemGroupsAvailability(.loaded([], at: now)) == .loaded([]))
+    #expect(RedeemGroupsAvailability(.loaded([standard, stopped], at: now)) == .loaded([]))
+    #expect(RedeemGroupsAvailability(.loaded([standard] + subscriptions + [stopped], at: now)) == .loaded(subscriptions))
+    // An old value stays beside a failed or running refresh (10 §0.5).
+    #expect(RedeemGroupsAvailability(.failed(reason: "加载失败", previous: subscriptions, at: now)) == .loaded(subscriptions))
+    #expect(RedeemGroupsAvailability(.loading(previous: subscriptions, at: now)) == .loaded(subscriptions))
+    #expect(RedeemGroupsAvailability.loading.groups.isEmpty && RedeemGroupsAvailability.failed.groups.isEmpty)
+    #expect(RedeemGroupsAvailability.loaded(subscriptions).groups == subscriptions)
+    #expect(RedeemGroupsAvailability.loadingText == "正在读取分组…" && RedeemGroupsAvailability.failedTitle == "读取失败")
+}
+
+// U-17 (S6-中-8): the receipt stays while only the custom expiry is missing or out of range; 过期 shows “—”.
+@Test func receiptPreviewKeepsTheBatchWithoutValidCustomDays() throws {
+    let custom = pressing(RedeemGenerateWizard().choosing(.balance), "10").settingCount(20).advancing(subscriptionGroups: []).choosingExpiry(.custom)
+    #expect(RedeemGenerateWizard.customDaysRangeNote == "填 1–3650 天")
+    for days in ["", "0", "5000"] {
+        let typed = custom.editingCustomExpiryDays(days)
+        let lines = typed.receiptPreview(subscriptionGroups: [], now: now, timeZone: utc)
+        #expect(lines?.map(\.id) == ["type", "each", "count", "expiry", "total"], "\(days)")
+        #expect(lines?.map(\.value) == ["余额", "$10.00", "× 20", "—", "$200.00"], "\(days)")
+        #expect(!typed.canSubmit(subscriptionGroups: []) && typed.spec(subscriptionGroups: []) == nil, "\(days)")
+    }
+    // A valid choice is the summary's receipt, line by line.
+    for wizard in [custom.editingCustomExpiryDays("30"), custom.choosingExpiry(.never), custom.choosingExpiry(.days(7))] {
+        let spec = try #require(wizard.spec(subscriptionGroups: []))
+        #expect(wizard.receiptPreview(subscriptionGroups: [], now: now, timeZone: utc)
+                == RedeemGenerateSummary(spec: spec, now: now, timeZone: utc).receiptLines)
+    }
+    #expect(custom.editingCustomExpiryDays("30").receiptPreview(subscriptionGroups: [], now: now, timeZone: utc)?[3].value.hasPrefix("30 天后过期（") == true)
+    // Anything else missing: no receipt.
+    #expect(RedeemGenerateWizard().choosing(.balance).choosingExpiry(.custom).receiptPreview(subscriptionGroups: [], now: now, timeZone: utc) == nil)
+    let subscription = RedeemGenerateWizard().choosing(.subscription).choosingExpiry(.custom)
+    #expect(subscription.receiptPreview(subscriptionGroups: [], now: now, timeZone: utc) == nil)
+    let lines = subscription.receiptPreview(subscriptionGroups: subscriptions, now: now, timeZone: utc)
+    #expect(lines?.map(\.value) == ["订阅", "企业专线 · 30 天", "× 1", "—"])
+}
+
 // MARK: The + interception (60 §8.4)
 
 @Test func entryDecisionOpensWhenClearAndPausesWhenUnreadable() {
