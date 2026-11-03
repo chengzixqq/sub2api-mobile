@@ -422,19 +422,14 @@ final class AccountListUITests: XCTestCase {
         reveal(app.buttons["account.1"])
     }
 
-    /// 20 §1.4 只看需处理的账号 ›: the sheet closes and the chip becomes 需处理.
+    /// 20 §1.4 只看需处理的账号 ›: the sheet closes, the chip becomes 需处理 and the list the header's platform (U-04).
     @MainActor func testAlertSheetShowNeedsSwitchesChip() {
         launchAndOpenAccounts()
         defer { diagnostics("account-alert-needs-final") }
         openAlertSheet()
         tapInSheet("accounts.alert.needs")
         XCTAssertTrue(element("accounts.alert.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
-        let needs = element("accounts.chip.needs")
-        reveal(needs, towardBottom: false)
-        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: needs)
-        XCTAssertEqual(XCTWaiter().wait(for: [selected], timeout: 10), .completed, app.debugDescription)
-        XCTAssertTrue(app.buttons["account.7"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertFalse(app.buttons["account.1"].exists, app.debugDescription)
+        assertNeedsOnAlertPlatform()
     }
 
     /// 20 §1.4 告警详情 ›: the sheet closes, then the alert's page is pushed on the account tab (10 §3); back is the list again.
@@ -592,5 +587,60 @@ final class AccountListUITests: XCTestCase {
         defer { diagnostics("accounts-summary-error-final") }
         XCTAssertTrue(app.buttons["account.1"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(element("accounts.failure").exists || element("accounts.banner").exists, app.debugDescription)
+    }
+
+    // MARK: - 第一轮用户反馈（U-04）
+
+    /// OpenAI-备用-A is in error with its switch off: the swipe offers 恢复状态… instead of 启用调度, and opens the detail's
+    /// confirmation (Gemini-测试-B, only paused, still gets 启用调度).
+    @MainActor func testErrorAccountSwipeOffersRecover() {
+        launchAndOpenAccounts()
+        defer { diagnostics("account-swipe-recover-final") }
+        let row = app.buttons["account.7"]
+        reveal(row, towardBottom: false)
+        assertLabel(row, contains: ["OpenAI-备用-A", "错误"])
+        row.swipeLeft()
+        let recover = swipeButton("恢复状态…")
+        XCTAssertTrue(recover.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(swipeButton("启用调度").exists, app.debugDescription)
+        diagnostics("account-swipe-recover")
+        recover.tap()
+        XCTAssertTrue(text(containing: "恢复「OpenAI-备用-A」？").waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(swipeButton("只恢复状态（保持暂停）").exists, app.debugDescription)
+        let both = swipeButton("恢复并启用调度")
+        XCTAssertTrue(both.exists, app.debugDescription)
+        both.tap()
+        waitForReceipt("已恢复 · 参与调度")
+        waitForLabel(row, containing: "正常")
+    }
+
+    /// 只看需处理的账号 from a collapsed section's alert: the section opens with the filter.
+    @MainActor func testAlertSheetShowNeedsExpandsCollapsedSection() {
+        launchAndOpenAccounts()
+        defer { diagnostics("account-alert-needs-collapsed-final") }
+        let header = element("accounts.section.\(AlertFixture.platform)")
+        reveal(header)
+        header.tap()
+        XCTAssertTrue(app.buttons["account.3"].waitForNonExistence(timeout: 5), app.debugDescription)
+        assertLabel(header, contains: ["已收起"])
+        openAlertSheet()
+        tapInSheet("accounts.alert.needs")
+        XCTAssertTrue(element("accounts.alert.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        assertNeedsOnAlertPlatform()
+    }
+
+    /// The 需处理 chip and the alert's platform are on, other platforms have left, and its section is open on its account to handle.
+    @MainActor private func assertNeedsOnAlertPlatform(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(element("accounts.section.openai").waitForNonExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        let token = element("accounts.chip.platform-token")
+        XCTAssertTrue(token.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        XCTAssertEqual(token.label, "移除平台筛选 Anthropic", file: file, line: line)
+        let needs = element("accounts.chip.needs")
+        reveal(needs, towardBottom: false, file: file, line: line)
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: needs)
+        XCTAssertEqual(XCTWaiter().wait(for: [selected], timeout: 10), .completed, app.debugDescription, file: file, line: line)
+        assertLabel(element("accounts.section.\(AlertFixture.platform)"), contains: ["已展开"], file: file, line: line)
+        XCTAssertTrue(app.buttons["account.3"].waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        XCTAssertFalse(app.buttons["account.1"].exists || app.buttons["account.7"].exists, app.debugDescription, file: file, line: line)
     }
 }

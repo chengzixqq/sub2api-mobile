@@ -180,6 +180,11 @@ final class AccountListModel {
         collapsed = collapsed.symmetricDifference([platform])
         if let siteID { Self.collapsedBySite[siteID] = collapsed }
     }
+    /// U-04: 只看需处理的账号 from a header's alert opens its section.
+    func expand(_ platform: String) {
+        guard collapsed.contains(platform) else { return }
+        toggleCollapsed(platform)
+    }
     func isCollapsed(_ platform: String) -> Bool { collapsed.contains(platform) }
     func chipCount(_ chip: AccountListChip) -> Int? { counts.flatMap(chip.count(in:)) }
     /// nil when the read failed or has no figures for the account: the row shows “—” (20 §1.5).

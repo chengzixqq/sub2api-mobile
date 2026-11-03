@@ -165,20 +165,23 @@ func keyedUnconfirmedReadsBack(cause: KeyedWriteFailure.UnconfirmedCause) {
 // MARK: - Row swipe (20 §1.4, S2D1-20)
 
 @Test(arguments: [
-    (copyAccount(), AccountScheduleSwipe?.some(.stop)),
+    (copyAccount(), .stop),
     (copyAccount(rateLimit: 600), .stop),
     (copyAccount(overload: 60), .stop),
     (copyAccount(temporary: 60), .stop),
     (copyAccount(schedulable: false), .enable),
-    (copyAccount(status: "error", schedulable: false), .enable),
+    // U-04 (S2-高-8): the switch does not clear the error, so an errored account with its switch off is offered 恢复状态….
+    (copyAccount(status: "error", schedulable: false), .recover),
+    (copyAccount(status: "error", schedulable: false, rateLimit: 600), .recover),
     (copyAccount(schedulable: false, rateLimit: 600), .enable),
     (copyAccount(status: "inactive", schedulable: false), .enable),
     (copyAccount(status: "inactive"), nil),
     (copyAccount(status: "error"), nil),
     (copyAccount(autoPause: true, expires: -60), nil),
     (copyAccount(schedulable: false, autoPause: true, expires: -60), nil),
+    (copyAccount(status: "error", schedulable: false, autoPause: true, expires: -60), nil),
     (copyAccount(autoPause: true, expires: 3_600), .stop)
-])
+] as [(UpstreamAccount, AccountScheduleSwipe?)])
 func swipeActionFollowsSwitchAndState(account: UpstreamAccount, expected: AccountScheduleSwipe?) {
     #expect(AccountActionCopy.swipeAction(for: account, now: copyNow) == expected)
 }
@@ -186,6 +189,8 @@ func swipeActionFollowsSwitchAndState(account: UpstreamAccount, expected: Accoun
 @Test func swipeTitlesAndSymbols() {
     #expect(AccountScheduleSwipe.stop.title == "停止调度" && AccountScheduleSwipe.stop.systemImage == "pause.fill" && !AccountScheduleSwipe.stop.enables)
     #expect(AccountScheduleSwipe.enable.title == "启用调度" && AccountScheduleSwipe.enable.systemImage == "play.fill" && AccountScheduleSwipe.enable.enables)
+    #expect(AccountScheduleSwipe.recover.title == "恢复状态…" && AccountScheduleSwipe.recover.systemImage == "arrow.counterclockwise"
+            && !AccountScheduleSwipe.recover.enables)
 }
 
 // MARK: - Undo and verbs

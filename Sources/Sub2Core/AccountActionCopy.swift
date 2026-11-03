@@ -54,11 +54,22 @@ public struct AccountRecoverDialogCopy: Sendable, Equatable {
     public let options: [Option]
 }
 
-/// 20 §1.4: the list row's trailing swipe.
+/// 20 §1.4: the list row's trailing swipe. `recover` (U-04) opens the recover confirmation instead of writing.
 public enum AccountScheduleSwipe: Sendable, Equatable {
-    case stop, enable
-    public var title: String { AccountActionKind.setSchedulable(enables).verb }
-    public var systemImage: String { enables ? "play.fill" : "pause.fill" }
+    case stop, enable, recover
+    public var title: String {
+        switch self {
+        case .stop, .enable: AccountActionKind.setSchedulable(enables).verb
+        case .recover: AccountActionKind.recover.verb + "…"
+        }
+    }
+    public var systemImage: String {
+        switch self {
+        case .stop: "pause.fill"
+        case .enable: "play.fill"
+        case .recover: "arrow.counterclockwise"
+        }
+    }
     public var enables: Bool { self == .enable }
 }
 
@@ -189,12 +200,14 @@ public enum AccountActionCopy {
     }
 
     /// 20 §1.4: 停止调度 for a normal or timed account whose switch is on, 启用调度 when it is off. An account paused by its expiry
-    /// gets neither (S2D1-20): the switch does not make it schedulable.
+    /// gets neither (S2D1-20): the switch does not make it schedulable. An errored one whose switch is off gets 恢复状态… (U-04):
+    /// the switch alone leaves the error, and the confirmation can turn it back on; a credential error too.
     public static func swipeAction(for account: UpstreamAccount, now: Date) -> AccountScheduleSwipe? {
         let input = AccountStateInput(account)
         if input.autoPauseOnExpired == true, let expiresAt = input.expiresAt, expiresAt <= now { return nil }
-        guard account.schedulable else { return .enable }
-        switch AccountDisplayState(input, now: now).state {
+        let state = AccountDisplayState(input, now: now).state
+        guard account.schedulable else { return state == .error ? .recover : .enable }
+        switch state {
         case .available, .overloaded, .rateLimited, .tempUnschedulable: return .stop
         case .error, .paused, .inactive: return nil
         }
