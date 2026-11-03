@@ -290,6 +290,8 @@ final class GroupEditUITests: XCTestCase {
     @MainActor private func launchAndOpenGroups(arguments: [String] = []) {
         continueAfterFailure = false
         app = XCUIApplication(); app.launchArguments = ["-ui-testing", "-ui-accounts-long-windows"] + arguments; app.launchQuietly()
+        // On a loaded Mac `launch()` can return while the window is still empty; `reveal` would then scroll a page that is not there.
+        XCTAssertTrue(element("login.name").waitForExistence(timeout: 10), app.debugDescription)
         set("分组编辑验收", field: "login.name", towardBottom: false)
         set("https://group-edit.example.invalid", field: "login.url")
         set("admin@example.com", field: "login.email")
@@ -369,7 +371,8 @@ final class GroupEditUITests: XCTestCase {
         for _ in 0..<12 {
             if visibleFrame(item), item.isHittable { return }
             let frame = app.frame
-            let top = max(frame.minY + 100, app.navigationBars.firstMatch.frame.maxY + 20)
+            // Reading the frame of a missing bar fails the test after about 2 seconds of retries (S5-10 review).
+            let top = max(frame.minY + 100, app.navigationBars.firstMatch.exists ? app.navigationBars.firstMatch.frame.maxY + 20 : frame.minY + 100)
             let bottom = min(frame.maxY - 100, app.keyboards.firstMatch.exists ? app.keyboards.firstMatch.frame.minY - 20 : frame.maxY - 100)
             let height = max(40, bottom - top)
             let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
