@@ -27,6 +27,7 @@
 | S0-19 | 阶段 0 完成度核查与补测 | ✅ | `45f95a5` | 缺口补齐：错误“详情”（复用 S0-02 的 diagnostics，加 UTC“时间”行；ErrorDetails 只认 APIError，report 保存、文字被换掉时丢弃；alert 多“详情”按钮，打开“错误详情”sheet，复制只放本机剪贴板；ErrorDetailsDisclosure 留给阶段 1–6 的区块错误态）；RequestLog 挂在 transmit / openStream，每次尝试一行（方法、路径模板、状态、错误体里的 reason、X-Request-ID，按服务端 64 字节规则清洗，取消的尝试不记）；CapabilityGateTests 从旧服务端空能力集合串到 Idempotency-Key 与 since_id（D24 的页面接线 S0-10 已做，只核对）；-ui-switch-rejected 夹具与 AppShellUITests（令牌读写 / 只读、Admin Key 第一个管理员说明、切站失败详情与“当前站点不变”）。清理：AppModel.validatedURL 包装（S0-16 留下）、trendAxisLabel 的手机时区默认值（性能趋势改按服务器时区）、UI 测试里的调试 print；其余清单项 grep 为 0（见下方小结）。README 与 NATIVE_CONTRACT / API_COMPATIBILITY / ADMIN_MODULES 只改被阶段 0 推翻的句子。与规格不同：时间行用 UTC Z（D29 二选一）；日志的 reason 只取错误响应体。UI 测试基线 7 个用例诊断为测试时序问题（见小结），修测试后连同全部用例在 gate 里 76 / 76 通过、没有重跑。gate：单元测试 557 + 143，编译无新增 warning，UI 76 / 76 |
 | S0-LOW-A | 阶段 0 低优先级意见复核（一）：S0-02 至 S0-12 的 27 条 | ✅ | `f7b1af9` | 修 20 条（含重复意见）：批量刷新凭据按 SessionInvalidation + 安全拒绝停止（含 SESSION_BINDING_MISMATCH）；settings/public 的协议文档逐条容错；恢复 / 切站失败文案用 APIError.forConnection（刷新暂时失败写“请稍后重试”，admin/me 403 FORBIDDEN 写“当前版本仅支持管理员账号”；登录页 S0-16 起已按 .login 显示，所以不给 me() 加 context 参数）；条件缓存两个挂起点后补代号检查；带 key 写业务错误补 actionID；settingsNote 注释；性能趋势 Y 轴 axisLabel（1000 以下最多 2 位）与日志 / 账号总数千分位；统计页换筛选用 reset() 保留 429 等待；删除确认框按已存凭据类型提示吊销；待核对目录排除备份、写入选项可测、重试权限站点限定移入 Sub2Core；补登录负向、装配回调、核对错误分类等单测，回前台重载与余额页 D17 重试权限补 UI 测试（-ui-count-user-loads、-ui-pending-other-actor / -ui-pending-actor-unknown）。AppModel.reconcile 的自动 resolve 与代号检查不在 SwiftPM 编译范围，仍无自动化测试。不改 7 条：5 条已被 2cfa217 / 6d4a64d / e04377b（两条）/ 9d5e5f0 修正，用户编辑页 423 已由 2eb1b53 / 9758e41 处理，服务器时区退路不随手机时区变化记入 BACKLOG（阶段 4）。与规格不同的取舍：“暂时无法续期登录，请稍后重试”为自拟文案（00 §1.7.2 只给了页面用的“正在重试”）。gate：单元 565 + 146、编译无新增警告、UI 77 / 77 无重跑 |
 | S0-LOW-B | 阶段 0 低优先级意见复核（二）：S0-13 至 S0-19 的 28 条 | ✅ | `dfdc691` | 修 26 条（含重复意见）：全局 sheet 的覆盖层一次只做一个转场（SecurityPromptOverlay），呈现中结束会话或收起途中来新 prompt 不再留下吞触摸的透明窗口；回执按钮按回执 id 执行（performAction(id:)），发布新会话时清空旧回执，AppModel.switchTo 对当前站点直接返回；删除站点的结果按 SiteRemovalNotice（收尾结束时没有活动站点就用 alert，备注不再丢失），收尾期间设置页显示“正在删除…”行（-ui-slow-teardown）；会话绑定方式只由 admin 角色读取（vendor 不再请求 admin/settings）；当前站点的余额待核对行恢复“打开原站点核对”；登录 Retry-After 截到 300 秒、冷却按站点地址记录、离开页面后迟到的失败按取消处理、两步验证校验中不可取消、密码方式 settings/public 的 JSON 404 判为非 Sub2 站点；accountStatusSummary 注释改为必须按 capability 门控并补旧站点 400 用例；门槛 sheet 改用 KeypadInput.edit（中间插入 / 删除只接受键盘能打出的结果）；RequestLog 可注入 Sink 并补“每次尝试一行、取消不记”的行为测试，账号测试流的拒绝在读完错误体后记日志（带 reason）；补 page_size 超限的 Debug 退出测试；README 的重试与时区描述改准确；阶段 0 小结与 BACKLOG 更正 testSlowTodayStats… 不在 S0-19 修法范围内。不改 2 条：用户编辑页重试遇到安全拒绝已由 `9758e41` 修正，余额页“设置为”按过期余额判断门槛已由 `c8a0f1f` 修正。与规格不同：“正在删除…”为自拟文案；登录冷却 300 秒上限与区块一致（00 §2.7.2 未写上限）。gate：单元 571 + 156、编译无新增警告、UI 77 / 77 无重跑 |
+| U-01 | 状态胶囊两端内缩改为 22pt，矮行保底 16pt（用户真机反馈） | ✅ | `6014be1` `5f1e9a3` | 两次改动：6014be1 把 StatusCapsuleMetrics.verticalInset 由 10 改为 22，行、卡片、横幅统一（用户看 10/14/18/22 对比图后选定）；5f1e9a3 加矮行保底，Sub2Core 新增 RailPosition.insets(height:)（endInset 22、minimumLength 16；两端封口每端 min(22,(h−16)/2)，单端 min(22,h−16)，中间 0，h&lt;16 占满）及 5 个单测，statusCapsule 与公告预览卡片的中性胶囊改用 StatusCapsuleShape 按实际行高算内缩（没用 GeometryReader，不撑大行），删去 verticalInset。对比截图在 sub2-testenv/scratch/capsule-compare/：选长度用的 index.html 与 *-10/14/18/22.png；保底验证用的 min16-users.png、min16-group-batch.png（含 -row 局部），用户列表 Alice 单行 56pt 胶囊 16pt（原 12pt），分组批量结果失败行 61.7pt 胶囊 17.7pt（失败行总带原因文案，未触发保底）。规格同步：00 §8.1 与 FINAL-SPEC“状态胶囊”条改为 22 并补“行高不足时两端少缩，保证胶囊至少 16pt（2026-11-03 用户定）”；20-accounts.md 第 199 行与 FINAL-SPEC.md 第 2233 行的“离上下 10”改为“离上下见 00 §8.1”；html-preview 设计稿未改。check：TOOLCHAIN、UNIT、BUILD 均为 0，无新 warning；UI 8 个类 215/215，无 flaky。 |
 
 ## 阶段 0 小结（S0-19）
 
@@ -299,6 +300,264 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 | S2-21 | 定时测试（只读）：计划与结果解码、详情记录区一行、定时测试小页 | ✅ | `707c96b` | 改了 files 外的文件：APIClient.decode 加 decode 段（S2D1-15）、AccountActivitySections.swift、Package.swift 排除表加一行；夹具另建 DemoData+ScheduledTests.swift（DemoData+Accounts 已 735 行）。取舍：cron 人话只在 N 落在分钟 1–59、小时 1–23 时生效，否则原样等宽；“其他”分类词写“上游 {code}”，无码写“失败”；model_id 为空写“默认模型”；vendor 结果被拒（403 FORBIDDEN）时写“没有权限查看测试结果”；小页只列主计划；invalidateReads 不取消定时测试读取。UI 测试已跑：check AccountDetailUITests 24/24 通过，无重跑后才通过的用例。（审查修正 0630966）审查修正 0630966：首次读取被切后台取消后，回前台也会重读定时测试行（readsAgainOnForeground：idle 或 failed 时重读）；小页失败改用 C-5 的 BlockFailureRow / BlockStatusAccessory（429 倒计时并自动重读、423 完成合规确认），状态行不显示“正在刷新”。check AccountDetailUITests 25/25 通过。推送因 GitHub 连接失败未完成。 |
 | S2-23 | 阶段 2 收口：完成度核查、首页刷新接线、区块 429 统一、凭据与删除专项复核、ETag 304 确认、文档与小结 | ✅ | `a2d4b50` `abc70de` | 分两次提交（23a 代码与测试，23b 文档）。取舍：首页刷新收口在 AppModel+Accounts 的 11 个账号写包装（recordingAccountWrite + 新文件 Session/AccountWriteMark：成功或可能已生效且会话未变才记，4xx（408 除外）、本地校验、取消、needsNewKey 不记）与 AccountTestCenter.onFinished，没有接在 AccountPatchPrompts 的 convenience init（与依赖图裁定写的位置不同：PATCH / PUT 已经过写包装，onChange 在读回时也会触发；Session/AccountPatchFlow.swift 未改）；列表刷新沿用 S2-11 的 AccountListSignal，由详情 applyWrite、patch flow 的 onChange、测试结束 bump，AccountsView 被盖住时延后到再次出现；今日节没有数值时“读取失败 · 重试”，有数值时节头“更新失败”或 429 倒计时（S2-09 的“刷新失败 · 重试”不再使用），AccountDetailSectionBox 改用 NumberedSectionHeader；删除 APIClient.accounts(page:…)；G2 / G8 / G9 前序已做只核对，补了 G1 / G5 / G6 / G10 与两个空闲夹具的用例，HomeUITests 末尾加错误账号行进入活详情。改了 files 未列的 AppModel+Accounts、AccountTestCenter、AccountActivitySections、DemoData+Accounts、AccountsView（S2D1-24 允许）。ETag 304 未实测（测试环境地址只在主工作区未跟踪目录，线上不进主工作区）。UI：check 14 类 227 例 226 通过；唯一失败 AccountDetailMenuUITests.testSwitchingToNoProxy 在基线 6154134（MAC_REF，不含本条改动）上同样两次失败，属既有问题（审查修正 b66257b）审查修正 b66257b：S1-08 的 ResendAfterWait 改以 (notBefore, isOn) 作 task id，今日节 429 到时自动重读跟随详情页刷新门（sheet、确认框、写进行中、后台时不发，等待期内重新打开会等完剩余时间）；新增夹具 -ui-account-today-throttled-long 和两个 AccountDetailUITests 用例。check 3 个类 58/58 通过。 |
 
+### 阶段 2 小结
+
+文中“材料”指上表各行备注、BACKLOG“App 与设计 · 阶段 2”、阶段 2 方案裁定，以及 S2-23 的方案、提交说明、检查日志和核查记录。下文引用的测试名都已在 `a2d4b50` 上只读核对存在（审查修正新增的两个用例在 `b66257b` 上核对）；注明“整理小结时只读补核”的是材料以外补查的结果。
+
+#### (1) 完成项
+
+- 数据层与读接口：S2-01 `9882ca6`（JSONValue；UpstreamAccount 补字段，credentials 解码时剔除 17 个敏感键并补 has_<key>，加 credentialsArrivedUnredacted 与 parentAccountID；AccountListQuery / managedAccounts）；S2-02 `9a0448b`（今日批量、运行时批量、5 小时窗口、带版本号的账号详情、MetaCatalog 与内置清单、平台显示名）。
+- 账号列表：S2-03 `5eecbaa`（修正 `2437dab`）分区与刷新纯函数、AccountListModel、AppModel+Accounts 与演示夹具、Tab 徽标计数；S2-04 `75307e4` AccountRow 平台分区三行列表、筛选胶囊与平台菜单、Tab 徽标与跨 Tab 筛选，替换旧列表；S2-22 `7e56d1c`（修正 `b858763`）组头告警牌与“告警”sheet。
+- 写接口与动作：S2-05 `11968da`（修正 `c4bcbf3`）PATCH + If-Match 与 PUT 退路、412 比对、混合渠道、恢复、调度开关带 key、删除、模型列表、恢复原代理；S2-06 `4d1c67c`（修正 `3d3987f`）AccountActions：恢复状态、启停调度、启用账号确认框、回执与撤销、结果核对、列表右滑；S2-07 `38013a7` 批量：选择模式、底部操作坞（停止 / 启用调度）、分批、Face ID、撤销与结果 sheet。
+- 详情：S2-08 `afe1c74`（修正 `068203e`）骨架、状态卡与按钮行、加载 / 失败 / 已删除状态、路由替换；S2-09 `cfc6947` 容量（壹）、今日（贰）、记录（叁）三节与状态卡“最近上游错误”行；S2-21 `707c96b`（修正 `0630966`）定时测试（只读）：计划与结果解码、记录区一行、定时测试小页。
+- 内联编辑：S2-10 `0732035`（修正 `968b677`）基础与调度分区、AccountSectionSheet、分组与过期时间选择器、AccountPatchFlow 保存流程（撤销、412、409、读回）；S2-11 `5d62dac`（修正 `9066c22`、`7319b0d`；后者在 2026-11-01，晚于 S2-23）代理分区与选择器、恢复原代理、⋯ 菜单、在 Web 中编辑、删除账号；S2-12 `f393974` `f679c34`（修正 `934d43b`）模型分区与映射编辑器、高级分区。
+- 测试连接：S2-13 `43f7877` 接口层（SSE 读到 test_result、AccountTestResult、异步 test-runs、结果解读与输出脱敏）；S2-14 `986e7c9` 测试 sheet、后台测试任务 AccountTestCenter、.accountTest 路由。
+- 凭据与 OAuth：S2-15 `c561924` 接口层（各平台授权链接与换码、reauthorize、apply-oauth-credentials、刷新令牌、OAuth 凭据构造与回执文案）；S2-16 `df6b264` 凭据分区（API Key / Base URL / 访问令牌行、更换 API Key 与 Base URL sheet、刷新令牌、凭据类主按钮）；S2-17 `a5eed4c`（修正 `81bf48e`）OAuthFlow 三步清单与重新授权 sheet（回调解析、本机回调监听、替换令牌与保存失败核对）。
+- 新建账号：S2-18 `a2b7923`（修正 `c8cc174`）createAccount 与 AccountNewDraft（方式映射、缺项清单、凭据构造、自动命名、分组过滤）；S2-19 `c38ab7e`（修正 `1e0dfb6`）新建表单（平台与认证方式、凭据含 OAuth 三步、名称、分组、调度、网络、更多、底部坞）；S2-20 `3315d8b`（合并 `50c3095`，修正 `d17380c`）创建并测试 sheet、测试通过后启用调度、失败处理（修改后重测、保留、保存为停用、删除）与后台继续。
+- 收口：S2-23 `a2d4b50`（23a 代码与测试）`abc70de`（23b 文档），审查修正 `b66257b`；合入主分支的合并提交 `6f473fd`、`51fa325`。做了这几块：
+  - 首页刷新（X17、10 §1.4）：新文件 NativeApp/Session/AccountWriteMark.swift；AppModel+Accounts 的 11 个账号写包装（恢复状态、启停调度、PATCH、PUT 退路、批量调度、恢复原代理、删除、刷新令牌、重新授权、apply-oauth-credentials、新建）都套 recordingAccountWrite(generation)，写成功或可能已生效且会话未变时调 liveOps?.noteExternalWrite()；AccountTestCenter 加 onFinished，测试结束与新建账号后台流程结束时各调一次。
+  - 列表完整刷新（20 §1.6）：AccountDetailModel.noteListNeedsRefresh() 在 applyWrite 末尾与 patch flow 的 onChange 里 bump S2-11 的 AccountListSignal；AccountsView 可见时立即刷新，被盖住时记下、再次出现时刷新一次。
+  - 区块 429 统一（X37）：今日节删除自建状态行、TimelineView 与自动重发，没有数值时用 S1-08 的 BlockFailureRow（“读取失败 · 重试”），有数值时节头放 BlockStatusAccessory；AccountDetailSectionBox 改用 NumberedSectionHeader。审查修正 `b66257b` 让共用的 ResendAfterWait 以 (notBefore, isOn) 作 task id，今日节 429 到时自动重读跟随详情页刷新门（sheet、确认框、写进行中、后台时不发）。
+  - 清理：删除 APIClient.accounts(page:search:status:platform:includeSchedulerScore:)，全 App 只剩 managedAccounts(page:query:)。
+  - 专项锁定用例：AccountSecretHygieneTests、AccountBadgeWiringTests、AccountWriteMarkTests、AccountTestCenterFinishTests；新夹具 -ui-account-today-refresh-throttled、-ui-account-focus、-ui-account-today-throttled-long。
+  - 文档：README“当前功能”与账号口径句、docs/ADMIN_MODULES.md 的“## 账号”、docs/NATIVE_CONTRACT.md 的账号签名。
+
+#### (2) 规格测试清单 / 完成标志对照
+
+20 章没有像 00 §9.8、10 §1.7、30 §10 那样单列测试清单；“实现顺序建议”的阶段 2 段只写了实现顺序，没有完成标志（阶段 0、1 有）。下面按 S2-23 条目 refs 列的对照项写。
+
+- U15–U23 与 U53：S2-23 核查记录为“都已实现并有单测或 UI 用例”，逐项内容：U15（500 一页、最多 2,000 行、超出提示用平台筛选）、U16（OAuth 令牌只在内存）、U17（Bedrock / Vertex 主按钮“在 Web 中更换凭据”）、U18（不发 skip_default_group_bind，表单脚注写明）、U19（不发 preserve_status，确认文案写“并重新启用账号”）、U20（定时测试只读一行）、U21（批量只有停止 / 启用调度）、U22（运维关闭时“出错于 …”行）、U23（代理行推入代理详情）、U53（过期时间按本机时区）。材料只给了 U17 的测试名 AccountDetailMenuUITests.testBedrockCredentialErrorOpensWeb，其余各项的测试名材料里没有逐项列出（未核对）。
+- R 系列：
+  - R08：不实现 AccountListPage.etag，304 由 ConditionalCache 透明处理；单测 ConditionalRequestTests.accountListPageKeepsCountsOn304AndLaterPagesOmitCounts。
+  - R09（include_counts 只在第 1 页）：AccountListLayoutTests.listQuerySendsNewParametersOnlyWithListQueryCapability 断言第 2 页不带 include_counts（整理小结时只读补核，`a2d4b50`）。
+  - R19：唯一定义见 (5)。
+  - R05、R12：S2-23 未逐条核对；前序依据见 S2D1-05（PUT 退路与各写包装在用户确认那一刻生成 key，R05）、阶段 0 表的 S0-17 行⑤（按 R12 任何情况都不显示 error_message）。
+  - R06、R11：材料里没有 S2-23 的逐条核对结果（未核对）。
+- 阶段 0 留给阶段 2 的三项（S0-05 / S0-07 / S0-08）：见 (4)。
+- 20 §1.7 唯一写到 UI 测试的一行（AccountListCustomizationUITests、AccountManagementUITests 按新列表重写，DemoData 补 11 个演示账号）：S2-04 把这两个文件都删除，改为 AccountListUITests；“11 个演示账号”未核对。
+- 10 §1.4 账号写后首页刷新：AccountWriteMarkTests（mayHaveAppliedSeparatesSentFromUnsent、runMarksOnceAfterSuccessOrMaybeAppliedFailureInSameSession）、AccountTestCenterFinishTests（finishedTestsCallOnFinishedOnceUnlessSessionChanged、newAccountRunCallsOnFinishedAfterItsBackgroundSwitch、cancelAllCallsNoOnFinished）；没有 UI 层断言（见 (7)）。
+- 区块 429（X37）：AccountDetailSectionsTests.todayFailureRowUsesSharedBlockWording；AccountDetailUITests.testTodayRefreshThrottleKeepsFiguresWithHeaderCountdown、testTodayThrottleResendWaitsWhileSheetCoversPage、testTodayThrottleResendGoesOutOnceSheetClosesWithinWait。
+- 路由 focus（X39）：AccountDetailUITests.testRouteFocusScrollsToEachSection（夹具 -ui-account-focus，六个分区）。
+- 凭据专项：AccountSecretHygieneTests 的 accountTextFormsNeverCarrySecrets、patchRequestAndItsHoldersPrintKeyNamesOnly、putFallbackTouchesOnlyTheTargetKeyAndNeverEchoesSecrets。
+- 账号 Tab 徽标：AccountBadgeWiringTests 的 liveOpsHomeWritesSharedBadgeInDeviceTime、refresherSkipsFetchWithinSixtySecondsAfterLiveOps。
+- 本阶段裁定的锁定用例：
+  - S2D1-02：SuspendTests.suspendKeepsAnOpenAccountTestStream；
+  - S2D1-07：AccountEditDraftTests.groupChangeKeepsOrderAndUndoRestoresOriginalOrder；
+  - S2D1-11：listQuerySendsNewParametersOnlyWithListQueryCapability；
+  - S2D1-12：AccountNamingTests.accountNamingPlatformNames；
+  - S2D1-01：AccountTestUITests.testModelListFailureUsesServerDefaultModel；
+  - 内置平台清单：MetaCatalogTests.builtinCatalogMatchesSub2BuiltinJSON。
+- S2-23 新增的其余 UI 用例：AccountEditUITests.testRenameInDetailShowsNewNameInListAfterBack；AccountListUITests.testReadOnlyTokenGreysNewAccountButton、testEmptySiteShowsEmptyCard、testSummaryFailureKeepsRowsSilently；HomeUITests.testErrorAccountRowOpensLiveAccountDetail。
+
+#### (3) 20 章各节改动点
+
+- §1.7 列表：
+  - AccountsView 重写为平台分区三行列表，数据与定时器在 Features/Accounts/AccountListModel（S2-03 / S2-04），行在 AccountRow（S2-04）；“显示字段”“前台自动刷新”“快捷编辑”已删（S2-23 核查）；“筛选与排序”也已删（整理小结时只读补核，`a2d4b50` 的 Sources / NativeApp / Tests / UITests 里 grep 为 0）。
+  - AccountListQuery / managedAccounts：page_size 500、多值 status、urgency 排序、include_counts 只在第 1 页、supportsListQuery 能力标记（S2-01、S2D1-11）。ETag 不进 AccountListPage，304 交给 ConditionalCache（R08）。
+  - accountTodayStats 改为今日批量（含 failed_account_ids），另加运行时批量（S2-02）；旧 accountTodayStats(ids:) 由 S2-04 删除。AccountStatusSummary 与 AccountDisplayState 由 S0-17 提供。
+  - AdminGroup 的 sortOrder 与 allGroups(includeInactive:)：S2-01，带 platform 时本地过滤。
+  - Tab 徽标：S2-03 / S2-04，会话级 accountBadgeTask 前台每 60 秒补取，没有 status_summary 时退回 dashboard/stats.error_accounts。
+  - 告警 sheet 与组头告警牌：S2-22，经 LiveOpsStore.refreshFiringAlerts() 与 10 §0.5 共用一份列表。
+  - AccountFieldPresentation、ListFieldSelection、ListFieldEditor 按 20 §1.7 留给简化模式。
+  - 旧 UI 测试 AccountListCustomizationUITests、AccountManagementUITests 都已由 S2-04 删除，改为 AccountListUITests。
+- §2.7 详情：AccountDetailScreen（S2-08）；容量 / 今日 / 记录三节（S2-09）；带 ETag 的账号读取、AccountUsageWindow（S2-02）。日志页打开账号详情、分组页“查看与管理分组账号”入口在 S2-23 时仍是过渡，见 (7)。
+- §3.7 内联编辑：
+  - 旧 AccountEditView 拆为 AccountSectionSheet 的基础 / 调度 / 模型 / 高级四种分区（S2-10 / S2-12）。
+  - AccountPatchRequest、patchAccount、PUT 退路、AccountMixedChannel、deleteAccount、accountModels、revertAccountProxyFallback：S2-05；JSONValue：S2-01。
+  - 四个选择器：分组与过期时间（S2-10）、代理（S2-11）、模型（S2-12）。
+  - Proxies.swift 首建与 allProxies(withCount:)：S2-11。代理行推入代理详情（S2-11），代理详情页由 S6-12 提供。
+  - 保存编排 AccountPatchFlow 放在 NativeApp/Session，弹框在 Features/Accounts/AccountPatchPrompts（S2D1-04）。
+- §4.7 测试连接：SSE 以 test_result 或 EOF 结束、AccountTestRuns、输出脱敏（转录拆到 AccountTestTranscript）：S2-13。AccountTestSheet 与后台任务 AccountTestCenter：S2-14，AccountTestCenter 在 NativeApp/Session，AppModel 持有 accountTests。
+- §5.7：setSchedulable 带 key、AccountRecovery：S2-05。AccountActions 本体在 Session/AccountActionsCore.swift、App 入口在 Features/Accounts/AccountActions.swift：S2-06。
+- §6.7：AccountOAuth，另拆出 OAuthCredentialBuilder、AccountOAuthErrorCopy（S2-15）；AccountCredentialSheets（S2-16）；OAuthFlow（S2-17）。旧 refreshAccount(id:) / refreshManagedAccount 已由 S2-15 删除，新的刷新令牌带 key。
+- §7.7 新建账号：
+  - AccountNewView 与坞：S2-19；AccountNewDraft、AccountCreate：S2-18；MetaCatalog 与内置清单：S2-02，并入 MetaCatalog.swift；复用 S2-17 交付的 OAuthFlow 新建变体。
+  - 状态机按 S2D1-13 拆分：创建 / 停调度阶段在 S2-19 的 AccountNewSubmission，测试 / 启用阶段在 S2-20 的 AccountNewTestRun，AccountNewFlow 只剩纯函数。
+- §8.7 批量：AccountBatchDock 与 AccountBatchRunner，bulk-update 带 key，去掉“确认执行”，批量“刷新凭据”删除（S2-07，U21）；§8.8 未做。
+- §9.7：ScheduledTests、AccountScheduledTestsView（S2-21）。APIClient.decode 加了裸数组分支（S2D1-15）。
+- §10.3：AccountStatusSummary（S0-17）、AccountsRanking（S1-01）。
+
+#### (4) BACKLOG 与前序阶段备注里留给本阶段的事项
+
+- 阶段 0：
+  - S0-05（账号详情 cv-N 不进缓存；account(id:) 返回 ETag 的变体与 PATCH If-Match）：已满足。带版本号的详情 S2-02，PATCH + If-Match S2-05；锁定用例 AccountReadBatchTests.versionedAccountReadsETagAndNeverSendsIfNoneMatch。
+  - S0-07（ServerClock 的消费）：已满足。S2-03 的状态推导用站点时钟，节流与徽标用本机时钟；S2-23 核查确认账号页时间用 ServerClock。
+  - S0-08（绝对时间按服务器时区）：S2-23 核查为已满足。例外有两处：简化模式用的 ListFieldPresentation.timestamp；过期时间按 U53 用本机时区。
+  - S0-08 / BACKLOG“倍率的显示位数”：账号一侧定为 DisplayFormat.decimal，最多 3 位小数（S2-10 的 AccountEditCopy.rate），BACKLOG 该行已由 S2-23 更新；App 不显示上游探测倍率；分组页归阶段 5。
+  - S0-17（AccountTokenStatus 的显示归阶段 2）：S2-16 的访问令牌行。
+  - S0-02 留给页面的动作：412“已刷新”由 S2-05 / S2-10 的 412 比对与重新载入做；TOO_MANY_IDS 拆批由 S2-02 的 runtime/batch 再拆做。ACCOUNT_STATS_UNAVAILABLE 显示“—”、“服务器连不上 {平台}”填平台这两项，材料里没有单独记录。
+  - S0-19 / S0-LOW-B / BACKLOG“UI 测试 6 并发下的快照停顿”（旧账号列表字段编辑用例、testSlowTodayStatsAllowsIndependentRuntimeRefresh）：已处理。S2-04 删除 AccountListCustomizationUITests（含 5 个基线不稳定用例），整体换成 AccountListUITests。
+- BACKLOG 通用行里账号部分的事项：
+  - “区块 429 倒计时文案与重试按钮”：已处理。S2-09 先做了自建倒计时，S2-23 换成 BlockFailureRow / BlockStatusAccessory，b66257b 补了刷新门；定时测试小页在 S2-21 修正时已改；账号列表的今日金额只显示“—”（20 §1.5）。
+  - “读区块的完成合规确认入口”：账号详情今日节经 BlockFailureRow 也有了（S2-23）。
+  - “缺失值“—”的读屏”：S2-09 处理了详情三节；S2-23 grep 核对，阶段 2 账号页的读屏值都经 DisplayFormat.spoken / spokenValue / missingSpoken。
+  - “路由参数在旧页面上不生效”（.account 的 focus）：六个分区都能滚到，由 testRouteFocusScrollsToEachSection 锁定。
+  - “跨 Tab 跳转撤不掉视图式推入的页面”：账号 Tab 栈上一律 NavigationLink(value: AppRoute) 或 router.push。白名单只有两类：sheet 内自带导航栈的推入；分组过渡入口 AccountsView(initialGroupID:)，S5-13 删除。
+  - “通用删除确认还没有做”：账号删除（详情、新建失败后删除）只经 DeleteRequest.account + .confirmDelete（S2-23 核查）。
+  - “真机确认 ETag 304”（账号列表的 304 由 S2-23 确认）：未实测，原因见 (7)。
+- 阶段 1：
+  - S1-18 移交 S2-23、BACKLOG“概览「测试」关闭即刷新与后台测试”：已处理。测试结束（含后台测试、新建账号后台启用调度）经 AccountTestCenter.onFinished 通知概览与列表。
+  - 阶段 1 小结 (6)、BACKLOG“渠道行状态图标与账号状态图标统一”（留给 S2-23 评估）：材料里没有评估结论。整理小结时只读补核（`a2d4b50`，主分支 `1e28cbc` 上相同）：ChannelGlyph 仍是 ChannelsSection.swift 的私有类型。
+  - BACKLOG“S2-09 的 CapacityBar 合入后统一监控 CPU / 内存条”：材料里没有处理记录。整理小结时只读补核（`a2d4b50`，主分支 `1e28cbc` 上相同）：MonitorServerSection.swift 仍用私有 MeterBar。
+  - BACKLOG“首页夹具与账号 Tab 演示数据不一致”：S2-23 加了 HomeUITests.testErrorAccountRowOpensLiveAccountDetail（错误账号行进入的是活账号详情）；其他差异材料里没有新记录。
+  - BACKLOG“概览待处理账号行是否复用 AccountActions”：默认不做（S2-23 方案 out_of_scope）。
+  - BACKLOG“AccountOAuthTests 计时用例在高负载下偶发失败”（S2-15 的用例）：阶段 2 内没有处理。后来 S5-02 合入时由 `b840ad9`（2026-11-01）改为不依赖耗时。
+- BACKLOG 阶段 2 表里交给 S2-23 的：
+  - “旧接口 APIClient.accounts(page:…)”：已删除，测试改调 managedAccounts。
+  - “S2-23 首页刷新接入点”（AccountBatchRunner）：批量调度经 setAccountsSchedulable 包装，已在 11 个写包装里，没有改 AccountBatchRunner。
+  - “详情里写操作后返回列表的即时刷新”“其余详情写操作的列表完整刷新”：已处理，用例 AccountEditUITests.testRenameInDetailShowsNewNameInListAfterBack。
+  - “区块 429 倒计时（账号详情今日已处理）”：见上。
+  - “ConditionalCache 缓存账号列表原始响应体”（由 S2-23 的凭据专项复核决定）：材料里没有结论，BACKLOG 该行没更新。
+  - “跨 Tab 跳转关闭新建表单”（留给 S2-23 或用户决定）：S2-23 不加询问，等用户决定。
+  - “新建账号遇到 503 IDEMPOTENCY_STORE_UNAVAILABLE”（S2-20 / S2-23 可统一处理）：材料里没有处理记录。
+- BACKLOG 阶段 2 表里前序条目自己的遗留：
+  - “S2-19 新建账号三个 UI 用例原有失败”“AccountNewUITests 三个用例在主分支上稳定失败”：已由 S2-20 修好，S2-23 的 check 里 AccountNewUITests 没有失败；这两行 BACKLOG 没标已处理。
+  - “AccountDetailUITests.testBasicAndScheduleSectionsShowReadOnlyValues 不稳定”：S2-16 改为固定顺序遍历。
+
+#### (5) 核查结果（S2-23 一次性脚本，不入库）
+
+- 改动总表 20 章各行：
+  - 列出的新文件全部存在：AccountDisplayState、AccountMixedChannel、AccountRecovery、AccountRuntimeBatch、AccountStatusSummary、AccountTestRuns、AccountUsageWindow、AccountsRanking、JSONValue、MetaCatalog、Proxies、ScheduledTests、AccountCreate、AccountOAuth，以及 Features/Accounts 下 16 个页面文件。
+  - 已删：AccountEditView、旧批量、“显示字段”“前台自动刷新”“快捷编辑”。
+  - 保留：AccountFieldPresentation / ListFieldSelection / ListFieldEditor 留给简化模式；AccountsView(initialGroupID:) 留给分组过渡入口。
+- 旧符号在 Sources / NativeApp / Tests / UITests / scripts 里为 0：accounts(page:…)、accountTodayStats(ids:)、旧 setSchedulable / refreshAccount、refreshManagedAccount、AccountUpdateRequest、PendingAccountUpdate、updateAccount、AccountEditView、LegacyAccountDetailView、AccountTestView、prepareBatch / executeBatch / AccountBatchAction、accounts.more、batch-refresh、batch-clear-error、create-from-oauth。docs/NATIVE_CONTRACT.md 由 23b 更正。skip_default_group_bind、preserve_status 只出现在“从不发送”的注释与断言里。
+- R19：managedAccounts、AccountListQuery、accountStatusSummary、alertEvents、errorCount、allProxies、AdminProxy 各一处定义；errorRecords 的两处是 page / sinceID 两个接口（阶段 4 文件），不算重复。
+- X39：账号页 Tab 栈上一律 NavigationLink(value: AppRoute) 或 router.push；白名单只有 sheet 内导航栈（AccountNewView、AccountSectionSheet）与分组过渡入口的 navigationDestination(item:)。
+- 行数：账号相关源码与测试文件都不超过 800 行（DemoData+Accounts 753、AccountTestCenterTests 785）。`b66257b` 后 DemoData+Accounts 为 756 行（整理小结时用 git show 只读补核）。
+- D27：UITests 引用的 301 个账号标识在 NativeApp 都能找到；-ui-account* / -ui-accounts* / -ui-scheduled-tests* 参数两边一一对应。此前没有用例的 -ui-accounts-empty、-ui-accounts-summary-error 由 S2-23 补了用例。
+- 安全：
+  - 账号文件里没有 print / dump / NSLog；Logger 两处只记方法、路径模板、状态码、reason、请求 ID。
+  - Receipt / APIError / Text / Logger 行上的插值逐条核对 31 处，没有凭据。
+  - 没有 @AppStorage / UserDefaults 存凭据；UIPasteboard 只在 SensitivePasteboard、OAuthFlow 带过期的链接复制与错误详情。
+  - 删除只经 DeleteRequest.account + .confirmDelete。更换 Key 与重新授权在提交前过 BiometricGate.authorize(.replaceCredential)，批量过 .batch。
+  - 前序已做、本条只核对的三项：敏感键清单只有一份（G8，S2-05）；AccountPatchRequest / JSONPatchValue / AccountEditChange / AccountPatchAttempt 屏蔽了文本形式（G9，S2-05 / S2-10）；INVALID_ACCOUNT_STATUS_FILTER 退路（G2，S2-03）。
+- 能力与格式：账号代码里没有能力字面量；倍率经 DisplayFormat.decimal；读屏值里的“—”经 DisplayFormat.spoken；TimeZone.current 只在过期时间脚注。
+- 写包装：AppModel+Accounts 里有 16 个发写请求的包装。11 个账号写套了 recordingAccountWrite；其余 5 个里，checkMixedChannel、generateOAuthLink、exchangeOAuthCode 不改账号，testAccountStream、startAccountTestRun 由 AccountTestCenter.onFinished 收尾。
+- 交叉审查新增的七项核对（S2-23 方案 cross_review_notes 第 3 条）：
+  - ① 旧服务端凭据 PUT 拦截有单测与 UI 用例（S2D1-09）：整理小结时只读补核（`a2d4b50`），LEGACY_CREDENTIALS_PUT 有 AccountPatchTests、AccountPatchStepTests、AccountPatchFlowTests 等单测，夹具 -ui-account-legacy-server 在 AccountCredentialUITests、AccountEditUITests 里有用例。
+  - ② D18 修订在 SuspendTests 体现（S2D1-02）：见 (2) 的 SuspendTests.suspendKeepsAnOpenAccountTestStream。
+  - ③ “Zhipu GLM”只出现在 MetaCatalog.builtin 数据里（S2D1-12）：整理小结时只读补核（`a2d4b50`），字面出现在内置清单数据、一处测试断言（MetaCatalogTests）和三处注释（AccountNaming、PlatformQuotaPresentation、AccountNamingTests）里，NativeApp 里没有。
+  - ④ 分组过渡入口的视图式推入列入 X39 白名单（S2D1-18）：S2-23 核查有结论，见上面的 X39。
+  - ⑤ 阶段 2 的 -ui-* 参数全部在 DemoData.AccountFixture（S2D1-14）：未核对。上面 D27 的“两边一一对应”核的是 UITests 与 NativeApp 之间的参数，不是这一项。
+  - ⑥ 到期暂停主按钮为“修改过期时间…”（S2D1-20）：整理小结时只读补核（`a2d4b50`），editExpiry 有 AccountDetailPresentationTests 与 AccountEditUITests 覆盖。
+  - ⑦ 影子账号预检（S2D1-21）：整理小结时只读补核（`a2d4b50`），Sources/Sub2Core/OAuthFlowPresentation.swift:105 在 parentAccountID 有值时直接返回不支持文案（shadow_account），单测 OAuthFlowPresentationTests.precheckFailureAndUnconfirmedCopy 断言“影子账号的凭据跟随母账号，请重新授权母账号”。
+
+#### (6) 与规格不同的取舍（阶段汇总，各条目的细项见上表备注）
+
+- 平台显示名：App 已知的平台用内置中文名（zhipu 显示“智谱 GLM”），与 20 §0.3 字面“目录 display_name 优先”不同（S2D1-12，S2-02 / S2-04 / S2-18），待用户确认。
+- 到期自动暂停的账号：详情主按钮为“修改过期时间…”，打开调度分区；列表右滑不给“启用调度”。与 20 §2.3 字面不同（S2D1-20，S2-06 / S2-08 / S2-10），待用户拍板。
+- 过期时间按本机时区（U53），20 §3.3 的服务器时区作废；脚注只在过期页、且时区偏移不同时出现（S2-10）。
+- 列表 ETag 不进 AccountListPage，304 由 ConditionalCache 透明处理（R08）。
+- 测试连接：
+  - 默认模型不建内置表，发空 model_id、显示“默认模型”（S2D1-01，20 §4.5）。
+  - 输出区多出上游错误“✕ …”和媒体“← 收到…”两类行（20 §4.3 只列 content / status）。
+  - 测试流不随 suspend 停止（修订 D18，S2D1-02）。
+  - “重新测试”只在中断、没开始和 BUSY 时出现，BUSY 默认等 30 秒（S2-14）。
+- 列表：
+  - S2-04：正常账号不画状态牌（照设计稿）；暂停 / 停用只把名称改为 ink2，不降整行透明度；限时第 3 行“只截尾部”（条目正文写的“只截头部”按笔误处理）；平台菜单的数字放在菜单项第二行。
+  - S2-03：分组排序与主分组沿用 AdminGroup.displayOrder（sort_order 缺失按 0，方案原为排最后）；平台同级时按 id 升序。
+  - 状态筛选被拒时，本会话退回旧服务端路径；分组筛选被拒不重试（S2D1-11，S2-03）。
+- 写：
+  - 2026-05 以前的旧站点上，凭据类 PUT 本地拦截，提示去 Web（S2D1-09，S2-05 / S2-10）。
+  - ReasonCatalog 没补 CREDENTIAL_KEY_NOT_DELETABLE 等 3 个 reason，走通用兜底（S2-05）。
+  - AccountActions.enableAccount 保留自己的单字段 PATCH，不并入 AccountPatchFlow，两者共用 S2-05 的 412 比对（S2-23 核查）。
+- 批量（S2-07）：部分失败的回执只给“查看”，撤销移到结果 sheet 底部；撤销只针对操作前与目标值不同的成功账号；前一批没有明确成功就停止。批量“刷新凭据”删除，§8.8 不做（U21）。
+- 详情：
+  - S2-08：错误态牌旁写“上游 {error_status_code}”；按钮按设计稿做成横排胶囊，不用 glass；安静卡也画模型限流块。
+  - S2-11：删除回执在确认框关闭前出现、关闭后再 pop；删除遇到“需再次确认”只回执、不给重试；停用代理的副行写到期词。
+- 模型 / 高级（S2-12）：模型限流徽章按映射后的实际模型匹配；自动探测上游声明倍率只给 apikey 账号；透传读法同后端，关闭时连旧键 openai_oauth_passthrough 一起删；限额关闭只删主键；基础 RPM 由 App 校验 1–10000；切换账号类型 / API 协议时照 Web 联动官方端点，自定义端点时两行只读并加脚注。
+- 凭据：
+  - 多协议平台的 Base URL 只读，走 Web（S2D1-22，S2-16）。
+  - S2-16：标记按 wasError 翻转或 error_at 晚于更换时间失效；令牌剩余 ≥ 24 小时写“N 天后”，跨天写 yyyy-MM-dd HH:mm；“（仍暂停调度）”只在开关关时写；bedrock / service_account 只读一行加“在 Web 中更换凭据”，脚注为自拟文案；Base URL 回执带“测试”、不给撤销（20 §0.4-1 写可逆的内联编辑给撤销）；刷新令牌回执不带按钮；刷新接口的 JSON 404 一律按已删除处理。
+  - 重新授权的读回不再传 previousRefreshedAt，只按本次发送时间判定，与 S2D1-03 不同（S2-17 修正 81bf48e）。
+  - 重新授权、换码、apply 保持 30 秒超时（S2D1-03）。
+- 新建：
+  - S2-18 曾只在有 admin.idempotent_writes 时带 key（与 00 §2.5.1 不同），S2-19 修正 `1e0dfb6` 改回一律带，现在与规格一致。
+  - 测试 sheet 只在账号已存在后打开，20 §7.5 写的是创建失败也打开（S2-20）。
+  - 测试通过后不再换模型重测，与 20 §7.3 和设计稿 AnTest 不同（S2-20 修正 d17380c）。
+- 告警牌（S2-22）：列表失败、未读或运维关闭时不显示；刷新中带旧值照常显示（监控页按 10 §6.5 保留旧值，两处口径不同）。
+- 定时测试（S2-21）：cron 人话只在分钟 1–59、小时 1–23 时生效；vendor 被拒写“没有权限查看测试结果”；小页只列主计划。
+- 收口（S2-23）：
+  - 首页刷新收口在 11 个写包装与 AccountTestCenter.onFinished，没有接在依赖图裁定写的 AccountPatchPrompts convenience init；可能已生效的失败也记一次。
+  - 列表完整刷新只由详情写与测试结束触发，列表被盖住时延后到再次出现。
+  - 今日节有数值时失败写节头“更新失败”（00 §4.6），S2-09 的“刷新失败 · 重试”退役。
+  - 跨 Tab 跳转直接关掉新建表单，不询问。
+
+#### (7) 未做项及原因
+
+- 批量“恢复状态 / 刷新令牌”（20 §8.8，U21）：默认不做，等用户看过效果图再定。
+- 测试环境 ETag 304 未实测：测试环境地址只在主工作区的未跟踪目录里，线上实现者不进入主工作区，而且测试环境与生产同机。按后端源码核对：命中时返回 304、没有响应体，带 ETag 与 Vary: If-None-Match；ETag 覆盖运行时采样，有流量的站点大多会重新下发。URLSession 层仍只有桩测试。
+- 需要真机验证、未做：
+  - OAuthCallbackListener：回环双栈、端口被占时退回粘贴、是否需要 NSLocalNetworkUsageDescription（S2-17；重新授权不开监听，首个开启方是 S2-19）；
+  - 本机回调 / Safari / PasteButton / fileImporter（S2-19）；
+  - 更换 API Key 输入框会不会弹“存储密码”（S2-16）；
+  - 真机 Face ID；
+  - 账号详情的下拉刷新：UI 测试里拉不出，S2-23 的有旧值 429 用例改用回到前台触发。
+- 概览“下次可见时绕过缓存”没有 UI 层断言：UI 夹具 FixtureLiveOpsSource 不区分 nocache，只靠单测与静态核查。
+- 保存遇到 GROUP_NOT_FOUND 时刷新分组目录（S2-10）：分区 sheet 遇到 404 GROUP_NOT_FOUND 不进已删除页，但没有自动刷新分组目录，分组页要等下次刷新才去掉已删除的分组（BACKLOG 阶段 2 表同名行）。
+- 同步上游模型（POST :id/models/sync-upstream）：不在规格内，S2-12 方案写明不做。
+- 待实测：账号列表超过 2000 行时是否按平台分区懒加载（U15，S2-03）；定时测试状态码正则是否放宽到和后端一致（S2-21）。BACKLOG 这两行都写明实测后再定，已列入本节末尾的待拍板事项。
+- 待定：LoadState 重读被取消后恢复成 loaded，“更新失败”标记随之丢失（S2-22 的组头告警牌已改用 lastErrorAt 绕开，BlockState / LoadState 的共用语义需要另外决定）；复制授权链接不加 .localOnly，会经通用剪贴板同步到其他设备（S2-17，以后需要收紧时再定）。
+- vendor 工作区（U01，首版拒绝）。
+- 留给简化模式或后续阶段：docs/API_COMPATIBILITY.md 的账号字段说明（讲的是旧列表字段）；AccountFieldPresentation / ListFieldSelection / ListFieldEditor；ListFieldPresentation.timestamp 仍按设备时区。
+- S2-23 时的过渡期缺口：
+  - 记录区“使用记录 / 上游错误”与“最近上游错误”的请求详情仍由旧日志页承接（S4-05 / S4-08 前）；
+  - 分组页“查看与管理分组账号”与过渡入口的行仍是视图式推入（S5-06 / S5-13）；
+  - 搜索 Tab 的账号结果在 S6-20 / S6-21；
+  - 概览待处理账号行不复用 AccountActions（dag 第 8 节）；
+  - 概览与分组页的平台名仍用 GroupPlatform.title。
+  - 代理行推入的代理详情此时已由 S6-12 接上。
+- 后端事项（只记 BACKLOG，不改后端）：
+  - Claude / Gemini / Antigravity 换码时网络失败不带 reason（S2-15）；
+  - 定时测试接口没有 {code,data} 信封，vendor 读不到结果（S2-21）；
+  - 换认证方式或改 type 后，旧敏感凭据键留在服务端（S2-18 / S2-20）；
+  - SPARK_SHADOW_NO_REFRESH 没进错误码文档（S2-16）；
+  - 再次 DELETE 已删账号不返回 ACCOUNT_NOT_FOUND。
+- BACKLOG 交给 S2-23、但材料里没有处理记录的两项：ConditionalCache 是否对账号列表的缓存体脱敏或不缓存；新建账号遇到 503 IDEMPOTENCY_STORE_UNAVAILABLE 时没有按 retryNotBefore 延后。
+- 需要用户拍板的事项按默认值实现，连同下面两组共 36 条：
+  - _decisions-S2 末尾七条：平台显示名、到期暂停账号的主按钮、测试默认模型、测试输出区多出的行、老服务端凭据编辑去 Web、多协议 Base URL 只读、重新授权 30 秒超时。
+  - 其余 29 条等用户看效果图、决定、实测或真机确认，出处在 BACKLOG 阶段 2 表、上表备注和本节上文：错误账号的列表右滑、账号行暂停 / 停用的降色方式、平台菜单的平台个数位置、账号详情错误态牌旁的原因、停用代理副行写法、批量调度“稍后核对”、批量选择数量是否设上限、批量“恢复状态 / 刷新令牌”（U21）、Bedrock / Vertex 账号 401 的失败原因文案、中断回执是否带账号名、ACCOUNT_TEST_BUSY 的按钮倒计时文案、模型分区空映射的文案、多协议账号切换账号类型 / API 协议时联动接入端点、倍率同步开启时探测行的提示、无刷新令牌时的“刷新令牌”行、bedrock / service_account 凭据区文案、新建账号多协议端点预设表、新建账号停调度没有确认时“仍然关闭”、创建失败时是否也打开测试 sheet、跨 Tab 跳转关闭新建表单、告警 sheet“只看需处理的账号”是否同时展开或筛到该平台、10 §0.5 补一句“账号 Tab 也会刷新告警列表”、vendor 读定时测试结果、定时测试“每 1 分钟”写法与失败行耗时、概览与分组页的平台名（交 S5-13）、测试环境确认 ETag 304、只能真机确认的几项（本机回调监听、Safari 跳回、粘贴按钮与文件导入、“存储密码”弹窗、Face ID、账号详情下拉刷新）、账号列表超过 2000 行时按平台懒加载（U15）、定时测试状态码正则是否放宽。
+
+#### (8) UI 测试运行情况
+
+- 各条目的 check（按上表各行）：
+  - S2-01：AccountManagement / AccountListCustomization / Sub2Mobile / AppNavigation 四类 38/38。
+  - S2-02、S2-18：UI 测试未运行（S2-02 只跑单元与编译；S2-18 没有 ui_test_classes、未改界面）。
+  - S2-03：AppNavigationUITests、Sub2MobileUITests 39/39。
+  - S2-04：5 类 55/55，无重跑。删除的 AccountListCustomizationUITests 含 5 个基线不稳定用例，从基线名单中去掉，改跑 AccountListUITests（12 个）。
+  - S2-05：AccountListUITests 12/12。
+  - S2-06：AccountListUITests、Sub2MobileUITests 38/38。
+  - S2-07：AccountBatchUITests、AccountListUITests 23/23。
+  - S2-08：六类 60/60；审查修正 068203e 后 4 类 41 例全过。
+  - S2-09：AccountDetailUITests、RequestLogsUITests、AccountListUITests 35/35，无重跑。
+  - S2-10：AccountEditUITests、AccountDetailUITests、AccountListUITests 49/49。
+  - S2-11：4 个 UI 类 64/64。审查修正 7319b0d 后 AccountDetailMenuUITests 连跑 3 次 check 全过（94/94、17/17、17/17，无 FLAKY）；改到一半的一次连跑里，testPickingProxySavesThenUndoRestores 重跑后才通过。
+  - S2-12：f393974 的 check 4 个类 73/74，失败的是 S2-11 的 testPickingProxySavesThenUndoRestores（回执 4.2 秒内来不及点撤销）；f679c34 调整等待顺序后，AccountEditUITests、AccountDetailMenuUITests 38/38。
+  - S2-13：Sub2MobileUITests、AccountDetailUITests 28/28。
+  - S2-14：5 类 86 个中 85 个通过。AccountDetailUITests.testBasicAndScheduleSectionsShowReadOnlyValues 两次失败（字典遍历顺序随机，既有不稳定），单独重跑 AccountDetailUITests 20/20；S2-16 把它改为固定顺序。
+  - S2-15：AccountDetailUITests 20/20。
+  - S2-16：6 个类 90/90。
+  - S2-17：AccountCredential / AccountDetail / AccountDetailMenu / AccountList 四类 71/71，无重跑。
+  - S2-19：UI 测试未运行（UI_UNAVAILABLE，TOOLCHAIN_EXIT=3，Mac 的 Xcode 已升到 27.2 / 27B52）。审查修正 1e0dfb6 时，AccountNewUITests、AccountListUITests 30 个中 27 个通过；失败的 3 个是 c38ab7e 起就有的：testDockListsMissingItemsAndJumpsToFirst、testTurningOffMixedSchedulingRemovesGroupsWithUndo、testCredentialSectionsFollowMethod。
+  - S2-20：AccountNewUITests、AccountTestUITests、AccountListUITests 41/41，无不稳定。顺带修好上面 3 个失败，原因是测试 helper 点在词中间、sheet 回执画了两份、“更多”的标识盖住了内部各行。
+  - S2-21：AccountDetailUITests 24/24；审查修正 0630966 后 25/25。
+  - S2-22：AccountList / AccountBatch / AccountNew / AlertDetail 57/60。失败的 3 个就是上面那 3 个 AccountNewUITests 用例，在主分支 091294f 上同样失败；当时 S2-22 所在的分支还不含 S2-20（只读核对 3315d8b 不是 7e56d1c 的祖先）。
+- S2-23：
+  - 线 A 第一次 check（基于 6154134 加本条改动，14 类）：UI 224/227。失败的是本条新增的 testRouteFocusScrollsToEachSection、testTodayRefreshThrottleKeepsFiguresWithHeaderCountdown，以及 testSwitchingToNoProxy。两个新用例改测试后通过（单跑 2/4 → 1/2 → 1/1）：focus 夹具在首次出现时推入的路径被栈丢弃，改为下一轮再设；详情下拉在 UI 测试里拉不出刷新，改用回到前台触发。
+  - 基线核对：在 6154134（不含本条改动）上单跑 AccountDetailMenuUITests 16/17，testSwitchingToNoProxy 两次失败。
+  - 线 A 第二次 check：工具链 0、单元测试 2240 + 954、编译 0，UI 226/227；唯一失败 testSwitchingToNoProxy，无 FLAKY。
+  - 集成者合入后（`6f473fd`）：
+    - check（同样 227 个用例）226/227，单元测试 2256 + 955，唯一失败仍是 testSwitchingToNoProxy（两次）。
+    - 全量 gate：工具链 0、单元测试 2256 + 955、编译 0，UI 625/625，无 FLAKY；testSwitchingToNoProxy 在全量 gate 里通过了。
+  - 审查修正 `b66257b`：
+    - 先确认 testTodayThrottleResendWaitsWhileSheetCoversPage 在修复前失败。
+    - 第一次 check 57/58：testTodayThrottleResendGoesOutOnceSheetClosesWithinWait 两次失败，testTodayThrottleResendWaitsWhileSheetCoversPage 重跑后通过。
+    - 第二次 check 58/58，单元测试 2256 + 956。
+    - 合入后（`51fa325`）check 58/58。
+    - 上表记的是“3 个类 58/58”，材料里没写是哪 3 个类；`51fa325` 之后没有全量 gate 记录。
+- testSwitchingToNoProxy 的后续：阶段 3 的集成 gate 里它也两次失败过（见阶段 3 小结）。S2-11 的审查修正 `7319b0d`（2026-11-01）查明是测试问题：带撤销的回执盖住了代理行中心，点按落在回执上。改为等回执离开再点，App 代码不变。BACKLOG“AccountDetailMenuUITests.testSwitchingToNoProxy 既有失败”一行还没标已处理。
+- 计时敏感的单元测试：AccountOAuthTests.authURLReplyKeepsStateAndRejectsUnsafeLinks（S2-15 的用例，只有 1 秒窗口）在 S1-18（check 与一次单元重跑）、S3-13 的检查，以及 S5-02 合入后的 check（连续两次）里都失败过，由 `b840ad9` 修正。
+
 ## 阶段 3 · 用户
 
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
@@ -451,6 +710,231 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 | S4-18b | 运行类图表（二）：错误分布、Token 请求统计、运行类磁贴补值 | ✅ | `54b78f7` | 错误分布、Token 请求统计两个 body 走 loadOps，卡键都不计入“N 分钟前更新”；更多图表卡只补错误趋势、请求时长分布两块运行类磁贴（含缩略图与“全站”），40 §2.3 其余四行“磁贴”在已定版式没有位置，未做（S4D2b-20）；Token 三个数值不大于 0 写 —，与模型页一致；补了“窗口内没有模型用量”空态文案；磁贴遇 404 OPS_DISABLED 时显示“—/运维监控未开启”；错误分布夹具与错误趋势同口径 397/317/80；full 尺寸无入口、只单测；check AnalyticsMoreUITests,AnalyticsUITests 50/50 通过 |
 | S4-20 | 阶段 4 完成度核查与收口 | ✅ | `1f89476` `4498506` | 删除 LegacyLogsEntry（连同 LogsView 的 pushesInPlace、openedRequest、navigationDestination(item:)）、AnalyticsView(accountID:groupID:)、RequestLogPresentation.date、AppModel.dashboardTrend() 及 -ui-dashboard-detail-errors / -ui-trend-long-series 分支、DemoData.longHourlyTrend、DashboardTrendMetric / Sample / Series / series / clampedZoom、trendAxisLabel；字段归并已做（四个详情专有字段移到 RequestErrorDetail 存储，展示层去掉列表退路）；首页退路每小时图接上 accountCost；卡底无 meta 时不再读“ · ”，统计 UI 两处标题断言收紧；LogsStoreStateTests 超 800 行，把桩与夹具搬到新文件 LogsStoreTestSupport.swift；RequestLogFilter 五个旧条件与 cacheTokens 按 S4D2b-18 保留；AnalyticsUITests.swift 830 行未拆（多阶段共用）；README、ADMIN_MODULES、API_COMPATIBILITY 最小修改（API_COMPATIBILITY 另合写了旧趋势四段）；U54 与 30 天实测未做（未获授权）；改了 files 未登记的 LogFixtures+Detail、RequestDetailModelTests、AnalyticsCards、AnalyticsRankUITests、AnalyticsUITests、PerformanceTrend(+Tests) 注释并新增 LogsStoreTestSupport；R19、D29、D27、X39 核查结果见阶段 4 小结；两次 check 各 13 个 UI 类 255/255 通过（20a 有 1 个既有不稳定用例重跑后通过） |
 
+### 阶段 4 小结
+
+依据：进度表阶段 4 各行、BACKLOG“App 与设计 · 阶段 4”、plans/_decisions-S4.md、S4-20 与相关条目的提交说明、scratch 下的核查脚本和 check / gate 日志；标“（复核）”的是在 `c5231df` 上只读核对的。
+
+#### (1) 完成项
+
+按功能块归并，括号里是审查修正提交。S4-20 由合并提交 `c5231df` 合入主分支。
+
+- 共用基础
+  - S4-00 `7e9450b`（修正 `af21d72`）：导航栈页面状态共享 PageStateRegistry，新 path 不是旧 path 的延长时释放；修正后按（窗口的 AppRouter、Tab、键）分区，iPad 多窗口互不共享、互不清理。
+- 日志与请求详情的接口层（Sub2Core）
+  - S4-01 `e760dd5`：LogTimeWindow / RequestLogFilter、Page<T>、使用记录与错误记录的新字段、errorCount（固定带 view=all）与 searchUsageUsers；key_view 只由 requestRecords 的必填参数 maskedView 决定；UsageRequestType 唯一定义。旧日志页只做编译适配。
+  - S4-03 `11ef9e2`（修正 `ad7d8d4`，随 S3-02 合入）：errorDetail / requestAttempts / setErrorResolved 的唯一定义与 RequestDetailPresentation(+Attempts)；ReasonCatalog 加 404 OPS_ERROR_NOT_FOUND；日志路径模板隐去 ops/requests 后的请求 ID。
+  - S4-04 `d3cd265`：使用记录行展示、分节、时间预设、条件胶囊与列表策略的纯函数（LogListPresentation、LogListPolicy、DisplayFormat+Duration）。
+- 使用记录页
+  - S4-05 `f603839` `2b6b598`（修正 `cf34f8f`）：Session 状态机 LogsStoreState / LogSegment / LogsSource；LogsView、LogRow、按日期分节的列表与分页、时间菜单与自定义时段、日志夹具，替换旧日志列表；.logs 的 user / model / modelSource 生效。修正后 429 等待按设备时钟记录与判定。
+  - S4-05b `2b19cad`（修正 `799e1f0`）：分段计数（LogSegmentCounter）、可移除与置灰的条件胶囊及原因行、清除筛选、请求参数无效与 30 天提示。修正后回到页面时补取被后台打断的计数，429 等待期间不发计数。
+  - S4-06 `cca32ce`（修正 `d210f18`）：自动刷新（since_id 增量、近顶裁尾、时间窗退路、定期校准、失败退避），组合 S4-04 的 LogListPolicy / LogPollSchedule。修正后“有旧行 + 加载更多 / 第 1 页失败”时自动刷新和回前台不再停住。
+  - S4-07 `16afeef`：按对象筛选 sheet（账号、分组、用户三组搜索，同类替换）。
+- 请求详情页
+  - S4-08 `aa67dc3` `0e333d3`（修正 `615c3ef`）：RequestDetailLayout、RequestDetailModel；成功 / 已恢复 / 失败三种样子、耗时、上游尝试、关联与标识（只读），.request 改接新页。修正后 429 等待按设备时钟。
+  - S4-08b `6f88cff` `244cc67`（修正 `9325417`）：标记已处理与撤销（只读令牌置灰）、复制标识，删除旧日志文件 RequestLogsView.swift；`6f88cff` 单独不能编译，两次提交需一起合入。修正后跨过写入的旧详情读取不再盖回按钮。
+- 统计的查询与计算（Sub2Core）
+  - S4-02 `ab70fc9`：AnalyticsQuery 改造（model 为 String?、粒度为 TrendGranularity 的 typealias、时区必传站点时区），汇总 / 趋势 / 排行新字段，用户排行 / 用户趋势 / 请求类型接口；统计聚合超时 45 秒；首页显式范围趋势改为转调 usageAnalysisTrend。
+  - S4-09 `e94f71b`（修正 `66da4cb`）：AnalyticsRange、AnalyticsCustomDraft、ProfitRows（利润分摊到分）、DisplayFormat+AmountChange。修正后利润合计按首页口径 round(实际 − 账号成本)。
+  - S4-10 `f785b88`：OpsQuery 与性能趋势覆盖秒数口径，PerformanceTrend.maximumSpan 为 31 天 + 1 小时。
+  - S4-11 `5c6897e`：四个运维图表的模型与接口（时长分布、错误趋势、错误分布、Token 请求统计）。
+- 统计分析页
+  - S4-12 `3b6892a` `a9cc804`（修正 `d15867f`）：本机记忆 AnalyticsMemory 与会话状态机 AnalyticsSessionState（放 NativeApp/Session），会话挂载、范围条与范围 / 筛选 sheet。修正后同一张卡的读取由会话持有，发起页离开不再取消。
+  - S4-13 `b0e64f1` `fbf5d67`（修正 `252ebd7`）：卡片流骨架、卡片外壳、柱图与整图点选、计费趋势卡，替换旧统计页（删除旧 NativeApp/Features/AnalyticsView.swift、LegacyTrendPage.swift、LegacyTrendUITests.swift）。修正后对比或合计最近一次读取失败时隐藏增减行。
+  - S4-13b `f38a7dd`（修正 `9a149f5`）：利润明细卡（可为负的柱、旧站点逐段利润、最近 4 段明细表）。修正后旧站点逐段遇到 429 整块等满 Retry-After。
+  - S4-15 `347887b`（修正 `ea63652`）：排行卡与全部排行页。
+  - S4-16 `70ed798` `9de80ae`（修正 `f1d4575`）：PerfTrendPresentation / PerfTrendState、PerfTrendBody、RPM / TPM 趋势卡与性能明细 sheet；删除 PerformanceTrendView.swift 与 AppModel.dashboardPerformanceTrend(hours:)；.analytics 的 metric 生效。修正后 404 OPS_DISABLED 之后重新开启运维立即重读。
+- 二级页
+  - S4-14 `718325f`：计费明细 / 利润明细图表 body 与单图页。
+  - S4-17 `aaa1d87`：更多图表页骨架与吸顶条、更多图表卡与磁贴、Token 使用趋势、端点分布。
+  - S4-17b `1821fd4`：用户用量趋势与请求类型（含旧服务端降级扇出）。
+  - S4-18 `ac14bea`：运行主题接入、平均账号切换、请求时长分布、错误趋势。
+  - S4-18b `54b78f7`：错误分布、Token 请求统计、运行类磁贴补值。
+  - S4-19 `ed28069`（修正 `c5c84d3`）：模型页 AnalyticsModelView。修正后速度区在 404 OPS_DISABLED 之后重新开启运维时重读。
+- 收口
+  - S4-20 `1f89476` `4498506`：删除 X20 兼容入口（LegacyLogsEntry.swift 连同 LogsView 的 pushesInPlace / openedRequest / navigationDestination(item:)，AnalyticsView(accountID:groupID:)）和只给旧统计 / 旧趋势页用的代码；四个只在错误详情下发的字段归到 RequestErrorDetail；首页退路每小时图带上账号成本；卡底 meta 为空时读屏只读标题；README、ADMIN_MODULES、API_COMPATIBILITY 按现状改写。
+- 与阶段 4 相关、记在其他阶段的：S1-17 `c8bc894`（告警详情错误请求计数行，只调 S4-01 的 errorCount）；ops overview 的方法与模型按 40 §2.7 归 10 章（S1-02）。
+
+#### (2) 规格测试清单 / 完成标志对照
+
+- FINAL-SPEC“实现顺序建议 · 阶段 4”没有写完成标志（阶段 0、1 写了），下面按 40 章 §1.8、§2.7、§6.7、§7.7“对现有代码的改动点”里的测试要求对照。
+- 函数级对照取自 S4-20 的一次性核查脚本（scratch/s4-20/check_tests.py，输出 tests.txt，不入库）：脚本列的 31 个函数全部找到，没有缺失。UI 部分脚本只数了各类的用例数；下面写到的 UI 用例名是起草时在 `c5231df` 上按函数名核对的（复核），没有逐个读断言。
+
+- 40 §1.8 统计分析：
+  - UsageAnalyticsTests（新解码与 model_source）：analyticsSummaryDecodesStandardCostCacheTokensAndEndpoints、trendPointWithoutAccountCostKeyIsNilNotZero、modelSourceOnlyAccompaniesModel、granularityIsExplicitAndOnlyOnTrendEndpoints、analyticsQuerySendsSiteTimeZoneVerbatimAndUTCInstants
+  - AnalyticsRangeTests（跨月、2 月与上月同期取月末、夏令时、单日按小时）：analyticsCaptionsFollowTheSpecExamples、analyticsThisMonthComparisonTakesLastMonthsEndWhenTheDayIsMissing、analyticsDayRoundTripsAndValidatesCalendarDays、analyticsHoursFollowDaylightSavingInTheSiteZone、analyticsRangeTableGivesWindowsGranularityAndNames
+  - ProfitRowsTests：profitRowsSplitTotalsToCentsByLargestRemainder、profitRowsKeepEveryColumnEqualToItsTotal、profitRowsKeepLossesAndLeaveMissingCostsBlank
+  - AnalyticsUITests 的记忆场景（复核）：第一次从搜索进是近 7 天 testFirstEntryFromSearchIsLast7AndShowsTheBillingCard；从搜索改了范围、再从概览进仍保留 testRangeChangedFromSearchIsKeptWhenEnteringFromTheOverview；换站点回到入口默认值 testAnotherSiteStartsFromItsEntryDefault；S4D1-03 加的第四个场景 testOverviewEntryWithoutAChangeIsNotRemembered。
+  - “AppModel 的 UI 测试桩补齐新接口”：位置不同，统计的 UI 夹具在 Features/Analytics/AnalyticsFixtures(+Filter/+Model/+More/+Ops/+Perf/+Rank).swift，日志的在 Features/Logs/LogFixtures(+Detail/+Picker/+Refresh).swift，不在 AppModel（X05 / X44；复核：NativeApp 里调用这两组夹具的只有 Features/Analytics、Features/Logs 与 SearchFixtures）。
+- 40 §2.7 更多图表：
+  - PerformanceTrendTests（覆盖秒数，1 分钟、5 分钟残桶）：throughputOneMinutePartialBucketsDivideByCoveredSeconds、throughputFiveMinutePartialBucketsDivideByCoveredSeconds、throughputPeakAndAverageUseCoveredSeconds
+  - OpsAnalyticsTests（error-trend 按小时 / 按天合计）：errorTrendHourlyBarsInSiteZoneStackOnlySLAAndBusinessLimited、errorTrendDailyBarsSplitAtSiteMidnightNotUTC、errorTrendUpstreamCountsStayOutsideTheBars；U35 的 30 天提示 retentionHintWhenRangeStartsBeforeThirtyDays
+  - “UI 测试桩按覆盖秒数造首尾残桶”（规格写在 AppModel.dashboardPerformanceTrend(hours:)）：位置不同，在 AnalyticsFixtures+Perf.perfTrend，按每桶覆盖的秒数造数，近 6 / 24 小时的 5 分钟桶首桶 240 秒、末桶 60 秒，近 1 小时是 60 个满桶；AnalyticsUITests.testPerfDetailsShowPartialBucketAndRowSelectsPoint 断言近 6 小时 73 桶、最新一桶“只覆盖 60 秒”（复核）。
+- 40 §3.7 / §4.7 / §5.7：只列新文件，没有写测试要求。对应 UI 用例在 AnalyticsUITests（单图页，S4-14）与 AnalyticsRankUITests（全部排行 S4-15、模型页 S4-19），逐项未核对。
+- 40 §6.7 使用记录：
+  - RequestLogsTests：account_cost 与 provider_cost_recorded → accountCostPrefersServerValue、accountCostFormulaOnlyWhenKeyMissing；D04 字段 → errorRecordDecodesD04FieldsAndOldRowsAsNil；since_id 信封 → incrementalEnvelopeCarriesSinceAndLatestID；上游错误没有 has_more 时按 pages → upstreamErrorPageWithoutHasMoreFollowsPages；LogTimeWindow → rollingWindowOnlyEmitsTimeRangeForOps、timeWindowRejectionsHappenBeforeSending；key_view → usageListSendsKeyViewOnlyWhenMasked
+  - 游标与合并按规格不在本章重复，在 IncrementalListTests（S0-07）。
+  - RequestLogsUITests 按新布局重写（S4-05）；自动刷新新行在顶部、N = 5 时停在顶部裁尾（复核）：testAutoRefreshPutsNewRowsOnTopAndTrimsAtTheTop、testAutoRefreshHoldsTheTrimWhileScrolledDown。
+- 40 §7.7 请求详情：
+  - upstream_errors 解析、attempts 含 null 计时的旧事件、副行文案规则三项在 RequestDetailTests（规格写在 RequestLogsTests，位置不同）：upstreamErrorEventsKeepOnlyTheirTimingAndAccount、attemptsDecodeOldEventsAndUnknownValues、attemptRowsFollowTheFiveSubtitleRules
+  - UI 三种样子与标记已处理的撤销（复核）：RequestDetailUITests.testSuccessLookShowsCostTimingTokensAndAttempts、testFailedUpstreamErrorFromAccountLoadsDetailAndChain、testRecoveredRowResolvesAmbiguousRequestID、testMarkResolvedUndoAndListRowFollows；只读令牌（S4D1-13）testReadOnlyTokenGreysResolve。
+- S4-20 新增的两条用例（都先红后绿，见 `1f89476` 提交说明）：RequestLogsTests.errorDetailOwnsTheDetailOnlyUpstreamFields、HomeFallbackTests.hourlyCarriesTrendAccountCost。
+- 核查脚本运行时统计的用例数：UsageAnalyticsTests 20、AnalyticsRangeTests 21、ProfitRowsTests 5、AnalyticsMemoryTests 17、AnalyticsSessionStateTests 19、PerformanceTrendTests 17、OpsAnalyticsTests 38、AnalyticsSeriesTests 27、LogListPresentationTests 33、IncrementalListTests 16、RequestLogsTests 22、RequestDetailTests 19；AnalyticsUITests 32、AnalyticsRankUITests 14、AnalyticsMoreUITests 18、RequestLogsUITests 24、RequestDetailUITests 13。
+
+#### (3) 本章改动点（40 章各节）
+
+- §1.8 统计分析：
+  - 旧 NativeApp/Features/AnalyticsView.swift 已删（S4-13 `b0e64f1`），新页面是 Features/Analytics 下的 AnalyticsView(route:) 卡片流；AnalyticsFilterView 在代码（Sources / NativeApp / Tests / UITests）里 0 处（复核；docs 的规格、设计与调研文档里仍有历史记载）；X20 兼容构造 AnalyticsView(accountID:groupID:) 由 S4-20 删除。
+  - 位置不同：记忆与会话状态机本体放 NativeApp/Session（AnalyticsMemory.swift、AnalyticsSessionState.swift，可单测；S4-12，S4D1-02）。Features/Analytics/AnalyticsSession.swift 放 typealias、AnalyticsSessionScope 与环境值，以及 S4-13 加的计费三个卡键与 loadBillingSummary / Comparison / Trend、AppModel.analyticsOpsDisabled / recordAnalyticsOpsResponse，S4-18 加的 loadOps（复核：git log -S）。
+  - UsageAnalytics.swift：AnalyticsQuery 时区必传站点时区、model 为 String?、粒度用 TrendGranularity；usageAnalysisModels(_:source:)、usageAnalysisUsersRanking(_:sortBy:…)（S4-02）。TrendPoint 的 account_cost 键缺失为 nil，首页退路每小时图由 S4-20 接上。
+  - AnalyticsRange.swift、ProfitRows.swift（S4-09）。
+  - DashboardTrendMetric.actualCost 的文案由 S4-02 `ab70fc9` 从“实际消费”改为“实际扣费”（复核：git log -S）；DashboardTrendMetric / Sample / Series 只给旧趋势页用，S4-20 整体删除。
+- §2.7 更多图表：
+  - AnalyticsMoreView（S4-17）；12 个 body 分三个文件：AnalyticsChartBodies（S4-14）、AnalyticsUsageBodies（S4-17）、AnalyticsOpsBodies（S4-18），与改动总表的单文件写法不同。
+  - OpsAnalytics.swift：OpsQuery（S4-10）与四个图表方法（S4-11），能力由调用方显式传 supportsModelFilter，不放进 OpsQuery。ops overview 归 10 章，没有 OpsOverviewWindow（复核：代码 0 处）。
+  - usageAnalysisUsersTrend、usageAnalysisRequestTypes（S4-02）。
+  - PerformanceTrend：覆盖秒数（S4-10）；dashboardPerformanceTrend(_ query: OpsQuery, supportsModelFilter:) 写在 PerformanceTrend.swift（按 X29 不改 APIClient.swift）；上限 31 天 + 1 小时（规格“保留 30 天上限”，待用户确认）；struct PerformanceTrend 已不是 Decodable。
+  - AppModel.dashboardPerformanceTrend(hours:) 与 PerformanceTrendView.swift 已删，换成 PerfTrendBody（S4-16 `9de80ae`），运维关闭用 OpsDisabledNotice。
+  - 文档：ACCEPTANCE.md 覆盖秒数一段随 S4-10 改（S4D1-16），RPM / TPM 段由 S4-16 改，S4-20 只核对。
+- §3.7：AnalyticsChartView（S4-14）取代旧“消费明细”链接。
+- §4.7：AnalyticsRankView（S4-15）；排行纯逻辑在 Session/AnalyticsRanking.swift，AnalyticsModelName 在 Sub2Core（与“只新建 AnalyticsRankView.swift”不同）。
+- §5.7：AnalyticsModelView（S4-19），复用 opsTokenStats。
+- §6.7 使用记录：
+  - RequestLogs.swift 是 admin/usage、ops 错误列表与计数的唯一定义处；RequestLogPage 已删（复核：代码 0 处），改用 Page<T>；errorCount(filter:kind:)、searchUsageUsers(_:)（S4-01）。用量明细在有 api_keys.masked_view 时才带 key_view=masked（S4D1-06）。
+  - 增量合并用 IncrementalList，N、时间窗裁剪与校准放在 LogsStoreState（S4-06）。
+  - 旧 RequestLogsView.swift 拆成 Features/Logs 下的 LogsView、LogRow、LogFilterPickerSheet 等（S4-05、S4-07），旧文件由 S4-08b 删除。页面标题与搜索目录写“使用记录”“错误请求”“统计分析”（复核：LogsView.swift:9、SearchDirectory.swift:14–18）。
+  - category / statusCode / resolved / requestType / apiKeyID 不再出现在界面，属性按 40 §6.7 留作内部用（S4D2b-18 ①）。
+  - docs/ADMIN_MODULES.md 的日志段由 S4-20 改写（`4498506`）。
+- §7.7 请求详情：
+  - errorDetail(id:kind:)、setErrorResolved(id:kind:resolved:) 在 RequestErrorDetail.swift，requestAttempts(id:around:) 在 RequestAttempts.swift（规格写在 RequestLogs.swift，位置不同）；errorRecord(id:kind:) 已删（复核：代码 0 处）。
+  - 新 RequestDetailView（S4-08）；旧私有详情视图随 RequestLogsView.swift 删除（S4-08b）。
+  - S4-20：upstream_status_code、upstream_error_message、upstream_latency_ms、response_latency_ms 从 RequestErrorRecord 移成 RequestErrorDetail 的存储属性（属性名不变，消息照旧脱敏），展示层去掉“detail ?? record”的列表退路。
+
+#### (4) BACKLOG 与前序阶段备注里留给阶段 4 的事项
+
+- 阶段 0 备注：
+  - S0-07：AnalyticsQuery 默认时区、usage 列表 timezone、PerformanceTrendView 轴标签、日志页接入 IncrementalList（N = 500、时间窗裁剪、10 次校准）、“（站点时间 UTC+8）”提示。已处理：S4-01 把 usage 时区改为站点时区，S4-02 让 AnalyticsQuery 必传站点时区，PerformanceTrendView 由 S4-16 删除，增量刷新由 S4-06 接 IncrementalList；TimeZone.current 的现状见 (5)。
+  - S0-08：RequestLogPresentation.date 仍按设备时区。S4-20 删除。
+  - S0-19 小结未做项（TimeZone.current 的两处退路）：已处理，同 S0-07。
+  - S0-04 与 BACKLOG“长超时读请求超时后的自动重试”：统计聚合 45 秒超时后仍自动重试 2 次，待实测。未实测（未获授权访问测试环境），见 (7)。
+  - S0-11：“阶段 4 日志页把游标绑在会话代号上”。已处理：S4-06 的增量读取回执先核对票据、会话代号与任务是否已取消，再合并到当前列表（`cca32ce` 提交说明）；状态机带建会话时的代号（复核：LogsStoreState.swift:71 的 generation、:132 的 isStale，:489 poll() 回执的 ticket / isCurrent() / Task.isCancelled 检查；isCurrent 比的是会话代号，见 LogsStore.swift:18）。
+  - S0-LOW-A 与 BACKLOG“旧服务端的站点时区退路是连接时的手机时区”：材料里没有记录阶段 4 对这一行的处理。
+- 阶段 1 备注与移交（S1D1-28）：
+  - S4-05 同步 AlertDetailUITests.assertErrorLogsOpened（BACKLOG“S4-05 同步告警详情的日志页断言”）：S4-05 已处理。
+  - S4-02 复用 TrendGranularity：已满足（AnalyticsQuery 的粒度是它的 typealias）。
+  - S4-13 / S4-16 / S4-18 运维关闭一律用 OpsDisabledNotice：已满足（复核：PerfTrendBody.swift:75、AnalyticsMoreView.swift:241 的 AnalyticsOpsOffCard，日志页 LogsView.swift:124、请求详情 RequestDetailView.swift:110 也用它）。
+  - 阶段 1 小结 (3) 留给阶段 4：PerfTrendBody 与删除 dashboardPerformanceTrend(hours:)（S4-16 `9de80ae`）；删除 LegacyTrendPage、LegacyTrendUITests 与 focus 分流（S4-13 `b0e64f1`）。已处理。
+  - 阶段 1 核查里的 -ui-performance-error（S4-16 删除）：S4-16 改名为 -ui-analytics-ops-gone，-ui-performance-error 在代码（Sources / NativeApp / Tests / UITests）里 0 处（复核；APP-PROGRESS、BACKLOG 里仍有记载）。
+  - BACKLOG“阶段 1 过渡页与旧趋势代码的删除”“AppModel 里随旧概览失去用途的夹具分支”“UI 测试 6 并发下的快照停顿”（趋势缩放用例随 LegacyTrendUITests 退役）：已处理（S4-13、S4-16、S4-20）。
+  - BACKLOG“利润亏损的固定演示状态”（统计负值柱留给 S4-13b）：已处理（-ui-analytics-loss，AnalyticsUITests.testProfitLossBucketDrawsBelowZeroAndReadsNegative）。
+  - BACKLOG“告警详情‘近 24 小时 N 条’的口径”：口径不变（view=all），阶段 4 子表另记“errorCount 的口径”。
+- 阶段 2 留下的 BACKLOG：
+  - “日志页旧夹具与账号详情上游错误计数不一致”：S4-05 已处理，夹具按 AccountDemoStore 统一。
+  - “账号详情 UI 测试对旧日志页与占位页的断言”：日志页部分 S4-05 已处理；testErrorAccountLatestUpstreamErrorOpensRequestRoute 的占位断言留给 S4-08，S4-08 的进度备注没有写结果。复核：`0e333d3` 改过 AccountDetailUITests，`c5231df` 上该文件已没有 route.placeholder 与 logs.account-filter。
+  - “按 id 进入账号详情的 UI 用例路径”：S4-05 交给 S4-08，已处理。`0e333d3` 提交说明写 AccountDetailUITests 只改 openAccountFromRequestLog 查链接的一行，改点请求详情“关联”的 logs.detail.link.account（推入 .account）；复核：AccountDetailUITests.swift:401 用的就是这个标识。
+- 通用 BACKLOG（App 与设计）：
+  - “路由参数在旧页面上不生效”：阶段 4 部分已处理。.logs 的 user / model / modelSource 经 LogsRoute.conditions 生效（S4-05 起）；.analytics 的 range（S4-12 / S4-13，有记忆时用记忆）、focus（S4-13 首次滚到 RPM / TPM 卡）、metric（S4-16，优先并写回记忆）都已生效。
+  - “跨 Tab 跳转撤不掉视图式推入的页面”：阶段 4 部分已处理，见 (5) X39。
+  - “现有页面按手机时区显示的时间”：统计与日志已全部按站点时区；剩下的 ListFields 时间列、按规格用本机时区的账号过期时间（U53）与公告起止不属于阶段 4。
+  - “区块 429 倒计时文案与重试按钮”：统计各卡经 AnalyticsCardStatusRow 用 BlockFailureRow（按钮“重试本项”，S4-13 有 UI 用例）；使用记录与请求详情的 429 等待改按设备时钟（`cf34f8f`、`615c3ef`）。按请求 ID 查使用记录遇 429 不记等待，留给阶段 6 接入入口时处理（BACKLOG）。
+  - “缺失值‘—’的读屏”：统计与使用记录统一读 DisplayFormat.missingSpoken（“无数据”），最终文案待用户确认。
+- 阶段 4 子表里早先各条留给收口的行（S4-20 已在 BACKLOG 写补充行）：
+  - 已处理、可关闭：页面状态注册表只对 AppRoute 推入的页面生效；删除 PerformanceTrend 的 Decodable 与 init(from:)（S1-09b 已删）；首页退路每小时图的账号成本；旧趋势页的残留清理；AnalyticsCardFoot 的 meta 为空时读屏带“ · ”；AnalyticsUITests 旧用例接受占位标题“图表”；路由参数（X39）补记；自定义范围日历的“今天”高亮（S4-13 截图核对没有错位）；BACKLOG 359、363 两行（S4-18 已实现）。
+  - S4-20 决定保留或暂不改：RequestLogFilter 五个旧条件与 cacheTokens；.analyticsChart 非计费键保留占位；OpsErrorTrend.bars(in:) 保留（40 §2.7 点名用例的被测对象）；用户用量趋势按请求时区对齐桶；使用记录用户胶囊文字暂不统一。
+  - S4-20 未评估：Token 使用趋势长范围性能（需要真机或模拟器交互测量）。
+  - 后端：B03（dashboard/groups 的 model_source）已由后端 dd80618fe 修复，App 无需改动，请集成者核对生产部署后在后端表注明。
+  - “LogsStoreStateTests.swift 超过 800 行”：S4-20 把桩与夹具搬到 LogsStoreTestSupport.swift（复核：750 行 + 68 行）。
+  - “S4-06 回前台一拍与计数补取”：S4-06 已处理（回前台时补发 errorCount）。
+  - “请求详情 429 等待的时钟与失败行不一致”：S4-08 修正 `615c3ef`。
+  - “请求详情退路：客户端已成功但查不到成功记录”：S4-08 定为“失败，后续尝试未记录”，待用户确认。
+  - “模型胶囊置灰的 UI 用例”（S4-19 接入模型页后补）：材料里没有记录补没补；复核时 `c5231df` 的 UITests 里没有找到原因行文案“使用记录只能按请求模型筛选”。
+  - “日志页首屏不再挂在视图的 .task 上”（提醒 S4-06）：已处理。首屏读取仍由 onAppear 起非结构化 Task（S4-05）；S4-06 的轮询挂在 task(id:) 上，键由 scenePhase、store.isVisible 与 store.autoRefreshes 组成，一拍被取消时忽略（`cca32ce` 提交说明；复核：LogsView.swift:43–49）。
+
+#### (5) 核查结果
+
+来源：测试清单与 D27 取自 scratch/s4-20 的一次性脚本输出（check_tests.py / tests.txt，check_d27.py / d27.txt、d27-after.txt，不入库）；D29、X39 取自 BACKLOG 阶段 4 子表里 S4-20 写的补充行；R19、文件长度、格式代码与副标题键是起草时在 `c5231df` 上复核的。
+
+- R19 唯一定义（复核）：
+  - 日志类接口：requestRecords(page:filter:maskedView:) 与 requestRecords(sinceID:filter:maskedView:)、errorRecords(page:filter:kind:) 与 errorRecords(sinceID:filter:)、errorCount(filter:kind:)、searchUsageUsers(_:) 都只在 RequestLogs.swift；errorDetail、setErrorResolved 只在 RequestErrorDetail.swift；requestAttempts 只在 RequestAttempts.swift。errorCount 另有 LiveOpsSource 的协议要求、转发实现与夹具，不算重复定义（同阶段 1 口径）。
+  - dashboard/trend 的带范围读取只有 usageAnalysisTrend（UsageAnalytics.swift:305）；APIClient.dashboardTrend() 是首页退路的固定窗口读取，S4-20 方案列入白名单。
+  - admin/usage/stats 除统计的汇总读取外，另有用户详情“本月消费”用的 UserManagement.userMonthUsage（阶段 3，30 §2.2；复核：UserManagement.swift:226）。R19 清单没有列 usage/stats，S4-20 方案定为只在小结记一笔、不改。
+  - 各只有一处声明：UsageRequestType、OpsChartCopy、AnalyticsFanOut、AnalyticsModelName、AnalyticsTileText、AnalyticsCardLoaders、AnalyticsCardBody、AnalyticsFigureRow、BodySize、AnalyticsChartSelection、AnalyticsOpsOffCard、LogListFailure、RequestIdentifierRow、LogConditions、LogChipLabel；DisplayFormat.wholePercent、AppModel.analyticsOpsDisabled / recordAnalyticsOpsResponse、loadBillingSummary / loadBillingComparison / loadBillingTrend 各一处（后五个在 AnalyticsSession.swift）。
+  - 404 OPS_DISABLED 的判定只有 AccountUpstreamErrors.isOpsDisabled 一份实现（AccountDetailSections.swift:95），GroupDetailSectionsPresentation 的同名函数只转调；没有 APIError.isOpsDisabled。
+  - struct PerformanceTrend 只是 Sendable、Equatable（PerformanceTrend.swift:5），与 S4-20 的 BACKLOG 补充行一致。
+  - 代码（Sources / NativeApp / Tests / UITests）0 处，其中不少名字在 docs 的进度表、BACKLOG 与规格里仍有记载：requestErrorCount、usageRecord(requestID:、OpsOverviewWindow、IncrementalLogMerger、RequestLogPage、maskedKeyView、OpsBucketLength、registryKey、errorRecord(id:、LegacyLogsEntry、RequestLogsView、AnalyticsFilterView、LegacyTrendPage、DashboardTrendChart、analyticsCardRefresh、analyticsRefreshRevision、pullRevision、AnalyticsMoreSource、AnalyticsChartScale、AnalyticsErrorStackChart、OpsTileFigure、LogRefreshCycle、LegacyRequestDestination、RequestIdentifierKind、RequestDetailActionCopy、LogConditionKind、DashboardTrendMetric / Sample / Series、clampedZoom、trendAxisLabel、longHourlyTrend、dashboardPerformanceTrend(hours:、pushesInPlace、openedRequest，以及启动参数 -ui-dashboard-detail-errors、-ui-trend-long-series、-ui-performance-error。upstreamErrorCount 只作为 OpsMonitoring 的 upstreamErrorCountExcl429529 字段名出现；PerformanceTrendView 只出现在 PerfTrendPresentationTests 的一行注释里。
+  - 统计五个页面（AnalyticsView、AnalyticsChartView、AnalyticsRankView、AnalyticsMoreView、AnalyticsModelView）都挂了 analyticsPageRefresh。
+  - 副标题键（S4D2b-14）：ops.switch、ops.errorDistribution、ops.tokenStats、more.reqType 为 showsInUpdateLine: false，more.userTrend.<指标> 只有 tokens 为 true，与 S4-17b、S4-18b 进度备注一致。
+  - S4-20 提交说明里的 grep：两个兼容入口在 NativeApp / UITests 没有调用方（S5-06 已删旧分组详情的两个链接）；BACKLOG 行：RequestLogFilter 五个旧条件没有页面设置，cacheTokens 只在 UsageAnalytics.swift 解码。
+- D29（BACKLOG 补充行，复核一致）：Sources / NativeApp 的 TimeZone.current 只剩 ServerTimeZone.device 与推送注册上报的设备时区，Calendar.current 0 处，设备时区只用于“（站点时间 UTC+8）”提示；另有两处只出现在注释里（LogsStoreState.swift:166、LogListPresentation.swift:184）。
+- 格式代码（复核）：Features/Logs、Features/Analytics 与统计 / 日志的 Session 文件里没有 String(format:、NumberFormatter、.formatted(、DateFormatter()。服务端 message 是否回显（R11）、请求超时是否写死（R07）的检查：材料里没有记录。
+- D27：
+  - UITests 里 430 个 40 章标识（logs. / analytics. / request. / requestDetail. 前缀），22 个没在 NativeApp 字面量里匹配到。这些多是拼接或插值生成的标识，例如 logs.row.\(scope).… 在 LogsView.swift:213 由 "logs.row.\(store.scope.rawValue).\(row.id)" 生成，analytics.ops.errTrend.* 由 AnalyticsOpsBodies 把 id "analytics.ops.errTrend" 交给 AnalyticsCardBody 拼出（复核）。S4-20 对这 22 个的逐项结论材料里没有记录。
+  - 旧标识清单命中 9 处：logs.mode 6 处（AccountDetailUITests:446、AlertDetailUITests:382、AppNavigationUITests:240、RequestDetailUITests:209 / 362、RequestLogsUITests:223），它仍是现用标识（LogsView.swift:143）；analytics.filters 1 处（AnalyticsUITests:78）；group.analytics、group.logs 同在 GroupDetailUITests:34 一行，共 2 处。analytics.filters 与 group.analytics / group.logs 都在 XCTAssertFalse(….exists) 里，是“不存在”断言（复核）。
+  - 启动参数：UITests 用到的 -ui-* 在 NativeApp 都有解析。NativeApp 里阶段 4 的 -ui-* 删除前 34 个，其中 -ui-dashboard-detail-errors、-ui-trend-long-series 没有 UI 用例（S4-20 随 dashboardTrend() 删除）；删除后 32 个全部有 UI 用例在用。-ui-analytics-ops-gone、-ui-analytics-refresh-changes、-ui-analytics-loss、-ui-analytics-legacy-trend、-ui-rank-empty、-ui-rank-page-fail 两边都在，-ui-performance-error 两边都是 0。
+- X39（BACKLOG 补充行，复核一致）：S4-20 删除 LogsView 的 navigationDestination(item:) 后，Features/Logs、Features/Analytics 没有 NavigationLink { … }、NavigationLink(destination:)、navigationDestination(isPresented:) / (item:)，一律经 AppRoute 推入。
+- 文件长度（复核）：Swift 文件里只有 UITests/AnalyticsUITests.swift（830 行）超过 800，多阶段共用，S4-20 不拆、记 BACKLOG。LogsStoreStateTests.swift 拆出 LogsStoreTestSupport.swift 后 750 行。其他阶段 4 的大文件：AnalyticsOpsBodies 659、LogsStoreState 624、RequestLogsUITests 605、AnalyticsMoreUITests 585、AnalyticsCards 577 行；AppModel 455 行。
+- 工程文件：S4-20 提交说明写“工程文件随删除重新生成”；generate_project.py 重新生成前后是否无差异、我们源码的 warning 数：材料里没有记录（两次 check 都是 BUILD_EXIT=0）。
+
+#### (6) 与规格不同的取舍（阶段汇总，各条目的细项见上表备注）
+
+- 结构与位置：统计会话状态机与记忆放 NativeApp/Session（40 §1.8 写在 AnalyticsSession.swift 内，S4D1-02）；使用记录页的状态本体在 Session/LogsStoreState.swift（S4D2a-01）；12 个图表 body 分三个文件（S4-14）；排行纯逻辑放 Session、AnalyticsModelName 放 Sub2Core（S4-15）；请求详情接口在 RequestErrorDetail.swift / RequestAttempts.swift（40 §7.7 写在 RequestLogs.swift）；dashboardPerformanceTrend 多一个没有默认值的 supportsModelFilter 参数，写在 PerformanceTrend.swift（S4-10，X29）。
+- 超时：统计聚合 45 秒（R07 / U54），不是 40 §0.6 的 60 / 90 秒（S4-02）；超时后仍按读请求自动重试 2 次，待实测。
+- errorCount 固定带 view=all，比告警 SLA 口径多算业务限制（S4-01，BACKLOG“errorCount 的口径”）。
+- 范围上限：平均账号切换与性能趋势 31 天 + 1 小时（40 §2.7 字面 30 天，S4D1-10，待用户确认）。
+- 性能趋势：近 1 小时取整后总是 60 个满桶，规格示例“只覆盖 23 秒 / 61 桶”只当版式示意（S4-10、S4-16）；性能明细照规格写“只覆盖 N 秒”（设计稿写分钟）；运维关闭时卡头只写“运维监控”，早于窗口终点当天的桶写“昨天 HH:mm”（都取自设计稿）。
+- 范围与对比文案（S4-09，规格未写）：自选单天含今天写“比昨天同时”、过去写“比前一天”，多天写“比前 N 天同期 / 比前 N 天”；上月写“比 M 月”，不带年；说明行有一端不在今年时开头带年、跨年时两端都带年，单日的范围名和桶全名不在今年时也带年；自选单天的分段标题写“自选 1 天”；从今天 / 7 天 / 30 天打开自定义 sheet 时初值为本月。
+- 利润：合计 = round(实际 − 账号成本)，与首页 6 格一致；账号成本列总数 = round(实际) − 利润合计，可能比计费卡的账号成本差 1 分（40 §1.4 与 §0.2 不能同时满足，S4-09 `66da4cb`）；两边利润都为 0 写“$0.00”（设计稿“—”）；“空”= 每个桶实际扣费与账号成本都为 0；旧站点逐段刷新只重读当前、读时还在进行与缺失的桶；逐段失败时全屏说明只写前半句（S4-13b、S4-14，待用户确认）。
+- 计费卡：合计刷新失败时也隐藏增减行（规格只写了对比失败，S4-13 `252ebd7`）。
+- 统计会话：记忆只在用户改动时写入（S4D1-03，待用户确认）；每个卡键只存当前一份缓存，切回之前的范围会重新请求（40 §2.6 写按（范围、筛选）缓存到会话结束，BACKLOG“统计会话按（范围, 筛选）保留多份缓存”）。
+- 排行：刷新时丢弃另两段缓存（S4-15，待用户确认）；旧站点没有 total_users、构成条不足 3 行、未分组、空名称、映射口径未映射行等规格空白处按默认实现（BACKLOG，待用户确认）。
+- 更多图表：主题高亮按越过吸顶条下沿的可见行判定（LazyVStack 下 scrollPosition(id:) 不随滚动更新）；Token 配色按规格（缓存读横纹，与设计稿不同）；请求类型降级一类失败整卡失败（更早服务端的 cyber / live 回 400 也会让降级整卡失败），第 5 类 Live 的样式交 UI 审查（S4-17b）；没有“选中”行的图不接点选（S4-18、S4-19）；40 §2.3 六张图的磁贴行不做（S4-14、S4-18b）；错误趋势按页面范围的桶给柱，单天 3600 秒桶按小时，60 秒与 3600 秒桶的底注句式按 BACKLOG 建议（S4-18）。
+- 模型页：速度区在没有 ops.dashboard_model_filter 时，请求口径用 top_n=100 找同名行，上游 / 映射口径写 —（规格写 top_n=10，S4-19）；不显示平台名（U36）。
+- 使用记录：首屏读取放在 onAppear 的非结构化 Task 里（S4-05）；429 等待期间被挡住的读取显示倒计时失败行；再选同一时间预设不重读；时间与条件胶囊按设计稿用选中样式；LogRow 不画 chevron；用量段模型胶囊的第三种置灰（S4D2a-13）；分段计数取数中只写段名、≥ 10,000 写 12.3K；400 只在有生效条件时给“清除筛选”；首字与总耗时都缺只写一个“—”、自定义时段标题与空态、不在今年的节头带年份、30 天提示只给自定义范围、列表行不做业务限制灰（列表项没有 is_business_limited）（S4-04）。
+- 自动刷新（S4-06）：组合 LogListPolicy / LogPollSchedule，不建 LogRefreshCycle；加了 pendingTrim，只有轮询合并后超过 N 才裁尾或挂起到回到顶部；没有可续行时静默读第 1 页；用行的 onAppear / onDisappear 近似第一个可见行（List 不支持 onScrollTargetVisibilityChange）；间隔用设备时钟；上游错误不校准；自动刷新失败用列表末尾失败行并按 BlockRefresh 退避；加载更多或下拉刷新失败时暂停轮询，直到用户重试。
+- 按对象筛选（S4-07）：搜索框不自动聚焦；某组 0 行整组隐藏；停用分组不标“停用”。
+- 请求详情：分区编号按设计稿，从“耗时”起编“壹”（S4D2a-14，待用户确认）；已恢复但查不到成功那次时写“失败，后续尝试未记录”；成功样子读链时不放占位、2 次及以上才显示、读链出错就隐藏；详情 OPS_DISABLED 时尝试区隐藏；详情 404 整页带“返回”；名称缺失的关联行即使有 id 也不可点；服务端请求 ID 为空不显示；从下级页返回不重读；logs.detail.cost 的语义变为“账号成本”（S4-08）。日期写“M/d HH:mm(:ss)”，月日不补零；退路耗时按 duration → at − started → 相邻 at 差（标“约”）→ — 的顺序取；除 OPS_DISABLED 外的 404 都走退路；没实现 pathSegment（编码交给 URLComponents，避免“%”编码两次）（S4-03）。
+- 规格勘误（S4-11）：40 §5.2“映射后的不同上游名”应为“映射到同一上游名的不同请求模型”。
+- 标记已处理（S4-08b）：撤回与撤销成功不出回执，撤回失败写“撤回失败，请重试”；没收到应答时读回一次核对；本机标记后“已处理 · 人 · 时间”等下次读到详情才出现；处理人显示后端给的邮箱；详情已知运维关闭时按钮不预先置灰。
+- 旧服务端不发 key_view（S4D1-06，待用户确认）。
+- vendor 规则按 U01 不做（S4-14、S4-19）。
+
+#### (7) 未做项及原因
+
+- U54 与 30 天 usage/stats、throughput-trend 实测：未获授权访问测试环境（S1D1-27）。客户端超时维持统计聚合 45 秒，实测超过 45 秒时再决定是否放宽到 90 秒、超时后是否还自动重试（BACKLOG“30 天 usage/stats 与 throughput-trend 的实测（U54）”，后端 B10 / 维护者 Q17）。
+- RequestLogFilter 的 apiKeyID / requestType / category / resolved / statusCode 与 AnalyticsSummary.cacheTokens 保留：40 §6.7 允许留作内部用，第 2 波其他线可能仍在引用（S4D2b-18 ①）。
+- AnalyticsUITests.swift 830 行未拆：多阶段共用测试文件，S4-20 不重构（同 S1D1-14），下次加用例时按主题拆。
+- 利润明细卡“最近 4 段”私有表没有换成 AnalyticsDetailTableView(limit: 4)：S4D2b-09 ④ 的可选项。
+- 使用记录用户胶囊文字暂不统一：等用户决定。
+- .analyticsChart 非计费键保留占位：应用内没有入口（40 §3.1）。
+- Token 使用趋势长范围（自选 366 天约 1,500 个 RectangleMark）性能未评估：需要模拟器或真机交互测量，留到真机验收。
+- 用户用量趋势回执时区与请求时区不同时没有统一按回执时区重建桶：出现实际案例再改。
+- 筛选 sheet 分组占比读取失败没有提示：要改 S4-12 的文件，S4-13 延后到 UI 审查。
+- 运行类图表的全屏尺寸、请求类型全屏 12 行没有界面入口，只有单测（40 §3.1 不给运行类图开单图页）。
+- 模型页速度区“读到 OPS_DISABLED → 重新开启运维 → 恢复”没有 UI 用例：AnalyticsFixtures.modelSpeed 不认 -ui-analytics-ops-gone，只有单测（BACKLOG）。
+- 模型页速度区在运维开启后 30 秒同步期内如果又碰到 404，过去范围要等下一次回前台、再进本页或下拉刷新才恢复：按 S4D2b-02 ③ 不另加读取循环（S4-19 修正 `c5c84d3` 的备注）。
+- RPM / TPM 卡在 404 宽限期内的卡头小字：刚开启运维的 30 秒内接口仍可能回 404 OPS_DISABLED，卡体显示“运维监控未开启”组件，卡头小字却仍写“截至现在 · 运维监控”（卡头只读 analyticsOpsDisabled）；要一致需要让卡头读到卡片状态（BACKLOG）。
+- Token 请求统计随模型筛选重读：卡键 ops.tokenStats 的 scope 是 .rangeAndFilter，请求本身不带 model，换模型筛选也会重发一次 45 秒聚合查询；要省掉需要给会话加“只跟分组变化”的 scope（BACKLOG）。
+- 30 天提示、模型胶囊置灰只有单测（S4-05b）；使用记录分段计数的逐项读屏没处理（SwiftUI 分段控件的逐项 accessibilityLabel 不生效）。
+- 请求详情按请求 ID 查使用记录：夹具 requestUsageRecord 还没有脚本、遇 429 不记等待，留给 S6-20 / S6-21 接入搜索入口时处理。
+- 后端相关，App 维持默认值，交后端维护者：规格未决问题 U32（错误日志列表项加 upstream_status_code）、U33（使用记录加 billing_provenance）、U34（error-trend 加只计 status ≥ 400 的上游分项）；BACKLOG 里的 resolved_by_user_name 取的是邮箱、PUT …/resolve 不回处理时间与人，Token 速度多行合并只能按 request_count 近似加权（精确需要后端在 items 里加 requests_with_tps），日志列表项加 is_business_limited（BACKLOG“日志列表行的业务限制灰”，现在列表行不做业务限制灰）。错误分布占比的分母是 LIMIT 20 之后的合计：照规格用响应 total，记为已知限制（BACKLOG）。B03 已由后端修复，不列入未做项。
+- vendor（代运营工作区）规则：按 U01 首版不支持 vendor 登录，只保证结构不妨碍以后加。
+- 需要用户拍板的事项按默认值实现：BACKLOG“阶段 4 待用户拍板的取舍”一行汇总了 20 项（S4D1 三项、批次 2a 七项、批次 2b 九项、dag.md 第 8 节第 8 条长范围计数照取）；BACKLOG 阶段 4 子表另有标了“待用户确认 / 待定 / 留给 UI 审查”的行，以及缺失值读屏的最终文案。
+
+#### (8) UI 测试运行情况
+
+- 各条目自己的 check（取自上表备注）：
+  - 没跑 UI（无界面改动、ui_test_classes 为空，check 输出 UI_SKIPPED）：S4-03、S4-04、S4-09（单元 1735 + 514）、S4-11。
+  - S4-00：AppNavigationUITests、Sub2MobileUITests、SettingsUITests 50/50。S4-01：RequestLogsUITests、AppNavigationUITests 19/19。S4-02：5 个类 39/39，无重跑。S4-10：Sub2MobileUITests 22/22。S4-12：两次提交前与审查修正后 SettingsUITests 各 13/13。
+  - 使用记录与请求详情：S4-05 5 个类 86/86；S4-05b 5 个类 88/88，修正后 RequestLogsUITests 18/18；S4-06 47/47，无 flaky；S4-07 65/65；S4-08 49/49，无重跑；S4-08b 65/65，无重跑。
+  - 统计：S4-13 两次 64/64、75/75，无重跑；S4-13b 22/22，修正后 23/23；S4-14 AnalyticsUITests 27/27；S4-15 32/32，无重跑；S4-16 a 71/71、b 76/76，无重跑；S4-17 38/38；S4-17b 43/43；S4-18 AnalyticsMoreUITests 14/14；S4-18b 50/50；S4-19 62/62。
+  - 审查修正（scratch 下的 S4-xx-fix-check.log 与 S4-19-review-check.log，SYNCED 都是修正提交的父提交加未提交文件）：S4-05 `cf34f8f` 11/11；S4-06 `d210f18` 38/38；S4-08 `615c3ef` 56/56；S4-08b `9325417` 65/65；S4-13 `252ebd7` 19/19；S4-15 `ea63652` 37/37，AnalyticsUITests.testProfitCardShowsTotalLatestFourRowsAndSelection 重跑后通过；S4-16 `f1d4575` 44/44；S4-19 `c5c84d3` 35 个通过 34 个，RequestLogsUITests.testScrollingToEndLoadsNextPageOnce 两次都失败（check 日志写于 11-02 00:04，正跨零点，对应 BACKLOG“LogFixtures 零点边界”），随后 RequestLogsUITests 单独重跑 21/21 通过（S4-19-review-ui-logs.log）。S4-05b、S4-12、S4-13b 的修正数字见上面各行。
+  - 审查修正没有 check 日志、材料里也没有记录 UI 数字的：S4-00 `af21d72`、S4-03 `ad7d8d4`（随 S3-02 合入）、S4-09 `66da4cb`。
+- S4-20 的两次 check（13 个 UI 类：RequestLogs、RequestDetail、Analytics、AnalyticsRank、AnalyticsMore、AppNavigation、Home、Sub2Mobile、AccountDetail、AlertDetail、UserDetail、Groups、GroupDetail）：20a（`1f89476`）单元 2700 + 1323、编译通过、UI 255/255，AnalyticsMoreUITests.testMoreChartsPullToRefreshRereadsLoadedCards 重跑后通过（进度备注称为既有不稳定用例）；20b（`4498506`）UI 255/255，没有重跑。
+- 集成者合入后（scratch 里的集成日志）：
+  - check：S4-01 `cb30803` 19/19；S4-00 `cc430d2` 50/50；S4-10 `beb7f8c` 22/22；S4-03 `1a057d4` 17/17；S4-09 `580a80f` UI_SKIPPED；S4-05 `f4c8e6c` 86/86；S4-13 `21b3ce0` 75/75；S4-05b `add157a` 88/88；S4-15 `0b0b9b0` 33/33；S4-14 `404ac75` 37/37；S4-16 `b055c30` 111/111；S4-19 `2d1bb04` 79/79；S4-07 `94d8f34` 94/94；S4-08b `b4e1b0a` 65/65，修正合入 `65d0aff` 65/65；S4-17b `8128f03` 60/60；S4-18 `7962290` 14/14；S4-18b `ceb95d5` 50/50；都没有重跑。S4-02、S4-04、S4-06、S4-08、S4-11、S4-12、S4-13b、S4-17 的合入后日志 scratch 里没有找到。
+  - 全量 gate：S4-00 合入后 `cc430d2` 89/89；S4-09 合入后 `580a80f` 309/309；S4-14 合入后 `404ac75` 724/724，AnalyticsUITests.testProfitCardShowsTotalLatestFourRowsAndSelection 重跑后通过。
+  - S4-20 合入后（合并提交 `c5231df`）：check 13 个类 255/255，AnalyticsMoreUITests.testMoreChartsPullToRefreshRereadsLoadedCards 重跑后通过；全量 gate 的 TOOLCHAIN_EXIT=0、UNIT_EXIT=0（2718 + 1342）、BUILD_EXIT=0，UI 829/829，重跑后通过的只有 GroupEditUITests.testDuplicateNameShowsRedTextAndGreysCreate（阶段 5 的用例），没有两次都失败的用例。这次 gate 作为阶段 4 的收尾。
+- 已知的不稳定与夹具边界（BACKLOG）：AnalyticsMoreUITests.testMoreChartsPullToRefreshRereadsLoadedCards（S4-20 两次碰到，重跑通过）；UI 测试里自动刷新 2 秒一拍时，时间胶囊菜单的第一次点按偶尔被列表重绘吞掉，用例已改为最多重试三次；RequestLogsUITests.testScrollingToEndLoadsNextPageOnce 在 Mac 本地时间 00:00 后约 1 分钟内运行必定失败（“LogFixtures 零点边界”，S4-19 修正的 check 就碰到了），站点时间 23:58–24:00 之间“今天 / 昨天”断言也可能失败；-ui-testing 下测试组筛选时运行类夹具之间不一致，只影响演示数据。
+
 ## 阶段 5 · 分组
 
 | 条目 | 标题 | 状态 | 提交 | 备注（与规格不同的取舍、未做的部分、UI 测试是否运行） |
@@ -468,6 +952,292 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 | S5-10 | 编辑 / 新建分组 sheet：表单、校验、确认、带 key 写入与核对（成员区除外） | ✅ | `9b91d05` `8089b6f` | 分两次提交（Core+Session；视图+夹具+UI 测试）。GroupEditDraft 放 Sub2Core，另加 GroupEditCopy / GroupEditFlow / GroupEditForm / AppGroupEditSource；名称按 UTF-8 ≤ 100 字节；平台下拉取目录与 App 内置平台的交集；结果不明（含 5xx）自动读回一次，再给手动核对与用同一编号重试；编辑遇 404 锁表单；简易模式新建脚注只写“平台创建后不能修改。”；去掉 onWritten；没建 interruptFirstCreate（S5-05 的 interruptFirstWrite 已覆盖新建）；费率框不设占位；删除 GroupsView.swift；testGroupEditorValidation 并入 GroupEditUITests；GroupDetailUITests 同步两处编辑 sheet 标识；成员区留给 S5-11。UI：check 5 类 65/65 通过（GroupEditUITests 11 个新用例）（审查修正 1101418）审查修正 1101418：编辑分组时，名称只在用户改过之后才提交。存量首尾带空白的名称不会再被悄悄改名，也不会让未改动的表单可以保存。（审查修正 64f8318）审查修正 64f8318：GroupEditUITests 启动后先等登录页，reveal 读导航栏前先判断存在，修掉负载高时启动后窗口还空、读导航栏 frame 约 2 秒后失败的偶发问题（测试时序，App 没改）。check GroupEditUITests 连跑 3 次，都是 17/17。 |
 | S5-11 | 编辑 sheet 的成员账号区、内嵌添加账号页与保存后成员写入 | ✅ | `518caa5` | 在 GroupEditFlow 上扩成员（不建 GroupEditCommit，S5D2a-09），合并回执在 GroupEditFlow+Members.swift；编辑 / 新建 sheet 的成员回执全部成功不给撤销（需要用户拍板第 5 条），重试后的回执也不给；“（现在 y）”只在 x ≠ y 时出；成员在 sheet 打开时自读（最多 20 页）；结果不明时先自动读回一次，确认生效才发成员写入，选“稍后核对”关闭时成员改动不发；只改成员时不发 PUT、不生成编号，归零照常 destructive 确认；简易模式不走退路也不显示退路提示；新增文案“<前缀> · 成员没有改动：<原因>”（需要用户拍板第 11 条）；不改 AccountRow.swift，状态图形复用 GroupAccountStateGlyph；添加账号子页用 navigationDestination(isPresented:) 推出，iOS 26 的系统返回按钮可能只画箭头；GroupEditForm 改为泛型接成员区（401 行）；UI 测试 check GroupEditUITests,GroupMembersUITests,GroupsUITests,GroupDetailUITests 60/60 通过（审查修正 a939926）审查修正 a939926：只改成员时，成员写入被拒会留在 sheet 显示红字并保留草稿，不再关闭并显示“已保存「名称」 · 成员没有改动：…”；只改成员且没有任何成员改成功（结果不明 / 全部失败）时，回执去掉“已保存「名称」”前缀。先 PUT 后写成员和新建两条路径不变。check 运行了 GroupEditUITests、GroupMembersUITests，31/31 通过。 |
 | S5-13 | 阶段 5 收口：简易模式、只读令牌与旧服务端核查、QA 对账、文档 | ✅ | `81cfa6d` `888ec28` | 分两次提交（13a 夹具 / 接线 / 清理 / 测试，13b README 与 ADMIN_MODULES）；-ui-simple-mode 只改 DemoData.adminMe 的 run_mode，夹具在新文件 GroupFixtures+SimpleMode（白名单响应、不列组合分组、403 / 409 GROUP_NOT_EMPTY / 400 SIMPLE_MODE_GROUP_NOT_BINDABLE、按后端规则清理写入；-ui-group-simple-unbindable 用来验证组合分组文案），接线只在 GroupStore、两个数据源适配层和成员写包装的夹具分支，没改 GroupFixtures.swift；GroupWriteMark 包住六个写方法，用来通知首页刷新（X17），没改 LiveOpsStore 和三个视图文件；删除 AccountsView(initialGroupID:)、AccountListModel.groupID 与 -ui-account-group-transition 夹具（X32）；前序页面没有简易模式缺口，未改页面代码；成员今日对账在 UI 上只核对“不超过”（限流行显示恢复时间）；简易模式新建请求体仍带默认计费字段（后端覆盖），订阅不回 403；静态核查结果见阶段 5 小结；新增 QA 单测 2 条、UI 用例 14 条；check：13a 13 个 UI 类 244/244，13b 9 个类 132/132，没有重跑才通过的用例 |
+
+### 阶段 5 小结
+
+#### (1) 完成项
+
+- S5-01 `af0c7df` `2c8f401`：分组模型与接口。AdminGroup 补四桶计数与客户端限制字段；读接口包括 groupList（1000 一页、最多 20 页）、usage-summary 与 dashboard/groups（45 秒）、groupCapacities（按 00 §4.5 拆批）、groupStats（老服务端回 nil）、Key 与订阅退路计数。新文件 GroupWrites.swift 放带编号的 GroupWriteOperation、GroupWriteDraft（最后一次确认时生成编号，R05）、GroupDeleteResult，以及四个只收 operation 的写方法。404 在 Core 里映射为 alreadyGone；新建分组在 Core 里拒绝 composite（GroupPlatform.concrete）。
+- S5-02 `6cf1c50` `767f36c`：展示、文案与权限纯函数，分 GroupPresentation、GroupCopy、GroupPermissions 三个文件。内容有四桶与 F04 退路、健康判定、色格条、列表分段与格式、确认框文案、删除后果行和“最早恢复”。菜单、滑动、按钮行和字段权限只在这里定义（S5D2a-01、S5D2a-04）。
+- S5-03 `e7abfd5`（修正 `a69ef8a`）：成员批量写入协议，分 GroupMembers、GroupMembersLegacy、GroupBatchOutcome 三个文件。内容有请求去重与每批 200 个、结果解码、回执、撤销用的反向请求、R06 同体重发、REQUEST_UNCONFIRMED / REQUEST_NOT_DELIVERED 两个标记，以及老服务端的逐账号退路。
+- S5-04 `9d16582`（修正 `792805c`）：GroupStore 与只读的分组列表：三段分区、三行的行、色格条和分组夹具（GroupFixtures）。分组目录在 -ui-testing 下与分组夹具同源。修正后，列表、usage-summary、status-summary、F04 退路各自单飞（新文件 BlockRead.swift）。
+- S5-05 `5807668`（修正 `9fcf6eb`）：GroupActions 的停用、启用、复制、删除，接入列表左滑与长按菜单。5xx 按结果不明处理，结果不明时自动读回一次。修正后，不带 key 的删除或停用读回发现没有生效时，“重试”会重新弹确认。
+- S5-06 `17ccc0f`（修正 `8026f9f`）：分组详情（一）：数据模型、状态卡、按钮行、成员分区和 404 整页。删除旧详情、GroupDestination，以及对 AccountsView(initialGroupID:)、AnalyticsView(groupID:)、RequestLogsView(groupID:) 的调用。
+- S5-07 `d300fe6`（修正 `6f25f77`）：分组详情（二）：告警横幅，以及“贰 · 用量与容量”“叁 · 记录与关联”“肆 · 配置”三个分区。修正后，会话一旦得知运维监控已关闭，横幅立即消失。
+- S5-08 `4eaa907` `f743de1`（修正 `67f5b62`）：成员写入的唯一入口 GroupMemberWriter；成员行左滑（状态动作、移出）；添加账号页及其入口（列表右滑与长按、详情按钮行与 ⋯、成员分区的添加行）。
+- S5-09 `a05d198`：成员批量写入的逐项结果页（.groupBatch 携带结果）：重试、撤销、混合渠道确认。
+- S5-10 `9b91d05` `8089b6f`（修正 `1101418`）：编辑 / 新建分组 sheet。草稿与校验放在 Sub2Core 的 GroupEditDraft，写入流程放在 Session 的 GroupEditFlow，另有表单、带 key 的写入与结果核对。GroupsView.swift 已删除。
+- S5-11 `518caa5`（修正 `a939926`）：编辑 sheet 的成员账号区、sheet 内的添加账号页，以及保存后的成员写入（出一条合并回执）。
+- S5-12 `e90e4e7`：分组 API 密钥页与分组订阅页（GroupKeysView、GroupSubscriptionsView，另有 GroupRecordsPresentation、GroupRecordsModel、GroupRecordsChrome）。
+- S5-13 `81cfa6d` `888ec28`：阶段收口。内容包括：
+  - 简易模式夹具（-ui-simple-mode、GroupFixtures+SimpleMode）；
+  - 分组写后的首页刷新（GroupWriteMark 包住六个写方法，X17）；
+  - 删除 AccountsView(initialGroupID:) 过渡入口与 -ui-account-group-transition 夹具（X32）；
+  - QA 单测 2 条、UI 用例 14 条；
+  - README 与 ADMIN_MODULES 的分组部分改写。
+  进度表与 BACKLOG 由 `04211b7` 写入。
+- 合入时另有一处只改测试的修正：`b840ad9`。S5-02 合入后单元测试变多，AccountOAuthTests 的计时断言连续失败，改成了不依赖耗时的写法。
+
+#### (2) 规格测试清单 / 完成标志对照
+
+50 章没有单独的测试清单小节。下面对照的是 50 §9 末尾的“QA 对账”四条，以及 §9 文件表、§2.7 和改动总表里 GroupManagementTests 那一行列出的测试内容。测试名按 `81cfa6d` 的测试文件核对；全量 gate（`a939926`）的单元测试全部通过。
+
+- QA 对账：
+  - 四桶之和等于 account_count：
+    - 单测：GroupPresentationTests.qaFourBucketsAlwaysSumToAccountCount、bucketsFallbackClampsAtZeroAndKeepsTheSum（S5-02），qaSimpleModeReplyDecodesAndBucketsAddUp（S5-13，简易模式响应）；
+    - UI：GroupsUITests.testQABucketsAddUpOnEveryRow（S5-13，默认夹具逐行核对）；
+    - 现状：快照不一致（可用 + 受限已经超过总数）时，四桶之和会大于 account_count，见 bucketsFallbackClampsAtZeroAndKeepsTheSum 里 counts(3, 3, 2) 一例（error、idle 都是 0，cellCount 为 5）；
+    - S5-13 方案里的 qaFallbackBucketsAddUpForConsistentSnapshot 写明“S5-02 已有同类用例就不加”，实际没有加。
+  - F04 与 D02 满足 0.2 的公式（到期自动暂停的过渡账号除外）：GroupPresentationTests.qaF04MatchesD02ExceptExpiredAutoPauseInAWindow（S5-02）。
+  - 详情“今日”等于列表同组“今日”：
+    - 单测：qaListAndDetailTodayShareOneAmountText（S5-13）。两处出自同一函数，nil 时分别写“今日 —”与“—”；
+    - UI：GroupDetailUITests.testQATodayReconcilesWithListAndMembers（高级组 $933.30、Claude Code 组 $52.75）。
+  - 成员“今日”（分组口径）之和不超过分组今日：同一个 UI 用例，只计行上显示“今日”的成员（限流行显示的是恢复时间）。夹具按 S5D2a-12 拆分后，两组的成员之和正好等于分组今日。
+- §9 文件表与 §2.7 列出的测试内容（查到的部分）：
+  - 解码（含字段缺失）：GroupManagementTests.groupDTOUsesDecimalAndMissingCountersRemainUnavailable、adminGroupDecodesBucketCountsAndClientRestrictionFields、groupAccountCountsDecodesMemberBatchShapeWithMissingFields；GroupMembersTests.memberResultToleratesMissingCountsDetailsAndPriority。
+  - F04 退路：GroupPresentationTests.bucketsFallBackToTheErrorListAndTheRemainder、errorCountsCountEachErrorAccountOncePerGroup；GroupStoreRulesTests.errorFallbackFollowsCapabilityThenMissingKey。
+  - 健康判定：GroupPresentationTests.healthFollowsTheTableOrder、healthUsesShortageBeforeTheLocalHalfRule。
+  - 拆批：
+    - 成员：GroupMembersTests.memberRequestSplitsIntoOrderedBatchesOf200、GroupMembersAPITests.memberBatchSendsOver200InOrderAndMerges；
+    - 容量：GroupManagementTests.groupCapacitiesSplitOnceOnTooManyIDs。
+  - 回执文案：GroupMembersTests.memberReceiptAllSucceededRows、memberReceiptPartialAndAllFailedRows、memberReceiptPrefixesForCreateAndSave、memberReceiptSingleRemovalAndUnconfirmed。
+  - 反向请求：GroupMembersTests.memberInverseUndoesOnlyChangedMemberships；GroupBatchOutcomeTests.outcomeUndoPlanRevertsOnlyChanges。
+  - 删除后果行：GroupCopyTests.deleteConsequencesSkipZeroRows、deleteConsequencesWithoutStatsUseWordsWithoutNumbers、deleteConsequencesInSimpleModeSkipTheMemberLine。
+  - groupStats 的老服务端识别：GroupManagementTests.groupStatsReturnsNilWithoutSubscriptionsTotalKey。
+  - 测试文件与规格写的不同：
+    - 成员写入的测试分在 GroupMembersTests、GroupMembersAPITests、GroupBatchOutcomeTests 三个文件；
+    - 文案与权限另有 GroupCopyTests、GroupPermissionsTests。
+- 简易模式、只读令牌、旧服务端（50 §0.7、S5-13 scope）：
+  - 单测：GroupPermissionsTests.readOnlyTokenGreysWritesAndOffersNoSwipes、simpleModeHidesAdvancedEntriesAndFields、simpleModeHidesMembersOfACompositeGroup；
+  - UI：
+    - GroupSimpleModeUITests 6 条：testListHidesBillingRowAndStatusActions、testDetailShowsPlatformOnlyAndHidesAdvancedRows、testInactiveGroupOffersEditOnly、testEditAndCreateSheetsShowOnlyBasicFields、testDeletingGroupWithMembersShowsGroupNotEmpty、testAddingAccountsShowsNotBindableCopy；
+    - GroupsUITests：testReadOnlyTokenGreysListWriteEntries、testLegacyServerListFallsBackLocally；
+    - GroupDetailUITests：testReadOnlyTokenGreysDetailWriteEntries、testLegacyServerDetailUsesFallbacks。
+- 首页下钻（50 §8.1）：
+  - UI：GroupDetailUITests.testHomeShortGroupRowOpensGroupDetail（N = 1）、testAlertScopeGroupRowOpensGroupDetail；
+  - N > 1 时推 .groups(segment: .attention)，由 AttentionItemsTests、HomeDestinationActionTests 证明，没有 UI 夹具。
+- 按 50 §0–§9 逐张表对照（S5-13 方案核查 ①）：材料里没有记录，未核对。
+
+#### (3) 50 章各节改动点
+
+- §1.7 分组列表：
+  - GroupsView 换成 Features/Groups/GroupListView（S5-04）：三段分区、三行的 GroupRow、本地搜索（提示“分组名称或平台”）。GroupsView.swift 由 S5-10 删除；核查 ② 中 GroupsView、GroupWorkspace 都是 0 处。
+  - GroupWorkspace 换成 GroupStore（S5-04）：列表、usage-summary、shortage、F04 退路，revision 语义见 S5D2a-10。夹具在 GroupFixtures*.swift（X44）。
+  - 一次拉全量：groupList() 按 1000 一页读完，最多 20 页（S5-01）。
+    - 位置不同：规格里的 groupList(etag:) 没有建，ETag / 304 留在 ConditionalCache 里（GroupManagementTests.groupListRevalidatesThroughConditionalCache；核查 ③“不应存在的接口”通过）。
+  - groupUsageSummary(timezone:) 只有 vendor 传时区（S5D1-06）。accountStatusSummary 全仓只有一个定义（核查 ③）。
+  - GroupPresentation.swift 由 S5-02 建，另拆出 GroupCopy.swift 与 GroupPermissions.swift。
+  - GroupCellsView.swift 由 S5-04 建，列表与详情共用。
+  - “分组管理”入口迁到搜索目录：不在阶段 5 条目范围内，未核对。
+- §2.7 分组详情：
+  - GroupDetailView 重写（S5-06、S5-07）：横幅、状态卡、按钮行和四个编号分区，序号固定为壹贰叁肆（S5D2a-13）。
+    - “查看与管理分组账号”“统计分析”已删除，旧标识 group.accounts、group.analytics、group.logs 在 NativeApp 里为 0（核查 ②）；
+    - “请求记录”改为“记录与关联”的三行（S5-07）。
+  - 文案“正常”“费率倍数”“标准（余额）/ 订阅（配额）”“每用户 RPM”都在 Sub2Core 的 GroupPresentation / GroupCopy 里。
+  - 位置不同：规格写的是沿用旧 perform / reconcile 的“结果待确认”流程，实际随旧页面一起删除，换成 GroupActions（S5-05）加 GroupWriteDisposition 分类（S5D2a-06）。
+  - 接口：
+    - AdminGroup 新字段（S5-01）；
+    - groupCapacities(groupIDs:serverFiltered:)，无参版已删除（S5D1-05）；
+    - groupStats(id:) 在没有 subscriptions_total 键时回 nil；
+    - groupTodayUsage(id:serverTimeZone:) 读 dashboard/groups，超时 45 秒（S5D1-07、S5D1-08）。
+  - 位置不同：规格里的 firingAlerts(groupID:) 没有建，横幅经 LiveOpsStore+GroupDetail 读取（S5-07）。核查 ③ 确认没有 firingAlerts(groupID:)，alertEvents 只有一个定义。
+  - 成员今日在服务器有 accounts.today_stats_group 时走分组口径（S5-06）。
+    - 位置不同：规格写的 accountTodayStats(ids:groupID:) 没有建。成员今日用的是 S2-02（`9a0448b`）建的 accountTodayStatsBatch(ids:groupID:)，可选的 group_id 当时已经带上；GroupDetailModel.swift:26 调用它。
+  - 容量条复用 CapacityBar（S5-07）。成员行直接用 AccountRow（GroupMembersSection.swift:81），已复用。
+- §3.7 编辑 / 新建分组：
+  - GroupEditorView 换成 GroupEditSheet 加 GroupEditForm（S5-10）。草稿、校验、差异放在 Sub2Core/GroupEditDraft.swift，写入流程放在 Session/GroupEditFlow.swift（位置不同，S5D2a-09）。成员区与 sheet 内的添加账号页由 S5-11 做。
+  - GroupCreateRequest 默认平台为 anthropic，GroupPlatform.concrete 不含 composite：GroupManagementTests.groupPlatformConcreteDropsCompositeAndCreateDefaultsToAnthropic（S5-01）。
+  - 写接口：规格写的是 createGroup / updateGroup / deleteGroup 加 `idempotencyKey: UUID` 参数；实际是四个只收 GroupWriteOperation 的写方法（S5D1-01、S5D1-02）。PreparedGroupWrite 由 GroupWriteDraft 取代（核查 ② 中 PreparedGroupWrite 为 0 处）。
+  - 规格写的 GroupMembers.swift 拆成了 GroupMembers、GroupMembersLegacy、GroupBatchOutcome 三个文件（S5-03）。
+  - 确认框逐行文案与“保存后可用”：GroupCopyTests.editDiffLinesListEveryChangeInOrder、GroupPresentationTests.availableAfterCountsSchedulableMembersOfThePlatform（函数名与规格的 diffLines / availableAfter 是否一致，未逐一核对）。
+- §4.7 添加账号：GroupAccountPicker.swift 加 GroupAccountPickerModel（S5-08），直接打开和编辑 sheet 内的子页用同一个视图（S5-11 用草稿模式）。候选只读第 1 页 200 个。账号查询带 lite=1、sort_by=urgency，每页 200 个：GroupAccountPickerModel.swift 第 6 行注释这样写，第 74 行的 AccountListQuery 也是这样传的。服务器没有 accounts.list_query 时，sort_by 退回 name（AccountListQuery.queryItems）。
+- §5.7 逐项结果：GroupBatchResultView.swift 由 S5-09 建。结果模型、原因文案、重试分组和反向请求在 GroupBatchOutcome.swift（S5-03），不在规格写的 GroupMembers.swift；页面状态在 Session/GroupBatchResultModel.swift。
+- §6.7 / §7.7 API 密钥与订阅：GroupKeysView.swift、GroupSubscriptionsView.swift 由 S5-12 建。
+  - groupAPIKeys(id:page:maskedView:) 比规格多一个 maskedView 参数（S5D1-06）；
+  - 不保存 Key 明文：GroupManagementTests.groupAPIKeysNeverKeepsPlaintextKeys，核查 ⑦“分组 Key 页不要明文视图”通过；
+  - groupSubscriptions(id:page:)、activeSubscriptionCount(groupID:) 已建。
+- §8.7 首页下钻：
+  - 最终版本已接上：首页“可用不足 1 个分组”与告警范围区的分组行进新详情（S5-13 两条 UI 用例），N > 1 时推 .groups(segment: .attention)；
+  - 过渡版本 AccountsView(initialGroupID:) 与 AccountListModel.groupID 已由 S5-13 删除；核查 ④ 确认 AccountsView 没有 navigationDestination(item:)。
+- 改动总表 DemoData.swift 一行：分组夹具不在 DemoData 里（GroupFixtures*.swift，夹具分组 id 1–11）。DemoData.adminMe 只加了 -ui-simple-mode（S5-13）。
+
+#### (4) BACKLOG 与前序阶段备注里留给阶段 5 的事项
+
+- 倍率的显示位数（BACKLOG 阶段 0 行与阶段 2 补充行；阶段 3 小结写“分组页由阶段 5 定”）：S5-02 定为 GroupFormat.rateText，精确到 0.1 时写 1 位，否则最多 2 位（×0.8、×1.0、×1.25）。与用户页的 ×1 不统一，待用户定（拍板第 13 条）。
+- 路由参数在旧页面上不生效（.groups 的 segment、.groupBatch 的 items）：已处理。.groups 的 segment 由 S5-04 接上，.groupBatch 由 S5-09 改为携带结果；.group(id:) 的首页与告警入口有 S5-13 的 UI 用例。
+- 跨 Tab 跳转撤不掉视图式推入的页面：分组部分已处理。
+  - 分组列表改用 NavigationLink(value:)（S5-04）；
+  - 旧详情的视图式推入随 S5-06 删除；
+  - AccountsView 的 navigationDestination(item:) 与 init(initialGroupID:) 由 S5-13 删除；
+  - Features/Groups 里唯一的 navigationDestination(isPresented:) 在编辑 sheet 自带的导航栈里。
+- status-summary 分组 shortage 的数值单位：分组页只用 is_short，不显示 threshold / current，所以不需要按来源格式化。
+- 渠道行点进旧分组详情（S1-15 备注）：已处理。S5-06 起 .group(id:) 落到新详情，新夹具的 id 1–11 与渠道夹具一致。
+- 分组页旧夹具与账号夹具的分组 id 不一致（阶段 2）：已处理。GroupsView 旧夹具随 S5-10 删除，-ui-account-group-transition 由 S5-13 删除。
+- 阶段 2 那一行写“第 2 波若在 AppModel+Accounts 新增账号写包装（如 S5-08 改 group_ids），必须同样套 recordingAccountWrite”：
+  - 按 S5D2a-07，成员写包装放在 GroupMemberActions.swift，不套 recordingAccountWrite，改由 S5-13 的 GroupWriteMark 包住，口径与 AccountWriteMark 相同；
+  - 核查 ⑦：recordingAccountWrite 不出现在 Groups 目录，GroupWriteMark.run 恰好 6 处；
+  - GroupWriteMark 只是转调，没有单独的测试，口径由 AccountWriteMarkTests 保证（S5-13 方案）。
+- 通用删除确认（阶段 0 行）：分组删除经 S3-00 的 DeleteConfirmationSheet，Face ID 走 BiometricGate.authorize(.delete)（核查 ⑦）。删除标题、首行与回执用 DeleteConfirmationCopy（S5-02）。
+- 缺失值“—”的读屏：分组列表行的“今日 —”读作“今日无数据”（S5-04）。分组页其他位置材料里没有记录。
+- S4-13 备注“旧分组详情入口……S5-06 删链接”：S5-06 删除了对 AnalyticsView(groupID:)、RequestLogsView(groupID:) 的调用，兼容构造由 S4-20 删除。
+- “errorCount 的口径”（BACKLOG 阶段 4 行，BACKLOG.md:490）：要求 S5-07 的文案只写“近 24 小时 N 条”，不当错误率用。已满足：详情“叁 · 记录与关联”的计数用 GroupCopy.last24Hours，写的就是“近 24 小时 N 条”（GroupCopyTests 有断言）。
+- 阶段 5 自己的 BACKLOG 行：
+  - “AccountsView 手写 composite 过滤”：已处理，S2-04 重写时已经去掉；
+  - “线 A 提交 e7abfd5 待推送”：e7abfd5 已经由合并提交 `0a15970` 合入主分支（`0a15970` 上的集成 check 通过），这一行可以关闭，BACKLOG 里还没改；
+  - “从详情删除遇 KEY_CONFLICT 时‘重试’无处弹确认”：S5-05 的审查修正 `9fcf6eb` 已改为从详情删除时，“没有生效”与“需重新操作”两种回执都不带按钮，从分组菜单重新删除；S5-06 接入新详情后是否复核过，材料里没有记录，BACKLOG 行也没改。
+- 其他阶段的备注：S6-21 行写“分组行点进去仍是旧分组详情（S5-06 未合入）”，那是 S5-06 合入前写的。按 `81cfa6d` 的代码，搜索里的分组命中推 .group(id:)（SearchResultsListModel.swift:21），落到新详情。
+
+#### (5) 核查结果（S5-13 一次性脚本 scratch/s5-13/check.py，不入库，输出在 scratch/s5-13/check-out.txt）
+
+- ② 旧符号与旧标识：
+  - GroupsView、GroupWorkspace、GroupEditorView、PreparedGroupWrite、GroupDestination 都是 0 处；
+  - 旧标识（group-editor.*、group.analytics、group.accounts、groups.platform、groups.status、groups.more、group.logs、group.result，以及已作废的 group.menu.status、group.swipe.status、group.detail.more、group.detail.action.*、group.menu.add、group.row.<id>.add）在 NativeApp 与 Sources 里为 0；
+  - UITests 里只在 GroupDetailUITests 第 34、596 行作否定断言；
+  - 没有 vtGroupAccounts 一类的页面文件。
+- ③ R19：
+  - groups(page:…)、groupCapacities(groupIDs:serverFiltered:)、alertEvents(…)、errorCount(filter:kind:)、accountStatusSummary(…) 各只有 1 处定义；
+  - groupList(etag:)、无参 groupCapacities()、firingAlerts(groupID:)、requestErrorCount、upstreamErrorCount 都不存在。
+- ④ X39：Features/Groups 只有 GroupEditSheet.swift:123 一处 navigationDestination(isPresented:)，在编辑 sheet 自带的导航栈里（内嵌添加账号页），不推入 Tab path。AccountsView 没有 navigationDestination(item:)。
+- ⑤ D27：分组 UITests 引用的标识共 135 个，NativeApp 里只有 group.accounts 找不到，它只用于否定断言；23 个启动参数都能找到。
+- ⑥ 文件长度：Features/Groups、Sub2Core/Group*.swift、UITests/Group*.swift 都不超过 800 行。最长的三个是 GroupDetailUITests 650 行、GroupEditUITests 571 行、GroupPresentation.swift 445 行。
+- ⑦ 安全：
+  - R11（分组页不回显服务端 message）：唯一命中的是 GroupBatchResultView.swift:52 的 Text(prompt.message)。prompt 是混合渠道确认框（S5-03 的 GroupMixedChannelConfirmation，App 自拟文案加平台名），不是服务端 message。另有单测 GroupCopyTests.errorCopyNeverEchoesTheServerMessage。
+  - X10（不写 .disabled(…isReadOnlyToken)）：分组目录 0 处，只命中 ComplianceSheet.swift 第 57、63 行（合规确认页）。要不要处理，材料里没有记录。
+  - 分组相关文件没有 print / NSLog，日志只用 os.Logger。
+  - Features/Groups 里 noteExternalWrite 只出现在 GroupWriteMark。GroupWriteMark.run 共 6 处：AppGroupEditSource.swift:24，GroupActions.swift:35 / 46 / 58，GroupMemberActions.swift:93 / 99。recordingAccountWrite 不出现在 Groups 目录。
+  - 成员批量写入（GroupMemberWriter、GroupBatchResult*、GroupEdit*）都不调 BiometricGate。删除经 GroupActions.swift 的 confirmDelete / DeleteRequest，到 DeleteConfirmationSheet.swift:163 的 gate.authorize(.delete)。
+  - 分组 Key 页没有 maskedView: false。
+- 方案列了但核查输出里没有的两项：① 逐节对照 50 §0–§9 每张表、改动总表 50 章各行、U37–U39、R11 / R14 / R19；⑧ build 输出没有新增 warning。check 日志只有 BUILD_EXIT=0，材料里没有记录 warning 的核对结果。
+- S5-13 提交说明：前序页面没有简易模式缺口，没有改页面代码。
+
+#### (6) 与规格不同的取舍（阶段汇总，各条目的细项见上表备注）
+
+- 需要用户拍板的十五条（_decisions-S5 批次 2a），都按默认值实现：
+  1. 最早恢复：每个成员取它最晚的进行中窗口，再取全组最早，并列时写“恢复 n 个 · X 等”；另外只算开着调度的限时成员（S5-02）。规格字面是“三个窗口里仍在未来的最小值”。
+  2. 删除后果行拿不到 stats 时写不带数字的句子，简易模式不写成员行；停用 / 删除确认的 stats 最多等 2 秒（S5-02、S5-05）。
+  3. 区块刷新失败时保留上一次成功的值，不加提示；只有从未读到才写“—”或不显示（S5-04、S5-07、S5-12）。
+  4. 分组写遇到 5xx 一律按结果不明；结果不明时自动读回一次，定不了才给“用同一编号重试”与核对（S5-05、S5-10）。
+  5. 编辑 / 新建 sheet 的成员回执全部成功时不给撤销，“重试”后的回执也不给（S5-11）。
+  6. 更早的时间写 MM/dd HH:mm（DisplayFormat.monthDayClock），不写 MM-DD（S5-07 横幅、S5-12 Key 最近使用）。
+  7. 简易模式：详情“贰”只留“请求 · Tokens · 账号成本”，“肆”只留描述与 Web 行；停用分组的按钮行只剩“编辑分组”，不提升为主按钮；新建脚注只写“平台创建后不能修改。”（S5-07、S5-10、S5-13）。
+  8. 简易模式不走逐账号退路，直接提示“服务器暂不支持批量调整成员。”（S5-08）。
+  9. 成员批量写入（添加、移出、逐项结果页的重试 / 撤销、sheet 保存后的成员写入）不过 Face ID（S5-08、S5-09、S5-11，S5-13 已核查）。
+  10. 主按钮被隐藏后不改派（S5-02、S5-06）。
+  11. 规格里没有的新增文案：S5-03 的成员写入回执七句、S5-11 的“<前缀> · 成员没有改动：<原因>”、S5-08 组合分组选择页的措辞。
+  12. 分组名按 UTF-8 不超过 100 字节（S5-10）。Core 的 GroupWriteValidation.name 仍按字符计，已记 BACKLOG。
+  13. 倍率写 ×1.0 / ×1.25，与用户页的 ×1 并存（S5-02）。
+  14. 订阅限额允许输入 0，显示 $0（S5-10、S5-12）。0 的语义待后端确认。
+  15. 新建分组的平台下拉只列 App 已知的平台（S5-10）。
+- 接口与签名（与规格 §3.7、§9 的字面不同，按裁定实现）：
+  - 写方法只收 GroupWriteOperation，编号命名照 PendingUser*Operation（S5D1-01、S5D1-02）；
+  - 删除结果是 enum，404 GROUP_NOT_FOUND / RESOURCE_NOT_FOUND 在 Core 里映射为 alreadyGone（S5D1-03）；
+  - groupList 没有 etag 参数；
+  - groupCapacities 按 00 §4.5 的批量 ID 规则：去重、去掉非正数、每批不超过 100 个，收到 TOO_MANY_IDS 再拆一次；
+  - usage-summary 与 dashboard/groups 超时 45 秒（S5D1-07）；
+  - groupAPIKeyCount / groupAPIKeys 带 maskedView 参数（S5D1-06）。
+- 展示与文案（S5-02）：
+  - 订阅限额整数写 0 位小数，非整数写 2 位；
+  - 编辑时把停用的分组改回正常：确认框里写一行“启用分组”，但启用本身不触发确认；同一次保存里停用分组时，可用数降到 0 不算“归零”，由停用那一行说明（GroupEditDiff）；
+  - 详情副标题里接口没给的字段省略。
+- 成员写入（S5-03）：
+  - R06 同体重发 1 次，范围是传输失败、408、502、504、无 reason 的 503，进后台不重发；
+  - 新增 REQUEST_UNCONFIRMED（“结果未确认，可以重试”）；REQUEST_NOT_DELIVERED 只给没发出的批；2xx 答复里缺的账号也记 REQUEST_UNCONFIRMED（S5D2a-17）；
+  - 没有 reason 的 4xx 一律按非 JSON 处理，只会偏向“结果未确认”（`a69ef8a`）。
+- 列表（S5-04）：
+  - status-summary 失败或 403 时 shortage 置空，退回本地 50% 判定，不像 usage 那样保留旧值；
+  - F04 退路还没读到时错误计 0，错误账号只读一页 1000 个；
+  - 旧服务端用 -ui-without-capabilities 模拟，不建 -ui-group-legacy（X05）。
+- 动作（S5-05）：撤销成功不再出回执；不带 key 的删除或停用读回发现没有生效时，“重试”重新弹确认（`9fcf6eb`）。
+- 详情（S5-06、S5-07）：
+  - 404 页标题“分组”；
+  - 分组读取失败时，有快照显示中性横幅，没有快照整页“读取分组失败”；
+  - 回前台按下拉刷新处理；60 秒轮询从上一轮结束时算起；
+  - “可用偏低”只在分组正常且 active > 0 时读；
+  - 成员为 0 时显示“没有成员账号”占位；
+  - 告警规则摘要按 R10 写“5.0%”；
+  - 只有 canEdit == .enabled 时配置行可点。
+- 逐项结果页（S5-09）：行上的账号状态用提交时的快照（规格要求取 App 账号缓存，但 App 没有会话级账号缓存）；没有失败时，成功区的序号是“壹”（同设计稿）；“s 个成功”与成功区 meta 用未撤销的成功数，按钮用可撤销数。
+- 编辑 sheet（S5-10、S5-11）：
+  - 编辑遇 404 时锁住表单；费率框不设占位；
+  - 名称只在用户改过之后才提交（`1101418`）；
+  - “（现在 y）”只在 x ≠ y 时显示；
+  - 只改成员时不发 PUT、不生成编号；
+  - 结果不明时选“稍后核对”关闭 sheet，成员改动不发送；
+  - sheet 打开时成员最多读 20 页。
+- 记录页（S5-12）：订阅页自己读 stats，stats 出错不走退路；400 不自动重发，但保留手动重试与下拉；翻页提示按 page_size 20；夹具的总数与用户页 Key 卡片不联动。
+- 收口（S5-13）：
+  - 简易模式新建请求体仍带默认计费字段，后端会覆盖为同样的默认值；
+  - 简易模式夹具对订阅不回 403，与后端一致（规格 50 §0.7 写 403，App 已隐藏订阅行）；
+  - capacity 与 api-keys 不加 403，因为入口已隐藏；
+  - 成员今日对账在 UI 上只核对“不超过”；
+  - 只读令牌下列表行的右滑会被系统当作返回手势，用例按这个行为写。
+
+#### (7) 未做项及原因
+
+- 只有单测、没有 UI 覆盖的部分：
+  - vendor 视角：U01 首版拒绝 vendor 登录，GroupPermissions 的 vendor 分支只有单测；
+  - 首页“可用不足 N > 1”：阶段 1 的首页夹具只有 1 个可用不足分组，路由由 AttentionItemsTests、HomeDestinationActionTests 证明；
+  - 组合分组在简易模式下隐藏“添加账号”：夹具里没有组合分组，由 GroupPermissionsTests 覆盖；
+  - S5-04 的首次骨架与 60 秒轮询（单测与代码审查）；
+  - S5-12 没有加 usage-failure / key-view-rejected 两个启动参数（单测覆盖）。
+- 已知限制，已记 BACKLOG：
+  - 添加账号页只读第 1 页 200 个候选；
+  - 编辑 sheet 最多读 2000 个成员；
+  - 成员行状态动作后靠重拉成员刷新该行；
+  - 逐项结果页用提交时快照；
+  - 分组列表的 usage-summary / status-summary 自身收到 429 时没有区块等待；
+  - 大分组详情的轮询请求量随页数线性增长，实测后再定；
+  - 分组名的 Core 校验仍按字符计（要改 GroupManagement.swift）；
+  - 服务器日历整天数有三份相同算法，建议在 S6-26 收口时统一，S6-26 行里没有提到。
+- 已知限制，只写在进度行、BACKLOG 没有记：编辑 sheet 内的添加账号子页用 navigationDestination(isPresented:) 推出，iOS 26 的系统返回按钮可能只画箭头（S5-11）。
+- 简易模式新建请求体只发名称、描述、平台三个键：要另立条目给 GroupCreateRequest 加简易模式编码。
+- 简易模式组合分组详情的专门整页文案：待用户定，现在按读取失败页显示。
+- ETag 304 实测：S5-13 方案列在范围外（需要用户授权访问测试环境）。
+- 静态核查 ① 与 ⑧ 没有输出，见 (5)。
+- BACKLOG 整理：
+  - 阶段 5 有两组重复行（“订阅限额 0”两行，“添加账号页超过 200 个候选”两行），待集成者合并；
+  - 阶段 5 表的“服务器日历整天数的多份同算法”（BACKLOG.md:617）与阶段 6 表的“服务器日历整天数有三份实现（新增）”（BACKLOG.md:737）内容相同，也待合并；
+  - “线 A 提交 e7abfd5 待推送”可以关闭。
+- 需要用户确认的默认值：
+  - _decisions-S5 批次 2a 的十五条；
+  - BACKLOG 阶段 5 表里写“待定 / 待用户决定”的八条：成员退路改用 PATCH + If-Match、shortage 失败时是否保留旧值、“用同一编号重试”的常驻入口、“稍后核对”丢弃成员改动是否写明、简易模式组合分组整页文案、只读令牌右滑返回是否拦截、无 groups.member_batch 的简易模式站点成员入口是否置灰、“最早恢复”只算开着调度的限时成员；
+  - 规格未决问题 U37–U39 的建议默认值。
+
+#### (8) UI 测试运行情况
+
+- 各条目提交时的 check（UI_FLAKY 都是“无”，没有重跑才通过的用例）：
+  - S5-01：GroupsUITests 两次各 2/2。
+  - S5-02、S5-03：纯 Core，UI_SKIPPED。S5-03 审查修正 `a69ef8a` 的 check 也只跑单元测试（2434 + 1006）。
+  - S5-04：5 个类 118/118。审查修正 `792805c` 提交前的 check 68/68；新增的两条 UI 用例 testListRetryDoesNotWaitForSlowUsage、testPullReadsListAgainWhileUsageIsSlow 先红后绿。
+  - S5-05：22/22；审查修正 `9fcf6eb` 58/58。
+  - S5-06：6 个类 109/109；审查修正 `8026f9f` 29/29。
+  - S5-07：3 个类 36/36，UI 用例是实现后补写的（不是先红后绿）；审查修正 `6f25f77` 17/17。
+  - S5-12（线 C）：GroupRecordsUITests、GroupDetailUITests 24/24。
+  - S5-08：5 个类 74/74（在 `4eaa907` 加 11 个未提交文件上，即 `f743de1` 提交前的内容）；审查修正 `67f5b62` 42/42。提交前的第一次 check（`21170e2` 加 15 个未提交文件）67 个中 GroupMembersUITests.testRemovingTheOnlyAvailableAccountAsksFirst 失败，随后单跑 3 个通过。原因未查明，可能是不稳定用例。
+  - S5-09：3 个类 48/48。
+  - S5-10（线 B）：`9b91d05` 14/14，`8089b6f` 5 个类 65/65；审查修正 `1101418` 24/24。
+  - S5-11：4 个类 60/60；审查修正 `a939926` 的 GroupEditUITests、GroupMembersUITests 31/31。
+  - S5-13：13a（`81cfa6d`）13 个类 244/244，按方案是 GroupSimpleModeUITests、GroupsUITests、GroupDetailUITests、GroupActionsUITests、GroupMembersUITests、GroupEditUITests、GroupRecordsUITests、AppNavigationUITests、AccountListUITests、AccountDetailUITests、HomeUITests、AlertDetailUITests、MonitorUITests；13b（`888ec28`）9 个类 132/132，类名材料里没有记录。两次的单元测试都是 2737 + 1356 通过。
+- 集成者合入后的 check：
+  - S5-01（合并提交 `635a8c9`）：GroupsUITests 2/2，单元测试 984 + 232 通过。没有单独的日志文件，记录在 scratch/resume1/state.json 的 integ/S5-01 一项。
+  - S5-02（`13600ef`）：单元测试 2344 个连续两次有 1 个失败，是 AccountOAuthTests.authURLReplyKeepsStateAndRejectsUnsafeLinks 的 1 秒计时窗口（BACKLOG 已记的偶发失败）。`b840ad9` 改为不依赖耗时后通过（2344 + 956）。
+  - S5-03（`0a15970`）：单元测试通过，UI_SKIPPED。
+  - S5-05（`6920286`）：63/63。
+  - S5-07（合并提交 `93101c6`，scratch/integrate-a-s5-07-check.log）：单元测试 2619 + 1264，UI 36/36，UI_FLAKY 为“无”。
+  - S5-08（`0ec795c`）：74/74；审查修正合入后（`7ab407f`）42/42。
+  - S5-10（`5f23b96`）：65/65。
+  - S5-11（`22578e7`）：60/60。
+  - S5-06（`96cb786`，线 A 在 `17ccc0f` 之上把当时的主分支并进来的合并提交）、S5-09（`a05d198`）、S5-12（`e90e4e7`）快进合入，条目 check 即在同一提交上（各日志 SYNCED 行都是该提交加 0 个未提交文件），没有单独的集成 check。
+  - S5-04 也是快进合入，但情况不同：`9d16582` 不是主分支当时提交（`b6669ae`）的后代，主分支快进到的是线 A 把主分支并进来之后的 `34866e1`（第二个父提交就是 `b6669ae`），其上是 S5-03 审查修正 `a69ef8a`。条目 check（118/118）跑在 `9d16582` 上，不含主分支当时的改动。`34866e1` 上只有 S5-03 审查修正的 check（加 3 个未提交文件），只跑了单元测试（2434 + 1006）。合入后第一次跑全量 UI 是 S6-20 合入后的定期 gate（`575f3e3`，673/673，见阶段 6 小结）。
+- 全量 gate（三次，TOOLCHAIN、UNIT、BUILD 都为 0）：
+  - S5-07 合入后（scratch/gate-fe1e2de.log，`fe1e2de`）：单元测试 2619 + 1264，UI 779/779，UI_FLAKY 为“无”。
+  - S5-10 合入后（scratch/gate-ab5b4ce.log，`ab5b4ce`）：单元测试 2725 + 1342，UI 829/829。UI_FLAKY 为 ProxiesUITests.testAddProxyThenUndo()，即重跑后才通过，这是阶段 6 的用例（S6-14 加的）。
+  - 阶段收口（scratch/gate-S5-13.log，`a939926`，包含 S5-13 两次提交与 S5-11 审查修正）：单元测试 2737 + 1358，UI 849/849，UI_FLAKY 为“无”，GATE_SCRIPT_EXIT=0。进度表 S5-13 行没有写这次 gate。
+- 不稳定用例：
+  - 上面的条目 check、集成 check 与三次全量 gate 里，只有 gate-ab5b4ce 里 ProxiesUITests.testAddProxyThenUndo 重跑后才通过（阶段 6 用例，与分组无关）。
+  - S5-08 提交前第一次 check 里 GroupMembersUITests.testRemovingTheOnlyAvailableAccountAsksFirst 失败、单跑通过，原因未查明，可能是不稳定用例。
+  - 阶段 5 的用例 GroupEditUITests.testDuplicateNameShowsRedTextAndGreysCreate 在 S4-20 合入后的全量 gate（scratch/S4-20-integrate-gate.log，`c5231df`）里重跑后才通过，阶段 4 小结已记。
+  - 提交前开发中的失败（先写的红灯用例、改写中的用例）不计在内。阶段 2 记过的既有失败（AccountNewUITests 三个用例、AccountDetailMenuUITests.testSwitchingToNoProxy）在三次 gate 里都没有出现（都是 0 个失败）。
 
 ## 阶段 6 · 其他模块
 
@@ -499,3 +1269,432 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 | S6-24 | 推送设置页与接收方式详情（订阅、测试、删除） | ✅ | `b0882f8` | 本机未开启时不显示推送内容分区；平台 / 分组范围在 sheet 里点“完成”才提交，其他控件立即整对象 PUT，保存中途的修改合并为再发一次；停用设备恢复文案、“可在 Web 删除”提示照抄规格（待用户拍板，Web 实际没有推送界面）；已有列表时重读失败保留旧列表并显示“刷新失败 · 重试”；自拟文案：订阅失败回执“推送内容没有保存：<原因>”，INVALID_PUSH_SUBSCRIPTION 写“<控件名>的值不被站点接受”；免打扰默认 23:00–07:00，按 GMT 墙上时间换算；设置页通知行有登记 id 时每次出现读一次设备列表；添加 / 编辑 sheet 暂为 ComingSoonSheet 占位（S6-25）；PushDemoStore 在 actor 声明里加了 arguments / config 存储属性和 init；items.json 未登记的文件：PushPresentation+Settings.swift、PushSettingsRulesTests.swift、PushSettingsModel.swift、PushSettingsModelTests.swift、PushSettingsSections.swift、SettingsPresentation(+Tests).swift；check：unit 全过，build 无 warning，UI 跑 PushSettingsUITests（14）、SettingsUITests、PushRoutingUITests 共 35/35 通过，无 flaky（审查修正 bb147c4）审查修正 bb147c4：订阅保存失败后回读列表期间再改的订阅，回读结束后照常发出，不再一直显示成已保存；测试推送遇 404 后的回读跨过站点切换时返回 .cancelled，不会再清掉新站点的本机登记。check（PushSettingsUITests、SettingsUITests）29 个 UI 用例全部通过。 |
 | S6-25 | 添加 Bark / ntfy / Webhook 接收方式与站点 APNs 配置编辑 | ✅ | `1becaba` | 取舍：①http 地址只提示不拦（站长可开 push_targets.allow_insecure_http）；②密钥 / 私钥在请求发出时清空，失败后须重填或点“不设置” / “不更换私钥”；③私钥形态检查接受 PRIVATE KEY 与 EC PRIVATE KEY；④主动 step-up 用 isRead: true（通过后这次保存直接发出），被动 STEP_UP_REQUIRED 验证后由用户再点保存；⑤机器凭据 / 未开 TOTP 的拒绝都 reloadSiteSession（提示被划掉也重读）；⑥encryption_key_configured 为 false 时导入置灰、不显示粘贴框；⑦私钥编辑框用关掉智能标点的 UITextView，识别成 PEM 后收起、不回显；⑧两个 sheet 在 App 非活动时盖遮罩并 redacted（S6D2b-10，切换器遮挡要真机验收）；⑨Webhook 脚注补一行“时间戳为请求头 X-Sub2-Timestamp 的 Unix 秒”。新增文案集中在 PushEditCopy（新文件 PushEditCopy.swift）：添加接收方式 / 添加 / 正在添加、http 提示、密钥已清空提示与“不设置”、两句结果未确认、还有内容需要修改、最多 512 字节、两种添加回执、已保存站点 APNs 配置、启用 APNs 推送、凭据 / 私钥 / 发送分区、导入 .p8 文件…、粘贴占位、清除、不更换私钥、不是 .p8 文件、私钥已清空提示、内容已隐藏、放弃修改？。未做：下滑关闭只禁用、不弹确认（等 S6-26 拦截桥）；PUSH_TARGET_IN_USE 没有夹具（单测覆盖）。UI：check 跑 PushSettingsUITests、SecurityPromptUITests、PushRoutingUITests，31/31 通过（审查修正 b833362）审查修正 b833362：APNs 配置保存“结果未确认”后，表单以重新读取的配置为基准（APNsConfigDraft.rebased(on:)：改过的字段保留填写值，其余跟随服务端，私钥“需重新导入”标记保留）；回到前台重读配置时也同样合入；新增夹具参数 -ui-apns-save-unconfirmed 与对应 UI 用例。 |
 | S6-26 | 阶段 6 收口：完成度核查、资金与推送专项复核、文档与小结 | ✅ | `645089f` `32c0cee` `81657e4` `0bab3b4` | 按 D28 分四次提交，各自通过 check：26a 共用下滑拦截桥（四份副本合并，新接 PushTarget / APNs / Key 表单 / 新建账号）与 DemoData 死常量 authSessionCount、accessTokenCount；26b 绝对时间转调 C-30、用户详情分区头、代理写后首页刷新、余额发送登记、读类 POST 显式类别、推送同地址收尾补测、U48 与概览进入兑换码核对补测；26c 同地址旧登录（站点列表与登录页根视图）、补偿放弃后各处同时消失、公告结果未确认时的关闭；26d README / ADMIN_MODULES / API_COMPATIBILITY:74。与规格不同的取舍：令牌到期同年不写年份；请求详情月日补零、跨年加年份；check-mixed-channel 按写处理；⑥ 的旧登录行注、“登录「X」后核对”、根视图说明，以及公告“结果未确认”关闭的文案都是自拟的，待用户看截图；首页刷新判定由单测锁住，三个视图里的闭包只靠代码审查。未做：站点菜单里的旧登录、登录设备名、U40 实机检查、推送真机验收。UI 测试：26a 7 类 199/199，26b 12 类 198/198，26c 阶段 6 全部 25 类 446/446，都没有 FLAKY 和基线失败。需要用户拍板：⑥ 的文案与交互、站点菜单里的旧登录、登录设备名、令牌到期同年不写年份、公告“结果未确认”关闭的文案、check-mixed-channel 在 00 §2.4 里算读还是写 |
+
+### 阶段 6 小结（S6-26）
+
+材料说明：S6-26 的汇报（应含 S6D2a-07 的逐条对照表、资金专项对照表、推送专项复核、R19 / D27 / X39 / 文件长度与安全 grep 的结论）没有落盘，scratch/s6-26/ 只有一次性脚本，没有输出。下文 (2)(3)(4)(5) 里标“起草时核对”的内容，是起草这份小结时在 `1e28cbc` 上只读复查的结果（git grep / git show，以及在导出的快照上用 python -I 运行 S6-26 留下的 audit_files.py、d27_identifiers.py、r19_paths.py；快照用后已删除）。其余内容都取自进度表、BACKLOG、_decisions-S6.md、S6-26 方案和提交说明；查不到的写“材料里没有记录”。
+
+#### (1) 完成项
+
+- 设置 · 登录设备与管理访问令牌：S6-01 `ca8d54f`（修正 `27e7535`）；S6-02 `d9c1279`。登录设备页有列表、下线单台、“让其他所有设备下线”。撤销到本机时按本机退出（forgetActiveSession）。全部下线后立即隐藏他机，重载失败时保留旧列表。令牌页有列表与吊销；吊销本机令牌时先删推送设备，再发 DELETE，然后在本地擦除凭据。不签发令牌（U02）。
+- 兑换码：
+  - S6-03 `d66c0e0`（修正 `5b6e896`）：模型、查询、统计、写接口与生成接口（Sub2Core）。
+  - S6-04 `7a90a9a`（修正 `227523f`、`2517eb3`）：列表，含筛选、定位、复制（SensitivePasteboard）、查看同一批、待核对横幅。
+  - S6-05 `87bdd67`（修正 `2b902c8`）：禁用 / 启用、删除、编辑与续期 sheet。
+  - S6-06 `2a1fd29`（修正 `a71148c`）：生成结果待核对 sheet、结果页、老服务端退路。
+  - S6-07 `502c8b2`：批量生成向导，以及“+”的待核对拦截。
+- 补偿：
+  - S6-08 `d52359a`：Sub2Core 规则与接口（performKeyedWrite、门控、核对、重试权限），以及回到前台时自动核对补偿。
+  - S6-09 `b921f1c`（修正 `ae418d9`）：发放兑换码（补偿）sheet 与结果待核对页；打开前的拦截做在用户详情的 ⋯ 菜单（X38）。
+- 代理：
+  - S6-10 `86d1565`：模型、展示规则与接口。
+  - S6-11 `6e4e958`（修正 `60484d6`）：代理列表、ProxyStore、横幅、筛选、全部测试；修正补上了 429 等待。
+  - S6-12 `4233786`（修正 `5193d28`）：代理详情，含延迟块、··· 菜单、停用 / 启用、删除。
+  - S6-13 `d2e8fff`（修正 `054e278`）：被改走的账号页，可全部恢复或单个恢复原代理。
+  - S6-14 `c554944`（修正 `7e6283a`）：编辑 / 添加 / 续期代理 sheet。
+- 公告：
+  - S6-15 `c2b860c`（修正 `526bc68`）：模型、展示规则与接口。
+  - S6-16 `b52a4c9`（修正 `e165253`）：列表。
+  - S6-17 `0ca73e0`（修正 `3742945`）：详情、预览卡、最小 Markdown，以及发布 / 归档 / 删除。
+  - S6-18 `4a64cb1`（修正 `573a1b2`）：编辑 / 新建 sheet，含新建幂等与 H07 核对、编辑 diff。
+  - S6-19 `9b16f8c`（修正 `c734708`）：已读情况。
+- 全局搜索：
+  - S6-20 `09cc5e1`（修正 `c8680b9`）：判定、并发扇出、会话缓存；某一路收到 429 时，等到点再自动补发。
+  - S6-21 `93131e5`（修正 `eb583ca`）：结果页与“查看全部”结果页；修正补上了回到前台补发的接线。
+- 推送（真机验收未做，见 (7)）：
+  - S6-22 `972e43b`：模型、展示规则与接口。
+  - S6-23 `8409ce9`（修正 `b2e2bb6`）：PushCoordinator、entitlements 与通知点按路由。
+  - S6-24 `b0882f8`（修正 `bb147c4`）：推送设置页与接收方式详情（本机开关、订阅、测试、删除）。
+  - S6-25 `1becaba`（修正 `b833362`）：添加 Bark / ntfy / Webhook 接收方式，编辑站点 APNs 配置。
+- 收口 S6-26：按 D28 分四次提交。进度表与 BACKLOG 由 `1e28cbc` 写入。
+  - `645089f`：共用下滑拦截桥，删除 DemoData 死常量。
+  - `32c0cee`：绝对时间转调、用户详情分区头、代理写后首页刷新、余额发送登记、读类 POST 显式类别，以及补测。
+  - `81657e4`：同地址旧登录的站点行与登录页待核对，公告结果未确认时的关闭。
+  - `0bab3b4`：README、ADMIN_MODULES、API_COMPATIBILITY:74。
+- 与阶段 6 相关、在其他阶段完成的：S3-04 `c63c6a8`（DisplayFormat.monthDayClock，C-30）、S3-06 `d2dbc57`（同地址口径与 MoneyRecordOrigin）、S3-07 `0a4db1b`（设置与用户详情的核对流程）、S1-10 `0ed4a0d`（概览三类待核对行）、S1-18 `d293b29`（概览补偿行与旧登录行的 UI 用例）。
+
+#### (2) 60 §19.7 单测与 S6D2a-07 已知缺口对照
+
+- 60 章没有单列测试清单。“实现顺序建议”的阶段 6 段只写了顺序，没有完成标志（阶段 0、1 有）。改动总表“其余单测”一行里，60 章只点了 §19.7。
+- S6D2a-07 要求一张逐条对照表：60 §1.7–§19.7、改动总表 60 章各行、U40–U53、R01–R03、R14–R17、R19，每行写实现位置、测试与结论。这张表材料里没有记录。下面只写查得到的部分。
+
+60 §19.7 单测清单只有四项（起草时核对，函数都在 `1e28cbc`）：
+- 请求体（三种类型、订阅 `value` 非 0、金额是 number）：RedeemGrantTests.requestBodiesOfTheThreeTypes。位置不同：规格写的是 RedeemCodes.swift 的 RedeemGrantSpec / RedeemGrantRequest，实际是 RedeemGrant.swift 的 RedeemGrantDraft，请求体由 S0-06 的 PendingCompensation 生成。
+- `SubscriptionGrantPlan` 四种情况与服务器时区日界：RedeemGrantTests.subscriptionPlanFourCases、subscriptionPlanUsesServerDayBoundary。
+- 核对判定（used + 同用户 / unused / 无 / 他人）：PendingMoneyRulesTests.compensationOutcomes（另外还覆盖 unverifiable）。回前台那一轮：CompensationForegroundPassTests。
+- 改内容后 code 与 key 都变：RedeemGrantTests.draftStateChangesCodeOnlyAfterASend。测试锁定的口径是：发出过之后改内容才换码，编号随之清空；没发出前改内容不换码；每次确认都换新编号（R05）。
+
+另有一项出自同一节 RedeemCodes.swift 那条改动点（19.7 改动点，非单测清单项）：`RedeemCode.random()` 32 位小写十六进制，测试是 RedeemGrantTests.redeemCodeIsThirtyTwoLowercaseHex。
+
+S6D2a-07 点名的已知缺口与已核实项。结论取自裁定与 S6-26 提交说明；测试函数是起草时在 `1e28cbc` 核对存在的：
+- U48（关闭 Face ID 时验证被拒，开关应保持开启）：原是缺口，`32c0cee` 补 SettingsUITests.testDeniedCheckKeepsTheSwitchOnWhenTurningOff。成功路径原来就有 testFaceIDSwitchVerifiesAndShowsTheThreshold。
+- 60 §19.1 补偿回执“查看兑换码”：已满足，RedeemGrantUITests.testBalanceGrantFromUserDetail。
+- 从概览待处理行进入兑换码核对：原是缺口（只有 HomeUITests.testEarlierLoginRowsAreAnnotatedAndOpenTheirPages 断言离开概览），`32c0cee` 补 RedeemReconcileUITests.testOverviewRowOpensTheCheckHighlighted。
+- X34 补偿放弃后各处同时消失：原是缺口，`81657e4` 补 RedeemGrantUITests.testOldLoginCompensationAbandonedLeavesEveryEntry。
+- 00 §2.5.4 第 1 条与 60 §17.4（公告结果未确认时的关闭）：原是缺口，`81657e4` 补 AnnouncementsUITests.testUnconfirmedCreateAsksBeforeClosing，另有 AnnouncementEditFlowTests 两条。
+- 60 §12.7 第 3 点（docs/API_COMPATIBILITY.md:74）：文档缺口，`0bab3b4` 已改。
+- 已有测试的几项：
+  - U42：SettingsUITests.testSimpleModeIsGreyedAndAppearanceIsOneChoice、AppPreferencesTests；
+  - U43：RedeemReconcileUITests.testOldServerGuessNeedsConfirmationAndRetryReadsCodes、RedeemBatchFallbackTests；
+  - U44：AnnouncementsTests 的 Queries 一段（如 announcementListQueryItemsFollowCapability）；
+  - U50：SessionsUITests（如 testCurrentRowHasNoSwipeAndExplains）；
+  - U52：RedeemGrantUITests.testUnlimitedConcurrencyAndSubscriptionPlan、RedeemGrantTests.availabilityFollowsU52；
+  - U53：AccountEditUITests（裁定只给了行号 :190，函数名未核对）；
+  - R17：ReceiptCenter.swift，回执 4.2 秒。
+- U40：没有实机验证，BACKLOG“搜索 Tab 在实机上的样子”保留。
+- 其余 U4x、R01–R03、R14–R16、R19 的逐行结论：未核对。
+
+#### (3) 60 章各节改动点
+
+- §1–§2 搜索：目录首屏 SearchHomeView 在阶段 0（S0-14）已建，阶段 6 接上全局搜索（S6-20、S6-21）：
+  - Sub2Core：GlobalSearch、GlobalSearchListing；
+  - Session：GlobalSearchSession、SearchResultsListModel；
+  - Features/Search：GlobalSearchResultsView、SearchResultsListView、SearchHitRow、SearchFixtures。
+  - `APIClient.searchHits(_:)` 只按枚举分派到已有的列表读接口，作为 R19 的例外（S6D2b 交编排者第 3 条）。
+- §3 设置：
+  - 登录设备、管理访问令牌、通知三个入口与数量（S6-01、S6-02、S6-24）。
+  - 站点列表里，凭据已清除、有待核对记录、且同地址另有可去站点的行标“旧登录”：去向是当前站点时只注明、不能点，否则点按切到同地址的那个站点（S6-26 `81657e4`：OldLoginPresentation、KeychainCredentialStore.siteIDsWithoutCredential）。
+  - “打开原站点核对”的唯一字面量是 SettingsPresentation.openOriginalSiteTitle。
+- §4 登录：根视图的待核对段移到新文件 LoginPendingSection，改列三类记录（S6-26）。
+- §5 登录设备：AuthSessions.swift、SessionsView（S6-01）；lifetimeLine 改为转调共用的绝对时间（S6-26）。
+- §6 管理访问令牌：AccessTokens.swift、AccessTokensView、AccessTokenRevocation（S6-02）；expiryLine 同年不写年份（S6-26）。
+- §7 推送：
+  - Sub2Core：Push、PushRequests、PushPresentation(+Settings)、PushTargetDraft、PushEditCopy（S6-22、S6-24、S6-25）。
+  - Session：PushCoordinator、PushCoordinatorTypes、PushDeepLink、PushDeviceRecords、SiteTeardownTracker、PushSettingsModel，以及 NativeApp/PushAppDelegate（S6-23、S6-24）。
+  - Features/Settings：PushSettingsView、PushSettingsSections、PushSubscriptionSection、PushTargetDetailView、PushTargetSheet、APNsConfigSheet、PushFixtures（S6-24、S6-25）。
+  - 两份 entitlements 与 scripts/generate_project.py（S6-23）。改动总表写“脚本不改”，实际改了。
+- §8–§11 兑换码（S6-03～S6-07）：
+  - Sub2Core：RedeemCodes、RedeemPresentation、RedeemListPresentation、RedeemEditDraft、RedeemGenerate、RedeemGenerateWizard、RedeemBatchFallback、RedeemReconcilePresentation。
+  - Session：RedeemCodeWrites、RedeemGenerateSubmission、RedeemBatchCheck。
+  - Features/Redeem：列表（RedeemCodesView、RedeemCodeCard、RedeemCodeBox、RedeemCodesModel）、编辑（RedeemEditSheet / Sections）、生成向导（RedeemGenerateSheet / Steps / Model / Entry）、核对（RedeemReconcileView / Model、RedeemResultView、MoneyPendingViews）。
+- §12–§14 代理（S6-10～S6-14）：
+  - Sub2Core：Proxies、ProxyWrites、ProxyPresentation、ProxyDetailPresentation、ProxyFallbackPresentation、ProxyEditDraft、ProxyEditOutcome。
+  - Session：ProxyStore、ProxyDetailModel、ProxyStatusWrite、ProxyFallbackAccountsModel、ProxyEditFlow。
+  - Features/Proxies：ProxiesView、ProxyRow、ProxyDetailView / Sections、ProxyLatencyBlock、ProxyFallbackAccountsView、ProxyEditSheet / Sections、ProxyFixtures。
+  - 写后首页刷新由 S6-26 接：入口 AppModel.noteProxyWrite() 写在 ProxyDetailView.swift 末尾，判定只用 AccountWriteMark.mayHaveApplied。
+  - 账号详情的代理行点进代理详情（改动总表 Models.swift 一行）；API_COMPATIBILITY.md:74 由 `0bab3b4` 改写。
+- §15–§18 公告（S6-15～S6-19）：
+  - Sub2Core：Announcements(+API)、AnnouncementPresentation、AnnouncementDetailPresentation、AnnouncementDraft、AnnouncementEditOutcome、MiniMarkdown（行内解析只在 Apple 平台编译，S6D1-14）。
+  - Session：AnnouncementChangeSignal、AnnouncementListModel、AnnouncementDetailModel、AnnouncementEditFlow、AnnouncementReadsModel。
+  - Features/Announcements：列表、详情、预览卡、MiniMarkdownView、编辑 sheet、已读情况。
+- §19 补偿（S6-08、S6-09）：
+  - Sub2Core：RedeemGrant、RedeemGrantCopy、RedeemGrantPresentation。
+  - Session：CompensationSubmission、CompensationForegroundPass。
+  - Features/Redeem：RedeemGrantSheet / Steps / Model / Entry / Effects / PendingView。
+  - 位置不同：规格写的是 RedeemCodes.swift 与 AppModel 的 `PendingWrite.Kind.redeemGrant`。实际补偿记录用 S0-06 的 PendingCompensation，发送走 performKeyedWrite（R01 / R04）；起草时核对，代码里已没有 PendingWrite。
+- 共用件（S6-26）：
+  - 下滑拦截：NativeApp/Views/DismissAttemptBridge.swift 与 View.onDismissAttempt，合并 AccountSectionSheet、GroupEditSheet、ProxyEditSheet、AnnouncementEditSheet 四份副本，新接 PushTargetSheet、APNsConfigSheet、UserKeyFormSheet、AccountNewView。
+  - 绝对时间：DisplayFormat+DateTime 加 zone 版的 monthDay / monthDayClock，阶段 6 的私有绝对时间实现都改为转调。
+  - 其他：用户详情分区头换成 NumberedSectionHeader；AppModel.updateBalance 包进 moneyWritesInFlight.sending；代理测试 / 质量检测、推送测试、check-mixed-channel 显式写 `requestClass: .unkeyedWrite`；DemoData 删去 authSessionCount、accessTokenCount。
+- 文档（`0bab3b4`）：
+  - README“当前功能”加兑换码、代理、公告、推送（注明未在真机验收）、全局搜索五行，删去“推送尚未实现”；
+  - ADMIN_MODULES 新增六节；
+  - API_COMPATIBILITY 只改第 74 行。
+
+#### (4) BACKLOG 与前序阶段备注里留给阶段 6 的事项
+
+阶段 0 备注：
+- 推送接口与 PushCoordinator：S6-22、S6-23 完成。
+- redeem-codes/generate 与 create-and-redeem 的方法级请求测试：已有（起草时核对）。
+  - generate：RedeemCodesTests.generateSendsBatchKeyHeadersAndReturnsBatchID 等；
+  - create-and-redeem：RedeemGrantTests.createAndRedeemSendsOneKeyedWrite、createAndRedeemChecksOriginAndBody。
+- S0-18 的未做项“兑换码面额键盘（阶段 6）”：S6-07、S6-09 已用 AmountKeypad 完成。起草时核对：S6-07 的 RedeemGenerateSteps 用 AmountKeypad，S6-09 的 RedeemGrantSteps 用 AmountKeypad、RedeemGrantModel 用 KeypadInput。
+- S0-15 留下的设置页阶段 6 占位（登录设备、管理访问令牌、推送通知、兑换码核对与补偿核对）：由 S6-01、S6-02、S6-24、S6-06、S6-09 换成正式页面。起草时核对：阶段 6 路由与 sheet 的 case 行里已没有 ComingSoonView / ComingSoonSheet，只剩各区域文件 default 的兜底行。
+
+前序 BACKLOG 的原行，处理文字以 BACKLOG 阶段 6 新增的“改原行”为准：
+- 让其他设备下线可能连本机一起下线：S6-01 处理，SessionsUITests.testRevokingAllWithLegacySessionSignsThisDeviceOut，结案。
+- 推送登记要等待该站点的收尾结束：S6-23 处理，S6-26 核对并补测，结案。
+- 资金写待核对的界面与回前台自动核对：全部完成，结案。
+- 待核对门控跨站点 id：阶段 6 部分结案；站点列表与登录页根视图由 `81657e4` 补齐；站点菜单另记一行。对照见本节末“资金专项对照”。
+- 读类 POST 的安全重发：已收口（`32c0cee`）。check-mixed-channel 在 00 §2.4 里算读还是写，请规格写明。
+- 用户详情分区头 meta：`32c0cee` 处理。
+- 余额发送登记 MoneyWriteInFlight：`32c0cee` 处理，重试遇到发送中时说“这笔正在发送，请稍候”。
+- 请求详情日期格式归属：`32c0cee` 处理。
+- 有待核对记录的站点重新登录会多出同名站点：阶段 6 部分由 `81657e4` 处理；站点菜单没改，见 (7)。
+- 搜索 Tab 在实机上的样子：未实机验证，行保留。
+- 登录设备名：没改，需要用户拍板。
+- 缺失值“—”的读屏（用户章其余位置，阶段 3 小结建议并入 S6-26）：没做，不在收口裁定里，行保留。
+- 服务器日历整天数有多份同算法实现（阶段 5 行，建议 S6-26 统一）：没统一，新增一行。
+- .proxyDetail 占位断言（阶段 2 行）：S6-12 换成了正式页面。起草时核对：UITests 里 route.placeholder 只剩 AccountDetailMenuUITests:253、AppNavigationUITests:98 两处“不存在”断言。BACKLOG 原行没有标结案。
+- 请求详情 UI 夹具按请求 ID 查使用记录（阶段 4 行，点名 S6-20 / S6-21 补脚本）：材料里没有处理记录。起草时看 `1e28cbc`，LogFixtures+Detail.requestUsageRecord 仍然一律返回 nil。
+- 请求详情按请求 ID 查使用记录遇 429 不记录等待（阶段 4 行，说阶段 6 的请求 ID 搜索才会接入）：材料里没有处理记录。
+
+阶段 1、3 备注：
+- S1-12 的“推送落点（阶段 6）”：S6-23 的点按路由处理，告警类目标替换概览栈为告警详情（PushDeepLinkTests.routerOpenGoesToOverviewAndReplacesItsStack）；点按时有全局 sheet 开着，等它关闭再跳转（同文件 deliverPendingWaitsForTheOpenSheet）。
+- 阶段 3 小结 (7) 交给 S6-26 的四项：
+  - 分区头：已做；
+  - 同地址旧站点的显示：已做，站点菜单除外；
+  - 余额发送登记：已做；
+  - 用户章“—”读屏：没做。
+
+阶段 6 裁定交给 S6-26 的事项（S6D1-16 与交编排者第 5 条）：
+- 私有绝对时间改为转调（S6-01、S6-02、S6-03、S6-15、S6-22）：`32c0cee` 完成。S6-12 核实没有私有实现。代理的“MM/DD”“yyyy-MM-dd”按 60 §12.3 / §13.3 / §14.3 保留。
+- 合并下滑拦截桥、删除 DemoData 死常量：`645089f` 完成。
+- S6-18 的订阅分组筛选：S6-18 已直接用 AdminGroup.isActiveSubscriptionGroup，S6-26 只 grep 核对。
+- 代理详情的账号状态徽章（S6D1-11 原定由 S6-26 补）：S6-26 方案的现状写“S6-12 已画（ProxyDetailView.swift:91 / 111）”，本条不再补。起草时核对，`1e28cbc` 的 ProxyDetailView.swift:91 / :111 确实读 liveOps 的可用性画状态。S6-12 的进度行没提这件事。
+- BACKLOG 写入的三行（按 run_id 只读的测试结果 sheet、停用设备的恢复文案、切换器遮挡真机验收）：已写入。
+
+阶段 6 自己的 BACKLOG 行：
+- 已在后续条目处理、但 BACKLOG 没标结案的：
+  - 吊销本机令牌失败后的推送设备：S6-23 在 revokeAccessToken 之后调 registerAgain，起草时核对 AppModel+Session.swift:138；
+  - 代理列表的 429 等待：`60484d6`；
+  - 批次重发时间不跨重启保存：`a71148c` 持久化 lastSentAt，起草时核对 RedeemBatchSendLog 已为 0 处；
+  - 全局搜索回到前台补发的视图接线：`eb583ca`；
+  - 推送两个 sheet 的下滑关闭确认：`645089f`；
+  - ProxiesUITests 拆文件：S6-14 的用例放在 ProxiesUITests+Edit.swift。
+- 已结案并改原行的：
+  - 公告编辑 sheet 结果未确认时仍可关闭：`81657e4`；
+  - 合并下滑先确认的 UIKit 桥：`645089f`；
+  - 兑换码列表入口的 UI 测试：-ui-redeem-open / -ui-redeem-reconcile 两个参数保留；
+  - 代理有效期日期：结论是不改。
+- 保留不做的：
+  - “刷新失败 · 重试”横幅收口、筛选胶囊样式重复：都是纯重构；
+  - 待核对页重试的 Face ID 覆盖层：交互变化，要等用户。
+- 公告列表与公告已读在 429 等待后重读也会取消自己（原行写“由公告条目的线处理”）：材料里没有处理记录。起草时看 `1e28cbc`，两个 retryAfterWait 仍在函数内直接 await 重读；问题是否还在，未核对。
+
+资金专项对照（BACKLOG“待核对门控跨站点 id”原行写“对照表与测试名见阶段 6 小结”）。S6-26 汇报里的对照表材料里没有记录。下面按 S6-26 方案现状列出的已有测试和 S6-26 新增的测试整理，函数名起草时在 `1e28cbc` 核对都存在：
+- R03 门控按同地址计入，含旧站点 id：PendingMoneyRulesTests.redeemAndCompensationGates、gateCountsSameAddressRecordsByKind、redeemGateCountsSameAddressOldSiteBatches；RedeemGrantTests.compensationGateBlocksAcrossSameAddressSiteIDs。
+- 只有批次有“仍要生成新的一批”这个例外，补偿没有例外：
+  - PendingMoneyRulesTests.redeemGateKeepsBothBatchesAfterOverride；
+  - RedeemGenerateUITests.testPendingBatchInterceptsPlus、testOldLoginBatchAlsoIntercepts；
+  - 补偿打开前拦截：RedeemGrantUITests.testOtherAdministratorsOldLoginRecordFromUserDetail。
+- 同地址旧站点 id 的核对与重试：RedeemGrantTests.compensationReconcileAcceptsSameAddressOldSite、compensationRetryPermissionAcrossSiteIDs；RedeemCodesTests.generateAcceptsSameAddressRecordAndRejectsOtherAddress。
+- 回到前台只核对余额和补偿，不核对批次：CompensationForegroundUITests.testForegroundCheckCoversSameAddressOldLoginOnly。余额正在发送时跳过：BalanceKeypadUITests.testForegroundCheckSkipsTheTopUpGoingOut（`32c0cee`）。
+- 同一条记录在多处同时消失：
+  - RedeemReconcileUITests.testCheckFindsTheBatchAndClearsBannerAndSettings、testOldLoginBatchRetryClearsEveryEntry；
+  - 补偿：RedeemGrantUITests.testOldLoginCompensationAbandonedLeavesEveryEntry（`81657e4`）。
+- 设置待核对、站点列表与登录页根视图：SettingsUITests.testSameAddressOldLoginRecordsAreCheckedHere、testOtherAddressRecordStillOpensItsSite、testOldLoginRowAndRootPendingListFollowTheAddress（`81657e4`）。
+- 用户详情与概览：BalanceReconcileUITests.testBannerShowsEarliestOldLoginRecordFirst；HomeUITests.testEarlierLoginRowsAreAnnotatedAndOpenTheirPages（方案给的是 HomeUITests:731 / :749 两处行号，另一处的函数名未核对）；概览进兑换码核对：RedeemReconcileUITests.testOverviewRowOpensTheCheckHighlighted。
+- 发送中登记：批次与补偿原来已经登记；余额由 `32c0cee` 补，BalanceReconcileSessionTests.retryOfARecordGoingOutSaysSoAndKeepsIt。
+
+推送专项：
+- SiteTeardownTracker 按规范化地址等待：PushCoordinatorTests.connectWaitsForTeardownOfSameAddress、teardownTrackerWaitsForSameAddressOnly。S6-26 补 registrationWaitsForTheTeardownOfAnotherSiteIDAtTheSameAddress（`32c0cee`）。
+- 方案 risks 里列的安全复核项（日志不出现敏感值、UIPasteboard、description 屏蔽、切换器遮挡、APNS_SANDBOX、深链只认已知 type）：S6-26 的结论材料里没有记录。起草时只查了其中两项，见 (5)。
+
+#### (5) 核查结果
+
+S6-26 自己的核查（对照表、R19、D27、X39、文件长度、安全 grep）：结论材料里没有记录。BACKLOG 与提交说明里能查到的只有这几条：
+- 推送收尾等待已核对；
+- 门控已逐处复核（明细见 (4)）；
+- U40 没有实机；
+- 代理日期保留规格写法；
+- 读类 POST 已显式声明类别。
+
+起草时在 `1e28cbc` 上只读复查（不是 S6-26 的结论）：
+- 改动总表 60 章的文件与符号（audit_files.py）：
+  - 列出的 39 个文件都在。
+  - 符号有 4 个没命中，都能解释：ManagementView 按规格应删除，没命中是对的；RedeemGrantSpec / RedeemGrantRequest 是名字不同，见 (3) §19；NSFaceIDUsageDescription 在 Info.plist 里，脚本另查 Info.plist 的结果为有。
+  - pbxproj 里 APNS_SANDBOX 只出现在 Debug 配置的 SWIFT_ACTIVE_COMPILATION_CONDITIONS（"DEBUG APNS_SANDBOX"）。Release 用 production entitlements，Debug 用 development，两份都带 Time Sensitive。
+- R19（r19_paths.py）：
+  - 阶段 6 的代理、兑换码、公告、推送、会话、令牌接口路径，每条在 Sub2Core 里各出现 1 处。
+  - 例外是 Announcements+API.swift：GET admin/announcements 出现 3 处（列表、分段计数、H07 标题查找，都经 AnnouncementListQuery.queryItems），POST admin/announcements 出现 2 处（有能力的幂等新建，以及无能力时只发一次，都在 createAnnouncement 里）。这几处都是同一组接口的内部实现。
+  - searchHits 例外没有另查。
+- D27（d27_identifiers.py，粗查）：
+  - 12 个阶段 6 UI 测试类里有 387 个标识，49 个没在 App 源码里直接找到字面量或末段插值。
+  - 抽查 redeem.card.<id>.*、search.section.*、announcement.markdown.list.*、redeem.result.code.* 等，都是中间段插值，属于脚本漏判。
+  - 其余（如 search.user.<id>、alerts.main、*.header.title、*.keypad.key.*）没有逐个复核。这些用例在 `0bab3b4` 的全量 gate 里都通过。
+- X39：Features/Redeem、Proxies、Announcements、Search、Settings 与 LoginPendingSection 里，`NavigationLink {` 和 `NavigationLink(destination:` 都是 0 处。
+- 占位残留：
+  - ComingSoonView / ComingSoonSheet 只出现在 AppDestinations 的定义、各区域文件的 default 兜底行，以及 AnalyticsDestinations 的单图兜底（阶段 4）。
+  - UITests 里 route.placeholder 只在两处“不存在”断言里出现。
+  - 旧符号 ProxyManagement、AccessTokenItem、PendingWrite、pendingWrites 都是 0 处。
+- 文件长度：超过 800 行的只有 UITests/AnalyticsUITests.swift（830 行，阶段 4 的文件，BACKLOG 已新增一行）。其次是 HomeUITests 787、AccountTestCenterTests 785、UserKeysUITests 773、AnnouncementsUITests 753。
+- UIPasteboard：阶段 6 的目录里没有直接使用。全仓另有 OAuthFlow、RequestResolveControls、UserEditToolbar、ErrorDetailsView 四个文件直接使用，都不在阶段 6，是否合规未核对。
+- 日志不出现敏感值、description 屏蔽、深链只认已知 type：未核对。
+
+#### (6) 与规格不同的取舍（阶段汇总，各条目的细项见上表备注）
+
+- 收口（S6-26）：
+  - 令牌到期日同年不写年份；
+  - 请求详情月日补零、跨年加年份（“03/05 09:02:03”）；
+  - check-mixed-channel 按写处理；
+  - 同地址旧登录的行注、“登录「X」后核对”、根视图说明，以及公告“结果未确认”关闭的文案都是自拟的；
+  - 首页刷新的判定由单测锁住，三个视图里的闭包只靠代码审查。
+- 登录设备与令牌（S6-01、S6-02）：
+  - 撤销到本机时走 forgetActiveSession，新拟提示“本机已下线，请重新登录。”，不走 logout；
+  - 非本机条数不少于 1 时才显示“让其他所有设备下线”，全部下线后不出回执、只重载；
+  - 吊销他行（含 404）给回执“已吊销「名称」”；
+  - 当天到期写“今天到期”（caution）；
+  - 重载失败时保留旧列表，显示“刷新失败 · 重试”；
+  - 不签发令牌（U02）；
+  - 登录设备文案按 60 §5 实现，没按 00 §1.8（设备名为空时显示 client_type、“其他设备会立即退出登录”；“立即”也与 00 §1.7.3 的 fail-open 不符），规格待统一（S6-01）。
+- 兑换码（S6-03～S6-07）：
+  - 首次发送收到其他 4xx 时删除记录、回第 3 步，408 按结果不明；
+  - admin_* 写“余额（管理员调整）/ 并发（管理员调整）”；
+  - 只读令牌下 ··· 保留复制、查看使用者、查看同一批；
+  - 卡片按钮行只有 ···；
+  - 查看同一批时清空搜索，在同一批里输入搜索词会退出同一批；
+  - “等 N 批”直接接在标题后；
+  - 禁用 / 启用的撤销成功不出回执；
+  - 已过期的订阅码改分组也发 group_id；
+  - 保持的原时间、自定义时间和续期回执按本机时区，时区不同时写“按本机时区 <TZ>”；
+  - 当前分组已停用或不是订阅分组时，仍显示为已选并标“（已停用）”；
+  - 已过期且没有过期时间的码，默认“保持（已过期）”；
+  - 生成数量不符时，记录保留到点“我已核对”；
+  - 老服务端退路的结果是“可能是这一批”，须点“我已核对”，过了幂等保留期不给重试；
+  - 老服务端满页、分不出这一批时的文案是自拟的（“无法判断这一批是否已生成 / 最近生成的兑换码太多，分不出这一批。请到 Web 的兑换码列表核对。”），待设计确认（S6-06）；
+  - 重试遇到 CONFLICT 归“结果未确认”，不自动核对；
+  - 放弃加了二次确认；
+  - 生成向导先过 Face ID 再落盘（10.5“删掉刚写的记录”不存在）；
+  - 结果不明直接换成待核对页；
+  - 自定义天数非法时隐藏收据；
+  - 分组读取中或失败时，也显示“站点还没有订阅类型的分组”。
+- 补偿（S6-08、S6-09）：
+  - 发送走 performKeyedWrite（35 秒），不用 19.7 的 send(PendingWrite) 与 40 秒；
+  - 19.4 第 9 步改为核对同地址、全部不在发送中的补偿记录（C-26 / X34）；
+  - 重试遇到没有 reason 的 400 保留待核对；
+  - 记录不存分组名，显示时用 GroupDirectory.name，找不到写“分组 #id”；
+  - 先过 Face ID 再落盘；
+  - 码被其他用户用了、编号冲突或失效、分组被拒、key 被拒时，待核对页结案并给“重新发放”；
+  - unverifiable 的页面文案是自拟的；
+  - 待核对页上的重试不叠加 Face ID 覆盖层。
+- 代理（S6-10～S6-14）：
+  - proxies.fallback_accounts 缺失时按代理章处理（60 §0.2 / §13.4：不提供批量恢复页，改写说明句），没按 00 章 capability 表的“拉全部账号本地筛、逐个恢复”，规格待统一（S6-10）；
+  - 质量检测的客户端超时暂定 95 秒、不自动重试，00 §2.3 超时表里没有这一类（S6-10 定，S6-12 的详情页沿用）；
+  - H03 之前的服务端，说明句用设计稿的无计数版；
+  - 只有“已过期”胶囊带红点（照规格，不照设计稿）；
+  - 目录完整时 N 取行数；
+  - 读数写“182ms”，不加空格；
+  - “全部恢复”确认后过 Face ID，单个滑动恢复只确认；
+  - failed 按 code 给固定文案；
+  - 添加的 key 在点“添加”时生成；
+  - 编辑不自动重试，结果不明时读回比对；
+  - 已过期、保持原有效期、停用三者同时成立时，脚注改为“仍是已过期”，不发 status；
+  - 停用且已过到期日的代理按续期打开。
+- 公告（S6-15～S6-19）：
+  - 没有 capability 时新建也带 key、只发一次（按 60 §0.2；00 §5 表写不带）；
+  - 已读比例写一位小数；
+  - 起止按本机时区，更新于、阅读时间、统计于按服务器时区；
+  - 列表补了加载中、刷新失败、加载失败、429 等待四种状态；
+  - Markdown 认三级小标题，连续行并成一段；
+  - key 在点“存草稿”或确认“发布”时生成（17.4 写的是 sheet 打开时）；
+  - eq 与余额 ≤ 0 的单条件只读，编辑不发 targeting；
+  - 多条件只读时隐藏分段；
+  - 指定时间的初值是下一个整点，结束时间 +7 天；
+  - H07 用 5 分钟窗口加 60 秒时钟误差；
+  - 编辑结果不明时读回比对；
+  - 已读页徽章沿用“符合条件 / 不符合”，不符合条件的行只把邮箱改 ink2。
+- 全局搜索（S6-20、S6-21）：
+  - “查看全部 N 个”不带“›”；
+  - 不足 2 个字符时显示“至少输入 2 个字符”；
+  - 错误请求只在 ops_monitoring_enabled 明确为 false 时不发；
+  - 某一路收到 429 时，等到点再自动补发一次。
+- 推送（S6-22～S6-25）：
+  - Bark / ntfy / Webhook 登记也带 locale 与 timezone；
+  - “最近失败”只在 last_error 不早于 last_success_at 时追加；
+  - 失败文案走 PushPresentation，不改 ReasonCatalog；
+  - 登记记录键沿用 push.device.<UUID>（规格写 push.deviceID.<id>），另加本机开关键，退出后再登录会自动恢复本机推送；
+  - 系统给新令牌时只对当前站点立即重登；
+  - 连接后的自动重登不看 config.ready；
+  - 改了 scripts/generate_project.py；
+  - 点按遇到全局 sheet 时，等它关闭再跳转；
+  - account.test_finished 只在本会话有测试状态时弹 sheet；
+  - 未知 type 不导航；
+  - 本机未开启时不显示推送内容；
+  - 平台 / 分组范围在 sheet 里点“完成”才提交；
+  - 停用设备的恢复文案与“可在 Web 删除”照抄规格；
+  - 免打扰默认 23:00–07:00；
+  - http 地址只提示、不拦；
+  - 密钥 / 私钥在请求发出时清空；
+  - 私钥接受 PRIVATE KEY 与 EC PRIVATE KEY；
+  - 两个 sheet 在 App 非活动时盖遮罩；
+  - Webhook 脚注补了时间戳的说明；
+  - 自拟或新拟的文案：
+    - 订阅失败回执“推送内容没有保存：<原因>”，INVALID_PUSH_SUBSCRIPTION 写“<控件名>的值不被站点接受”（S6-24）；
+    - 20 秒拿不到推送令牌时提示“没有拿到推送令牌，请检查网络后再试”（S6-23）；
+    - 添加接收方式与 APNs 配置的一批新文案，集中在 PushEditCopy（S6-25）。
+
+#### (7) 未做项及原因
+
+- 站点菜单里的同地址旧登录：裁定只点名站点列表，要用户拍板（建议在 AppModel.switchTo 里统一改去同地址的站点）。
+- 登录设备名：仍发 UIDevice.current.name，要用户拍板。
+- U40 搜索 Tab 实机检查：没有实机。
+- 推送真机验收：需要付费 Apple Team 签名、真机和站点 APNs 配置，清单见 BACKLOG。验收项有：真实令牌登记、冷启动与后台点按、Release 不带 environment、App 切换器遮挡等。
+- 按 run_id 只读的测试结果 sheet、“可在 Web 删除”文案改写、停用设备的恢复文案：默认不做或照规格，等用户。
+- 用户章其余位置“—”的读屏：不在收口裁定里。
+- “刷新失败 · 重试”横幅收口、筛选胶囊抽成共用组件：纯重构。
+- 补偿待核对页重试的 Face ID 覆盖层：交互变化，要等用户。
+- 服务器日历整天数的三份实现（AccessTokens.daysLeft、ProxyExpiry.days、RedeemPresentation.daysUntil）：没统一，记 BACKLOG。
+- 新建类写入（代理、公告、分组）结果未确认、关闭 sheet 后拦截再次新建：由各模块决定。
+- 只有单测、没有 UI 用例的：
+  - 代理编辑超时读回（ProxyEditFlowTests）；
+  - 全局搜索 vendor 发送规则（U01 首版拒绝 vendor 登录）；
+  - 全局搜索的 429 等待与回到前台补发：S6D2b-03 写明不加 429 的 UI 用例；`eb583ca` 的回前台补读和 429 倒计时由单测覆盖；
+  - 公告已读情况的点行用例只断言离开本页（S6-19，S3-05 不在依赖链）；
+  - PUSH_TARGET_IN_USE 没有夹具，只有单测（S6-25）。
+- 推送的已知限制：
+  - 推送点按替换概览栈时，页面自己弹出的本地 sheet 会跟着消失（S6D2b-07，S6-23 写明未处理）；
+  - 推送点按的待跳转目标不过期；
+  - 跨站点点按只等 AppRouter 的全局 sheet；
+  - 切站时上一站点在途的登记可能留在服务端；
+  - 订阅整体 PUT 会丢掉 App 不认识的事件。
+- 规格没列、暂不做的：Bark 地址自动拆分与 ntfy 公开主题提示。
+- 代理地区短名：没做。用系统全称（香港显示“中国香港特别行政区”），与 60 §12.3 示例“中国香港”不同，待用户定。
+- 已记 BACKLOG，待后端或以后处理：
+  - 请后端：生成兑换码和发放补偿时订阅分组无效返回 500 且没有 reason（两行）；GET /admin/redeem-codes/:id 不带 user / group；删除不存在的公告返回 200；提供 redeem_codes.batches，以便精确核对批次（U43）。
+  - 以后再改：ANNOUNCEMENT_* 收进 ReasonCatalog；补偿记录存 groupName；代理夹具的账号数与账号页不一致。
+- docs/NATIVE_CONTRACT.md 的阶段 6 签名：S6-26 方案列为范围外，建议集成者或后续文档条目处理。起草时看，该文件没有兑换码、代理、公告、推送的内容。
+- 材料里没有处理记录的前序行：请求详情 UI 夹具按请求 ID 查使用记录、请求 ID 查使用记录遇 429 不记录等待、公告两页 429 等待后重读会取消自己，见 (4)。
+- 需要用户拍板、或已按默认值实现等用户确认的，共 47 条，都按默认值实现。来源是 _decisions-S6 批次 2b、2a 末尾的“需要用户拍板”（批次 1 写明没有新增），以及进度备注与 BACKLOG 阶段 6 里标“待用户确认 / 待拍板”、或标“自拟”且明说待确认的地方。分七类：
+  - 设置、登录与站点 5 条：撤销本机时的提示文案、同地址旧登录在站点列表和登录页的文案与去向、站点菜单里的旧登录、登录设备名、令牌到期同年不写年份。
+  - 兑换码与补偿 13 条：只读令牌的 ··· 菜单、“等 N 批”的写法、同一批里的搜索、REDEEM_CODE_STATUS_INVALID 文案、禁用 / 启用的撤销回执、当前分组已停用时的显示、“保持（已过期）”、老服务端“无法判断这一批”的文案、向导分组读取中 / 失败时的显示、自定义天数非法时的收据、补偿重试遇到没有 reason 的 400、补偿“码被别人用了 / 无法确认”两种页面、待核对页重试的 Face ID 覆盖层。
+  - 代理 5 条：巡检间隙“已到期 · 等待处理”的说明句、地区短名、停用后才到期的提示、全部恢复是否过 Face ID、逐项恢复失败的文案。
+  - 公告 9 条：已读比例的位数、列表已读统计失败拖垮整页、重新发布已过期的公告、详情是否去掉 include_read_stats、H07 核对时间窗、编辑结果不明时的读回、eq 与余额 ≤ 0 的条件只读、不符合条件行的视觉、“结果未确认”关闭的文案。
+  - 推送与搜索 7 条：“可在 Web 删除”提示、按 run_id 只读的测试结果页、停用设备的开关与恢复文案、开启前预设推送内容、待跳转目标不过期、Bark 地址拆分与 ntfy 公开主题提示、全局搜索的两处显示细节。
+  - 规格口径要统一的 6 条：check-mixed-channel 算读还是写、无能力时新建公告带不带 key、fallback_accounts 缺失时的口径、质量检测超时、登录设备文案（00 §1.8 与 60 §5）、新建类写入结果未确认后是否拦截再次新建。
+  - 需要用户提供条件的验收 2 条：推送真机验收、搜索 Tab 在 iOS 26 / 27 真机上的样子。
+
+#### (8) UI 测试运行情况
+
+各条目的 check（数字取自上表备注）：
+- 登录设备与令牌：
+  - S6-01：34/34。修正 `27e7535` 新增了夹具与用例，数字材料里没有记录。
+  - S6-02：41/41。
+- 纯 Core 条目没有 UI 类（UI_SKIPPED，或 TOOLCHAIN / UNIT / BUILD 为 0）：S6-03、S6-10、S6-15、S6-22。
+- 公告：
+  - S6-16：30/30；
+  - S6-17：24/24；
+  - S6-18：30/30；
+  - S6-19：38/38，单元测试 1572 + 466，没有不稳定用例。
+- 兑换码：
+  - S6-04：44/44，没有重跑；
+  - S6-05：25 个全过，修正后 26/26；
+  - S6-06：48/48，修正后 49/49；
+  - S6-07：48 个全过，没有重跑。
+- 补偿：
+  - S6-08：30/30，Sub2MobileUITests 留给 gate；
+  - S6-09：50 个全过，没有重跑。
+- 代理：
+  - S6-11：29/29，修正后 30/30；
+  - S6-12：46/46，修正后也全过；
+  - S6-13：40/40，AccountDetailMenuUITests 没跑；合入后 check 58/58；
+  - S6-14：47/47。审查修正 `7e6283a` 时 UI 没跑（UI_UNAVAILABLE、TOOLCHAIN_EXIT=3），集成 check 也是 UI_UNAVAILABLE。进度表“待补跑 check ProxiesUITests”一直没更新；之后 S6-26 的三次 check 都含 ProxiesUITests，全量 gate 也通过了。
+- 全局搜索：
+  - S6-20：AppNavigationUITests 第一次 testSearchDirectoryOpensErrorLogs 超过 10 分钟时限，单独重跑和第二次整类 17/17 都通过；合入后 check 36/36；
+  - S6-21：26/26，没有不稳定用例。修正 `eb583ca` 没加 UI 用例，由单测覆盖。
+- 推送：
+  - S6-23：41/41，修正后 41/41，没有不稳定用例；
+  - S6-24：35/35，修正后 29/29；
+  - S6-25：31/31，修正 `b833362` 合入后 check 32/32。
+
+S6-26 的 check（线 B，scratch 日志）：
+- 26a（`645089f`）：7 类 199/199，单元测试 2737 + 1358。
+- 26b（`32c0cee`）：12 类 198/198，单元测试 2743 + 1363。
+- 26c（`81657e4`）：阶段 6 全部 25 类 446/446，单元测试 2749 + 1366。
+- 26d（`0bab3b4`）：不带 UI 类，单元测试 2749 + 1366，编译通过。
+- 四次 TOOLCHAIN / UNIT / BUILD 都为 0；前三次 UI_FLAKY 无、没有基线失败；26d 没跑 UI 类（S6-26-tip-quick.log 为 UI_SKIPPED）。
+- 另有一次先写测试的红灯记录：CredentialLeaseTests 因 siteIDsWithoutCredential 尚未实现，编译失败。
+- 各次 check 跑了哪些类，取自 S6-26 说明，日志里没有逐类数字。
+
+阶段 6 期间的全量 gate（除注明的一次外，取自“进度表记录”提交说明）：
+- S6-11 合入后：单元测试 1825 + 569，UI 331/331。AccountDetailUITests.testBasicAndScheduleSectionsShowReadOnlyValues 重跑后通过。
+- S6-13 合入后：定期 gate 465/465，没有重跑。
+- S6-20 合入后：定期 gate 673/673。AccountCredentialUITests.testHealthyKeyAccountReplacesFromMenuAndRow 首次超时失败、重跑通过。
+- 2026-11-02 定期 gate（`ab5b4ce`）：单元测试 2725 + 1342，UI 829/829。ProxiesUITests.testAddProxyThenUndo 首跑失败、重跑通过。这次 gate 取自 scratch 日志（gate-ab5b4ce.log），不在“进度表记录”的提交说明里。
+- S6-26 合入后（主工作区 `0bab3b4`）：TOOLCHAIN / UNIT / BUILD / UI 全部 EXIT=0，单元测试 2749 + 1366，UI 857/857，没有失败用例。FLAKY 1 个，AccountCredentialUITests.testHealthyKeyAccountReplacesFromMenuAndRow：回执在慢模拟器上先于断言消失，重跑通过。
+
+不稳定用例：
+- ProxiesUITests.testAddProxyThenUndo（S6-14 的用例）：`ab5b4ce` 的 gate 里首跑失败、重跑通过。根因记在 scratch/S6-14-fix-commit.txt：测试没能在回执的 4.2 秒内点到“撤销”，属于测试时序问题，App 行为符合 R17。另一条工作流正在修，起草时还没有合入。
+- AccountCredentialUITests.testHealthyKeyAccountReplacesFromMenuAndRow（阶段 2 的用例），两次 gate 各重跑一次后通过。
+- AppNavigationUITests.testSearchDirectoryOpensErrorLogs 偶发卡死，BACKLOG 已记。
+- AccountDetailUITests.testBasicAndScheduleSectionsShowReadOnlyValues，一次 gate 里重跑后通过。
