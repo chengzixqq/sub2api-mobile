@@ -742,3 +742,4 @@
 | “可在 Web 删除”的提示（新增） | 默认照规格原文（S6D2b-12），用户同意前不改。 |
 | 推送真机验收（新增） | 以下几项都没有在真机上验收：真实 APNs 令牌的登记、冷启动和后台时点按通知、Release 不带 environment（代码核对过：APNS_SANDBOX 只在 Debug）、App 切换器里遮住敏感输入（S6D2b-10）。 |
 | UITests/AnalyticsUITests.swift 超过 800 行（新增） | 现在 830 行，阶段 4 的文件、不在 S6-26 范围。以后改它的条目按类末尾拆分出扩展文件。 |
+| ProxiesUITests.testDisableThenUndo 撤销前的等待 | 回执到点撤销之间用了两次 XCTest 内置等待（回执文字、徽标变成“停用”），满载时大约用掉 2.5–3 秒，离 4.2 秒的回执时长余量约 1.5 秒；目前还没失败过，所以暂时不改。以后如果在 gate 里不稳定，照 testAddProxyThenUndo 的办法改成 poll 加 receiptButton。 |
