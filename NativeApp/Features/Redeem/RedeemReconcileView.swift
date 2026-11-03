@@ -30,6 +30,7 @@ struct RedeemReconcileView: View {
             }
             .accessibilityIdentifier("redeem.reconcile.root")
         }
+        .overlay { if page?.isVerifying == true { RedeemFaceIDOverlay() } }
         .interactiveDismissDisabled(page?.busy != nil)
         .alert(RedeemReconcilePresentation.abandonPromptTitle, isPresented: $confirmsAbandon) {
             Button(RedeemReconcilePresentation.abandonTitle, role: .destructive) { abandon() }
@@ -64,8 +65,8 @@ struct RedeemReconcileView: View {
     }
 
     private func pending(_ page: RedeemReconcileModel, stage: RedeemReconcileStage) -> some View {
-        let header = RedeemReconcilePresentation.header(for: stage), clock = self.clock
         let retry = page.snapshot.map { model.redeemRetryContext(for: $0, actorLabel: page.actorLabel) } ?? .refusing
+        let header = RedeemReconcilePresentation.header(for: stage, retry: retry), clock = self.clock
         let notes = RedeemReconcilePresentation.notes(for: stage, retry: retry, now: clock)
         return VStack(spacing: 16) {
             MoneyPendingHeader(systemImage: header.systemImage, title: header.title, message: header.message, tone: header.tone)

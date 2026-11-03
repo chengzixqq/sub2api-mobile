@@ -123,16 +123,22 @@ public enum RedeemReconcilePresentation {
 
     // MARK: Check sheet
 
-    public static func header(for stage: RedeemReconcileStage) -> Header {
+    /// Only an old server's “cannot tell” reads `retry`: after the web it says what to tap (S6-高-5).
+    public static func header(for stage: RedeemReconcileStage, retry: RedeemRetryContext) -> Header {
         switch stage {
         case .awaitingCheck: Header(systemImage: "hourglass", title: "请求可能已提交", message: "没有收到服务器确认。不要重新生成，先核对。", tone: .caution)
         case .notGenerated: Header(systemImage: "magnifyingglass", title: "服务器上没有这一批", message: "这次生成没有生效。用同一编号重试，或者放弃。", tone: .neutral)
         case .undetermined:
-            Header(systemImage: "questionmark.circle", title: "无法判断这一批是否已生成", message: "最近生成的兑换码太多，分不出这一批。请到 Web 的兑换码列表核对。",
-                   tone: .caution)
+            Header(systemImage: "questionmark.circle", title: "无法判断这一批是否已生成", message: undeterminedMessage(retry: retry), tone: .caution)
         case .settled: Header(systemImage: "checkmark.circle", title: "这一批已核对或已放弃", message: nil, tone: .neutral)
         case .refused(let message): Header(systemImage: "xmark.octagon", title: "这一批没有生成", message: message, tone: .critical)
         }
+    }
+    /// The retry half only when this login may send it: not another administrator's, not past an old server's number, not a
+    /// read-only token. Not `canRetry`, whose cooldown would make the line come and go.
+    private static func undeterminedMessage(retry: RedeemRetryContext) -> String {
+        let abandon = "最近生成的兑换码太多，分不出这一批。请到 Web 的兑换码列表核对。核对后，已经生成的点“\(abandonTitle)”结束提醒"
+        return retry.offersRetry && !retry.isReadOnly ? abandon + "；确认没生成再\(retryTitle)。" : abandon + "。"
     }
     public static func footnote(for stage: RedeemReconcileStage, isLegacyServer: Bool) -> String? {
         switch stage {
