@@ -375,4 +375,36 @@ final class RedeemGrantUITests: XCTestCase {
         XCTAssertTrue(element("settings.pending.check.\(topUp)").exists, app.debugDescription)
         XCTAssertFalse(element("settings.pending.compensation.\(grant)").exists, app.debugDescription)
     }
+
+    // MARK: - U-18
+
+    /// S6-中-9: “用同一编号重试” of a $150 grant asks for Face ID under the first grant's “Face ID · 验证后发放” overlay. The lost
+    /// answer (`-ui-grant-unknown`) turns the sheet into the pending page; `-ui-biometric-slow` keeps each check open long
+    /// enough to be seen.
+    @MainActor func testRetryShowsVerifyingOverlay() {
+        launchAndLogin(["-ui-faceid-on", "-ui-biometric-slow", "-ui-grant-unknown"])
+        defer { diagnostics("grant-retry-faceid-final") }
+        openGrantSheet(userID: 3, name: "王小明")
+        app.buttons["grant.type.balance"].tap()
+        typeAmount("150")
+        app.buttons["grant.next"].tap()
+        let submit = app.buttons["grant.submit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 5), app.debugDescription)
+        submit.tap()
+        let alert = app.alerts["向「王小明」发放 $150.00 余额？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        alert.buttons["发放 $150.00"].tap()
+        XCTAssertTrue(element("grant.pending").waitForExistence(timeout: 15), app.debugDescription)
+        let overlay = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "grant.faceid.overlay", "验证后发放")).firstMatch
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(element("grant.pending.header.title").label, "请求可能已提交")
+        let retry = app.buttons["grant.pending.retry"]
+        XCTAssertTrue(retry.isEnabled, app.debugDescription)
+        retry.tap()
+        XCTAssertTrue(overlay.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 10), app.debugDescription)
+        waitForLabel(element("grant.pending.notice"), contains: "结果未确认")
+        XCTAssertEqual(element("grant.pending.header.title").label, "请求可能已提交")
+    }
 }

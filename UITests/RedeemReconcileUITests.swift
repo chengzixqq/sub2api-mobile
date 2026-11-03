@@ -334,4 +334,23 @@ final class RedeemReconcileUITests: XCTestCase {
         XCTAssertTrue(check.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(check.value as? String, "primary")
     }
+
+    // MARK: - U-18
+
+    /// S6-中-9: “用同一编号重试” of the $200 batch asks for Face ID under the first generation's “Face ID · 验证后生成兑换码”
+    /// overlay; `-ui-biometric-slow` keeps the check open long enough to be seen.
+    @MainActor func testRetryShowsVerifyingOverlay() {
+        launchAndLogin(["-ui-pending-money", "-ui-faceid-on", "-ui-biometric-slow"])
+        defer { diagnostics("reconcile-batch-retry-faceid-final") }
+        openFromBanner()
+        tapAction("check")
+        XCTAssertTrue(waitForLabel("money.pending.header.title", "服务器上没有这一批"), app.debugDescription)
+        let overlay = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "redeem.generate.overlay", "验证后生成兑换码")).firstMatch
+        XCTAssertFalse(overlay.exists, app.debugDescription)
+        tapAction("retry")
+        XCTAssertTrue(overlay.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitForLabel("redeem.result.header.title", "已生成 20 个兑换码"), app.debugDescription)
+    }
 }

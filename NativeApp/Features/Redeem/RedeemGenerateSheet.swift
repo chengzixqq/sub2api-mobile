@@ -95,8 +95,8 @@ struct RedeemGenerateSheet: View {
     }
 }
 
-/// 60 §10.5: “Face ID · 验证后生成兑换码” over the sheet while the check runs.
-private struct RedeemFaceIDOverlay: View {
+/// 60 §10.5: “Face ID · 验证后生成兑换码” over the sheet while the check runs; the check sheet's retry shows it too (U-18).
+struct RedeemFaceIDOverlay: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "faceid").font(.system(size: 48, weight: .regular)).foregroundStyle(Palette.accent).accessibilityHidden(true)
