@@ -61,7 +61,7 @@ public struct ScheduledTestResult: Decodable, Sendable, Equatable, Identifiable 
     /// `scheduled_tests.upstream_status`; null when the test saw no upstream reply.
     public let upstreamStatusCode: Int?
     public let errorKind: String?
-    /// The code `error_message` names, by the 20 §0.1 pattern.
+    /// The code `error_message` names, by the backend's pattern (ScheduledTestsPresentation.parsedStatusCode).
     let messageStatusCode: Int?
 
     public init(id: Int, status: Status? = nil, latencyMs: Int? = nil, startedAt: Date? = nil, upstreamStatusCode: Int? = nil,
@@ -130,12 +130,13 @@ public enum ScheduledTestSummary: Sendable, Equatable {
     }
 }
 
-/// One line of the small page: HH:MM, then “成功 · 1.3s” or a status badge and a kind word (20 §9.3).
+/// One line of the small page: HH:MM, then “成功 · 1.3s” or a status badge, a kind word and the latency (20 §9.3, S2-中-31).
 public struct ScheduledTestResultRow: Sendable, Equatable, Identifiable {
     public enum Outcome: Sendable, Equatable {
         case success(latency: String?)
-        /// `badge` is the code or “—”, `tone` Tone.httpStatus of it.
-        case failure(badge: String, tone: Tone, word: String)
+        /// `badge` is the code or “—”, `tone` Tone.httpStatus of it; nil when `word` names the code itself (“上游 529”), which the
+        /// page then sets in the badge so the code shows once.
+        case failure(badge: String?, tone: Tone, word: String, latency: String?)
     }
     public let id: Int
     public let time: String
@@ -144,13 +145,20 @@ public struct ScheduledTestResultRow: Sendable, Equatable, Identifiable {
     public var text: String {
         switch outcome {
         case .success(let latency): latency.map { "成功 · \($0)" } ?? "成功"
-        case .failure(let badge, _, let word): "\(badge) \(word)"
+        case .failure(let badge, _, let word, let latency): Self.joined(badge.map { "\($0) \(word)" } ?? word, latency)
         }
     }
     public var spokenText: String {
-        let detail = if case .failure(DisplayFormat.missing, _, let word) = outcome { word } else { text }
+        let detail = if case .failure(.some(DisplayFormat.missing), _, let word, let latency) = outcome { Self.joined(word, latency) } else { text }
         return "\(DisplayFormat.spoken(time))，\(detail)"
     }
+    /// A failure's words after its badge: the kind word unless the badge already is it, then the latency.
+    public var failureDetail: String? {
+        guard case .failure(let badge, _, let word, let latency) = outcome else { return nil }
+        let parts = [badge == nil ? nil : word, latency].compactMap(\.self)
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+    private static func joined(_ words: String, _ latency: String?) -> String { latency.map { "\(words) · \($0)" } ?? words }
 }
 
 public enum ScheduledTestsPresentation {
@@ -159,14 +167,15 @@ public enum ScheduledTestsPresentation {
     public static let resultLimit = 20
     static let resultLimitRange = 1...50
 
-    /// `*/N * * * *` → 每 N 分钟 and `0 */N * * *` → 每 N 小时 while N fits the field; anything else as written (shown monospaced).
+    /// `*/N * * * *` → 每 N 分钟 and `0 */N * * *` → 每 N 小时 while N fits the field, 每分钟 / 每小时 for 1 (S2-中-31); anything
+    /// else as written (shown monospaced).
     public static func cronText(_ expression: String?) -> (text: String, isRaw: Bool) {
         let trimmed = expression?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !trimmed.isEmpty else { return (DisplayFormat.missing, true) }
         let fields = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
         guard fields.count == 5, fields[2...] == ["*", "*", "*"] else { return (trimmed, true) }
-        if fields[1] == "*", let minutes = step(fields[0], within: 1...59) { return ("每 \(minutes) 分钟", false) }
-        if fields[0] == "0", let hours = step(fields[1], within: 1...23) { return ("每 \(hours) 小时", false) }
+        if fields[1] == "*", let minutes = step(fields[0], within: 1...59) { return (minutes == 1 ? "每分钟" : "每 \(minutes) 分钟", false) }
+        if fields[0] == "0", let hours = step(fields[1], within: 1...23) { return (hours == 1 ? "每小时" : "每 \(hours) 小时", false) }
         return (trimmed, true)
     }
     /// The first enabled plan in the server's order, else the first.
@@ -203,13 +212,14 @@ public enum ScheduledTestsPresentation {
     }
     public static func resultRow(_ result: ScheduledTestResult, timeZone: TimeZone) -> ScheduledTestResultRow {
         let time = DisplayFormat.clock(result.startedAt, timeZone: timeZone)
-        guard result.status != .success else {
-            let latency = result.latencyMs.flatMap { $0 >= 0 ? DisplayFormat.duration($0, style: .list) : nil }
-            return ScheduledTestResultRow(id: result.id, time: time, outcome: .success(latency: latency))
-        }
+        let latency = result.latencyMs.flatMap { $0 >= 0 ? DisplayFormat.duration($0, style: .list) : nil }
+        guard result.status != .success else { return ScheduledTestResultRow(id: result.id, time: time, outcome: .success(latency: latency)) }
         let code = statusCode(of: result)
-        let outcome = ScheduledTestResultRow.Outcome.failure(badge: code.map(String.init) ?? DisplayFormat.missing, tone: Tone.httpStatus(code),
-                                                             word: kindWord(kind: result.errorKind, code: code))
+        // “上游 529” already names the code, so it is not drawn again beside it (S2-中-31).
+        let namesCode = code != nil && knownKindWord(kind: result.errorKind, code: code) == nil
+        let outcome = ScheduledTestResultRow.Outcome.failure(badge: namesCode ? nil : code.map(String.init) ?? DisplayFormat.missing,
+                                                             tone: Tone.httpStatus(code), word: kindWord(kind: result.errorKind, code: code),
+                                                             latency: latency)
         return ScheduledTestResultRow(id: result.id, time: time, outcome: outcome)
     }
     /// `upstream_status_code` when it is a real status, else the one `error_message` names.
@@ -217,23 +227,30 @@ public enum ScheduledTestsPresentation {
         if let code = result.upstreamStatusCode, (100...599).contains(code) { return code }
         return result.messageStatusCode
     }
-    /// 20 §0.1: `\((\d{3})\)|returned (\d{3})`, a real status only.
+    /// The backend's accountTestUpstreamStatus (account_test_trace.go): the first match of
+    /// `(?:returned|返回|HTTP)\s*(\d{3})\b|\((\d{3})\)`, a real status only (S2-中-36, wider than 20 §0.1). Go's `\d`, `\s` and `\b`
+    /// are ASCII and ICU's Unicode, so the pattern spells them out.
     static func parsedStatusCode(_ message: String?) -> Int? {
-        guard let message, let range = message.range(of: #"\((\d{3})\)|returned (\d{3})"#, options: .regularExpression),
-              let code = Int(String(message[range].filter(\.isNumber))), (100...599).contains(code) else { return nil }
+        guard let message, let pattern = try? NSRegularExpression(pattern: upstreamStatusPattern),
+              let match = pattern.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)) else { return nil }
+        let group = [1, 2].map(match.range(at:)).first { $0.location != NSNotFound }
+        guard let group, let range = Range(group, in: message), let code = Int(message[range]), (100...599).contains(code) else { return nil }
         return code
     }
+    private static let upstreamStatusPattern = #"(?:returned|返回|HTTP)[\t\n\f\r ]*([0-9]{3})(?![0-9A-Za-z_])|\(([0-9]{3})\)"#
     /// The design's words for `error_kind`; an old server without it is classified by the code as the backend does
     /// (accountTestStatusErrorKinds). Other kinds say “上游 {code}”, or “失败” without one.
     public static func kindWord(kind: String?, code: Int?) -> String {
+        knownKindWord(kind: kind, code: code) ?? code.map { "上游 \($0)" } ?? "失败"
+    }
+
+    private static func knownKindWord(kind: String?, code: Int?) -> String? {
         let byCode: [Int: String] = [401: "auth", 402: "quota", 403: "forbidden", 429: "rate_limit"]
         let words = ["auth": "凭据无效", "forbidden": "无权限", "quota": "额度不足", "rate_limit": "上游限流"]
         let given = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let resolved = given?.isEmpty == false ? given : code.flatMap { byCode[$0] }
-        if let resolved, let word = words[resolved] { return word }
-        return code.map { "上游 \($0)" } ?? "失败"
+        return resolved.flatMap { words[$0] }
     }
-
     private static func modelName(_ plan: ScheduledTestPlan) -> String {
         let model = plan.modelID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return model.isEmpty ? defaultModel : model
