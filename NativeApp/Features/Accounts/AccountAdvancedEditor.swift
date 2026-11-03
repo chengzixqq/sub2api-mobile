@@ -24,7 +24,12 @@ struct AccountAdvancedEditor: View {
     @ViewBuilder private func row(_ field: AccountAdvancedField) -> some View {
         switch field.kind {
         case .toggle:
-            Toggle(isOn: $draft.values[toggle: field]) { labels(field) }.accessibilityIdentifier(id(field))
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle(isOn: $draft.values[toggle: field]) { labels(field) }.accessibilityIdentifier(id(field))
+                if let warning = syncWarning(field) {
+                    Text(warning).font(.footnote).foregroundStyle(Tone.caution.ink).accessibilityIdentifier(id(field) + ".syncNote")
+                }
+            }
         case .limit:
             Toggle(isOn: $draft.values[limit: field].isOn) { labels(field) }.accessibilityIdentifier(id(field))
             if draft.values[limit: field].isOn { amountRow(field) }
@@ -42,11 +47,18 @@ struct AccountAdvancedEditor: View {
         }
     }
 
+    /// The row's notes (AccountAdvancedDraft.notes) under its title; the rate-sync warning goes under the switch in caution ink as
+    /// an element of its own, since a switch reads its label as one.
     private func labels(_ field: AccountAdvancedField) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(field.title)
-            if let note = field.subtitle { Text(note).font(.footnote).foregroundStyle(Palette.ink3) }
+            ForEach(draft.notes(for: field).filter { $0 != AccountAdvancedField.probeSyncNote }, id: \.self) { note in
+                Text(note).font(.footnote).foregroundStyle(Palette.ink3)
+            }
         }
+    }
+    private func syncWarning(_ field: AccountAdvancedField) -> String? {
+        draft.notes(for: field).first { $0 == AccountAdvancedField.probeSyncNote }
     }
     private func amountRow(_ field: AccountAdvancedField) -> some View {
         VStack(alignment: .leading, spacing: 4) {

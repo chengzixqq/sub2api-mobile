@@ -63,7 +63,7 @@ struct AccountModelsPassthroughNote: View {
     }
 }
 
-/// The 模型 sheet: the rows with −, “支持所有模型” when emptied, and 添加模型 / 添加映射 pushed inside the sheet.
+/// The 模型 sheet: the rows with −, “支持所有模型” (or “按平台默认模型”) when emptied, and 添加模型 / 添加映射 pushed inside the sheet.
 struct AccountModelEditor: View {
     @Binding var draft: AccountModelsDraft
     let account: UpstreamAccount
@@ -74,7 +74,7 @@ struct AccountModelEditor: View {
         Section {
             if AccountModelMapping.passthroughEnabled(account) { AccountModelsPassthroughNote(id: "accountSheet.models.passthroughNote") }
             if mapping.isEmpty {
-                Text(AccountModelMapping.emptyText).foregroundStyle(Palette.ink2).accessibilityIdentifier("accountSheet.models.empty")
+                Text(AccountModelMapping.emptyText(for: account)).foregroundStyle(Palette.ink2).accessibilityIdentifier("accountSheet.models.empty")
             }
             ForEach(mapping.entries) { entry in
                 AccountModelRow(entry: entry, limits: account.extra?.modelRateLimits ?? [], now: now, idPrefix: "accountSheet.models.row") {
@@ -89,10 +89,10 @@ struct AccountModelEditor: View {
             HStack {
                 Text(AccountEditSection.models.title)
                 Spacer()
-                Text(mapping.summary).accessibilityIdentifier("accountSheet.models.summary")
+                Text(mapping.summary(for: account)).accessibilityIdentifier("accountSheet.models.summary")
             }
         } footer: {
-            Text(AccountModelMapping.footnote)
+            Text(AccountModelMapping.footnote(for: account)).accessibilityIdentifier("accountSheet.models.footnote")
         }
     }
 }

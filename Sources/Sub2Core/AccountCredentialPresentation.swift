@@ -134,9 +134,11 @@ public enum AccountCredentialPresentation {
     public static let noRefreshToken = "没有刷新令牌，只能重新授权"
     private static let hour: TimeInterval = 3_600, day: TimeInterval = 86_400
 
-    /// `token_status.auto_refresh == false`: no refresh token (or an OpenAI personal access token), so 刷新令牌 could only fail.
-    /// A server without token_status keeps the entry.
-    public static func canRefresh(_ account: UpstreamAccount) -> Bool { account.tokenStatus?.autoRefresh != false }
+    /// `token_status.auto_refresh == false` without a refresh token: 刷新令牌 could only fail. An OpenAI personal access token is
+    /// false too, but its 刷新令牌 checks the token and 重新授权 refuses it, so it keeps the entry, as does a server without token_status.
+    public static func canRefresh(_ account: UpstreamAccount) -> Bool {
+        account.tokenStatus?.autoRefresh != false || account.isOpenAIPersonalAccessToken
+    }
 
     /// “已更换 · HH:MM” for a key replaced this session (`replacedAt`, ServerClock time). R12: the code is error_status_code only.
     public static func keyRow(_ account: UpstreamAccount, replacedAt: Date?, now: Date, timeZone: TimeZone) -> AccountKeyRow {

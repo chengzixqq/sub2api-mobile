@@ -143,8 +143,10 @@ extension DemoData {
                         proxy: proxies[2], fields: ["error_message": "401 凭据已失效（invalid_api_key）", "error_summary": "401 凭据已失效（invalid_api_key）",
                                            "error_kind": "auth", "error_status_code": 401, "error_at": ServerTime.utcTimestamp(base.addingTimeInterval(-60)),
                                            "credentials": ["model_mapping": ["gpt-5": "gpt-5"]], "extra": ["openai_passthrough": true]]),
+            // U-07: the probe and the rate sync on, so the 高级 sheet's probe row warns that turning it off takes the sync with it.
             demoAccount(11, "GLM-直连-01", "zhipu", "apikey", groups: [7], concurrency: (0, 6), priority: 3, fields: ["overload_until": window(72),
-                "credentials": ["account_mode": "coding", "api_protocol": "anthropic", "base_url": "https://open.bigmodel.cn/api/anthropic"]]),
+                "credentials": ["account_mode": "coding", "api_protocol": "anthropic", "base_url": "https://open.bigmodel.cn/api/anthropic"],
+                "extra": ["upstream_billing_probe_enabled": true, "upstream_billing_rate_sync_enabled": true]]),
             demoAccount(12, "MiniMax-01", "minimax", "apikey", groups: [9], concurrency: (0, 4), priority: 3, fields: [
                 "temp_unschedulable_until": window(1_380), "temp_unschedulable_reason": temporaryReason(base: base, until: window(1_380)),
                 "credentials": ["base_url": "https://minimax-relay.example.invalid/v1"]]),

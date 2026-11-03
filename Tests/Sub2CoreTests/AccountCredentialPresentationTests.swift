@@ -151,13 +151,25 @@ private func body(_ change: AccountEditChange?) throws -> String {
     #expect(AccountCredentialPresentation.tokenRow(tokenAccount(expiresIn: 2_400, autoRefresh: nil), now: rowNow, timeZone: utcZone).note == nil)
 }
 
-/// U-08: auto_refresh false means no refresh token (or an OpenAI personal access token), so 刷新令牌 could only fail.
+/// U-08: auto_refresh false means no refresh token, so 刷新令牌 could only fail.
 @Test func canRefreshFollowsAutoRefresh() {
     #expect(!AccountCredentialPresentation.canRefresh(tokenAccount(expiresIn: 2_400, autoRefresh: false)))
     #expect(AccountCredentialPresentation.canRefresh(tokenAccount(expiresIn: 2_400, autoRefresh: true)))
     #expect(AccountCredentialPresentation.canRefresh(tokenAccount(expiresIn: 2_400, autoRefresh: nil)))
     #expect(AccountCredentialPresentation.canRefresh(tokenAccount(expiresIn: nil)))
     #expect(AccountCredentialPresentation.noRefreshToken == "没有刷新令牌，只能重新授权")
+}
+
+/// U-08 review: an OpenAI personal access token is never auto-refreshed, yet 刷新令牌 checks it (whoami) and the App cannot
+/// authorize it again, so the entry stays. Same auth_mode test as 重新授权's precheck and the backend.
+@Test func canRefreshKeepsOpenAIPersonalAccessToken() throws {
+    let noAuto = #""token_status":{"auto_refresh":false},"credentials":"#
+    #expect(AccountCredentialPresentation.canRefresh(try wireAccount(type: "oauth", noAuto + #"{"auth_mode":"personal_access_token"}"#)))
+    #expect(AccountCredentialPresentation.canRefresh(try wireAccount(type: "oauth", noAuto + #"{"openai_auth_mode":" PersonalAccessToken "}"#)))
+    #expect(!AccountCredentialPresentation.canRefresh(try wireAccount(type: "oauth", noAuto + #"{"auth_mode":"oauth"}"#)))
+    #expect(!AccountCredentialPresentation.canRefresh(try wireAccount(type: "oauth", noAuto + "{}")))
+    #expect(!AccountCredentialPresentation.canRefresh(try wireAccount(platform: "anthropic", type: "oauth",
+                                                                      noAuto + #"{"auth_mode":"personal_access_token"}"#)))
 }
 
 @Test func webOnlyCredentialValue() throws {

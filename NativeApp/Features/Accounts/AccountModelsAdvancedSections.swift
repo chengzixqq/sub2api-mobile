@@ -2,7 +2,7 @@ import SwiftUI
 import Sub2Core
 
 /// 20 §3.3 模型 on the detail: “只调度这 N 个” / “未限制” beside the title, the passthrough note, each request model with its
-/// actual one and limit badge, or “支持所有模型”.
+/// actual one and limit badge, or “支持所有模型” (“平台默认” / “按平台默认模型” where the server takes the platform's defaults).
 struct AccountModelsSection: View {
     let account: UpstreamAccount
     let now: () -> Date
@@ -10,10 +10,10 @@ struct AccountModelsSection: View {
 
     var body: some View {
         let mapping = AccountModelMapping(credentials: account.credentials)
-        AccountEditSectionBox(title: AccountEditSection.models.title, key: "models", edit: edit, meta: mapping.summary) {
+        AccountEditSectionBox(title: AccountEditSection.models.title, key: "models", edit: edit, meta: mapping.summary(for: account)) {
             if AccountModelMapping.passthroughEnabled(account) { AccountModelsPassthroughNote(id: "account.models.passthroughNote") }
             if mapping.isEmpty {
-                Text(AccountModelMapping.emptyText).font(.subheadline).foregroundStyle(Palette.ink2)
+                Text(AccountModelMapping.emptyText(for: account)).font(.subheadline).foregroundStyle(Palette.ink2)
                     .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     .accessibilityIdentifier("account.models.empty")

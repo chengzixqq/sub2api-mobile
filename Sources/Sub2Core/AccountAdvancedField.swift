@@ -18,6 +18,8 @@ public enum AccountAdvancedField: String, CaseIterable, Sendable, Identifiable {
     case upstreamBillingProbe = "upstream_billing_probe_enabled"
 
     public enum Kind: Sendable { case toggle, limit, segment, options }
+    /// Under the probe while the rate sync is on: the server turns the sync off with the probe (AccountAdvancedDraft.notes).
+    public static let probeSyncNote = "关闭后倍率同步也会关闭"
     public var id: String { rawValue }
     public var title: String {
         switch self {
