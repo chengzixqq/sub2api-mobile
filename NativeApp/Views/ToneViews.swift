@@ -1,11 +1,11 @@
 import SwiftUI
 import Sub2Core
 
-/// 00 §8.1 status capsule: 4pt wide, 6pt from the leading edge, 22pt from the top and bottom; content starts 16pt in.
+/// 00 §8.1 status capsule: 4pt wide, 6pt from the leading edge, 22pt from the top and bottom but at least 16pt long
+/// (`RailPosition.insets`); content starts 16pt in.
 enum StatusCapsuleMetrics {
     static let width: CGFloat = 4
     static let leadingInset: CGFloat = 6
-    static let verticalInset: CGFloat = 22
     static let contentLeadingInset: CGFloat = 16
 }
 
