@@ -16,6 +16,10 @@ final class GroupFixtures {
         static let usageFailure = "-ui-group-usage-failure"
         /// Every usage-summary answers only after `slowUsageDelay` (an aggregate that takes long).
         static let usageSlow = "-ui-group-usage-slow"
+        /// The first usage-summary works; later ones answer 502 (the list keeps 今日, S5-高-3).
+        static let usageFailureAfterFirst = "-ui-group-usage-failure-after-first"
+        /// The list's first status-summary works; later ones answer 502 (the list keeps 可用偏低, S5-中-8).
+        static let shortageFailureAfterFirst = "-ui-group-shortage-failure-after-first"
         /// The site has no group.
         static let empty = "-ui-group-empty"
         /// Followed by attention, normal or off: the list opened without a segment scrolls to that section (X39).
@@ -37,6 +41,8 @@ final class GroupFixtures {
     /// This session's groups without live counts; writes and later items' extensions change it.
     var groups: [AdminGroup]
     private(set) var listReads = 0
+    private var usageReads = 0
+    private var shortageReads = 0
     private let arguments: [String]
     private static var latest: (generation: UUID, fixtures: GroupFixtures)?
     private static let failure = APIError.server(status: 502, reason: nil)
@@ -90,8 +96,11 @@ final class GroupFixtures {
     }
     /// `GET admin/groups/usage-summary`: a row for every group, as the backend's LEFT JOIN gives.
     func usageSummary() async throws -> [GroupUsageSummary] {
+        usageReads += 1
+        let isLater = usageReads > 1
         if arguments.contains(Argument.usageSlow) { try await Task.sleep(for: Self.slowUsageDelay) }
         if arguments.contains(Argument.usageFailure) { throw Self.failure }
+        if arguments.contains(Argument.usageFailureAfterFirst), isLater { throw Self.failure }
         return groups.map { group in
             let row = Self.usage[group.id] ?? (0, 0, 0)
             return GroupUsageSummary(groupID: group.id, todayCost: row.today, yesterdayCost: row.yesterday, totalCost: row.total)
@@ -100,6 +109,12 @@ final class GroupFixtures {
     /// D02's `groups[].shortage`: 标准组 by its alert rule, the others by the site's default ratio.
     func shortages(accounts: [UpstreamAccount], now: Date) -> [Int: AccountStatusGroupSummary.Shortage] {
         Dictionary(uniqueKeysWithValues: list(accounts: accounts, now: now).map { ($0.id, Self.shortage($0)) })
+    }
+    /// The list's status-summary read, with its failure argument.
+    func readShortages(accounts: [UpstreamAccount], now: Date) throws -> [Int: AccountStatusGroupSummary.Shortage] {
+        shortageReads += 1
+        if arguments.contains(Argument.shortageFailureAfterFirst), shortageReads > 1 { throw Self.failure }
+        return shortages(accounts: accounts, now: now)
     }
 
     // MARK: 写入口（S5D2a-11）

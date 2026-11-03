@@ -122,3 +122,29 @@ private func usage(_ id: Int, _ today: String) -> GroupUsageSummary {
     #expect(spoken.contains("没有账号，可用 0 / 0"))
     #expect(spoken.hasSuffix("今日 $0.00"))
 }
+
+// U-10 (S5-高-3, S5-中-8): a failed refresh keeps 今日 and D02's shortage, and the list's 更新失败 strip names which.
+
+@Test func staleItemsJoinsAffected() {
+    #expect(GroupStoreRules.staleItems(usageStale: true, shortagesStale: false) == "今日")
+    #expect(GroupStoreRules.staleItems(usageStale: false, shortagesStale: true) == "可用状态")
+    #expect(GroupStoreRules.staleItems(usageStale: true, shortagesStale: true) == "今日、可用状态")
+    #expect(GroupStoreRules.staleItems(usageStale: false, shortagesStale: false) == nil)
+}
+
+@Test func shortageKeptAfterFailedRefresh() {
+    // 标准组: 1 of 2 available, short by its alert rule only (the local half rule says not).
+    let standard = AdminGroup(id: 2, name: "标准组", accountCount: 2, activeAccountCount: 1, sortOrder: 2, errorAccountCount: 1, idleAccountCount: 0)
+    let read = BlockState<[Int: AccountStatusGroupSummary.Shortage]>.loaded(
+        [2: .init(isShort: true, source: "alert_rule", threshold: 60, current: 50)], at: now)
+    let failed = read.withLoading().withFailure(nil)
+    #expect(GroupStoreRules.isStale(failed))
+    #expect(GroupListSections.rows([standard], shortages: failed.value ?? [:]).first?.health == .low)
+    // A refresh still out, or one that worked, marks nothing.
+    #expect(!GroupStoreRules.isStale(failed.withLoading()))
+    #expect(!GroupStoreRules.isStale(read))
+    // Never read: the local half rule, unmarked.
+    let never = BlockState<[Int: AccountStatusGroupSummary.Shortage]>.idle.withLoading().withFailure(nil)
+    #expect(!GroupStoreRules.isStale(never))
+    #expect(GroupListSections.rows([standard], shortages: never.value ?? [:]).first?.health == .ok)
+}

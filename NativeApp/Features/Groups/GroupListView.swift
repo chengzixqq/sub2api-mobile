@@ -91,6 +91,7 @@ private struct GroupListContent: View {
 
     private static let rowInsets = EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16)
     private static func rowID(_ id: Int) -> String { "group.row.\(id)" }
+    private static let staleTitle = "更新失败 · 重试"
     private var sections: [GroupListSection] { GroupListSections.sections(store.rows, query: query, catalog: store.catalog) }
 
     var body: some View {
@@ -98,6 +99,7 @@ private struct GroupListContent: View {
         ScrollViewReader { proxy in
             List {
                 if case .value(_, _, _, true) = display { refreshStrip }
+                if let items = staleItems(display) { staleStrip(items) }
                 switch display {
                 case .placeholder:
                     Section { ForEach(0..<3, id: \.self) { _ in GroupRowSkeleton().listRowInsets(Self.rowInsets) } }
@@ -166,6 +168,30 @@ private struct GroupListContent: View {
             .buttonStyle(.plain)
             .disabled(!store.listRefresh.allowsRequest(at: now))
             .accessibilityIdentifier("groups.refresh.retry")
+            .listRowBackground(Tone.caution.wash)
+        }
+    }
+    /// S5-高-3 / S5-中-8: what the rows show from an earlier read because the last one failed; nothing without rows.
+    private func staleItems(_ display: BlockDisplay<[AdminGroup]>) -> String? {
+        guard case .value(let groups, _, _, _) = display, !groups.isEmpty else { return nil }
+        return GroupStoreRules.staleItems(usageStale: store.usageStale, shortagesStale: store.shortagesAreStale)
+    }
+    /// A strip of its own under the list's: 更新失败 · 重试, with what is kept in small text on the right; tapping reads all again.
+    private func staleStrip(_ items: String) -> some View {
+        Section {
+            Button(action: retry) {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Tone.caution.base).accessibilityHidden(true)
+                    Text(Self.staleTitle).font(.footnote).foregroundStyle(Palette.ink1)
+                    Spacer(minLength: 8)
+                    Text(items).font(.caption).foregroundStyle(Palette.ink2)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(Self.staleTitle)，\(items)")
+            .accessibilityIdentifier("groups.stale.retry")
             .listRowBackground(Tone.caution.wash)
         }
     }
