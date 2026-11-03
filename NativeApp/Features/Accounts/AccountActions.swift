@@ -13,14 +13,15 @@ extension AccountActions {
 /// 20 §5.3 `confirmRecover` for the account in `account`; picking an option runs `recover` with or without scheduling.
 struct AccountRecoverDialog: ViewModifier {
     @Binding var account: UpstreamAccount?
-    let actions: AccountActions
+    /// Optional for a page that makes its actions when it first appears (the account list, U-04); only they set `account`.
+    let actions: AccountActions?
     @Environment(AppModel.self) private var model
 
     func body(content: Content) -> some View {
         let copy = account.map { AccountActionCopy.recoverDialog(for: $0, now: model.serverNow()) }
         return content.confirmationDialog(copy?.title ?? "", isPresented: isPresented, titleVisibility: .visible, presenting: account) { target in
             ForEach(copy?.options ?? []) { option in
-                Button(option.title) { Task { await actions.recover(target, enableScheduling: option.enablesScheduling) } }
+                Button(option.title) { Task { await actions?.recover(target, enableScheduling: option.enablesScheduling) } }
                     .accessibilityIdentifier("account.recover.\(option.rawValue)")
             }
             Button("取消", role: .cancel) {}
@@ -35,22 +36,26 @@ struct AccountRecoverDialog: ViewModifier {
 }
 
 extension View {
-    func accountRecoverDialog(_ account: Binding<UpstreamAccount?>, actions: AccountActions) -> some View {
+    func accountRecoverDialog(_ account: Binding<UpstreamAccount?>, actions: AccountActions?) -> some View {
         modifier(AccountRecoverDialog(account: account, actions: actions))
     }
 
     /// 20 §1.4: 停止调度 or 启用调度 on the row's trailing edge; none without actions, for a read-only token (C-1: swipe actions
-    /// are not offered rather than greyed) or where the switch would not help (S2D1-20).
-    func accountScheduleSwipe(_ account: UpstreamAccount, actions: AccountActions?, now: Date, isReadOnly: Bool) -> some View {
+    /// are not offered rather than greyed) or where the switch would not help (S2D1-20). 恢复状态… (U-04) hands the account to
+    /// `onRecover`, whose page shows accountRecoverDialog.
+    func accountScheduleSwipe(_ account: UpstreamAccount, actions: AccountActions?, now: Date, isReadOnly: Bool,
+                              onRecover: @escaping @MainActor (UpstreamAccount) -> Void) -> some View {
         let swipe = isReadOnly ? nil : AccountActionCopy.swipeAction(for: account, now: now)
         return swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if let actions, let swipe {
-                Button { Task { await actions.setSchedulable(account, enabled: swipe.enables) } } label: {
+                Button {
+                    if swipe == .recover { onRecover(account) } else { Task { await actions.setSchedulable(account, enabled: swipe.enables) } }
+                } label: {
                     Label(swipe.title, systemImage: swipe.systemImage)
                 }
-                .tint(swipe.enables ? Palette.accent : Tone.neutral.base)
+                .tint(swipe == .stop ? Tone.neutral.base : Palette.accent)
                 .disabled(actions.isRunning(account.id))
-                .accessibilityIdentifier("account.\(account.id).schedule")
+                .accessibilityIdentifier(swipe == .recover ? "account.\(account.id).recover" : "account.\(account.id).schedule")
             }
         }
     }

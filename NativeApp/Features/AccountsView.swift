@@ -20,7 +20,11 @@ struct AccountsView: View {
     @State private var clockTick = Date()
     /// 20 §1.4 (S2-22): the 告警 sheet a header's alert opened, and the alert detail to push once it has closed.
     @State private var alertSheetEvent: AlertEvent?
+    /// U-04: the platform of the header whose alert opened the sheet; 只看需处理的账号 filters to it.
+    @State private var alertSheetPlatform: String?
     @State private var alertDetailAfterSheet: Int?
+    /// U-04: 恢复状态… on a row asks first (AccountActionCopy.recoverDialog).
+    @State private var recovering: UpstreamAccount?
     /// Shown, not covered by a pushed page or another tab.
     @State private var isShown = false
     /// A write elsewhere (a detail, its sheets, a test) asked for the whole list while this page was covered (20 §1.6, S2-23):
@@ -54,7 +58,8 @@ struct AccountsView: View {
             if old == .accountNew, new == nil { Task { await store?.reload() } }
         }
         .onChange(of: alertSheetEvent?.id) { _, _ in store?.setSheetPresented(hasSheet) }
-        .sheet(item: $alertSheetEvent, onDismiss: openAlertDetailAfterSheet) { alertSheet($0) }
+        .sheet(item: $alertSheetEvent, onDismiss: openAlertDetailAfterSheet) { alertSheet($0, platform: alertSheetPlatform) }
+        .accountRecoverDialog($recovering, actions: actions)
         .toolbar {
             if store?.isSelecting != true {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -126,7 +131,7 @@ struct AccountsView: View {
                                  picked: store.isSelecting ? store.selection.pickedCount(in: section.rows.map(\.id)) : 0,
                                  alert: alertBadge(store, platform: section.platform),
                                  toggle: { withAnimation(.snappy) { store.toggleCollapsed(section.platform) } },
-                                 openAlert: { alertSheetEvent = $0.event }) {
+                                 openAlert: { alertSheetPlatform = section.platform; alertSheetEvent = $0.event }) {
                 if store.isSelecting { sectionSelect(store, section, name: name, collapsed: collapsed) }
             }
             .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(Palette.canvas)
@@ -148,17 +153,27 @@ struct AccountsView: View {
     private func alertBadge(_ store: AccountListModel, platform: String) -> AccountAlertBadge? {
         AccountAlertMatch.badge(for: store.firingAlerts(platform: platform), now: serverNow, timeZone: serverZone)
     }
-    /// 20 §1.4: 只看需处理的账号 closes the sheet and picks the chip; 告警详情 closes it, then pushes the alert (10 §3).
-    private func alertSheet(_ event: AlertEvent) -> some View {
+    /// 20 §1.4: 只看需处理的账号 closes the sheet and picks the chip, with the header's platform in one read and its section
+    /// opened (U-04); 告警详情 closes it, then pushes the alert (10 §3).
+    private func alertSheet(_ event: AlertEvent, platform: String?) -> some View {
         AccountAlertSheet(event: event, catalog: store?.catalog ?? .builtin,
                           onShowNeeds: {
                               alertSheetEvent = nil
-                              Task { await store?.select(.needs) }
+                              showNeeds(platform: platform)
                           },
                           onOpenDetail: {
                               alertDetailAfterSheet = event.id
                               alertSheetEvent = nil
                           })
+    }
+    private func showNeeds(platform: String?) {
+        guard let store else { return }
+        guard let platform else {
+            Task { await store.select(.needs) }
+            return
+        }
+        store.expand(platform)
+        Task { await store.select(.needs, platform: platform) }
     }
     private func openAlertDetailAfterSheet() {
         guard let id = alertDetailAfterSheet else { return }
@@ -181,7 +196,7 @@ struct AccountsView: View {
         .accessibilityAddTraits(selected == true ? .isSelected : [])
         .accessibilityIdentifier("account.\(entry.id)")
         .accountScheduleSwipe(entry.account, actions: store.isSelecting ? nil : actions, now: serverNow,
-                              isReadOnly: session?.isReadOnlyToken ?? true)
+                              isReadOnly: session?.isReadOnlyToken ?? true, onRecover: { recovering = $0 })
         .listRowInsets(EdgeInsets())
         .listRowBackground(selected == true ? Palette.accentWash : Palette.surface)
         .listRowSeparatorTint(Palette.hairline)
