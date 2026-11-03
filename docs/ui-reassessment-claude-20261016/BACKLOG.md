@@ -219,6 +219,8 @@
 | 错误详情的分享入口 | S0-19 的“错误详情”sheet 只有“复制详情”（本机剪贴板）；是否加“发送给站长 / 分享”，规格没有要求，等用户决定 |
 | 现有页面按手机时区显示的时间 | “更新于 HH:MM:SS”、日志与统计的起止时间、ListFields 的时间列仍用 Date.formatted（手机时区），AnalyticsQuery 的默认时区与 RequestLogs 的 usage timezone 也取 TimeZone.current；00 §6.3 要求按服务器时区。阶段 1–4 重写这些页面时改用 DisplayFormat 与 SiteSession.serverTimeZone（S0-19 只改了性能趋势的刻度） |
 | 旧服务端的站点时区退路是连接时的手机时区 | 拿不到 server_timezone 的站点（旧服务端），APIClient 与 SiteSession 存的是连接时求出的 `ServerTimeZone.device` 快照（D09），App 驻留期间手机改时区后，概览趋势等仍按旧时区发 timezone=，统计与日志页（TimeZone.current）已按新时区，要等回到前台超过 5 分钟的重新探测或重新连接才一致（S0-LOW-A 复核未改）。阶段 4 统一页面时区时，如需随手机即时变化，可把退路存成“未知”、在调用时取 .device |
+| 新建分组确认的倍率精度 | U-02 只在分组保存确认（前 → 后）里对“按三位显示相同而实际不同”的情况写完整精度；新建确认只有一个值，输入 0.1255 会显示 ×0.126。用户若希望新建也回显完整输入，再加判断 |
+| ReplaceGroup.swift:228 注释残留“默认倍率 ×1” | 只是文档注释，实际输出已经是 ×1.0；下次有条目改这个文件时顺手改掉 |
 
 ### App 与设计 · 阶段 1
 
