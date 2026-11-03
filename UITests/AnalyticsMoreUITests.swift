@@ -53,6 +53,15 @@ final class AnalyticsMoreUITests: XCTestCase {
         XCTAssertTrue(chip.poll(NSPredicate(format: "isSelected == true"), timeout: 5), "\(topic) should be lit\n\(app.debugDescription)",
                       file: file, line: line)
     }
+    /// Pull to refresh on the list just under the pinned bar. Swiped back up, the list rests some 30 points down with the range
+    /// caption under the bar: a pull from the caption's middle starts on the bar, a chip can take the touch (运行 showed pressed in
+    /// the recording), and the list neither moves nor refreshes.
+    @MainActor func pullToRefreshBelowTopicBar(file: StaticString = #filePath, line: UInt = #line) {
+        let bar = app.analyticsElement("analytics.more.topicBar")
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: app.frame.midX, dy: bar.frame.maxY + 40))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+    }
 
     // MARK: Private helpers
 
@@ -329,9 +338,8 @@ final class AnalyticsMoreUITests: XCTestCase {
         app.scrollUntilExists(nova)
         app.waitForLabel(nova, containing: "12.4M")
 
-        let caption = element("analytics.range.caption")
-        app.scrollUntilExists(caption, towardBottom: false)
-        app.pullToRefresh(from: caption)
+        app.scrollUntilExists(element("analytics.range.caption"), towardBottom: false)
+        pullToRefreshBelowTopicBar()
         // The card scrolled away stays registered: the pull read it again (S4D2b-02 ⑤).
         selectTopic("usage")
         app.scrollUntilExists(nova)
