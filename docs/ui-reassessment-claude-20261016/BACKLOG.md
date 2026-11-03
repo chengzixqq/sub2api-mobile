@@ -481,6 +481,7 @@
 | U30 无 reason 的 500 请后端补 reason | 退款超额时 ErrBalanceNegative 被 service/admin_user.go 用 fmt.Errorf 包装，变成无 reason 的 500；降级或删除最后一位管理员也是无 reason 的 500。App 只能事前拦截，并按“结果未确认，已记为待核对”处理，请后端补 reason |
 | 其他 UI 测试类回执撤销前的等待 | S3-16 审查修正查明：XCTest 自带的等待（XCTNSPredicateExpectation、waitForExistence、waitForNonExistence）约 1 秒后才第一次检查，而回执只显示 4.2 秒。UserKeysUITests、UserReplaceGroupUITests 已在点“撤销”前改用 UITests/XCUIElement+Poll.swift 轮询。另有 18 个测试文件也点 receipt.action，前面大多有一两个这样的等待，暂未出现不稳定；出现时照同样写法改：只在回执出现到撤销之间轮询，别处保持原样，否则卡片展开中 isHittable 会失败。 |
 | 其他用例按主屏幕键后立刻 activate() | AccountDetailUITests、CompensationForegroundUITests、ProxiesUITests、Sub2MobileUITests 仍在 press(.home) 之后立刻 activate()。S3-16 诊断显示 press 返回时 App 还会在前台停留约 0.5 秒，可能没进后台就被拉回，不触发“回到前台”。出现不稳定时改用 BalanceReconcileUITests.leaveAndReturn() 的写法（可提成共用扩展）。 |
+| Key 卡片切换时屏幕底边短暂露底 | 编辑用户“Key 与限额”中，上方卡片的详情在页头下、再点下方卡片（标题会被顶出）时，结束在屏外的行被 List 立刻移走，屏幕底边约 60ms 露出分组背景；属 List 自身行为，影响小，暂不处理（录屏见 sub2-testenv/scratch/S3-12-anim 修后-op5） |
 
 ### App 与设计 · 阶段 4
 
