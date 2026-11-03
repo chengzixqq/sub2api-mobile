@@ -400,6 +400,8 @@
 | AccountDetailMenuUITests.testSwitchingToNoProxy 既有失败 | 在主分支基线 6154134 上单跑该类也两次失败（S2-23 用 MAC_REF 核对，不含 S2-23 改动）：保存“无代理”后立即点代理行，选择器不再弹出，界面上没有 sheet、行也没置灰。S2-11 当时通过，疑为之后合入的改动引入；与 S2-23 无关，请编排者另开修正 |
 | 账号详情的下拉刷新在 UI 测试里拉不出 | S2-23 的有旧值 429 用例原本用下拉触发第二次读今日，app.pullToRefresh 和慢速拖动两种写法都没有触发 detail.pullToRefresh，只好改用回到前台触发。需要在真机上下拉确认：是 XCUITest 的手势问题，还是详情 ScrollView 的 .refreshable 没生效 |
 | UI 测试点回执按钮与 4.2 秒窗口 | 别的 UITests 里还有“等回执 → 读按钮标题 → 再点”这种 3 次以上快照往返的写法（例如 ProxiesUITests 的停用撤销、AccountEditUITests 几处）。页面变长或 Mac 负载高时，可能像 testPickingProxySavesThenUndoRestores 一样赶不上回执的 4.2 秒；另外，带按钮的回执会盖住标签栏上方约 52pt 的内容，点那里的行要先等回执离开。可以考虑把 receiptButton(_:in:) 挪到共用的 UITestNavigation.swift，碰到时逐个换掉。 |
+| 全量 gate 时 Mac 过载，XCTest 空闲等待卡死 | S2-16 审查修正时复现 4 次：Mac 整机过载时（CPU 打满，或 8–9 台模拟器且空闲内存不足 1.5G；S6-26 收口 gate 就是这样），在更换 API Key sheet 里收起键盘后，XCTest 报 App animations complete notification not received，之后每个动作等满 60 秒。此时 App CPU 为 0、画面静止，不是 App 缺陷。紧跟其后的 4.2 秒回执因此看不到，导致 AccountCredentialUITests.testHealthyKeyAccountReplacesFromMenuAndRow 首跑失败（237 秒 ≈ 57 + 3×60）。测试侧无法规避，建议在 mac-test.sh 里让 gate 独占 Mac（gate 期间其他线的 UI 检查排队）或调低 GATE_WORKERS；UI_FLAKY 中耗时超过 120 秒的用例可标为“疑似环境停顿”。 |
+| UI 测试 receiptButton 有三份副本 | AccountDetailMenuUITests、ProxiesUITests+Edit、AccountCredentialUITests 各有一份相同的私有 receiptButton（回执写着某文字时才匹配某标题的按钮）。可以提到 UITests 的共用扩展里（放在 XCUIElement+Poll.swift 旁边），三处一起换。 |
 
 ### App 与设计 · 阶段 3
 
