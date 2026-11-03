@@ -129,6 +129,8 @@ public enum AccountDetailPresentation {
     public static let removedMessage = "这个账号已删除。"
     public static let removedTitle = "账号"
     public static let removedSubtitle = "已删除"
+    /// 错误's cause beside the badge when the account has no error_status_code (U-08).
+    public static let upstreamErrorCause = "上游返回错误"
 
     public static func statusCard(_ account: UpstreamAccount, now: Date, timeZone: TimeZone) -> AccountStatusCardContent {
         let display = AccountDisplayState(account, now: now)
@@ -149,7 +151,7 @@ public enum AccountDetailPresentation {
         case .inactive: return content(.quiet, title: "停用 · 不参与调度")
         case .error:
             let note = account.schedulable ? nil : AccountStatusCardContent.ScheduleNote(emphasis: "出错时已自动停止调度", detail: "恢复时可一并启用")
-            return content(.alert, title: display.label, cause: account.errorStatusCode.map { "上游 \($0)" },
+            return content(.alert, title: display.label, cause: account.errorStatusCode.map { "上游 \($0)" } ?? upstreamErrorCause,
                            errorBody: display.reason ?? AccountDisplayState.unknownErrorReason, note: note)
         case .overloaded, .rateLimited, .tempUnschedulable:
             let note = display.isStopped ? AccountStatusCardContent.ScheduleNote(emphasis: AccountDisplayState.stoppedMark, detail: "到时恢复后也不参与调度") : nil

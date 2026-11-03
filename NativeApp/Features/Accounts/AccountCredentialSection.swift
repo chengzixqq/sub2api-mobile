@@ -68,12 +68,16 @@ struct AccountCredentialSection: View {
         }
     }
 
+    /// U-08: without a refresh token 刷新令牌 greys, with a line saying only 重新授权… helps.
     @ViewBuilder private var tokenRows: some View {
+        let canRefresh = AccountCredentialPresentation.canRefresh(account)
         TimelineView(.everyMinute) { _ in tokenLine(AccountCredentialPresentation.tokenRow(account, now: now(), timeZone: timeZone)) }
         hairline
         AccountCredentialAction(title: AccountRefreshCopy.title, systemImage: "arrow.clockwise", id: "account.cred.refresh",
                                 tag: AccountCredentialPresentation.immediate, isRunning: isRefreshing, action: handlers.refresh)
+            .disabled(!canRefresh)
             .readOnlyGate(showsCaption: false)
+        if !canRefresh { noRefreshTokenLine }
         AccountCredentialAction(title: AccountDetailAction.reauthorize.title, systemImage: "key", id: "account.cred.reauthorize",
                                 tag: AccountCredentialPresentation.immediate, action: handlers.reauthorize)
             .readOnlyGate(showsCaption: false)
@@ -111,6 +115,16 @@ struct AccountCredentialSection: View {
         .padding(.bottom, 8)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("account.cred.key.hint")
+    }
+    /// Under 刷新令牌's title (its icon column is 22pt, then 12pt).
+    private var noRefreshTokenLine: some View {
+        Text(AccountCredentialPresentation.noRefreshToken)
+            .font(.footnote)
+            .foregroundStyle(Palette.ink3)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 34)
+            .padding(.bottom, 10)
+            .accessibilityIdentifier("account.cred.refresh.note")
     }
     @ViewBuilder private func urlValue(_ url: AccountBaseURLValue) -> some View {
         if case .custom(let text) = url {
@@ -225,10 +239,11 @@ private struct AccountCredentialAction: View {
 }
 
 /// 20 §3.4 ⋯'s credential items, first in the menu: 更换 API Key… for a key account, 刷新令牌 and 重新授权… for a token account; none
-/// for Bedrock and Vertex, whose 在 Web 中编辑 follows anyway.
+/// for Bedrock and Vertex, whose 在 Web 中编辑 follows anyway. 刷新令牌 greys without a refresh token, like the row (U-08).
 struct AccountCredentialMenuItems: View {
     let kind: AccountCredentialKind
     let isRefreshing: Bool
+    let canRefresh: Bool
     let handlers: AccountCredentialHandlers
 
     var body: some View {
@@ -240,7 +255,7 @@ struct AccountCredentialMenuItems: View {
                 case .reauthorize: handlers.reauthorize()
                 }
             }
-            .disabled(action == .refresh && isRefreshing)
+            .disabled(action == .refresh && (isRefreshing || !canRefresh))
             .readOnlyGate(showsCaption: false)
             .accessibilityIdentifier("account.detail.more.\(action.rawValue)")
         }

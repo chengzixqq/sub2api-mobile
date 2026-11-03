@@ -294,7 +294,8 @@ private struct AccountDetailContent: View {
 
     private func moreMenu(_ account: UpstreamAccount) -> some View {
         AccountDetailMenu(onOpenWeb: { model.openAccountInWeb(account, using: openURL) }, onDelete: { confirmDelete(account) }) {
-            AccountCredentialMenuItems(kind: credentialKind(account), isRefreshing: refresher.isRunning(account.id), handlers: credentialHandlers(account))
+            AccountCredentialMenuItems(kind: credentialKind(account), isRefreshing: refresher.isRunning(account.id),
+                                       canRefresh: AccountCredentialPresentation.canRefresh(account), handlers: credentialHandlers(account))
         }
     }
     /// 20 §3.4: the delete confirmation; a deleted (or already gone) account pops the page and the list reads everything again.
