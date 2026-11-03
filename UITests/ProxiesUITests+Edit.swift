@@ -10,7 +10,9 @@ extension ProxiesUITests {
         static let addLost = "-ui-proxy-add-lost"
     }
 
-    /// 14.4: added, then 撤销 deletes it; added again, its first probe shows about 3 seconds later.
+    /// 14.4: added, then 撤销 deletes it; added again, its first probe shows about 3 seconds later. The steps between the receipt
+    /// and its 撤销 poll (XCUIElement+Poll): with XCTest's waits they took about 4 of its 4.2 seconds on a loaded Mac, and the tap
+    /// met the receipt leaving.
     @MainActor func testAddProxyThenUndo() {
         launchProxies()
         defer { diagnostics("proxy-edit-add-final") }
@@ -22,11 +24,10 @@ extension ProxiesUITests {
         fillNewProxy("fr-par-1")
         XCTAssertTrue(waitForEnabled(submit), app.debugDescription)
         submit.tap()
-        waitForReceipt("代理添加成功")
-        XCTAssertTrue(app.navigationBars["添加代理"].waitForNonExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(row(9).waitForExistence(timeout: 3), app.debugDescription)
-        let undo = app.buttons["receipt.action"]
-        XCTAssertEqual(undo.label, "撤销")
+        let undo = receiptButton("撤销", in: "代理添加成功")
+        XCTAssertTrue(undo.poll(timeout: 6), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["添加代理"].pollGone(timeout: 5), app.debugDescription)
+        XCTAssertTrue(row(9).poll(timeout: 3), app.debugDescription)
         undo.tap()
         waitForReceipt("已删除代理「fr-par-1」")
         XCTAssertTrue(row(9).waitForNonExistence(timeout: 10), app.debugDescription)
@@ -224,6 +225,12 @@ extension ProxiesUITests {
 
     // MARK: - S6-14 helpers
 
+    /// The receipt's button, only while the receipt says `text` (as AccountDetailMenuUITests).
+    @MainActor private func receiptButton(_ title: String, in text: String) -> XCUIElement {
+        app.otherElements.matching(identifier: "receipt")
+            .containing(NSPredicate(format: "identifier == %@ AND label == %@", "receipt.text", text))
+            .buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@", "receipt.action", title)).firstMatch
+    }
     @MainActor private func openAdd() {
         app.buttons["proxies.add"].tap()
         XCTAssertTrue(app.navigationBars["添加代理"].waitForExistence(timeout: 10), app.debugDescription)
