@@ -78,6 +78,40 @@ private func draft(_ code: AdminRedeemCode, _ edit: (inout RedeemEditDraft) -> V
     #expect(titles == ["永不过期", "1 天", "3 天", "7 天", "30 天", "自定义"])
 }
 
+// MARK: 订阅分组 options
+
+private func group(_ id: Int, _ name: String, status: String = "active", type: String = "subscription") -> AdminGroup {
+    AdminGroup(id: id, name: name, status: status, subscriptionType: type)
+}
+private func subscriptionCode(groupID: Int? = 4, listedName: String? = "企业专线") -> AdminRedeemCode {
+    AdminRedeemCode(id: 7, code: fullCode, type: "subscription", value: 0, status: "unused", expiresAt: original, groupID: groupID,
+                    validityDays: 30, group: groupID.map { RedeemCodeGroup(id: $0, name: listedName) })
+}
+private func groupTitles(_ directory: [AdminGroup]?, code: AdminRedeemCode = subscriptionCode()) -> [String] {
+    draft(code).groupOptions(directory: directory).map(\.title)
+}
+
+@Test func groupOptionsMarkTheCurrentGroupByTheDirectory() {
+    let others = [group(2, "标准订阅"), group(9, "旧订阅", status: "inactive"), group(5, "按量组", type: "standard")]
+    // Still an active subscription group: in the directory's order, unmarked.
+    #expect(groupTitles([group(2, "标准订阅"), group(4, "企业专线")]) == ["标准订阅", "企业专线"])
+    #expect(groupTitles([group(4, "企业专线", status: "inactive")] + others) == ["企业专线（已停用）", "标准订阅"])
+    #expect(groupTitles([group(4, "企业专线", type: "standard")] + others) == ["企业专线（非订阅分组）", "标准订阅"])
+    #expect(groupTitles([group(4, "企业专线", status: "inactive", type: "standard")]) == ["企业专线（已停用）"])
+    // Read without it (most likely deleted): as before, 已停用 under the code's own name.
+    #expect(groupTitles(others) == ["企业专线（已停用）", "标准订阅"])
+    #expect(groupTitles([]) == ["企业专线（已停用）"])
+    // The directory's name wins over the one the list gave.
+    #expect(groupTitles([group(4, "企业专线 B", status: "inactive")]) == ["企业专线 B（已停用）"])
+    // Not read yet: only the name.
+    #expect(groupTitles(nil) == ["企业专线"])
+    #expect(groupTitles(nil, code: subscriptionCode(listedName: nil)) == ["分组 #4"])
+    #expect(draft(subscriptionCode()).groupOptions(directory: nil).map(\.id) == [4])
+    // Without a group of its own only the active subscription groups are offered.
+    #expect(groupTitles(others, code: subscriptionCode(groupID: nil)) == ["标准订阅"])
+    #expect(groupTitles(nil, code: subscriptionCode(groupID: nil)).isEmpty)
+}
+
 // MARK: 9.4 fields, one row each
 
 struct RedeemEditFieldsRow: Sendable, CustomTestStringConvertible {
@@ -209,6 +243,7 @@ func fieldsFollowTheRows(_ row: RedeemEditFieldsRow) throws {
     #expect(RedeemEditCopy.gone == "这个兑换码已被删除")
     #expect(RedeemEditCopy.deleteConsequence(code("unused")) == "余额 · $10.00 · 未使用")
     #expect(RedeemEditCopy.groupDisabled("企业专线") == "企业专线（已停用）")
+    #expect(RedeemEditCopy.groupNotSubscription("企业专线") == "企业专线（非订阅分组）")
 }
 
 // MARK: Reasons (9.4) and read-back
@@ -224,7 +259,7 @@ struct RedeemWriteFailureRow: Sendable, CustomTestStringConvertible {
     RedeemWriteFailureRow(name: "409 used", error: APIError.server(status: 409, reason: "REDEEM_CODE_USED"), expected: .used),
     RedeemWriteFailureRow(name: "404 gone", error: APIError.server(status: 404, reason: "REDEEM_CODE_NOT_FOUND"), expected: .gone),
     RedeemWriteFailureRow(name: "expiry", error: APIError.server(status: 400, reason: "REDEEM_CODE_EXPIRES_AT_INVALID"), expected: .expiresAtInvalid),
-    RedeemWriteFailureRow(name: "status", error: APIError.server(status: 400, reason: "REDEEM_CODE_STATUS_INVALID"), expected: .groupInvalid),
+    RedeemWriteFailureRow(name: "status", error: APIError.server(status: 400, reason: "REDEEM_CODE_STATUS_INVALID"), expected: .statusInvalid),
     RedeemWriteFailureRow(name: "group", error: APIError.server(status: 400, reason: "REDEEM_CODE_GROUP_ID_INVALID"), expected: .groupInvalid),
     RedeemWriteFailureRow(name: "empty", error: APIError.server(status: 400, reason: "REDEEM_CODE_BATCH_UPDATE_EMPTY"),
                expected: .other(APIError.server(status: 400, reason: "REDEEM_CODE_BATCH_UPDATE_EMPTY").localizedDescription)),
@@ -245,6 +280,7 @@ func failuresFollowTheReasons(_ row: RedeemWriteFailureRow) {
     #expect(RedeemWriteFailure.classify(APIError.server(status: 403, reason: "STEP_UP_REQUIRED").withSecurityOutcome(.cancelled)) == .cancelled)
     #expect(RedeemWriteFailure.expiresAtInvalid.message == "过期时间要晚于现在")
     #expect(RedeemWriteFailure.groupInvalid.message == "分组无效，请重新选择")
+    #expect(RedeemWriteFailure.statusInvalid.message == "状态无效，请重新选择")
     #expect(RedeemWriteFailure.other("x").message == "x")
 }
 

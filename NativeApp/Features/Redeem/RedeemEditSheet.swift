@@ -24,7 +24,7 @@ struct RedeemEditSheet: View {
     var body: some View {
         NavigationStack {
             RedeemEditForm(draft: $draft, now: clock, serverZone: session?.site.serverTimeZone ?? .device,
-                           groups: model.groupDirectory?.groups ?? [], notice: notice)
+                           groups: model.groupDirectory?.state.value, notice: notice)
                 .disabled(isSaving)
                 .navigationTitle(draft.sheetTitle)
                 .navigationBarTitleDisplayMode(.inline)

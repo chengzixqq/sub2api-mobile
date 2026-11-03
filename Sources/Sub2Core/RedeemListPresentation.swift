@@ -178,7 +178,7 @@ public enum RedeemListEmpty: Equatable, Sendable {
 }
 
 /// 60 §11.3 and X34: the list's banner for the earliest redeem batch of this address awaiting its result. The other kinds of
-/// records belong to other pages; “等 N 批” counts the address's batches.
+/// records belong to other pages; “ · 共 N 批” counts the address's batches when there is more than one.
 public struct RedeemPendingBanner: Equatable, Sendable {
     public static let titleText = "兑换码生成结果待核对"
     public let batchID: UUID
@@ -198,7 +198,7 @@ public struct RedeemPendingBanner: Equatable, Sendable {
         let origin = MoneyRecordOrigin.Kind(recordServerID: earliest.serverID, currentServerID: currentServerID, sameAddress: sameAddress)
         let time = DisplayFormat.relativeTime(earliest.createdAt, now: now, timeZone: timeZone)
         let note = origin == .sameAddressOldLogin ? " · 这笔在" + MoneyRecordOrigin.oldLoginNote : ""
-        return RedeemPendingBanner(batchID: earliest.id, title: titleText + (batches.count > 1 ? "等 \(batches.count) 批" : ""),
+        return RedeemPendingBanner(batchID: earliest.id, title: titleText + (batches.count > 1 ? " · 共 \(batches.count) 批" : ""),
                                    amountLine: RedeemGenerateSummary(spec: earliest.spec, now: now, timeZone: timeZone).batchLine,
                                    timeLine: time + (time.last?.isNumber == true ? " " : "") + "发起，未确认是否已生成" + note, origin: origin)
     }
