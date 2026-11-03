@@ -91,7 +91,9 @@ final class AccountCredentialUITests: XCTestCase {
         waitForValue(key, equals: "已设置 · 不可查看")
     }
 
-    /// A healthy key account: ⋯ and the row's 更换 open the same sheet; the receipt's 测试 opens the test; the buttons stay.
+    /// A healthy key account: ⋯ and the row's 更换 open the same sheet; the receipt's 测试 opens the test; the buttons stay. From
+    /// the receipt to its 测试 the steps poll (XCUIElement+Poll): XCTest's waits took about 3 of its 4.2 seconds, and on a loaded Mac
+    /// the tap met the receipt gone.
     @MainActor func testHealthyKeyAccountReplacesFromMenuAndRow() {
         openDetail(4)
         defer { diagnostics("account-cred-healthy-final") }
@@ -111,9 +113,10 @@ final class AccountCredentialUITests: XCTestCase {
         XCTAssertTrue(element("account.cred.key.sheet").waitForExistence(timeout: 10), app.debugDescription)
         typeKey("sk-test-EXAMPLE9999")
         app.buttons["account.cred.key.submit"].tap()
-        waitForReceipt("已更换 API Key")
-        XCTAssertTrue(element("account.cred.key.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
-        app.buttons["receipt.action"].tap()
+        let receiptTest = receiptButton("测试", in: "已更换 API Key")
+        XCTAssertTrue(receiptTest.poll(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("account.cred.key.sheet").pollGone(timeout: 5), app.debugDescription)
+        receiptTest.tap()
         XCTAssertTrue(element("account.test.sheet").waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["sheet.close"].tap()
         XCTAssertTrue(element("account.test.sheet").waitForNonExistence(timeout: 10), app.debugDescription)
@@ -344,6 +347,13 @@ final class AccountCredentialUITests: XCTestCase {
     @MainActor private func waitForReceipt(matching pattern: String, file: StaticString = #filePath, line: UInt = #line) {
         waitForLabel(app.staticTexts["receipt.text"], matching: pattern, file: file, line: line)
     }
+    /// The receipt's button, only while the receipt says `text`: one query, so the tap lands within its 4.2 seconds (as
+    /// AccountDetailMenuUITests).
+    @MainActor private func receiptButton(_ title: String, in text: String) -> XCUIElement {
+        app.otherElements.matching(identifier: "receipt")
+            .containing(NSPredicate(format: "identifier == %@ AND label == %@", "receipt.text", text))
+            .buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@", "receipt.action", title)).firstMatch
+    }
     @MainActor private func waitForLabel(_ item: XCUIElement, equals text: String, file: StaticString = #filePath, line: UInt = #line) {
         let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", text), object: item)
         XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 10), .completed, "\(item.label) ≠ \(text)\n\(app.debugDescription)", file: file, line: line)
@@ -423,10 +433,10 @@ final class AccountCredentialUITests: XCTestCase {
         XCTAssertTrue(note.label.hasPrefix("点按后立即保存新令牌") && !note.label.contains("Face ID"), note.label)
         diagnostics("account-reauth-row-ready")
         replaceToken()
-        waitForReceipt("已重新授权 · 令牌已替换")
-        XCTAssertEqual(app.buttons["receipt.action"].label, "测试")
-        XCTAssertTrue(element("account.reauth.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
-        app.buttons["receipt.action"].tap()
+        let receiptTest = receiptButton("测试", in: "已重新授权 · 令牌已替换")
+        XCTAssertTrue(receiptTest.poll(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("account.reauth.sheet").pollGone(timeout: 5), app.debugDescription)
+        receiptTest.tap()
         XCTAssertTrue(element("account.test.sheet").waitForExistence(timeout: 10), app.debugDescription)
     }
 
@@ -487,9 +497,10 @@ final class AccountCredentialUITests: XCTestCase {
         generateLink()
         typeCode("demo-code#demo-state")
         replaceToken()
-        waitForReceipt("已重新授权 · 已清除错误 · 仍暂停调度")
-        XCTAssertEqual(app.buttons["receipt.action"].label, "启用调度")
-        app.buttons["receipt.action"].tap()
+        let enable = receiptButton("启用调度", in: "已重新授权 · 已清除错误 · 仍暂停调度")
+        XCTAssertTrue(enable.poll(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("account.reauth.sheet").pollGone(timeout: 5), app.debugDescription)
+        enable.tap()
         waitForReceipt("已启用调度")
         XCTAssertTrue(app.buttons["account.action.stop"].waitForExistence(timeout: 10), app.debugDescription)
     }
