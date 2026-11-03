@@ -26,6 +26,8 @@ extension DemoData {
         static let bulkPartial = "-ui-accounts-bulk-partial"
         /// bulk-update answers 500 as a whole (S2-07).
         static let bulkFail = "-ui-accounts-bulk-fail"
+        /// 60 more Anthropic accounts (`manyAccounts`), so a selection can pass the 50 that 停止调度 confirms (U-06).
+        static let accountsMany = "-ui-accounts-many"
         /// `GET :id` fails like a lost site (S2-08): the detail keeps the list's snapshot, or shows its failure page by id.
         static let detailError = "-ui-account-detail-error"
         /// `GET :id` answers 404 ACCOUNT_NOT_FOUND for every account while the list still has them (S2-08).
@@ -166,6 +168,14 @@ extension DemoData {
         return rows.map { try! JSONDecoder().decode(UpstreamAccount.self, from: JSONSerialization.data(withJSONObject: credentialFields($0, base: base))) }
     }
 
+    /// `accountsMany`: ids 1001–1060, “批量-001” to “批量-060”, every one normal and scheduling, in no group.
+    static func manyAccounts(base: Date) -> [UpstreamAccount] {
+        (1...60).map { index in
+            let row = demoAccount(1_000 + index, "批量-" + String(format: "%03d", index), "anthropic", "apikey", groups: [], concurrency: (0, 4), priority: 5)
+            return try! JSONDecoder().decode(UpstreamAccount.self, from: JSONSerialization.data(withJSONObject: credentialFields(row, base: base)))
+        }
+    }
+
     private static func demoAccount(_ id: Int, _ name: String, _ platform: String, _ type: String, status: String = "active", schedulable: Bool = true,
                                     groups: [Int], concurrency: (Int, Int), priority: Int, proxy: [String: Any]? = nil,
                                     fields: [String: Any] = [:]) -> [String: Any] {
@@ -277,7 +287,8 @@ final class AccountDemoStore {
             ? [] : DemoData.demoAccounts(base: base, longWindows: arguments.contains(DemoData.AccountFixture.longWindows))
         let expiring = arguments.contains(DemoData.AccountFixture.expired) ? Self.expiringDeepSeek(demo, base: base) : demo
         let backup = arguments.contains(DemoData.AccountFixture.bedrockError) ? Self.bedrockBackup(expiring) : expiring
-        accounts = Self.tokenFixtures(backup, base: base, arguments: arguments)
+        let many = arguments.contains(DemoData.AccountFixture.accountsMany) ? DemoData.manyAccounts(base: base) : []
+        accounts = Self.tokenFixtures(backup, base: base, arguments: arguments) + many
     }
     /// Only the newest session's store is kept.
     static func current(for generation: UUID, base: @autoclosure () -> Date) -> AccountDemoStore {

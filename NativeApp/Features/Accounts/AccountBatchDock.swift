@@ -136,10 +136,12 @@ struct AccountBatchResultsSheet: View {
 }
 
 /// 20 §1.1 / §8.1: “选择” on the left (“完成”, prominent, while selecting), the tab bar hidden and the dock at the bottom while
-/// selecting, and the results sheet. The light refresh pauses while selecting or while the sheet is open (20 §1.6).
+/// selecting, and the results sheet. The light refresh pauses while selecting or while the sheet is open (20 §1.6). Stopping more
+/// than 50 asks for the number first; Face ID, inside `run`, comes after that (U-06).
 private struct AccountBatchModeModifier: ViewModifier {
     let list: AccountListModel
     @Bindable var runner: AccountBatchRunner
+    @State private var stopPrompt: AccountBatchStopConfirmation?
 
     func body(content: Content) -> some View {
         content
@@ -150,14 +152,28 @@ private struct AccountBatchModeModifier: ViewModifier {
             .safeAreaInset(edge: .bottom) {
                 if list.isSelecting {
                     AccountBatchDock(selectedCount: list.selection.count, running: runner.running, isConfirming: runner.isConfirming,
-                                     onStop: { Task { await runner.run(enabled: false) } }, onEnable: { Task { await runner.run(enabled: true) } })
+                                     onStop: { stop() }, onEnable: { Task { await runner.run(enabled: true) } })
                         .padding(EdgeInsets(top: 4, leading: 14, bottom: 8, trailing: 14))
                 }
             }
+            .alert(stopPrompt?.title ?? "", isPresented: Binding(get: { stopPrompt != nil }, set: { if !$0 { stopPrompt = nil } }),
+                   presenting: stopPrompt) { _ in
+                Button(AccountBatchStopConfirmation.confirmTitle, role: .destructive) { Task { await runner.run(enabled: false) } }
+                Button(AccountBatchStopConfirmation.cancelTitle, role: .cancel) {}
+            } message: { Text($0.message) }
             .sheet(item: $runner.results) { results in
                 AccountBatchResultsSheet(results: results) { undo in Task { await runner.undo(undo) } }
             }
             .onChange(of: runner.results != nil) { _, shown in list.setSheetPresented(shown) }
+    }
+
+    /// The number is the accounts `run` sends, each once.
+    private func stop() {
+        if let prompt = AccountBatchPlan.stopConfirmation(count: Set(list.selectedAccounts.map(\.id)).count) {
+            stopPrompt = prompt
+        } else {
+            Task { await runner.run(enabled: false) }
+        }
     }
 
     @ViewBuilder private var selectButton: some View {

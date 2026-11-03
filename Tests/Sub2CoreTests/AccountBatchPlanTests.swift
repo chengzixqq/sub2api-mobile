@@ -197,3 +197,21 @@ private func outcome(enabled: Bool, succeeded: [Int], failures: [(Int, AccountBa
     #expect(all.keeping([1, 3, 4]).ids == [1, 3])
     #expect(all.ordered(by: [9, 8, 3, 2, 1]) == [9, 3, 2, 1])
 }
+
+/// U-06: more than 50 to stop asks for the number first; the requests are counted as `chunks` sends them.
+@Test func stopConfirmationOnlyAboveFifty() {
+    #expect(AccountBatchPlan.stopConfirmAbove == 50)
+    #expect(AccountBatchPlan.stopConfirmation(count: 0) == nil)
+    #expect(AccountBatchPlan.stopConfirmation(count: 50) == nil)
+    #expect(AccountBatchPlan.stopConfirmation(count: 51)
+            == AccountBatchStopConfirmation(title: "停止 51 个账号的调度？", message: "将停止 51 个账号的调度，分 2 次发送。"))
+    #expect(AccountBatchPlan.stopConfirmation(count: 101)?.message == "将停止 101 个账号的调度，分 3 次发送。")
+    let all = AccountBatchPlan.stopConfirmation(count: 2_000)
+    #expect(all?.title == "停止 2,000 个账号的调度？")
+    #expect(all?.message == "将停止 2,000 个账号的调度，分 40 次发送。")
+    for count in [51, 99, 100, 101, 2_000] {
+        let requests = AccountBatchPlan.chunks(ids: Array(1...count), keyed: false).count
+        #expect(AccountBatchPlan.stopConfirmation(count: count)?.message.hasSuffix("分 \(requests) 次发送。") == true)
+    }
+    #expect(AccountBatchStopConfirmation.confirmTitle == "停止调度" && AccountBatchStopConfirmation.cancelTitle == "取消")
+}

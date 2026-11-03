@@ -82,12 +82,23 @@ public struct AccountBatchReceipt: Sendable, Equatable {
     }
 }
 
+/// U-06: asked before a large 停止调度 goes out; the confirming button is destructive, the other one 取消.
+public struct AccountBatchStopConfirmation: Sendable, Equatable {
+    public static let confirmTitle = AccountActionKind.setSchedulable(false).verb
+    public static let cancelTitle = "取消"
+    public let title: String
+    public let message: String
+    public init(title: String, message: String) { self.title = title; self.message = message }
+}
+
 /// 20 §8: the account list's 停止调度 / 启用调度 on a selection, in requests of 50 sent one after another.
 public enum AccountBatchPlan {
     public static let maxPerRequest = 50
     public static let resultsTitle = "批量操作结果"
     public static let detailsAction = "查看"
     public static let confirming = "正在确认结果…"
+    /// U-06: stopping more accounts than this asks for the number first; there is no upper limit.
+    public static let stopConfirmAbove = 50
     private static let warning = "exclamationmark.triangle"
 
     /// Repeated and non-positive ids are dropped, the rest keep their first place. Keyed: one key per request, made here, at the
@@ -98,6 +109,15 @@ public enum AccountBatchPlan {
         return stride(from: 0, to: unique.count, by: maxPerRequest).map { start in
             AccountBatchChunk(ids: Array(unique[start..<min(start + maxPerRequest, unique.count)]), idempotencyKey: keyed ? makeKey() : nil)
         }
+    }
+
+    /// `count` is the selection without repeats; the requests are counted as `chunks` makes them. nil: 停止调度 goes out at once
+    /// (启用调度 and undo never ask).
+    public static func stopConfirmation(count: Int) -> AccountBatchStopConfirmation? {
+        guard count > stopConfirmAbove else { return nil }
+        let accounts = "\(DisplayFormat.grouped(count)) 个账号的调度"
+        let requests = (count + maxPerRequest - 1) / maxPerRequest
+        return AccountBatchStopConfirmation(title: "停止 \(accounts)？", message: "将停止 \(accounts)，分 \(DisplayFormat.grouped(requests)) 次发送。")
     }
 
     /// A keyed write's unconfirmed end, a lost connection, an unreadable reply, 408 and the gateway statuses may have run; a

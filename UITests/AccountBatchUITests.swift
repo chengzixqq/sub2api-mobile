@@ -10,6 +10,8 @@ final class AccountBatchUITests: XCTestCase {
         static let longWindows = "-ui-accounts-long-windows"
         static let bulkPartial = "-ui-accounts-bulk-partial"
         static let bulkFail = "-ui-accounts-bulk-fail"
+        /// 60 more Anthropic accounts: the section holds 63.
+        static let accountsMany = "-ui-accounts-many"
     }
 
     @MainActor func testSelectionModeHidesTabBarAndDoneRestoresIt() {
@@ -175,7 +177,42 @@ final class AccountBatchUITests: XCTestCase {
         XCTAssertTrue(element("readonly.caption").exists, app.debugDescription)
     }
 
+    /// U-06: stopping more than 50 asks for the number first, before any Face ID; 取消 sends nothing and keeps the selection.
+    /// 启用调度 never asks.
+    @MainActor func testStopManyAsksFirst() {
+        launchAndOpenAccounts(arguments: [Fixture.accountsMany])
+        defer { diagnostics("batch-many-final") }
+        enterSelection()
+        selectAllAnthropic()
+        app.buttons["accounts.batch.stop"].tap()
+        let alert = app.alerts["停止 63 个账号的调度？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(alert.staticTexts["将停止 63 个账号的调度，分 2 次发送。"].exists, app.debugDescription)
+        diagnostics("batch-many-confirm")
+        alert.buttons["取消"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.staticTexts["receipt.text"].waitForExistence(timeout: 2), app.debugDescription)
+        XCTAssertEqual(element("accounts.batch.count").label, "已选 63 个")
+        app.buttons["accounts.batch.stop"].tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), app.debugDescription)
+        alert.buttons["停止调度"].tap()
+        waitForReceipt("已停止调度 63 个账号")
+        XCTAssertTrue(app.tabBars.buttons["账号"].waitForExistence(timeout: 5), app.debugDescription)
+        enterSelection()
+        selectAllAnthropic()
+        app.buttons["accounts.batch.enable"].tap()
+        waitForReceipt("已启用调度 63 个账号")
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+    }
+
     // MARK: - Helpers
+
+    @MainActor private func selectAllAnthropic() {
+        let selectAll = app.buttons["accounts.section.anthropic.selectAll"]
+        reveal(selectAll)
+        selectAll.tap()
+        waitForLabel(element("accounts.batch.count"), equal: "已选 63 个")
+    }
 
     @MainActor private func launchAndOpenAccounts(arguments: [String] = []) {
         continueAfterFailure = false
