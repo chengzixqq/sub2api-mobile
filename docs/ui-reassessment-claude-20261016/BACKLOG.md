@@ -595,6 +595,7 @@
 | 用户用量趋势回执时区与请求时区不同 | （补充已有行）S4-20 未改：维持按请求时区对齐桶，出现实际案例再统一按回执时区重建桶 |
 | OpsErrorTrend.bars(in:) 暂时没有调用方 | （补充已有行）S4-20 决定保留：它是 40 §2.7 点名用例（errorTrendHourlyBarsInSiteZoneStackOnlySLAAndBusinessLimited、errorTrendDailyBarsSplitAtSiteMidnightNotUTC 等 6 个）的被测对象，删除要同时改写这些用例；界面用的是 S4-18 按页面范围分的桶 |
 | B03 补漏：dashboard/groups 的 model_source 不生效（高优先级） | （补充已有行）后端 main 的 dd80618fe（2026-10-19）已修复，chore/upgrade-upstream-v0.2.18 也包含；App 不需要改。集成者核对生产已部署后可移出或注明已修复 |
+| 下拉刷新辅助的起手点 | 共用的 app.pullToRefresh(from:) 从元素中点起手。元素被吸顶条或浮层盖住时（UITestNavigation.isBetweenBars 只按导航栏判断，不知道 safeAreaInset 吸顶条），手势会落到条上的按钮，列表不动。S4-17 只修了更多图表这一处；其他有吸顶条的页面以后写下拉用例时，应从条下方起手，或让 scrollUntilExists 把吸顶条也算进去。 |
 
 ### App 与设计 · 阶段 5
 
