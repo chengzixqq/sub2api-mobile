@@ -111,7 +111,7 @@ private let utc = TimeZone(identifier: "UTC")!
 
 @Test(arguments: [
     ("*/10 * * * *", "每 10 分钟", false), ("0 */2 * * *", "每 2 小时", false), ("  */5   *  * * *  ", "每 5 分钟", false),
-    ("*/1 * * * *", "每 1 分钟", false), ("0 */23 * * *", "每 23 小时", false),
+    ("*/1 * * * *", "每分钟", false), ("0 */1 * * *", "每小时", false), (" */1  * * * * ", "每分钟", false), ("0 */23 * * *", "每 23 小时", false),
     ("*/0 * * * *", "*/0 * * * *", true), ("*/x * * * *", "*/x * * * *", true), ("0 9 * * *", "0 9 * * *", true),
     ("5 */2 * * *", "5 */2 * * *", true), ("* * * * *", "* * * * *", true), ("*/10 * * * * *", "*/10 * * * * *", true),
     ("*/60 * * * *", "*/60 * * * *", true), ("0 */24 * * *", "0 */24 * * *", true), (" 15 9 * * 1-5 ", "15 9 * * 1-5", true)
@@ -168,19 +168,42 @@ func cronTextTable(_ expression: String, _ text: String, _ isRaw: Bool) {
     func row(_ code: Int?, _ kind: String?, status: ScheduledTestResult.Status? = .failed) -> ScheduledTestResultRow {
         ScheduledTestsPresentation.resultRow(result(1, status, code: code, kind: kind), timeZone: utc)
     }
-    #expect(row(401, "auth").outcome == .failure(badge: "401", tone: .critical, word: "凭据无效"))
+    #expect(row(401, "auth").outcome == .failure(badge: "401", tone: .critical, word: "凭据无效", latency: nil))
     #expect(row(403, "forbidden").text == "403 无权限")
     #expect(row(402, "quota").text == "402 额度不足")
-    #expect(row(429, "rate_limit").outcome == .failure(badge: "429", tone: .caution, word: "上游限流"))
-    #expect(row(529, "other").text == "529 上游 529")
-    #expect(row(500, "stream_timeout").text == "500 上游 500")
-    for (code, word) in [(401, "凭据无效"), (402, "额度不足"), (403, "无权限"), (429, "上游限流"), (503, "上游 503")] {
+    #expect(row(429, "rate_limit").outcome == .failure(badge: "429", tone: .caution, word: "上游限流", latency: nil))
+    // S2-中-31: other kinds already name the code (“上游 529”), so there is no separate code badge and the code shows once.
+    #expect(row(529, "other").outcome == .failure(badge: nil, tone: .critical, word: "上游 529", latency: nil))
+    #expect(row(529, "other").text == "上游 529" && row(529, "other").spokenText == "01:40，上游 529")
+    #expect(row(500, "stream_timeout").text == "上游 500")
+    for (code, word) in [(401, "凭据无效"), (402, "额度不足"), (403, "无权限"), (429, "上游限流")] {
         #expect(row(code, nil).text == "\(code) \(word)", "old server \(code)")
     }
-    #expect(row(nil, "custom_code").outcome == .failure(badge: "—", tone: .neutral, word: "失败"))
+    #expect(row(503, nil).text == "上游 503", "old server 503")
+    #expect(row(nil, "auth").text == "— 凭据无效" && row(nil, "auth").spokenText == "01:40，凭据无效")
+    #expect(row(nil, "custom_code").outcome == .failure(badge: "—", tone: .neutral, word: "失败", latency: nil))
     #expect(row(nil, nil, status: .other("queued")).text == "— 失败")
     #expect(row(nil, nil, status: nil).spokenText == "01:40，失败")
     #expect(row(401, "auth").spokenText == "01:40，401 凭据无效")
+}
+
+@Test func failureRowCarriesLatency() {
+    func row(_ code: Int?, _ kind: String?, latency: Int?) -> ScheduledTestResultRow {
+        ScheduledTestsPresentation.resultRow(result(1, .failed, latency: latency, code: code, kind: kind), timeZone: utc)
+    }
+    let limited = row(429, "rate_limit", latency: 1_300)
+    #expect(limited.outcome == .failure(badge: "429", tone: .caution, word: "上游限流", latency: "1.3s"))
+    #expect(limited.text == "429 上游限流 · 1.3s" && limited.spokenText == "01:40，429 上游限流 · 1.3s")
+    #expect(limited.failureDetail == "上游限流 · 1.3s")
+    let overloaded = row(529, "other", latency: 2_100)
+    #expect(overloaded.text == "上游 529 · 2.1s" && overloaded.spokenText == "01:40，上游 529 · 2.1s" && overloaded.failureDetail == "2.1s")
+    let unknown = row(nil, nil, latency: 400)
+    #expect(unknown.text == "— 失败 · 0.4s" && unknown.spokenText == "01:40，失败 · 0.4s" && unknown.failureDetail == "失败 · 0.4s")
+    for missing in [nil, -1] as [Int?] {
+        #expect(row(429, "rate_limit", latency: missing).text == "429 上游限流", "\(String(describing: missing))")
+        #expect(row(529, "other", latency: missing).failureDetail == nil, "\(String(describing: missing))")
+    }
+    #expect(ScheduledTestsPresentation.resultRow(result(2, .success, latency: 900), timeZone: utc).failureDetail == nil)
 }
 
 @Test func statusCodeRegexFallback() {
@@ -190,13 +213,20 @@ func cronTextTable(_ expression: String, _ text: String, _ isRaw: Bool) {
     #expect(code("request failed (503)") == 503)
     #expect(code("API returned 429: slow down") == 429)
     #expect(code("upstream returned 529 overloaded") == 529)
-    #expect(code("bad (999)") == nil && code("returned 42") == nil && code("HTTP 403") == nil && code(nil) == nil && code("") == nil)
+    // S2-中-36: the backend's own pattern (account_test_trace.go) and its test cases, with Go's ASCII \d, \s and \b.
+    #expect(code("HTTP 403") == 403 && code("Grok Realtime WS handshake failed (HTTP 403): x") == 403)
+    #expect(code("上游 API 返回 429") == 429 && code("上游返回 429") == 429 && code("返回429") == 429 && code("返回429错误") == 429)
+    #expect(code("Authentication failed (500)") == 500)
+    #expect(code("bad (999)") == nil && code("upstream returned 999") == nil && code("returned 42") == nil && code(nil) == nil && code("") == nil)
+    #expect(code("returned 4290") == nil && code("returned 4012 rows") == nil && code("Request failed: dial tcp: timeout") == nil)
+    // Go's pattern does not read “HTTP/1.1 503”; the first match decides; full-width digits are not \d.
+    #expect(code("HTTP/1.1 503") == nil && code("returned 999 after (503)") == nil && code("返回 ４２９") == nil && code("(５０３)") == nil)
     #expect(code("API returned 429", upstream: 401) == 401)
     #expect(code("API returned 429", upstream: 0) == 429)
     let row = ScheduledTestsPresentation.resultRow(result(1, .failed, kind: "other", message: "no status here"), timeZone: utc)
-    #expect(row.outcome == .failure(badge: "—", tone: .neutral, word: "失败"))
+    #expect(row.outcome == .failure(badge: "—", tone: .neutral, word: "失败", latency: nil))
     let parsed = ScheduledTestsPresentation.resultRow(result(1, .failed, kind: "other", message: "upstream returned 529 overloaded"), timeZone: utc)
-    #expect(parsed.outcome == .failure(badge: "529", tone: .critical, word: "上游 529"))
+    #expect(parsed.outcome == .failure(badge: nil, tone: .critical, word: "上游 529", latency: nil))
 }
 
 @Test func rowNeverShowsErrorMessage() async throws {

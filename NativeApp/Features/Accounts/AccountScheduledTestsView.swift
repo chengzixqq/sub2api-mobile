@@ -165,7 +165,7 @@ struct AccountScheduledTestsView: View {
     }
 }
 
-/// HH:MM, then “成功 · 1.3s”, or the status badge and the kind word; read as one line.
+/// HH:MM, then “成功 · 1.3s”, or the status badge, the kind word and the latency; read as one line.
 private struct AccountScheduledTestResultLine: View {
     let row: ScheduledTestResultRow
 
@@ -177,9 +177,10 @@ private struct AccountScheduledTestResultLine: View {
             switch row.outcome {
             case .success:
                 Text(row.text).font(.subheadline).monospacedDigit().foregroundStyle(Palette.ink1)
-            case .failure(let badge, let tone, let word):
-                ToneBadge(text: badge, tone: tone)
-                Text(word).font(.subheadline).foregroundStyle(Palette.ink1)
+            case .failure(let badge, let tone, let word, _):
+                // “上游 529” is itself the badge, so the code shows once (S2-中-31).
+                ToneBadge(text: badge ?? word, tone: tone)
+                if let detail = row.failureDetail { Text(detail).font(.subheadline).monospacedDigit().foregroundStyle(Palette.ink1) }
             }
             Spacer(minLength: 0)
         }

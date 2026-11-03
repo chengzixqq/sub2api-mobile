@@ -519,8 +519,8 @@ final class AccountDetailUITests: XCTestCase {
         waitForValue(row, equals: "计划已停用")
     }
 
-    /// The small page lists the plan's newest results: a failure as its code and kind word, never error_message; GLM's 529 comes
-    /// only from its message. Pull to refresh keeps the list.
+    /// The small page lists the plan's newest results: a failure as its code, kind word and latency, never error_message; GLM's 529
+    /// comes only from its message. Pull to refresh keeps the list.
     @MainActor func testScheduledTestsPageListsResultsWithoutRawMessage() {
         openDetail(7)
         defer { diagnostics("account-scheduled-page-final") }
@@ -531,7 +531,7 @@ final class AccountDetailUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["定时测试"].waitForExistence(timeout: 10), app.debugDescription)
         let newest = element("account.scheduledTests.result.7101")
         XCTAssertTrue(newest.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(newest.label.contains("401 凭据无效"), newest.label)
+        XCTAssertTrue(newest.label.contains("401 凭据无效 · 0.2s"), newest.label)
         XCTAssertTrue(element("account.scheduledTests.result.7102").label.contains("成功 · 0.8s"), app.debugDescription)
         XCTAssertEqual(element("account.scheduledTests.plan").label, "每 10 分钟 · gpt-4.1-mini")
         let raw = NSPredicate(format: "identifier BEGINSWITH 'account.scheduledTests' AND label CONTAINS 'invalid_api_key'")
@@ -545,7 +545,9 @@ final class AccountDetailUITests: XCTestCase {
         row.tap()
         let parsed = element("account.scheduledTests.result.11101")
         XCTAssertTrue(parsed.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(parsed.label.contains("529 上游 529"), parsed.label)
+        // The kind word already names the code, so the row has no separate code badge and says 529 once (S2-中-31).
+        XCTAssertTrue(parsed.label.contains("上游 529 · 1.2s"), parsed.label)
+        XCTAssertEqual(parsed.label.components(separatedBy: "529").count, 2, parsed.label)
     }
 
     /// A failed read: the row says “读取失败” and still opens the small page, which offers 重试; the other sections are unaffected.
