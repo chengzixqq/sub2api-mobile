@@ -3,8 +3,8 @@ import XCTest
 /// S6-07: 批量生成兑换码 (60 §10) and the list's + interception (60 §8.4). The fixture server answers a new batch with its codes
 /// (5000 + 100 × the batch id's first byte on) and adds them to the list; `-ui-redeem-generate-unknown / -replayed / -rejected`
 /// change the answer, `-ui-redeem-no-subscription-groups` empties the subscription groups (RedeemFixtures), `-ui-account-groups-error`
-/// fails the group directory with 502. `-ui-pending-money`
-/// gives the site a batch of 20 × $10.00 awaiting its result, `-ui-pending-old-site` an older login's 10 × $5.00 (S3-07).
+/// fails the group directory with 502 and `-ui-redeem-groups-cancelled` cancels its reads until the App is back in the foreground.
+/// `-ui-pending-money` gives the site a batch of 20 × $10.00 awaiting its result, `-ui-pending-old-site` an older login's 10 × $5.00 (S3-07).
 final class RedeemGenerateUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
     private static let site = "生成验收"
@@ -280,7 +280,31 @@ final class RedeemGenerateUITests: XCTestCase {
         XCTAssertTrue(submit.isEnabled, app.debugDescription)
     }
 
+    /// U-17 review: a first read of the group directory that the move to the background cancelled leaves no read out; back in
+    /// the foreground the wizard reads it again instead of showing 正在读取分组… for good.
+    @MainActor func testGroupsCancelledInBackgroundAreReadAgainInForeground() {
+        launchAndLogin([Self.groupsCancelled])
+        defer { diagnostics("generate-groups-cancelled-final") }
+        openGenerate()
+        app.buttons["redeem.generate.type.subscription"].tap()
+        let loading = element("redeem.generate.groups.loading"), group = app.buttons["redeem.generate.group.4"]
+        let next = app.buttons["redeem.generate.next"]
+        XCTAssertTrue(loading.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(group.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertFalse(next.isEnabled, app.debugDescription)
+        diagnostics("generate-groups-cancelled")
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), app.debugDescription)
+        XCTAssertTrue(group.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(group.isSelected && group.label == "企业专线", app.debugDescription)
+        XCTAssertFalse(loading.exists, app.debugDescription)
+        XCTAssertTrue(next.isEnabled, app.debugDescription)
+    }
+
     // MARK: - Helpers
+
+    private static let groupsCancelled = "-ui-redeem-groups-cancelled"
 
     /// Signs in to “生成验收” with a password and opens 兑换码 from the search tab's directory.
     @MainActor private func launchAndLogin(_ arguments: [String] = []) {

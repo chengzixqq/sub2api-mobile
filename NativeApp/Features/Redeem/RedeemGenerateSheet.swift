@@ -14,6 +14,8 @@ struct RedeemGenerateSheet: View {
         content
             .interactiveDismissDisabled(state.isWorking)
             .task(id: session?.generation) { await model.groupDirectory?.ensureLoaded() }
+            // A first read the move to the background cancelled leaves the directory idle with no read out (U-17 review).
+            .onChange(of: model.foregroundRevision) { _, _ in Task { await model.groupDirectory?.ensureLoaded() } }
             .onChange(of: model.sessionGeneration) { _, _ in dismiss() }
     }
 
