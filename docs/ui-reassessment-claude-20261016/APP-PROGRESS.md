@@ -305,6 +305,7 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 | U-07 | 账号详情 · 模型分区对“按平台默认模型”的账号改空映射文案；高级 sheet 探测行在倍率同步开着时加“关闭后倍率同步也会关闭” | ✅ | `0d1de2f` | 按后端判定：Antigravity / Grok / DeepSeek / Gemini Google One / OpenAI OAuth（未开透传）空映射时写“按平台默认模型”，右上“平台默认”，sheet 脚注换新句；“平台默认”和新脚注是自拟文字。倍率同步提示放在开关正下方作独立元素（开关会把标签合成一个元素，放标签里 UI 测试取不到标识），按已存储状态显示。夹具改用 GLM-直连-01（#11），#4 被改倍率的用例占用。详情页只读行不加说明。check：AccountEditUITests + AccountListUITests 53/53 通过，无重跑 |
 | U-04 | 账号列表 · 开关关着的“错误”账号右滑给“恢复状态…”；组头告警窗口“只看需处理的账号”同时筛到该平台并展开分区 | ✅ | `a00c523` | 凭据类错误也给“恢复状态…”，更换凭据仍走详情页；AccountRecoverDialog / accountRecoverDialog 的 actions 改为可选（与 contracts.md 不同，已有调用方不变）；先展开分区再一次读取 select(.needs, platform:)；恢复确认框打开时不暂停轻量刷新；UI：AccountListUITests、GroupMembersUITests、AccountDetailUITests 共 71 个全部通过 |
 | U-09 | 定时测试 · 步长 1 写“每分钟 / 每小时”、失败行带耗时、“上游 {码}”只写一次、状态码正则与后端一致 | ✅ | `d34a8bb` | Outcome.failure 改为 (badge: String?, tone:, word:, latency: String?)，新增 failureDetail；兜底“上游 {码}”放进带状态色的码牌、耗时跟在牌后不加“·”（自拟版式，等截图再定）；状态码正则照后端 account_test_trace.go，\d/\s/\b 写成 ASCII 字符类以和 Go 一致，比 20 §0.1 宽（用户裁定 S2-中-36）；“每分钟 / 每小时”只有单元测试覆盖（演示数据没有步长 1 的计划）；check：AccountDetailUITests 28/28 通过 |
+| U-05 | 账号测试连接：输出区补脱敏规则；Bedrock / Vertex 认证失败写“凭据无效或已撤销”；后台测试中断回执带账号名 | ✅ | `31beb17` | 脱敏新增 PEM 私钥、密钥键名后的值、JWT、AWS AKIA/ASIA、Google AIza 五类；顺序为 PEM、键值、带形状的令牌、Bearer/sk-/URL。键值规则只换掉值、保留原有分隔符与引号（方案模板“$1: [已隐藏]”会留下多余引号并改写“=”），转义 JSON 显示为 \"x-api-key\":\"[已隐藏]\"；键名边界不用 \b（汉字紧贴时 \b 匹配不到）；值前的“Bearer ”一并遮住，值遇到全角“，；。”停止；正则清单为自拟。已知局限：流式内容里跨多行的 PEM 只遮住 BEGIN 行。中断回执带「账号名」，窗口标题不变。check：AccountTestUITests、AccountNewUITests 共 25/25 通过，无 flaky |
 
 ### 阶段 2 小结
 
