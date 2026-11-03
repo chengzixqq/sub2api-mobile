@@ -99,17 +99,11 @@ public enum AccountReauthorizePresentation {
 
     /// What the server would refuse only after the code is spent (prepareReauthorize): such an account goes to the Web without a link.
     public static func precheck(_ account: UpstreamAccount) -> String? {
-        guard let platform = OAuthPlatform(accountPlatform: account.platform), account.isTokenAccount else {
+        guard OAuthPlatform(accountPlatform: account.platform) != nil, account.isTokenAccount else {
             return AccountOAuthErrorCopy.unsupportedText(nil)
         }
         if account.parentAccountID != nil { return AccountOAuthErrorCopy.unsupportedText("shadow_account") }
-        if platform == .openai, isPersonalAccessToken(account) { return AccountOAuthErrorCopy.unsupportedText("codex_personal_access_token") }
+        if account.isOpenAIPersonalAccessToken { return AccountOAuthErrorCopy.unsupportedText("codex_personal_access_token") }
         return nil
-    }
-    private static func isPersonalAccessToken(_ account: UpstreamAccount) -> Bool {
-        ["auth_mode", "openai_auth_mode"].contains { key in
-            let mode = account.credentials?[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return mode == "personal_access_token" || mode == "personalaccesstoken"
-        }
     }
 }
