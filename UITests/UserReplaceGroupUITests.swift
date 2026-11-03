@@ -21,7 +21,7 @@ final class UserReplaceGroupUITests: XCTestCase {
         let submit = app.buttons["keys.replace.submit"]
         XCTAssertTrue(submit.label.contains("选择目标分组") && !submit.isEnabled, submit.label)
         let option = app.buttons["keys.replace.option.11"]
-        XCTAssertTrue(option.label.contains("Codex 专线") && option.label.contains("OpenAI · 专属分组 · 默认倍率 ×1"), option.label)
+        XCTAssertTrue(option.label.contains("Codex 专线") && option.label.contains("OpenAI · 专属分组 · 默认倍率 ×1.0"), option.label)
         XCTAssertFalse(app.buttons["keys.replace.option.5"].exists || app.buttons["keys.replace.option.4"].exists, app.debugDescription)
         option.tap()
         XCTAssertTrue(waitUntil(submit, "label CONTAINS '替换为「Codex 专线」'"), submit.label)

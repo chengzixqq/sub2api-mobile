@@ -307,11 +307,11 @@ func rateMultiplierRejectsOtherText(_ value: String) throws {
     #expect(basic(base).change(draft, now: editNow) == nil)
 }
 
-@Test func rateTextUsesDisplayFormatDecimal() {
+@Test func rateTextUsesTheMultiplierFormat() {
     #expect(AccountEditCopy.rate(Decimal(string: "1.2")) == "×1.2")
-    #expect(AccountEditCopy.rate(1) == "×1")
+    #expect(AccountEditCopy.rate(1) == "×1.0")
     #expect(AccountEditCopy.rate(Decimal(string: "1.23456")) == "×1.235")
-    #expect(AccountEditCopy.rate(0) == "×0")
+    #expect(AccountEditCopy.rate(0) == "×0.0")
     #expect(AccountEditCopy.rate(nil) == "—")
     #expect(AccountEditCopy.quotaUsed(Decimal(string: "96.3")) == "已用 $96.30")
     #expect(AccountEditCopy.quotaUsed(nil) == nil)

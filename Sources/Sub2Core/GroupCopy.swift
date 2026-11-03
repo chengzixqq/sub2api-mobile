@@ -187,7 +187,10 @@ public struct GroupEditDiff: Sendable {
         var lines = ["站点 \(siteName) · 分组「\(original.name)」"]
         if let name = newName { lines.append("名称 \(original.name) → \(name)") }
         if descriptionChanged { lines.append("描述已修改") }
-        if let rate = newRate { lines.append("费率倍数 \(GroupFormat.rateText(original.rateMultiplier)) → \(GroupFormat.rateText(rate))") }
+        if let rate = newRate {
+            let pair = DisplayFormat.multiplierChange(from: original.rateMultiplier, to: rate)
+            lines.append("费率倍数 \(pair.from) → \(pair.to)")
+        }
         if let rpm = newRPM { lines.append("每用户 RPM \(GroupFormat.rpmText(original.rpmLimit)) → \(GroupFormat.rpmText(rpm))") }
         for limit in limitChanges { lines.append("\(limit.title)限额 \(GroupFormat.limitText(limit.old)) → \(GroupFormat.limitText(limit.new))") }
         if let exclusive = newExclusive {

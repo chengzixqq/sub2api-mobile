@@ -264,7 +264,7 @@ struct UserKeyCardSkeleton: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack { Text("Key 名称占位").font(.body.weight(.semibold)); Spacer(); Text("sk-…0000").font(.footnote.monospaced()) }
             Text("今日 $0.00").font(.subheadline)
-            Text("分组 · 默认 ×1 · 最近使用").font(.footnote)
+            Text("分组 · 默认 ×1.0 · 最近使用").font(.footnote)
         }
         .padding(.vertical, 8)
         .redacted(reason: .placeholder)

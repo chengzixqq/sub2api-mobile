@@ -92,11 +92,8 @@ public enum UserEditCopy {
 
     // MARK: 分组
 
-    /// The App's one rate format (S3D1-21): “×1.3”, at most three decimals, as S2-10 shows an account's rate.
-    public static func rateText(_ value: Decimal?) -> String {
-        guard let value else { return DisplayFormat.missing }
-        return "×" + DisplayFormat.decimal(NSDecimalNumber(decimal: value).doubleValue, maxFractionDigits: 3)
-    }
+    /// “×1.3”: the App's one rate format, see DisplayFormat.multiplier (U-02).
+    public static func rateText(_ value: Decimal?) -> String { DisplayFormat.multiplier(value) }
     /// “默认 ×0.8”.
     public static func defaultRate(_ group: AdminGroup) -> String { "默认 " + rateText(group.rateMultiplier) }
     public static func groupCount(_ count: Int) -> String { "\(DisplayFormat.grouped(count)) 个" }

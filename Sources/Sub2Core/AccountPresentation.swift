@@ -117,7 +117,7 @@ public enum AccountFieldPresentation {
         case .rpm: number(account.currentRPM)
         case .baseRPM: number(account.baseRPM)
         case .priority: number(account.priority)
-        case .rateMultiplier: account.rateMultiplier.map { decimal($0) + "×" } ?? DisplayFormat.missing
+        case .rateMultiplier: DisplayFormat.multiplier(account.rateMultiplier)
         case .status: status(account, now: now)
         case .schedulable: account.schedulable ? "参与调度" : "暂停调度"
         case .expiresAt: ListFieldPresentation.timestamp(seconds: account.expiresAt)
@@ -142,7 +142,7 @@ public enum AccountFieldPresentation {
             else { DisplayFormat.missing }
         case .upstreamBilling:
             if let probe = account.extra?.upstreamBillingProbe, let multiplier = probe.historicalMultiplier(at: now) {
-                "上次探测 \(decimal(multiplier))×（\(ListFieldPresentation.timestamp(probe.data?.observedAt))）"
+                "上次探测 \(DisplayFormat.multiplier(multiplier))（\(ListFieldPresentation.timestamp(probe.data?.observedAt))）"
             } else { DisplayFormat.missing }
         }
     }
@@ -169,8 +169,6 @@ public enum AccountFieldPresentation {
     }
 
     private static func number(_ value: Int?) -> String { DisplayFormat.grouped(value) }
-    /// Multipliers keep every digit the server sent.
-    private static func decimal(_ value: Decimal) -> String { NSDecimalNumber(decimal: value).stringValue }
     private static func schedulerScore(_ score: AccountSchedulerScore, grouped: Bool) -> String {
         let group = grouped ? (score.groupName ?? score.groupID.map { "#\($0)" } ?? "未分组") + "：" : ""
         // Weighted scores are small fractions; compact numbers would round them to whole numbers.

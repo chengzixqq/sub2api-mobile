@@ -86,7 +86,7 @@ private func body(_ request: AdminAPIKeyUpdateRequest) throws -> String { String
     #expect(UserKeyPresentation.metaLine(key(group: 2, lastUsed: threeMinutes), groups: groups, access: studio, now: now, zone: shanghai)
         == "标准组 · 专属倍率 ×0.9 · 最近使用 3 分钟前")
     #expect(UserKeyPresentation.metaLine(key(group: 1), groups: groups, access: studio, now: now, zone: shanghai) == "高级组 · 默认 ×0.8 · 未使用")
-    #expect(UserKeyPresentation.metaLine(key(group: 8), groups: groups, access: studio, now: now, zone: shanghai) == "无倍率组 · 默认 ×1 · 未使用")
+    #expect(UserKeyPresentation.metaLine(key(group: 8), groups: groups, access: studio, now: now, zone: shanghai) == "无倍率组 · 默认 ×1.0 · 未使用")
     #expect(UserKeyPresentation.metaLine(key(group: nil), groups: groups, access: studio, now: now, zone: shanghai) == "不绑定分组 · 未使用")
     #expect(UserKeyPresentation.metaLine(key(group: 0), groups: groups, access: studio, now: now, zone: shanghai) == "不绑定分组 · 未使用")
     #expect(UserKeyPresentation.metaLine(key(group: 7), groups: groups, access: studio, now: now, zone: shanghai) == "分组 #7 · 未使用")

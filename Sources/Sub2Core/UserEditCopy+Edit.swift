@@ -94,7 +94,7 @@ extension UserEditCopy {
     public static func resetRate(_ group: AdminGroup) -> String { "改回默认倍率 " + rateText(group.rateMultiplier) }
     /// “默认 0.8”, the rate box's placeholder.
     public static func ratePlaceholder(_ group: AdminGroup) -> String {
-        group.rateMultiplier.map { "默认 " + DisplayFormat.decimal(NSDecimalNumber(decimal: $0).doubleValue, maxFractionDigits: 3) } ?? "默认"
+        group.rateMultiplier.map { "默认 " + DisplayFormat.multiplierNumber($0) } ?? "默认"
     }
 
     // MARK: 并发与 RPM
