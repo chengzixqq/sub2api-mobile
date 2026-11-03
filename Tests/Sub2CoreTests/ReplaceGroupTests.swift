@@ -220,7 +220,7 @@ private func groupClient(_ transport: ScriptedTransport) -> APIClient {
     #expect(ReplaceGroupCopy.footnote == "把一个专属分组换成另一个：绑定的 Key 一起迁移，旧分组的权限随之移除。")
     #expect(ReplaceGroupCopy.sheetTitle == "替换专属分组")
     #expect(ReplaceGroupCopy.sheetNote(source: "Claude Code 组", keys: 1) == "选择新分组替换「Claude Code 组」，将自动迁移绑定的 1 个 Key 并更新分组权限。")
-    #expect(ReplaceGroupCopy.optionSubtitle(exclusive(11, "Codex 专线"), platformName: "OpenAI") == "OpenAI · 专属分组 · 默认倍率 ×1")
+    #expect(ReplaceGroupCopy.optionSubtitle(exclusive(11, "Codex 专线"), platformName: "OpenAI") == "OpenAI · 专属分组 · 默认倍率 ×1.0")
     #expect(ReplaceGroupCopy.optionSubtitle(exclusive(5, "Claude Code 组", rate: "0.8"), platformName: "Anthropic") == "Anthropic · 专属分组 · 默认倍率 ×0.8")
     #expect(ReplaceGroupCopy.empty == "没有其他可用的专属分组")
     #expect(ReplaceGroupCopy.submit(target: "Codex 专线") == "替换为「Codex 专线」" && ReplaceGroupCopy.submit(target: nil) == "选择目标分组")

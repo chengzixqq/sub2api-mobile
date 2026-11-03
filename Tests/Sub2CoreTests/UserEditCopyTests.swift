@@ -80,7 +80,7 @@ private func group(_ id: Int, _ name: String, platform: String = "anthropic", ra
     let claude = group(5, "Claude Code 组")
     #expect(UserEditCopy.defaultRate(claude) == "默认 ×0.8")
     #expect(UserEditCopy.rateText(Decimal(string: "1.23456")!) == "×1.235")
-    #expect(UserEditCopy.rateText(1) == "×1")
+    #expect(UserEditCopy.rateText(1) == "×1.0")
     #expect(UserEditCopy.rateText(nil) == "—")
     #expect(UserEditCopy.groupCount(2) == "2 个")
     #expect(UserEditCopy.publicAvailable(allowed: 3, total: 7) == "可用 3 / 7")

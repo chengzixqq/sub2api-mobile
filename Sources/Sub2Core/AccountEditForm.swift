@@ -225,11 +225,8 @@ public enum AccountEditCopy {
     public static func quotaTitle(_ quota: AccountQuota) -> String { quota.field.title }
     /// 已用 $x; nil when the server sent no amount.
     public static func quotaUsed(_ amount: Decimal?) -> String? { amount.map { "已用 " + DisplayFormat.money($0) } }
-    /// ×1.2: DisplayFormat.decimal, up to three digits (BACKLOG “倍率的显示位数”, the account side).
-    public static func rate(_ value: Decimal?) -> String {
-        guard let value else { return DisplayFormat.missing }
-        return "×" + DisplayFormat.decimal(NSDecimalNumber(decimal: value).doubleValue, maxFractionDigits: 3)
-    }
+    /// ×1.2: the App's one rate format, see DisplayFormat.multiplier (U-02).
+    public static func rate(_ value: Decimal?) -> String { DisplayFormat.multiplier(value) }
     /// 已保存：the first three names, then “等 N 项”.
     public static func savedReceipt(_ names: [String]) -> String {
         names.count > 3 ? "已保存：\(names.prefix(3).joined(separator: "、")) 等 \(names.count) 项" : "已保存：\(names.joined(separator: "、"))"

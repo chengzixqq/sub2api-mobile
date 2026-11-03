@@ -248,3 +248,18 @@ private func snapshot(_ id: Int, _ name: String? = nil, status: String = "active
     #expect(GroupErrorCopy.message(for: failure, context: .write) == failure.errorDescription)
     #expect(GroupErrorCopy.message(for: APIError.server(status: 409, reason: "GROUP_EXISTS"), context: .write) == "已有同名分组。")
 }
+
+/// U-02: “a → b” rates that read the same at three decimals but differ keep every digit; other rates use the one format.
+@Test func saveConfirmationWidensEqualLookingRates() {
+    func rateLine(_ old: String, _ new: String) -> String? {
+        GroupEditDiff(original: group(rate: old), update: GroupUpdateRequest(rateMultiplier: Decimal(string: new)))
+            .lines(siteName: "演示站", activeAPIKeys: nil).first { $0.hasPrefix("费率倍数") }
+    }
+    #expect(rateLine("0.13", "0.1304") == "费率倍数 ×0.13 → ×0.1304")
+    #expect(rateLine("0.1251", "0.1254") == "费率倍数 ×0.1251 → ×0.1254")
+    #expect(rateLine("0.1254", "0.1256") == "费率倍数 ×0.125 → ×0.126")
+    #expect(rateLine("0.8", "0.9") == "费率倍数 ×0.8 → ×0.9")
+    #expect(rateLine("1", "1.25") == "费率倍数 ×1.0 → ×1.25")
+    let create = GroupCreateRequest(name: "新组", platform: "anthropic", rateMultiplier: Decimal(string: "0.1255")!)
+    #expect(GroupCopy.createConfirmation(create, siteName: "演示站", availableAfter: 0)?.lines.first == "站点 演示站 · Anthropic · 费率倍数 ×0.126")
+}

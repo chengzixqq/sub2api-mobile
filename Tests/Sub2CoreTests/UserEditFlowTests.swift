@@ -284,6 +284,10 @@ private func key(_ id: Int, group: Int?, masked: String? = "sk-…0001") -> Admi
     #expect(UserEditCopy.groupSheetNote(claude, platformName: "Anthropic", boundKeys: 0) == "专属分组 · Anthropic · 默认倍率 ×0.8")
     #expect(UserEditCopy.resetRate(claude) == "改回默认倍率 ×0.8")
     #expect(UserEditCopy.ratePlaceholder(claude) == "默认 0.8")
+    let whole = group(9, "Codex 专线", exclusive: true, rate: "1")
+    #expect(UserEditCopy.resetRate(whole) == "改回默认倍率 ×1.0")
+    #expect(UserEditCopy.ratePlaceholder(whole) == "默认 1.0")
+    #expect(UserEditCopy.ratePlaceholder(group(9, "Codex 专线", exclusive: true, rate: "0.1255")) == "默认 0.126")
     #expect(UserEditCopy.keysSegmentTitle(count: 2) == "Key 与限额（2）")
     #expect(UserEditCopy.keysSegmentTitle(count: nil) == "Key 与限额")
 }
