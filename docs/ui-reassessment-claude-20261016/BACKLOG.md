@@ -403,6 +403,7 @@
 | 全量 gate 时 Mac 过载，XCTest 空闲等待卡死 | S2-16 审查修正时复现 4 次：Mac 整机过载时（CPU 打满，或 8–9 台模拟器且空闲内存不足 1.5G；S6-26 收口 gate 就是这样），在更换 API Key sheet 里收起键盘后，XCTest 报 App animations complete notification not received，之后每个动作等满 60 秒。此时 App CPU 为 0、画面静止，不是 App 缺陷。紧跟其后的 4.2 秒回执因此看不到，导致 AccountCredentialUITests.testHealthyKeyAccountReplacesFromMenuAndRow 首跑失败（237 秒 ≈ 57 + 3×60）。测试侧无法规避，建议在 mac-test.sh 里让 gate 独占 Mac（gate 期间其他线的 UI 检查排队）或调低 GATE_WORKERS；UI_FLAKY 中耗时超过 120 秒的用例可标为“疑似环境停顿”。 |
 | UI 测试 receiptButton 有三份副本 | AccountDetailMenuUITests、ProxiesUITests+Edit、AccountCredentialUITests 各有一份相同的私有 receiptButton（回执写着某文字时才匹配某标题的按钮）。可以提到 UITests 的共用扩展里（放在 XCUIElement+Poll.swift 旁边），三处一起换。 |
 | 批量停止调度确认框的标题与按钮文字 | U-06 的标题“停止 N 个账号的调度？”与按钮“停止调度 / 取消”是自拟文字（正文“将停止 N 个账号的调度，分 M 次发送。”用清单原文），等用户看截图确认或改写 |
+| 无刷新令牌时“刷新令牌”脚注的版式 | U-08 在置灰的“刷新令牌”行下加了“没有刷新令牌，只能重新授权”（footnote、ink3、左缩进 34pt 对齐行标题、下边距 10pt），和令牌行的“不会自动刷新”同时出现；OpenAI 个人访问令牌账号也会显示这句。请用户看截图后决定版式和是否合并两句 |
 
 ### App 与设计 · 阶段 3
 
