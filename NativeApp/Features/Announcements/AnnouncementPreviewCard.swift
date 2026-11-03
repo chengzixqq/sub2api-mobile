@@ -66,9 +66,8 @@ struct AnnouncementPreviewCard: View {
 
     /// The bell list's entry: the 00 §8.1 capsule in the neutral tone, which `statusCapsule` leaves undrawn.
     private var rail: some View {
-        Capsule().fill(Palette.neutral)
+        StatusCapsuleShape().fill(Palette.neutral)
             .frame(width: StatusCapsuleMetrics.width)
-            .padding(.vertical, StatusCapsuleMetrics.verticalInset)
             .padding(.leading, StatusCapsuleMetrics.leadingInset)
             .accessibilityHidden(true)
     }
