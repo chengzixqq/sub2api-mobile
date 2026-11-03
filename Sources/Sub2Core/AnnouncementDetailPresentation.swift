@@ -56,7 +56,9 @@ public enum AnnouncementMenuItem: Equatable, Sendable {
 /// AnnouncementPresentation.
 public enum AnnouncementDetailPresentation {
     public static let emptyBody = "还没有正文", previewDismiss = "知道了", gone = "已删除"
-    public static let publishedReceipt = "已发布 · 符合条件的用户能看到", archivedReceipt = "已归档 · 用户不再看到"
+    public static let archivedReceipt = "已归档 · 用户不再看到"
+    /// S6-高-10: an end already past on the server's clock means nobody sees it.
+    public static func publishedReceipt(hasEnded: Bool) -> String { hasEnded ? "已发布 · 结束时间已过，用户看不到" : "已发布 · 符合条件的用户能看到" }
     /// 00 §2.4: an unkeyed write whose result could not be read back.
     public static let unconfirmed = "结果未确认，请刷新核对后再操作"
     /// 00 §4.6: a refresh failed while the older detail stays.

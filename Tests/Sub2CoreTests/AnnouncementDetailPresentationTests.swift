@@ -44,7 +44,8 @@ import Testing
 }
 
 @Test func announcementDetailReceiptsAndFailureCopy() {
-    #expect(AnnouncementDetailPresentation.publishedReceipt == "已发布 · 符合条件的用户能看到")
+    #expect(AnnouncementDetailPresentation.publishedReceipt(hasEnded: false) == "已发布 · 符合条件的用户能看到")
+    #expect(AnnouncementDetailPresentation.publishedReceipt(hasEnded: true) == "已发布 · 结束时间已过，用户看不到")
     #expect(AnnouncementDetailPresentation.archivedReceipt == "已归档 · 用户不再看到")
     #expect(AnnouncementDetailPresentation.writeFailed(.publish, reason: "X") == "发布没有成功：X")
     #expect(AnnouncementDetailPresentation.writeFailed(.republish, reason: "X") == "重新发布没有成功：X")

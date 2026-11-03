@@ -182,10 +182,11 @@ struct AnnouncementDetailView: View {
     private func appeared() async {
         guard let session, session.generation == model.sessionGeneration else { return }
         if detailGeneration != session.generation {
-            let generation = session.generation
+            let generation = session.generation, clock = session.client.serverClock
             detail = AnnouncementDetailModel(id: id, source: model.announcementDetailSource(for: session),
                                              readStatsEnabled: session.has(.announcementsReadStats), receipts: model.receipts,
-                                             signal: model.announcementChanges, isCurrent: { [weak model] in model?.sessionGeneration == generation })
+                                             signal: model.announcementChanges, isCurrent: { [weak model] in model?.sessionGeneration == generation },
+                                             serverNow: { clock.now() })
             detailGeneration = generation
         }
         await detail?.loadIfNeeded()

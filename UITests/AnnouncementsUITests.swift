@@ -750,4 +750,23 @@ final class AnnouncementsUITests: XCTestCase {
         XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
         XCTAssertTrue(segmentButton(labeled: "草稿 1").waitForExistence(timeout: 10), app.debugDescription)
     }
+
+    // MARK: - 结束时间已过的重新发布（U-19）
+
+    /// S6-高-10: 27 ended 18 days ago. 重新发布 warns on the confirmation's last line; the receipt says nobody sees it.
+    @MainActor func testRepublishEndedShowsWarningAndReceipt() {
+        launchAnnouncements()
+        openDetail(27)
+        defer { diagnostics("announcement-detail-republish-ended-final") }
+        XCTAssertTrue(detailButton("republish").waitForExistence(timeout: 10), app.debugDescription)
+        detailButton("republish").tap()
+        let alert = app.alerts["发布「国庆期间客服时间调整」？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        let warning = alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "结束时间已过，发布后用户也看不到；请先编辑有效期")).firstMatch
+        XCTAssertTrue(warning.exists, app.debugDescription)
+        diagnostics("announcement-detail-republish-ended")
+        alert.buttons["发布"].tap()
+        XCTAssertTrue(waitForLabel(app.staticTexts["receipt.text"], containing: "已发布 · 结束时间已过，用户看不到"), app.debugDescription)
+        XCTAssertTrue(detailButton("archive").waitForExistence(timeout: 10), app.debugDescription)
+    }
 }

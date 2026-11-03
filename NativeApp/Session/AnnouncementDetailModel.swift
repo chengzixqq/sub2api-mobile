@@ -38,15 +38,18 @@ final class AnnouncementDetailModel {
     @ObservationIgnored private let signal: AnnouncementChangeSignal
     @ObservationIgnored private let isCurrent: @MainActor @Sendable () -> Bool
     @ObservationIgnored private let now: @MainActor () -> Date
+    /// The server-corrected clock (ServerClock): whether the end the server returned has passed.
+    @ObservationIgnored private let serverNow: @MainActor () -> Date
     /// Changes with every load and applied write; a reply carrying an older one is dropped.
     @ObservationIgnored private var ticket = UUID()
     /// The signal's revision this detail has read or written itself.
     @ObservationIgnored private var appliedRevision: Int
 
     init(id: Int, source: AnnouncementDetailSource, readStatsEnabled: Bool, receipts: ReceiptCenter, signal: AnnouncementChangeSignal,
-         isCurrent: @escaping @MainActor @Sendable () -> Bool, now: @escaping @MainActor () -> Date = { Date() }) {
+         isCurrent: @escaping @MainActor @Sendable () -> Bool, now: @escaping @MainActor () -> Date = { Date() },
+         serverNow: @escaping @MainActor () -> Date = { Date() }) {
         self.id = id; self.source = source; self.readStatsEnabled = readStatsEnabled; self.receipts = receipts; self.signal = signal
-        self.isCurrent = isCurrent; self.now = now
+        self.isCurrent = isCurrent; self.now = now; self.serverNow = serverNow
         appliedRevision = signal.revision
     }
 
@@ -67,14 +70,14 @@ final class AnnouncementDetailModel {
         guard case .idle = summary, !detail.isLoading, isCurrent() else { return }
         await loadSummary(for: announcement, ticket: ticket)
     }
-    /// The detail (with read_stats under the capability), then the summary unless it is a draft. A failed refresh keeps the
-    /// shown detail (00 §4.6).
+    /// The detail (never with read_stats: the read row uses the summary, S6-低-2), then the summary unless it is a draft. A
+    /// failed refresh keeps the shown detail (00 §4.6).
     func load() async {
         guard isCurrent(), !isGone else { return }
         let ticket = UUID()
         self.ticket = ticket
         detail = detail.withLoading()
-        let result = await Self.capture { [source, id, readStatsEnabled] in try await source.load(id, readStatsEnabled) }
+        let result = await Self.capture { [source, id] in try await source.load(id, false) }
         guard ticket == self.ticket else { return }
         guard isCurrent(), !Task.isCancelled else { detail = detail.withCancelledLoad(); return }
         switch result {
@@ -136,7 +139,7 @@ final class AnnouncementDetailModel {
             applied(fresh)
             receipts.show(action == .archive
                 ? Receipt(text: AnnouncementDetailPresentation.archivedReceipt, systemImage: "tray", tone: .neutral, undo: undoArchive())
-                : Receipt(text: AnnouncementDetailPresentation.publishedReceipt, systemImage: "megaphone"))
+                : publishedReceipt(fresh))
             await load()
             return .applied
         case .reconfirm: return .reconfirm
@@ -268,6 +271,11 @@ final class AnnouncementDetailModel {
 
     // MARK: - Helpers
 
+    /// S6-高-10: the end the server returned, on the server's clock.
+    private func publishedReceipt(_ fresh: Announcement) -> Receipt {
+        let hasEnded = AnnouncementPresentation.hasEnded(endsAt: fresh.endsAt, now: serverNow())
+        return Receipt(text: AnnouncementDetailPresentation.publishedReceipt(hasEnded: hasEnded), systemImage: "megaphone", tone: hasEnded ? .caution : .ok)
+    }
     private static var unconfirmedReceipt: Receipt {
         Receipt(text: AnnouncementDetailPresentation.unconfirmed, systemImage: "exclamationmark.triangle", tone: .caution)
     }
