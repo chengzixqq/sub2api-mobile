@@ -15,8 +15,8 @@ struct RedeemEditForm: View {
     /// The server-corrected clock.
     let now: Date
     let serverZone: ServerTimeZone
-    /// The session's group directory (X11).
-    let groups: [AdminGroup]
+    /// The session's group directory (X11); nil until it is read.
+    let groups: [AdminGroup]?
     let notice: RedeemEditNotice?
 
     private var code: AdminRedeemCode { draft.original }
@@ -134,7 +134,7 @@ struct RedeemEditForm: View {
         if draft.showsGroup {
             Section("订阅分组") {
                 ListFieldFlow(spacing: 8) {
-                    ForEach(groupOptions, id: \.id) { option in
+                    ForEach(draft.groupOptions(directory: groups)) { option in
                         RedeemEditChip(title: option.title, isOn: draft.groupID == option.id) { draft.groupID = option.id }
                             .accessibilityIdentifier("redeem.edit.group.\(option.id)")
                     }
@@ -144,15 +144,7 @@ struct RedeemEditForm: View {
         }
     }
 
-    /// Active subscription groups in the directory's order (60 §9.2); the code's own group stays shown, marked, when it is
-    /// no longer one of them.
-    private var groupOptions: [(id: Int, title: String)] {
-        let active = groups.filter(\.isActiveSubscriptionGroup).map { (id: $0.id, title: $0.name) }
-        guard let current = code.groupID, !active.contains(where: { $0.id == current }) else { return active }
-        let name = groupName(current) ?? code.group?.name ?? "分组 #\(current)"
-        return [(id: current, title: RedeemEditCopy.groupDisabled(name))] + active
-    }
-    private func groupName(_ id: Int?) -> String? { id.flatMap { id in groups.first { $0.id == id }?.name } }
+    private func groupName(_ id: Int?) -> String? { id.flatMap { id in groups?.first { $0.id == id }?.name } }
 
     // MARK: 过期时间
 

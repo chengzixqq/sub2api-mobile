@@ -196,7 +196,7 @@ final class RedeemCodesUITests: XCTestCase {
         for part in ["兑换码生成结果待核对", "20 个 × $10.00 · 合计 $200.00", "分钟前发起，未确认是否已生成"] {
             XCTAssertTrue(labelled(containing: part).exists, part + "\n" + app.debugDescription)
         }
-        XCTAssertFalse(labelled(containing: "等 2 批").exists || labelled(containing: "旧登录").exists, app.debugDescription)
+        XCTAssertFalse(labelled(containing: "共 2 批").exists || labelled(containing: "旧登录").exists, app.debugDescription)
         let check = app.buttons["redeem.pending.check"]
         XCTAssertNotEqual(check.value as? String, "primary")
         check.tap()
@@ -207,7 +207,7 @@ final class RedeemCodesUITests: XCTestCase {
         launchRedeem(["-ui-pending-money", "-ui-pending-old-site"])
         defer { diagnostics("redeem-banner-old-final") }
         XCTAssertTrue(element("redeem.pending.banner").waitForExistence(timeout: 10), app.debugDescription)
-        for part in ["兑换码生成结果待核对等 2 批", "10 个 × $5.00 · 合计 $50.00", "分钟前发起，未确认是否已生成 · 这笔在本站点的旧登录下发起"] {
+        for part in ["兑换码生成结果待核对 · 共 2 批", "10 个 × $5.00 · 合计 $50.00", "分钟前发起，未确认是否已生成 · 这笔在本站点的旧登录下发起"] {
             XCTAssertTrue(labelled(containing: part).exists, part + "\n" + app.debugDescription)
         }
     }
@@ -406,5 +406,21 @@ final class RedeemCodesUITests: XCTestCase {
             XCTAssertTrue(app.buttons["redeem.generate.type.\(type)"].waitForExistence(timeout: 10), type + "\n" + app.debugDescription)
         }
         XCTAssertFalse(app.alerts.firstMatch.exists, app.debugDescription)
+    }
+
+    /// U-16: while the group directory cannot be read, the code's own group is named without a mark.
+    @MainActor func testEditGroupUnmarkedWhileDirectoryUnread() {
+        launchRedeem(["-ui-account-groups-error"])
+        defer { diagnostics("redeem-edit-group-unread-final") }
+        open(2038)
+        let edit = app.buttons["redeem.card.2038.edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5), app.debugDescription)
+        reveal(edit)
+        edit.tap()
+        XCTAssertTrue(app.navigationBars["编辑兑换码"].waitForExistence(timeout: 5), app.debugDescription)
+        let current = app.buttons["redeem.edit.group.4"]
+        XCTAssertTrue(current.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(current.label, "企业专线")
+        XCTAssertTrue(current.isSelected, app.debugDescription)
     }
 }

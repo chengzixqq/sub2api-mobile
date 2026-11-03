@@ -158,6 +158,14 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
     #expect(bench.host.events == ["replace 7 disabled", "replace 7 unused"])
 }
 
+@MainActor @Test func toggleRefusedStatusSaysTheStatus() async {
+    let bench = Bench()
+    bench.fake.updateReplies = [.failure(APIError.server(status: 400, reason: "REDEEM_CODE_STATUS_INVALID"))]
+    await bench.writes.toggleStatus(redeemCode("unused"))
+    #expect(bench.host.shown[7]?.status == "unused")
+    #expect(bench.receipt == "状态无效，请重新选择")
+}
+
 @MainActor @Test func toggle409RefreshesCard() async {
     let bench = Bench()
     bench.fake.updateReplies = [.failure(used)]
@@ -273,7 +281,8 @@ private func redeemCode(_ status: String, id: Int = 7, usedBy: Int? = nil, notes
     #expect(racing.receipt == nil)
 
     for (error, text) in [(APIError.server(status: 400, reason: "REDEEM_CODE_EXPIRES_AT_INVALID"), "过期时间要晚于现在"),
-                          (APIError.server(status: 400, reason: "REDEEM_CODE_GROUP_ID_INVALID"), "分组无效，请重新选择")] {
+                          (APIError.server(status: 400, reason: "REDEEM_CODE_GROUP_ID_INVALID"), "分组无效，请重新选择"),
+                          (APIError.server(status: 400, reason: "REDEEM_CODE_STATUS_INVALID"), "状态无效，请重新选择")] {
         let refused = Bench()
         refused.fake.updateReplies = [.failure(error)]
         #expect(await refused.writes.save(raced) == .rejected(text))

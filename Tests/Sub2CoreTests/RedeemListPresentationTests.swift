@@ -247,7 +247,7 @@ private func banner(_ records: [any PendingMoneyWrite], sameAddress: Set<UUID> =
     let elsewhere = pendingBatch(UUID(), serverID: otherAddress, minutesAgo: 90)
     let shown = try #require(banner([newer, refund, older, elsewhere]))
     #expect(shown.batchID == older.id)
-    #expect(shown.title == "兑换码生成结果待核对等 2 批")
+    #expect(shown.title == "兑换码生成结果待核对 · 共 2 批")
     #expect(shown.amountLine == "10 个 × $5.00 · 合计 $50.00")
     #expect(shown.timeLine == "30 分钟前发起，未确认是否已生成")
 }

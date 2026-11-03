@@ -166,6 +166,31 @@ public struct RedeemEditDraft: Sendable, Equatable {
     }
 }
 
+/// One chip of 订阅分组.
+public struct RedeemEditGroupOption: Sendable, Equatable, Identifiable {
+    public let id: Int
+    public let title: String
+}
+
+extension RedeemEditDraft {
+    /// The directory's active subscription groups in its order (60 §9.2); the code's own group, when not one of them, stays first
+    /// and selectable as it was (not choosing another sends no group). `directory` is nil until it is read.
+    public func groupOptions(directory: [AdminGroup]?) -> [RedeemEditGroupOption] {
+        let active = (directory ?? []).filter(\.isActiveSubscriptionGroup).map { RedeemEditGroupOption(id: $0.id, title: $0.name) }
+        guard let current = original.groupID, !active.contains(where: { $0.id == current }) else { return active }
+        return [RedeemEditGroupOption(id: current, title: currentGroupTitle(current, directory: directory))] + active
+    }
+    /// Marked by what the directory says: 已停用 when disabled or no longer listed, 非订阅分组 when active of another type; only the
+    /// name while the directory is unread.
+    private func currentGroupTitle(_ id: Int, directory: [AdminGroup]?) -> String {
+        let listed = directory?.first { $0.id == id }
+        let name = listed?.name ?? original.group?.name ?? "分组 #\(id)"
+        guard directory != nil else { return name }
+        guard let listed, listed.status == "active" else { return RedeemEditCopy.groupDisabled(name) }
+        return RedeemEditCopy.groupNotSubscription(name)
+    }
+}
+
 /// 60 §8.4 / §9.3 / §9.4 wording that is not a draft's.
 public enum RedeemEditCopy {
     public static let objectNoun = "兑换码"
@@ -194,6 +219,8 @@ public enum RedeemEditCopy {
     public static func deleteConsequence(_ code: AdminRedeemCode) -> String { RedeemPresentation.menuMessage(code) }
     /// A current group that is no longer an active subscription group stays selectable as it was.
     public static func groupDisabled(_ name: String) -> String { name + "（已停用）" }
+    /// …and one still active that is no longer of the subscription type.
+    public static func groupNotSubscription(_ name: String) -> String { name + "（非订阅分组）" }
 }
 
 /// How a batch-update or delete of one code failed (60 §8.4, §9.4): never resent on its own (00 §2.4).
@@ -204,8 +231,10 @@ public enum RedeemWriteFailure: Equatable, Sendable {
     case gone
     /// 400 REDEEM_CODE_EXPIRES_AT_INVALID.
     case expiresAtInvalid
-    /// 400 REDEEM_CODE_GROUP_ID_INVALID, and REDEEM_CODE_STATUS_INVALID with the same words (9.4).
+    /// 400 REDEEM_CODE_GROUP_ID_INVALID.
     case groupInvalid
+    /// 400 REDEEM_CODE_STATUS_INVALID: its own words, so a refused status never sends the administrator to the group.
+    case statusInvalid
     /// Lost connection, an unreadable reply, 502 / 504 or a 503 without its own reason: read back.
     case unconfirmed
     case cancelled
@@ -223,6 +252,7 @@ public enum RedeemWriteFailure: Equatable, Sendable {
         case .gone: RedeemEditCopy.gone
         case .expiresAtInvalid: "过期时间要晚于现在"
         case .groupInvalid: "分组无效，请重新选择"
+        case .statusInvalid: "状态无效，请重新选择"
         case .unconfirmed: RedeemEditCopy.unconfirmed
         case .cancelled: ""
         case .reconfirm(let text), .other(let text): text
@@ -241,7 +271,8 @@ public enum RedeemWriteFailure: Equatable, Sendable {
         case (409?, Self.usedReason?): return .used
         case (404?, Self.notFoundReason?): return .gone
         case (400?, "REDEEM_CODE_EXPIRES_AT_INVALID"?): return .expiresAtInvalid
-        case (400?, "REDEEM_CODE_GROUP_ID_INVALID"?), (400?, "REDEEM_CODE_STATUS_INVALID"?): return .groupInvalid
+        case (400?, "REDEEM_CODE_GROUP_ID_INVALID"?): return .groupInvalid
+        case (400?, "REDEEM_CODE_STATUS_INVALID"?): return .statusInvalid
         default: break
         }
         // A refresh that failed before sending was never sent.

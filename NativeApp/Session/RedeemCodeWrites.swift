@@ -108,7 +108,7 @@ final class RedeemCodeWrites {
             caution(RedeemEditCopy.unconfirmed)
             await list?.refreshCard(id: id)
         case .reconfirm(let notice): caution(notice)
-        case .expiresAtInvalid, .groupInvalid, .other: warn(failure.message)
+        case .expiresAtInvalid, .groupInvalid, .statusInvalid, .other: warn(failure.message)
         }
     }
 
@@ -130,7 +130,7 @@ final class RedeemCodeWrites {
             Task { await self.list?.refreshCard(id: code.id) }
         case .cancelled?: return
         case .reconfirm(let notice)?: caution(notice)
-        case .expiresAtInvalid?, .groupInvalid?, .other?: warn(failure?.message ?? "")
+        case .expiresAtInvalid?, .groupInvalid?, .statusInvalid?, .other?: warn(failure?.message ?? "")
         }
     }
     /// A DELETE without an answer: a 404 now means it went through; still there or unreadable stays unconfirmed.
@@ -183,7 +183,7 @@ final class RedeemCodeWrites {
             gone(id)
             return .gone
         case .unconfirmed: return .unconfirmed
-        case .expiresAtInvalid, .groupInvalid, .reconfirm, .other: return .rejected(failure.message)
+        case .expiresAtInvalid, .groupInvalid, .statusInvalid, .reconfirm, .other: return .rejected(failure.message)
         }
     }
 
