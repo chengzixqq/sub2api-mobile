@@ -147,3 +147,13 @@ private actor AccountRuntimeTransport: HTTPTransport {
     let request = try #require(await transport.requests().first)
     #expect(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "include_scheduler_score", value: "1")) == true)
 }
+
+/// U-02: the account list's rate and the probe's historical rate use the App's one multiplier format.
+@Test func fieldPresentationUsesMultiplier() throws {
+    let account = try runtimeAccount(#""rate_multiplier":1.5,"extra":{"upstream_billing_probe":{"status":"ok","fresh_until":"2026-10-15T02:00:00Z","data":{"effective_rate_multiplier":"1.234567890123456789","observed_at":"2026-10-15T00:00:00Z"}}}"#)
+    #expect(AccountFieldPresentation.value(.rateMultiplier, account: account, now: fixedNow) == "×1.5")
+    #expect(AccountFieldPresentation.value(.rateMultiplier, account: try runtimeAccount(#""rate_multiplier":1"#), now: fixedNow) == "×1.0")
+    #expect(AccountFieldPresentation.value(.rateMultiplier, account: try runtimeAccount(), now: fixedNow) == "—")
+    let billing = AccountFieldPresentation.value(.upstreamBilling, account: account, now: Date(timeIntervalSince1970: 1_792_026_000))
+    #expect(billing.hasPrefix("上次探测 ×1.235（") && billing.hasSuffix("）"))
+}

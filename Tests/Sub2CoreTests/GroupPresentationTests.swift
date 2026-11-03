@@ -235,12 +235,13 @@ private func member(_ id: Int, platform: String = "anthropic", status: String = 
 
 // MARK: 0.6 显示格式
 
-@Test func rateTextUsesOneDigitAtTenthsOtherwiseTwo() {
+/// U-02: the App's one rate format, three decimals with trailing zeros trimmed down to one.
+@Test func rateTextUsesThreeDigits() {
     #expect(GroupFormat.rateText(Decimal(string: "0.8")) == "×0.8")
     #expect(GroupFormat.rateText(1) == "×1.0")
     #expect(GroupFormat.rateText(Decimal(string: "1.25")) == "×1.25")
-    #expect(GroupFormat.rateText(Decimal(string: "1.23456789")) == "×1.23")
-    #expect(GroupFormat.rateText(Decimal(string: "2.999")) == "×3.0")
+    #expect(GroupFormat.rateText(Decimal(string: "1.23456789")) == "×1.235")
+    #expect(GroupFormat.rateText(Decimal(string: "2.999")) == "×2.999")
     #expect(GroupFormat.rateText(Decimal(string: "0.05")) == "×0.05")
     #expect(GroupFormat.rateText(nil) == "—")
 }

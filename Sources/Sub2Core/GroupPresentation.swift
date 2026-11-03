@@ -328,11 +328,8 @@ public enum GroupListSections {
 public enum GroupFormat {
     public enum BillingStyle: Sendable { case long, short }
 
-    /// “×0.8”, “×1.0”, “×1.25”: one digit when the value is exact to 0.1, otherwise two.
-    public static func rateText(_ value: Decimal?) -> String {
-        guard let value else { return DisplayFormat.missing }
-        return "×" + DisplayFormat.decimal(NSDecimalNumber(decimal: value).doubleValue, minFractionDigits: 1, maxFractionDigits: 2)
-    }
+    /// “×0.8”, “×1.0”, “×1.25”: the App's one rate format, see DisplayFormat.multiplier (U-02).
+    public static func rateText(_ value: Decimal?) -> String { DisplayFormat.multiplier(value) }
     public static func billingText(_ subscriptionType: String?, style: BillingStyle = .long) -> String {
         guard let type = subscriptionType, !type.isEmpty else { return DisplayFormat.missing }
         switch type {
