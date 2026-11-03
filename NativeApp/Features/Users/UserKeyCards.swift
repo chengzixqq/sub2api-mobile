@@ -2,7 +2,9 @@ import SwiftUI
 import Sub2Core
 
 /// 30 §7.3 one key card (design UeKeyCard): collapsed, the name with its badge, the mask, the usage line and the meta line;
-/// expanded, the facts, 速率限制 and the actions. One row, so the status capsule runs along the whole card.
+/// expanded, the facts, 速率限制 and the actions. Two List rows, so opening or closing inserts or removes the second while the
+/// first keeps its height: a row grown in place is resized by the List at once while its content slides after it (S3-12 审查修正).
+/// The status capsule runs along both.
 struct UserKeyCard: View {
     let key: AdminAPIKey
     let isExpanded: Bool
@@ -23,6 +25,8 @@ struct UserKeyCard: View {
     let onEdit: () -> Void
     let onReveal: () -> Void
     let onDelete: () -> Void
+    /// The first row's top in the window, nil once it has left the screen (UserKeysSegment brings a head pushed off back).
+    let onHeadTop: (CGFloat?) -> Void
 
     private var now: Date { context.now() }
     private var status: AdminAPIKeyStatus { key.status(now: now) }
@@ -30,19 +34,29 @@ struct UserKeyCard: View {
     private var prefix: String { "keys.card.\(key.id)" }
 
     var body: some View {
+        summary
+        if isExpanded { expanded }
+    }
+
+    /// The first row. The List's row modifiers go outermost: under the identity and the geometry reading the row lost its insets.
+    private var summary: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
             usage
             Text(UserKeyPresentation.metaLine(key, groups: groups, access: access, now: now, zone: context.serverTimeZone))
                 .font(.footnote).foregroundStyle(Palette.ink2).lineLimit(2)
                 .accessibilityIdentifier(prefix + ".meta")
-            if isExpanded { expanded }
         }
         .padding(EdgeInsets(top: 12, leading: StatusCapsuleMetrics.contentLeadingInset, bottom: 12, trailing: 0))
-        .statusCapsule(tone: status.tone)
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+        .statusCapsule(tone: status.tone, position: isExpanded ? .top : .single)
+        .alignmentGuide(.listRowSeparatorLeading) { _ in StatusCapsuleMetrics.contentLeadingInset }
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { onHeadTop($0) }
+        .onDisappear { onHeadTop(nil) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(prefix)
+        .id(prefix)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+        .listRowSeparator(isExpanded ? .hidden : .automatic, edges: .bottom)
     }
 
     private var header: some View {
@@ -79,17 +93,27 @@ struct UserKeyCard: View {
         .accessibilityIdentifier(prefix + ".usage")
     }
 
-    @ViewBuilder private var expanded: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            fact("有效期", UserKeyPresentation.expiryText(key.expiresAt, zone: context.serverTimeZone), id: "expiry")
-            fact("当前并发", UserKeyPresentation.concurrencyText(key.currentConcurrency, supported: context.refreshesConcurrency), id: "concurrency")
-            fact("最近 IP", UserKeyPresentation.lastIPText(key.lastUsedIP), id: "ip", monospaced: true)
-            fact("IP 限制", UserKeyPresentation.ipRuleText(whitelist: key.ipWhitelist, blacklist: key.ipBlacklist), id: "iprule")
+    /// The second row, right under the first: no separator between them, the capsule joined.
+    private var expanded: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                fact("有效期", UserKeyPresentation.expiryText(key.expiresAt, zone: context.serverTimeZone), id: "expiry")
+                fact("当前并发", UserKeyPresentation.concurrencyText(key.currentConcurrency, supported: context.refreshesConcurrency), id: "concurrency")
+                fact("最近 IP", UserKeyPresentation.lastIPText(key.lastUsedIP), id: "ip", monospaced: true)
+                fact("IP 限制", UserKeyPresentation.ipRuleText(whitelist: key.ipWhitelist, blacklist: key.ipBlacklist), id: "iprule")
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(prefix + ".expanded")
+            UserKeyRateLimitsView(limits: UserKeyPresentation.rateLimits(key, now: now, zone: context.serverTimeZone), prefix: prefix)
+            actions
         }
+        .padding(EdgeInsets(top: 0, leading: StatusCapsuleMetrics.contentLeadingInset, bottom: 12, trailing: 0))
+        .statusCapsule(tone: status.tone, position: .bottom)
+        .alignmentGuide(.listRowSeparatorLeading) { _ in StatusCapsuleMetrics.contentLeadingInset }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(prefix + ".expanded")
-        UserKeyRateLimitsView(limits: UserKeyPresentation.rateLimits(key, now: now, zone: context.serverTimeZone), prefix: prefix)
-        actions
+        .accessibilityIdentifier(prefix + ".details")
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+        .listRowSeparator(.hidden, edges: .top)
     }
 
     private func fact(_ label: String, _ value: String, id: String, monospaced: Bool = false) -> some View {

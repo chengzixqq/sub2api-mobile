@@ -8,9 +8,12 @@ struct UserKeysSegment: View {
     let editor: UserEditorModel
     /// Hung on the page (`userKeyPrompts`): inside the form they would go with a row scrolled away.
     let prompts: UserKeyPrompts
-    /// The page's ScrollViewReader: a card whose head left the screen when another closed is brought back.
+    /// The form's top in the window and the page's ScrollViewReader: a card whose head left the form when another closed is
+    /// brought back.
+    let formTop: CGFloat
     let scrollTo: @MainActor (String) -> Void
     @Environment(AppModel.self) private var app
+    @State private var heads = UserKeyHeadTops()
 
     private var context: UserKeysContext? { model.context }
     private var groups: [AdminGroup] { app.groupDirectory?.groups ?? [] }
@@ -72,8 +75,7 @@ struct UserKeysSegment: View {
                     onSetStatus: { status in Task { await model.setStatus(key, to: status) } }, onGap: { prompts.gap = $0 },
                     reveal: prompts.manage.revealAvailability(model: app), onEdit: { prompts.manage.beginEdit(key) },
                     onReveal: { Task { await prompts.manage.reveal(key, keys: model, model: app) } },
-                    onDelete: { requestDelete(key) })
-            .id("keys.card.\(key.id)")
+                    onDelete: { requestDelete(key) }, onHeadTop: { [heads] in heads.tops[key.id] = $0 })
     }
 
     private func emptyRow(_ context: UserKeysContext) -> some View {
@@ -119,17 +121,22 @@ struct UserKeysSegment: View {
         .accessibilityIdentifier("keys.new.gap")
     }
 
-    /// One card open at a time; closing a card above can push the opened one's head off screen, so it is brought back.
+    /// One card open at a time: opening one closes the other, and the List only inserts and removes the cards' second rows. A
+    /// card closing above can push the opened one's head off the form; once the rows have moved it is brought back (design
+    /// UeKeySec: only a head above the form, so a head still on screen stays where it was tapped).
     private func toggle(_ id: Int) {
-        let previous = model.expandedID
-        let opened = withAnimation(.snappy) { model.toggleExpanded(id) }
-        guard opened, let previous, let from = model.keys.firstIndex(where: { $0.id == previous }),
-              let to = model.keys.firstIndex(where: { $0.id == id }), from < to else { return }
-        Task {
-            try? await Task.sleep(for: .milliseconds(250))
-            withAnimation { scrollTo("keys.card.\(id)") }
+        withAnimation(.snappy) { _ = model.toggleExpanded(id) } completion: { [heads, formTop] in
+            guard model.expandedID == id, heads.isAbove(id, top: formTop) else { return }
+            withAnimation(.snappy) { scrollTo("keys.card.\(id)") }
         }
     }
+}
+
+/// Each card head's top in the window, written as the rows move without redrawing the segment.
+@MainActor final class UserKeyHeadTops {
+    var tops: [Int: CGFloat] = [:]
+    /// No reading: the row has left the screen.
+    func isAbove(_ id: Int, top: CGFloat) -> Bool { tops[id].map { $0 < top } ?? true }
 }
 
 /// The segment's sheet and questions, opened by its cards.

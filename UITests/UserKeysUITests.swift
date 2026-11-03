@@ -29,12 +29,19 @@ final class UserKeysUITests: XCTestCase {
         defer { diagnostics("user-keys-expand-final") }
         openKeys()
         expand(4087)
-        // Closing 4031 above moved 4087's head; the page brings it back.
+        // 4031 closing above moves 4087's head up, still on screen: the page does not scroll (design UeKeySec), so its head stays
+        // unfolded.
         XCTAssertTrue(toggle(4087).isHittable, app.debugDescription)
+        XCTAssertTrue(element("user-edit.hint").exists, app.debugDescription)
         XCTAssertFalse(element("keys.card.4031.expiry").exists, app.debugDescription)
         reveal(toggle(4031), towardBottom: false)
         XCTAssertEqual(toggle(4031).value as? String, "已收起")
+        expand(4031)
+        // 4031's details under the page head and 4087's head right below them: 4031 closing would push it off the form.
+        dragUnderPageHead(toggle(4087))
         expand(4087)
+        XCTAssertTrue(toggle(4087).isHittable, app.debugDescription)
+        XCTAssertGreaterThanOrEqual(toggle(4087).frame.minY, element("user-edit.segment.basic").frame.maxY, app.debugDescription)
         toggle(4087).tap()
         XCTAssertTrue(waitUntil(toggle(4087), "value == '已收起'"), app.debugDescription)
     }
@@ -423,6 +430,18 @@ final class UserKeysUITests: XCTestCase {
             (up ? upper : lower).press(forDuration: 0.05, thenDragTo: up ? lower : upper, withVelocity: .slow, thenHoldForDuration: 0.2)
         }
         XCTAssertTrue(item.exists && item.isHittable, app.debugDescription)
+    }
+    /// Slow drags that stop without momentum, from below the element's row head, leaving the element just under the page head;
+    /// the first one folds the head.
+    @MainActor private func dragUnderPageHead(_ item: XCUIElement) {
+        reveal(item)
+        for margin in [120.0, 20.0] {
+            let distance = item.frame.minY - (visibleBand().0 + margin)
+            guard distance > 8 else { continue }
+            let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0))
+            let start = origin.withOffset(CGVector(dx: 0, dy: item.frame.minY + 60))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -distance)), withVelocity: .slow, thenHoldForDuration: 0.4)
+        }
     }
     /// Below the navigation bar and the page head, above the keyboard and a receipt.
     @MainActor private func visibleBand() -> (CGFloat, CGFloat) {

@@ -17,6 +17,7 @@ struct UserEditScreen: View {
     @State private var keyPrompts = UserKeyPrompts()
     @State private var scrolled = false
     @State private var typing = false
+    @State private var formTop: CGFloat = 0
     @FocusState private var focus: UserDraftField?
 
     private var catalog: UserGroupCatalog { UserGroupCatalog(groups: model.groupDirectory?.groups ?? []) }
@@ -123,10 +124,13 @@ struct UserEditScreen: View {
                                       onAddGroups: { sheet = .addExclusiveGroups }, onOpenGroup: { sheet = .group(id: $0) },
                                       rpmRefreshToken: rpmRefresh)
             case .keys:
-                if let keys = editor.keys { UserKeysSegment(model: keys, editor: editor, prompts: keyPrompts) { proxy.scrollTo($0, anchor: .top) } }
+                if let keys = editor.keys {
+                    UserKeysSegment(model: keys, editor: editor, prompts: keyPrompts, formTop: formTop) { proxy.scrollTo($0, anchor: .top) }
+                }
             }
         }
         .disabled(editor.isFrozen)
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { formTop = $0 }
         .scrollDismissesKeyboard(.interactively)
         .refreshable {
             rpmRefresh += 1
