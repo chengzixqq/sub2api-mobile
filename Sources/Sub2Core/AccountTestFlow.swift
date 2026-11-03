@@ -101,7 +101,8 @@ public enum AccountTestFlow {
             return outcome.passed ? AccountTestReceiptCopy(text: "「\(name)」测试通过", systemImage: "checkmark.circle", tone: .ok, button: .view)
                 : AccountTestReceiptCopy(text: "「\(name)」测试未通过", systemImage: "xmark.octagon", tone: .critical, button: .view)
         case .interrupted:
-            return AccountTestReceiptCopy(text: AccountTestPresentation.interruptedText, systemImage: warning, tone: .caution, button: .retest)
+            return AccountTestReceiptCopy(text: "「\(name)」" + AccountTestPresentation.interruptedText, systemImage: warning, tone: .caution,
+                                          button: .retest)
         case .notStarted(.cancelled): return nil
         case .notStarted(.readOnly):
             return AccountTestReceiptCopy(text: AccountTestStartFailure.readOnlyReason, systemImage: warning, tone: .critical, button: nil)

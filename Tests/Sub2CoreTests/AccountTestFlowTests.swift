@@ -70,7 +70,7 @@ private func api(_ status: Int, _ reason: String?, retryAfter: Int? = nil, secur
     let fail = Flow.receipt(.finished(failed()), name: "主号")
     #expect(fail?.text == "「主号」测试未通过" && fail?.tone == .critical && fail?.button == .view)
     let interrupted = Flow.receipt(.interrupted, name: "主号")
-    #expect(interrupted?.text == "测试被中断，不能判定是否成功" && interrupted?.button == .retest && interrupted?.button?.title == "重新测试")
+    #expect(interrupted?.text == "「主号」测试被中断，不能判定是否成功" && interrupted?.button == .retest && interrupted?.button?.title == "重新测试")
     #expect(Flow.receipt(.notStarted(.failed("x")), name: "主号")?.text == "测试没有开始：x")
     #expect(Flow.receipt(.notStarted(.failed("x")), name: "主号")?.button == .retest)
     #expect(Flow.receipt(.notStarted(.busy(retryAfter: 30)), name: "主号")?.button == nil)

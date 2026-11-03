@@ -28,6 +28,7 @@ private func run(_ status: AccountTestRun.Status, startedAt: Date?, latency: Int
                    upstreamStatusCode: upstream, errorKind: kind, startedAt: startedAt, errorMessage: message)
 }
 private func content(_ text: String) -> AccountTestEvent { AccountTestEvent(type: "content", content: text) }
+private let googleAPIKey = "AIza" + String(repeating: "x", count: 35)
 
 // MARK: - Default model and header
 
@@ -54,9 +55,37 @@ func defaultModelPrefersFirstSonnet(_ ids: [String], _ expected: String?) {
     ("sk-abc", "sk-abc"),
     ("see HTTPS://api.example.com/v1?x=1 now", "see [已隐藏] now"),
     ("你好🌍 done", "你好🌍 done"),
-])
+    ("x-api-key: abcd1234efgh", "x-api-key: [已隐藏]"),
+    (#"{"access_token":"ya29.abc","expires_in":3600}"#, #"{"access_token":"[已隐藏]","expires_in":3600}"#),
+    ("X-Goog-Api-Key=abc123; next", "X-Goog-Api-Key=[已隐藏]; next"),
+    ("aws_secret_access_key = wJalrXUtnFEMI/K7MDENG", "aws_secret_access_key = [已隐藏]"),
+    ("access_token=Bearer abc123", "access_token=[已隐藏]"),
+    ("Authorization: Bearer abc x-api-key: def", "Authorization: [已隐藏] x-api-key: [已隐藏]"),
+    ("invalid x-api-key sk-ant-api03-abcdef", "invalid x-api-key [已隐藏]"),
+    ("x-api-key-name: shown, access_token_expires_in: 60", "x-api-key-name: shown, access_token_expires_in: 60"),
+    ("无效的access_token: abc，请检查", "无效的access_token: [已隐藏]，请检查"),
+    ("密钥AKIAIOSFODNN7EXAMPLE。", "密钥[已隐藏]。"),
+    ("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig end", "jwt [已隐藏] end"),
+    ("id AKIAIOSFODNN7EXAMPLE / ASIAIOSFODNN7EXAMPLE", "id [已隐藏] / [已隐藏]"),
+    ("AKIA1234 short", "AKIA1234 short"),
+    ("key \(googleAPIKey) end", "key [已隐藏] end"),
+    ("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY----- tail", "[已隐藏] tail"),
+    (#"{"private_key":"-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n"}"#, #"{"private_key":"[已隐藏]\n"}"#),
+    ("-----BEGIN PRIVATE KEY-----\nMIIEvQ", "[已隐藏]"),
+] as [(String, String)])
 func sanitizeHidesBearerKeysAndURLs(_ raw: String, _ expected: String) {
     #expect(AccountTestOutput.sanitize(raw) == expected)
+}
+
+@Test func sanitizeHidesEscapedJSONKeys() {
+    let escaped = AccountTestOutput.sanitize(#"upstream {\"x-api-key\":\"abcd1234efgh\",\"model\":\"m\"}"#)
+    #expect(escaped == #"upstream {\"x-api-key\":\"[已隐藏]\",\"model\":\"m\"}"#)
+    #expect(!escaped.contains("abcd1234efgh"))
+    let spaced = AccountTestOutput.sanitize(#"\"access_token\": \"ya29.abc\""#)
+    #expect(spaced == #"\"access_token\": \"[已隐藏]\""#)
+    #expect(AccountTestOutput.sanitize(#"{"access_token":"ya29.abc"}"#) == #"{"access_token":"[已隐藏]"}"#)
+    #expect(AccountTestOutput.sanitize("x-api-key: abcd1234efgh") == "x-api-key: [已隐藏]")
+    #expect(AccountTestOutput.sanitize(escaped) == escaped)
 }
 
 @Test func sanitizeCapsLineLength() {
@@ -79,6 +108,14 @@ func sanitizeHidesBearerKeysAndURLs(_ raw: String, _ expected: String) {
     #expect(transcript.lines.last == "← 收到视频"); #expect(transcript.displayLines.last == "tail")
     transcript.finish(at: start)
     #expect(transcript.lines.last == "tail"); #expect(transcript.lineCount == 8)
+}
+
+@Test func transcriptHidesAJWTSplitAcrossChunks() {
+    let start = ContinuousClock.now
+    var transcript = AccountTestTranscript(startedAt: start)
+    transcript.apply(content("token eyJhbGciOiJIUzI1NiJ9.eyJzdWIi"), at: start)
+    transcript.apply(content("OiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl ok\n"), at: start)
+    #expect(transcript.lines == ["token [已隐藏] ok"])
 }
 
 @Test func transcriptKeepsLatest500LinesAndCountsAll() {
@@ -178,6 +215,10 @@ func failureNoteTable(_ outcome: AccountTestOutcome, _ credential: AccountTestPr
 @Test(arguments: [
     ("auth", nil, Presentation.CredentialKind.apiKey, "API Key 无效或已撤销"),
     ("auth", nil, .token, "令牌无效或已撤销"),
+    ("auth", nil, .bedrock, "凭据无效或已撤销"),
+    ("auth", nil, .vertex, "凭据无效或已撤销"),
+    (nil, 401, .bedrock, "凭据无效或已撤销"),
+    ("token_refresh", nil, .vertex, "凭据无效或已撤销"),
     (nil, 401, .token, "令牌无效或已撤销"),
     ("token_refresh", nil, .token, "令牌无效或已撤销"),
     ("forbidden", 403, .token, "授权的账号没有可用额度或权限"),
