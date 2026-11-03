@@ -163,6 +163,21 @@ private let readSummary = AnnouncementReadSummary(announcementID: 7, totalUsers:
     #expect(confirmation("t", startsAt: starts, endsAt: nil).message == "所有用户 · 用户打开时弹窗提示\n有效期 10/16 08:00 – 永久")
 }
 
+/// S6-高-10: an end already past (on the backend's IsActiveAt bound, end ≤ now) adds a line; none or a later end does not.
+@Test func announcementPublishConfirmationWarnsWhenEnded() {
+    func message(endsAt: Date?) -> String {
+        AnnouncementPresentation.publishConfirmation(title: "t", targetText: "所有用户", notifyMode: .silent, startsAt: starts, endsAt: endsAt,
+                                                     now: presentationNow, timeZone: shanghai).message
+    }
+    let warning = "\n结束时间已过，发布后用户也看不到；请先编辑有效期"
+    #expect(message(endsAt: at("2026-10-17T09:00:00+08:00")) == "所有用户 · 静默出现在通知里\n有效期 10/16 08:00 – 10/17 09:00" + warning)
+    #expect(message(endsAt: presentationNow).hasSuffix(warning))
+    #expect(!message(endsAt: ends).contains("结束时间已过")); #expect(!message(endsAt: nil).contains("结束时间已过"))
+    #expect(AnnouncementPresentation.hasEnded(endsAt: presentationNow, now: presentationNow))
+    #expect(!AnnouncementPresentation.hasEnded(endsAt: ends, now: presentationNow))
+    #expect(!AnnouncementPresentation.hasEnded(endsAt: nil, now: presentationNow))
+}
+
 // MARK: 60 §18.3 已读情况
 
 @Test func announcementReadsHeaderFollowsSection18_3() {

@@ -60,8 +60,8 @@ private let gateway = APIError.server(status: 502, reason: nil)
 private let readOnly = APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY")
 private let timedOut = APIError(kind: .transport, message: "连接超时；写操作结果可能尚未确认，请勿新建重复操作。")
 
-private func sample(_ id: Int, status: AnnouncementStatus = .active) -> Announcement {
-    Announcement(id: id, title: "公告 \(id)", content: "正文", status: status, notifyMode: .popup)
+private func sample(_ id: Int, status: AnnouncementStatus = .active, endsAt: Date? = nil) -> Announcement {
+    Announcement(id: id, title: "公告 \(id)", content: "正文", status: status, notifyMode: .popup, endsAt: endsAt)
 }
 
 /// A receipt center whose receipts never time out during a test.
@@ -76,10 +76,11 @@ private func sample(_ id: Int, status: AnnouncementStatus = .active) -> Announce
     let current: TestFlag
 }
 
-@MainActor private func makeBench(_ stub: DetailStub, id: Int = 31, readStats: Bool = true) -> Bench {
+@MainActor private func makeBench(_ stub: DetailStub, id: Int = 31, readStats: Bool = true,
+                                   serverNow: @escaping @MainActor () -> Date = { Date() }) -> Bench {
     let receipts = stillReceipts(), signal = AnnouncementChangeSignal.signal(for: UUID()), current = TestFlag()
     let model = AnnouncementDetailModel(id: id, source: stub.source, readStatsEnabled: readStats, receipts: receipts, signal: signal,
-                                        isCurrent: { current.value })
+                                        isCurrent: { current.value }, serverNow: serverNow)
     return Bench(model: model, receipts: receipts, signal: signal, current: current)
 }
 
@@ -99,7 +100,7 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     let stub = DetailStub()
     let bench = makeBench(stub)
     await bench.model.load()
-    #expect(await stub.loadedWithStats == [true])
+    #expect(await stub.loadedWithStats == [false])
     #expect(await stub.summaries == 1)
     #expect(bench.model.announcement?.id == 31 && bench.model.summaryForDisplay == sampleSummary && bench.model.showsReadRow)
 
@@ -286,7 +287,7 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     await ok.model.load()
     let before = ok.signal.revision
     #expect(await ok.model.publish() == .done)
-    #expect(await applied.loadedWithStats.prefix(2) == [true, false])
+    #expect(await applied.loadedWithStats.prefix(2) == [false, false])
     #expect(ok.receipts.current?.text == "已发布 · 符合条件的用户能看到" && ok.signal.revision == before + 1)
     #expect(await applied.updates.count == 1)
 
@@ -446,4 +447,43 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(await stub.loadCount == loads + 1)
     await bench.model.noteRevision(bench.signal.revision)
     #expect(await stub.loadCount == loads + 1)
+}
+
+// MARK: S6-低-2 详情不带已读统计；S6-高-10 结束时间已过的发布回执
+
+/// The read row uses the separate summary; the detail itself never asks for read_stats, on entry, on a revision or a refresh.
+@MainActor @Test func detailNeverAsksForStats() async {
+    let stub = DetailStub()
+    let bench = makeBench(stub, readStats: true)
+    await bench.model.loadIfNeeded()
+    bench.signal.bump()
+    await bench.model.noteRevision(bench.signal.revision)
+    await bench.model.load()
+    #expect(await stub.loadedWithStats == [false, false, false])
+    #expect(await stub.summaries == 3)
+    #expect(bench.model.summaryForDisplay == sampleSummary)
+}
+
+/// The end the server returned against the server's clock (not the phone's): past it, the receipt says nobody sees it.
+@MainActor @Test func republishEndedUsesEndedReceipt() async {
+    func receipt(endsAt: Date?, serverNow: Date) async -> String? {
+        let stub = DetailStub(load: { call, id, _ in sample(id, status: call == 1 ? .archived : .active, endsAt: endsAt) },
+                              update: { _, request in sample(27, status: request.status ?? .archived, endsAt: endsAt) })
+        let bench = makeBench(stub, id: 27, serverNow: { serverNow })
+        await bench.model.load()
+        #expect(await bench.model.publish() == .done)
+        return bench.receipts.current?.text
+    }
+    let yesterday = Date().addingTimeInterval(-86_400), tomorrow = Date().addingTimeInterval(86_400)
+    #expect(await receipt(endsAt: yesterday, serverNow: Date()) == "已发布 · 结束时间已过，用户看不到")
+    #expect(await receipt(endsAt: tomorrow, serverNow: tomorrow.addingTimeInterval(60)) == "已发布 · 结束时间已过，用户看不到")
+    #expect(await receipt(endsAt: yesterday, serverNow: yesterday.addingTimeInterval(-60)) == "已发布 · 符合条件的用户能看到")
+    #expect(await receipt(endsAt: nil, serverNow: Date()) == "已发布 · 符合条件的用户能看到")
+
+    let lost = DetailStub(load: { call, id, _ in sample(id, status: call == 1 ? .draft : .active, endsAt: yesterday) },
+                          update: { _, _ in throw timedOut })
+    let readBack = makeBench(lost, id: 29, serverNow: { Date() })
+    await readBack.model.load()
+    #expect(await readBack.model.publish() == .done)
+    #expect(readBack.receipts.current?.text == "已发布 · 结束时间已过，用户看不到")
 }

@@ -129,12 +129,17 @@ public enum AnnouncementPresentation {
         [status.map(statusTitle), notifyTitle(notifyMode)].compactMap { $0 }.joined(separator: " · ")
     }
     public static func displayTitle(_ title: String) -> String { nonBlank(title) == nil ? untitledText : title }
+    /// S6-高-10: published past its end, nobody sees it; the last line of the confirmation then says so.
+    public static let endedPublishWarning = "结束时间已过，发布后用户也看不到；请先编辑有效期"
     public static func publishConfirmation(title: String, targetText: String, notifyMode: AnnouncementNotifyMode, startsAt: Date?, endsAt: Date?,
                                            now: Date, timeZone: TimeZone) -> AnnouncementPublishConfirmation {
         let delivery = notifyMode == .popup ? "用户打开时弹窗提示" : "静默出现在通知里"
         let range = rangeText(startsAt: startsAt, endsAt: endsAt, now: now, timeZone: timeZone)
-        return AnnouncementPublishConfirmation(title: "发布「\(displayTitle(title))」？", message: "\(targetText) · \(delivery)\n有效期 \(range)")
+        let warning = hasEnded(endsAt: endsAt, now: now) ? "\n" + endedPublishWarning : ""
+        return AnnouncementPublishConfirmation(title: "发布「\(displayTitle(title))」？", message: "\(targetText) · \(delivery)\n有效期 \(range)" + warning)
     }
+    /// The backend's IsActiveAt end bound: shown until, not at, `endsAt`. `now` is the server-corrected clock.
+    public static func hasEnded(endsAt: Date?, now: Date) -> Bool { endsAt.map { now >= $0 } ?? false }
 
     // MARK: Times (15.3, 16.3)
 

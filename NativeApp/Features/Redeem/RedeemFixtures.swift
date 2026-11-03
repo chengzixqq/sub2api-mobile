@@ -353,6 +353,9 @@ extension DemoData.RedeemFixture {
     static let generateRejected = "-ui-redeem-generate-rejected"
     /// The group directory has no active subscription group.
     static let noSubscriptionGroups = "-ui-redeem-no-subscription-groups"
+    /// Every group directory read before the first return to the foreground ends as the move to the background cancels it
+    /// (U-17 review): the directory stays without a value and without a read out.
+    static let groupsCancelledUntilForeground = "-ui-redeem-groups-cancelled"
 }
 
 extension DemoData {
