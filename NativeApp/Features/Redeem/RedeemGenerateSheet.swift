@@ -31,7 +31,7 @@ struct RedeemGenerateSheet: View {
     // MARK: Wizard
 
     private var wizard: some View {
-        let groups = RedeemGenerateModel.subscriptionGroups(model: model), step = state.wizard.step
+        let availability = RedeemGenerateModel.groupsAvailability(model: model), groups = availability.groups, step = state.wizard.step
         return NavigationStack {
             VStack(spacing: 0) {
                 RedeemGenerateStepBar(step: step)
@@ -39,7 +39,7 @@ struct RedeemGenerateSheet: View {
                 case .type:
                     RedeemTypeStep(selected: state.wizard.type) { type in state.update { $0.choosing(type) } }
                 case .value:
-                    RedeemValueStep(state: state, subscriptionGroups: groups)
+                    RedeemValueStep(state: state, availability: availability)
                 case .expiry:
                     RedeemExpiryStep(state: state, subscriptionGroups: groups, now: now, timeZone: zone.timeZone) {
                         state.submit(model: model, subscriptionGroups: groups, now: now, timeZone: zone.timeZone)

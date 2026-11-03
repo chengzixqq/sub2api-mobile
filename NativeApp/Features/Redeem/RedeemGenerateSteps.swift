@@ -93,7 +93,11 @@ private extension RedeemCodeType {
 /// The face value by type, then the count; a balance code's value is typed on the big keypad (6 digits, 2 decimals).
 struct RedeemValueStep: View {
     let state: RedeemGenerateModel
-    let subscriptionGroups: [AdminGroup]
+    /// The subscription groups, or that the directory is still read or failed (S6-高-6).
+    let availability: RedeemGroupsAvailability
+    @Environment(AppModel.self) private var model
+
+    private var subscriptionGroups: [AdminGroup] { availability.groups }
 
     var body: some View {
         let wizard = state.wizard
@@ -160,21 +164,7 @@ struct RedeemValueStep: View {
     }
 
     @ViewBuilder private func subscription(_ wizard: RedeemGenerateWizard) -> some View {
-        RedeemGenerateCard(title: "订阅分组") {
-            if subscriptionGroups.isEmpty {
-                Text(RedeemGenerateWizard.noSubscriptionGroups).font(.subheadline).foregroundStyle(Palette.ink2)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .accessibilityIdentifier("redeem.generate.noGroups")
-            } else {
-                let selected = wizard.selectedGroup(in: subscriptionGroups)?.id
-                ListFieldFlow(spacing: 8) {
-                    ForEach(subscriptionGroups) { group in
-                        RedeemGenerateChip(title: group.name, isOn: selected == group.id) { state.update { $0.selectingGroup(id: group.id) } }
-                            .accessibilityIdentifier("redeem.generate.group.\(group.id)")
-                    }
-                }
-            }
-        }
+        RedeemGenerateCard(title: "订阅分组") { groupChoices(wizard) }
         RedeemGenerateCard(title: "有效天数") {
             ListFieldFlow(spacing: 8) {
                 ForEach(RedeemSubscriptionDaysChoice.options, id: \.self) { choice in
@@ -189,6 +179,39 @@ struct RedeemValueStep: View {
             }
         }
         RedeemGenerateFootnote(text: RedeemCodeType.subscription.generateHint)
+    }
+
+    /// Only a read directory without subscription groups says there are none; while it is read or failed there is nothing to
+    /// pick either, so 下一步 stays grey (the wizard's group check).
+    @ViewBuilder private func groupChoices(_ wizard: RedeemGenerateWizard) -> some View {
+        switch availability {
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView()
+                Text(RedeemGroupsAvailability.loadingText).font(.subheadline).foregroundStyle(Palette.ink2)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("redeem.generate.groups.loading")
+        case .failed:
+            if let directory = model.groupDirectory {
+                BlockFailureRow(title: RedeemGroupsAvailability.failedTitle, error: nil, refresh: directory.refreshState, id: "redeem.generate.groups") {
+                    Task { await directory.refresh() }
+                }
+            }
+        case .loaded(let groups) where groups.isEmpty:
+            Text(RedeemGenerateWizard.noSubscriptionGroups).font(.subheadline).foregroundStyle(Palette.ink2)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .accessibilityIdentifier("redeem.generate.noGroups")
+        case .loaded(let groups):
+            let selected = wizard.selectedGroup(in: groups)?.id
+            ListFieldFlow(spacing: 8) {
+                ForEach(groups) { group in
+                    RedeemGenerateChip(title: group.name, isOn: selected == group.id) { state.update { $0.selectingGroup(id: group.id) } }
+                        .accessibilityIdentifier("redeem.generate.group.\(group.id)")
+                }
+            }
+        }
     }
 
     /// The keypad owns the amount, so the count is picked: a stepper and the common counts.
@@ -228,6 +251,7 @@ struct RedeemExpiryStep: View {
     var body: some View {
         let wizard = state.wizard
         let summary = wizard.spec(subscriptionGroups: subscriptionGroups).map { RedeemGenerateSummary(spec: $0, now: now, timeZone: timeZone) }
+        let receipt = wizard.receiptPreview(subscriptionGroups: subscriptionGroups, now: now, timeZone: timeZone)
         ScrollView {
             VStack(spacing: 14) {
                 expiry(wizard)
@@ -240,7 +264,7 @@ struct RedeemExpiryStep: View {
                         .accessibilityLabel("备注")
                         .accessibilityIdentifier("redeem.generate.notes")
                 }
-                if let summary { MoneyPendingReceipt(lines: summary.receiptLines) }
+                if let receipt { MoneyPendingReceipt(lines: receipt) }
                 if let line = wizard.total.flatMap({ model.biometricGate.amountConfirmationLine(amount: $0, isTotal: true) }) {
                     Label(line, systemImage: "faceid").font(.footnote).foregroundStyle(Palette.ink2)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -266,6 +290,8 @@ struct RedeemExpiryStep: View {
             if wizard.expiry == .custom {
                 RedeemDaysField(text: Binding(get: { state.wizard.customExpiryDaysText }, set: { text in state.update { $0.editingCustomExpiryDays(text) } }),
                                 identifier: "redeem.generate.expiry.field")
+                Text(RedeemGenerateWizard.customDaysRangeNote).font(.footnote).foregroundStyle(Palette.ink2)
+                    .accessibilityIdentifier("redeem.generate.expiry.rangeNote")
             }
         }
     }

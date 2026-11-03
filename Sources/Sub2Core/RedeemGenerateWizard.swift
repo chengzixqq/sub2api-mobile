@@ -67,6 +67,8 @@ public struct RedeemGenerateWizard: Sendable, Equatable {
     public static let notesPlaceholder = "活动批次、工单号（选填）"
     public static let previewLabel = "每个兑换码的面值 · 合计"
     public static let customDaysPlaceholder = "1–3650"
+    /// Under 第 3 步's custom days (S6-中-8).
+    public static let customDaysRangeNote = "填 1–3650 天"
     /// 1–3650 has at most four digits.
     static let dayDigits = 4
     /// The fields step 2 fills in; the rest are step 3's.
@@ -163,6 +165,15 @@ public struct RedeemGenerateWizard: Sendable, Equatable {
         guard isExpiryValid else { return nil }
         return try? form(subscriptionGroups: subscriptionGroups).validated()
     }
+    /// 第 3 步's receipt (S6-中-8): the summary's; while only the custom days are missing or out of range, that of 永不过期 with
+    /// 过期 “—”. nil while anything else is missing.
+    public func receiptPreview(subscriptionGroups: [AdminGroup], now: Date, timeZone: TimeZone) -> [MoneyReceiptLine]? {
+        if let spec = spec(subscriptionGroups: subscriptionGroups) { return RedeemGenerateSummary(spec: spec, now: now, timeZone: timeZone).receiptLines }
+        guard expiry == .custom, let spec = choosingExpiry(.never).spec(subscriptionGroups: subscriptionGroups) else { return nil }
+        return RedeemGenerateSummary(spec: spec, now: now, timeZone: timeZone).receiptLines.map { line in
+            line.id == RedeemGenerateSummary.expiryLineID ? MoneyReceiptLine(id: line.id, label: line.label, value: DisplayFormat.missing) : line
+        }
+    }
 
     private func with(_ change: (inout Self) -> Void) -> Self {
         var copy = self
@@ -175,11 +186,40 @@ public struct RedeemGenerateWizard: Sendable, Equatable {
 }
 
 extension RedeemGenerateSummary {
+    static let expiryLineID = "expiry"
     /// Step 3's receipt (60 §10.3): 类型 / 每个 / 数量 / 过期, and 合计 for balance codes.
     public var receiptLines: [MoneyReceiptLine] {
         [MoneyReceiptLine(id: "type", label: "类型", value: typeLabel), MoneyReceiptLine(id: "each", label: "每个", value: each),
-         MoneyReceiptLine(id: "count", label: "数量", value: quantity), MoneyReceiptLine(id: "expiry", label: "过期", value: expiry)]
+         MoneyReceiptLine(id: "count", label: "数量", value: quantity), MoneyReceiptLine(id: Self.expiryLineID, label: "过期", value: expiry)]
             + (total.map { [MoneyReceiptLine(id: "total", label: "合计", value: $0)] } ?? [])
+    }
+}
+
+/// 第 2 步's subscription groups (S6-高-6): the directory's active subscription groups in its order — an old value beside a
+/// failed or running refresh too (10 §0.5) — or, before any, whether the read is out or failed. Only `loaded([])` says
+/// “站点还没有订阅类型的分组”; 下一步 stays grey in all three.
+public enum RedeemGroupsAvailability: Sendable, Equatable {
+    case loading, failed
+    case loaded([AdminGroup])
+
+    public static let loadingText = "正在读取分组…"
+    /// BlockFailureRow's title: “读取失败 · 重试”.
+    public static let failedTitle = "读取失败"
+
+    /// The directory is never disabled; such a state waits as a read does.
+    public init(_ directory: BlockState<[AdminGroup]>) {
+        if let groups = directory.value {
+            self = .loaded(groups.filter(\.isActiveSubscriptionGroup))
+        } else if case .failed = directory {
+            self = .failed
+        } else {
+            self = .loading
+        }
+    }
+
+    /// Empty until loaded.
+    public var groups: [AdminGroup] {
+        if case .loaded(let groups) = self { groups } else { [] }
     }
 }
 

@@ -67,10 +67,12 @@ final class RedeemGenerateModel {
     /// “稍后核对”: stops waiting; the record stays to be checked.
     func later() { sending?.cancel() }
 
-    /// The directory's active subscription groups in its order (S6D1-05); `-ui-redeem-no-subscription-groups` hides them.
-    static func subscriptionGroups(model: AppModel) -> [AdminGroup] {
-        let groups = (model.groupDirectory?.groups ?? []).filter(\.isActiveSubscriptionGroup)
-        return model.isUITesting ? DemoData.redeemGenerateGroups(groups) : groups
+    /// The directory's active subscription groups in its order (S6D1-05), or that it is still read or failed (S6-高-6);
+    /// `-ui-redeem-no-subscription-groups` hides them.
+    static func groupsAvailability(model: AppModel) -> RedeemGroupsAvailability {
+        let availability = RedeemGroupsAvailability(model.groupDirectory?.state ?? .idle)
+        guard model.isUITesting, case .loaded(let groups) = availability else { return availability }
+        return .loaded(DemoData.redeemGenerateGroups(groups))
     }
 
     private func makeConfirmation(_ spec: RedeemGenerateSpec, record: PendingRedeemBatch?, model: AppModel, now: Date, timeZone: TimeZone) -> Confirmation {
