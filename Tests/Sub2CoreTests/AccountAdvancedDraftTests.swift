@@ -276,3 +276,18 @@ func applicableFieldsFollowTheSpecTableAndTheBackend(_ entry: ApplicableCase) th
     openai.responsesMode = .forceChatCompletions
     #expect(AccountAdvancedDraft.display(.openAIResponsesMode, values: openai) == AccountAdvancedDisplay(text: "强制 Chat Completions", isOff: false))
 }
+
+/// S2-高-21: while the rate sync is on, the probe row adds that turning it off takes the sync with it (until saved, by what is stored).
+@Test func probeNotesWarnWhileTheRateSyncIsOn() throws {
+    var synced = try draft("openai", "apikey", #""extra":{"upstream_billing_probe_enabled":true,"upstream_billing_rate_sync_enabled":true}"#)
+    #expect(synced.isRateSyncOn && Field.probeSyncNote == "关闭后倍率同步也会关闭")
+    #expect(synced.notes(for: .upstreamBillingProbe) == ["只探测，不改账号计费倍率", "关闭后倍率同步也会关闭"])
+    #expect(synced.notes(for: .poolMode) == ["上游是账号池时开启，错误不标记本账号"] && synced.notes(for: .openAIResponsesMode).isEmpty)
+    synced.values.upstreamBillingProbe = false
+    #expect(synced.notes(for: .upstreamBillingProbe).count == 2)
+    for stored in [#""extra":{"upstream_billing_probe_enabled":true,"upstream_billing_rate_sync_enabled":false}"#,
+                   #""extra":{"upstream_billing_probe_enabled":true}"#, ""] {
+        let plain = try draft("openai", "apikey", stored)
+        #expect(!plain.isRateSyncOn && plain.notes(for: .upstreamBillingProbe) == ["只探测，不改账号计费倍率"], "\(stored)")
+    }
+}

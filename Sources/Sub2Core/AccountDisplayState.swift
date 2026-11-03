@@ -173,4 +173,13 @@ extension AccountScheduleState {
 extension UpstreamAccount {
     /// Backend `Account.IsOAuth`: OAuth and Setup Token accounts hold an access token; the rest are key accounts.
     public var isTokenAccount: Bool { type == "oauth" || type == "setup-token" }
+    /// Backend `Account.IsOpenAIPersonalAccessToken`: an OpenAI OAuth account whose auth_mode (or the older openai_auth_mode)
+    /// names a personal access token. It is never refreshed in the background, 刷新令牌 checks it, and 重新授权 refuses it.
+    var isOpenAIPersonalAccessToken: Bool {
+        guard platform == "openai", type == "oauth" else { return false }
+        return ["auth_mode", "openai_auth_mode"].contains { key in
+            let mode = credentials?[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return mode == "personal_access_token" || mode == "personalaccesstoken"
+        }
+    }
 }

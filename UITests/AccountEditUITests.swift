@@ -666,4 +666,55 @@ final class AccountEditUITests: XCTestCase {
         app.navigationBars[title].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
     }
+
+    // MARK: - 用户反馈（U-07）
+
+    /// DeepSeek-01 has no mapping, so the server schedules it for the platform's default models: the section and the sheet say so.
+    @MainActor func testPlatformDefaultModelsSection() {
+        openDetail(8)
+        defer { diagnostics("account-models-platform-default-final") }
+        let empty = element("account.models.empty")
+        reveal(empty)
+        XCTAssertEqual(empty.label, "按平台默认模型")
+        XCTAssertEqual(element("account.section.models.meta").label, "平台默认")
+        diagnostics("account-models-platform-default")
+        openSection("models")
+        XCTAssertEqual(element("accountSheet.models.empty").label, "按平台默认模型")
+        XCTAssertEqual(element("accountSheet.models.summary").label, "平台默认")
+        let footnote = element("accountSheet.models.footnote")
+        XCTAssertTrue(footnote.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(footnote.label, "列表为空时按平台默认模型调度；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。")
+        diagnostics("account-models-platform-default-sheet")
+    }
+
+    /// GLM-直连-01 has the probe and the rate sync on: the probe row warns that turning it off takes the sync with it; 撤销 brings
+    /// both back, so the warning shows again.
+    @MainActor func testProbeRowWarnsAboutRateSync() {
+        openDetail(11)
+        defer { diagnostics("account-adv-probe-sync-final") }
+        let probe = element("account.adv.upstream_billing_probe_enabled")
+        reveal(probe)
+        XCTAssertEqual(probe.value as? String, "开")
+        openSection("adv")
+        let toggle = app.switches["accountSheet.adv.upstream_billing_probe_enabled"]
+        revealInSheet(toggle)
+        let note = element("accountSheet.adv.upstream_billing_probe_enabled.syncNote")
+        XCTAssertTrue(note.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(note.label, "关闭后倍率同步也会关闭")
+        tapSwitch(toggle)
+        XCTAssertTrue(waitUntil(toggle, "value == '0'"), app.debugDescription)
+        diagnostics("account-adv-probe-sync")
+        app.buttons["account.edit.save"].tap()
+        waitForReceipt("已保存：自动探测上游声明倍率")
+        // 撤销 inside the receipt's 4.2 seconds, before scrolling.
+        XCTAssertEqual(probe.value as? String, "关")
+        app.buttons["receipt.action"].tap()
+        reveal(probe)
+        waitForValue(probe, equals: "开")
+        openSection("adv")
+        let restored = element("accountSheet.adv.upstream_billing_probe_enabled.syncNote")
+        revealInSheet(app.switches["accountSheet.adv.upstream_billing_probe_enabled"])
+        XCTAssertTrue(restored.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(restored.label, "关闭后倍率同步也会关闭")
+    }
 }

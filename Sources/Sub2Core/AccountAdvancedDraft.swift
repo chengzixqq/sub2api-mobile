@@ -144,6 +144,14 @@ public struct AccountAdvancedDraft: Equatable, Sendable {
 
     // MARK: Display
 
+    /// `extra.upstream_billing_rate_sync_enabled` as stored.
+    public var isRateSyncOn: Bool { storedExtra[Self.rateSyncKey]?.boolValue == true }
+    /// The sheet's notes under a row's title: its subtitle, then on the probe, while the rate sync is on, probeSyncNote.
+    public func notes(for field: AccountAdvancedField) -> [String] {
+        let warning = field == .upstreamBillingProbe && isRateSyncOn ? [AccountAdvancedField.probeSyncNote] : []
+        return [field.subtitle].compactMap { $0 } + warning
+    }
+
     /// The detail's read-only rows.
     public static func display(_ field: AccountAdvancedField, values: AccountAdvancedValues) -> AccountAdvancedDisplay {
         switch field.kind {

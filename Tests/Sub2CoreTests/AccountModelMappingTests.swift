@@ -142,3 +142,44 @@ func mappingValidationTable(_ entry: MappingValidationCase) {
     #expect(!AccountModelMapping.passthroughEnabled(try account(platform: "openai")))
     #expect(AccountModelMapping.passthroughNote == "已开启自动透传，模型限制不生效")
 }
+
+// MARK: - Platform defaults (S2-高-19)
+
+struct PlatformDefaultsCase: Sendable, CustomTestStringConvertible {
+    let platform: String, type: String, fields: String, expected: Bool
+    var testDescription: String { "\(platform) \(type) \(fields)" }
+}
+private let platformDefaultsCases: [PlatformDefaultsCase] = [
+    .init(platform: "antigravity", type: "oauth", fields: "", expected: true),
+    .init(platform: "grok", type: "apikey", fields: "", expected: true),
+    .init(platform: "deepseek", type: "apikey", fields: "", expected: true),
+    .init(platform: "gemini", type: "oauth", fields: #""credentials":{"oauth_type":"google_one"}"#, expected: true),
+    .init(platform: "gemini", type: "oauth", fields: #""credentials":{"oauth_type":" google_one "}"#, expected: true),
+    .init(platform: "openai", type: "oauth", fields: "", expected: true),
+    .init(platform: "gemini", type: "oauth", fields: #""credentials":{"oauth_type":"code_assist"}"#, expected: false),
+    .init(platform: "gemini", type: "oauth", fields: "", expected: false),
+    .init(platform: "gemini", type: "apikey", fields: #""credentials":{"oauth_type":"google_one"}"#, expected: false),
+    .init(platform: "openai", type: "apikey", fields: "", expected: false),
+    .init(platform: "openai", type: "setup-token", fields: "", expected: false),
+    .init(platform: "openai", type: "oauth", fields: #""extra":{"openai_passthrough":true}"#, expected: false),
+    .init(platform: "anthropic", type: "oauth", fields: "", expected: false),
+    .init(platform: "anthropic", type: "apikey", fields: "", expected: false)
+]
+/// Backend resolveModelMapping / isModelMappingSupported: with no mapping these accounts take the platform's default models;
+/// OpenAI's passthrough lets every model through first.
+@Test(arguments: platformDefaultsCases)
+func usesPlatformDefaultsFollowsTheBackend(_ entry: PlatformDefaultsCase) throws {
+    #expect(AccountModelMapping.usesPlatformDefaults(try account(platform: entry.platform, type: entry.type, entry.fields)) == entry.expected)
+}
+
+@Test func emptyCopyFollowsTheAccount() throws {
+    let deepseek = try account(platform: "deepseek", type: "apikey"), claude = try account()
+    let empty = AccountModelMapping(), listed = AccountModelMapping(entries: [entry("deepseek-chat")])
+    #expect(AccountModelMapping.emptyText(for: deepseek) == "按平台默认模型")
+    #expect(empty.summary(for: deepseek) == "平台默认" && listed.summary(for: deepseek) == "只调度这 1 个")
+    #expect(AccountModelMapping.footnote(for: deepseek)
+            == "列表为空时按平台默认模型调度；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。")
+    #expect(AccountModelMapping.emptyText(for: claude) == "支持所有模型")
+    #expect(empty.summary(for: claude) == "未限制" && listed.summary(for: claude) == "只调度这 1 个")
+    #expect(AccountModelMapping.footnote(for: claude) == AccountModelMapping.footnote)
+}

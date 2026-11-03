@@ -18,6 +18,9 @@ public struct AccountModelMapping: Equatable, Sendable {
     public static let passthroughText = "原样转发"
     public static let passthroughNote = "已开启自动透传，模型限制不生效"
     public static let footnote = "列表为空时支持所有模型；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。"
+    public static let platformDefaultText = "按平台默认模型"
+    public static let platformDefaultSummary = "平台默认"
+    public static let platformDefaultFootnote = "列表为空时按平台默认模型调度；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。"
 
     public let entries: [Entry]
     public init(entries: [Entry] = []) { self.entries = entries }
@@ -82,6 +85,24 @@ public struct AccountModelMapping: Equatable, Sendable {
         guard account.platform == "openai" else { return false }
         if let flag = account.extra?["openai_passthrough"]?.boolValue { return flag }
         return account.extra?["openai_oauth_passthrough"]?.boolValue == true
+    }
+    /// Backend resolveModelMapping / isModelMappingSupported: with no mapping, Antigravity, Grok, DeepSeek, Gemini's Google One
+    /// and OpenAI OAuth accounts are scheduled for the platform's default models only; OpenAI's passthrough lets every model in.
+    public static func usesPlatformDefaults(_ account: UpstreamAccount) -> Bool {
+        guard !passthroughEnabled(account) else { return false }
+        switch account.platform {
+        case "antigravity", "grok", "deepseek": return true
+        case "gemini": return account.type == "oauth" && trimmed(account.credentials?["oauth_type"]?.stringValue ?? "") == "google_one"
+        case "openai": return account.type == "oauth"
+        default: return false
+        }
+    }
+    /// The empty list's row: “按平台默认模型” for those accounts, else “支持所有模型”.
+    public static func emptyText(for account: UpstreamAccount) -> String { usesPlatformDefaults(account) ? platformDefaultText : emptyText }
+    public static func footnote(for account: UpstreamAccount) -> String { usesPlatformDefaults(account) ? platformDefaultFootnote : footnote }
+    /// `summary`, with “平台默认” in place of “未限制” for those accounts.
+    public func summary(for account: UpstreamAccount) -> String {
+        isEmpty && Self.usesPlatformDefaults(account) ? Self.platformDefaultSummary : summary
     }
     static func trimmed(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 }
