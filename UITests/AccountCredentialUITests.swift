@@ -184,6 +184,7 @@ final class AccountCredentialUITests: XCTestCase {
         reveal(refresh)
         XCTAssertEqual(refresh.label, "刷新令牌")
         XCTAssertEqual(refresh.value as? String, "立即生效")
+        XCTAssertFalse(element("account.cred.refresh.note").exists, app.debugDescription)
         XCTAssertTrue(app.buttons["account.cred.reauthorize"].exists, app.debugDescription)
         refresh.tap()
         waitForReceipt(matching: #"^已刷新令牌 · 新令牌 \d{2}:\d{2} 到期$"#)
@@ -255,14 +256,25 @@ final class AccountCredentialUITests: XCTestCase {
         XCTAssertEqual(element("account.cred.token.badge").label, "即将到期")
         XCTAssertNotNil(token.label.range(of: #"^\d+ 分钟后（到期 \d{2}:\d{2}）$"#, options: .regularExpression), token.label)
         XCTAssertEqual(element("account.cred.token.note").label, "不会自动刷新")
+        // U-08: no refresh token, so 刷新令牌 greys in the section and in ⋯, and says only 重新授权… helps.
+        let refresh = app.buttons["account.cred.refresh"]
+        reveal(refresh)
+        XCTAssertFalse(refresh.isEnabled, app.debugDescription)
+        XCTAssertEqual(element("account.cred.refresh.note").label, "没有刷新令牌，只能重新授权")
         let footer = text(Fixture.tokenFooter)
         reveal(footer)
         let reauthorize = app.buttons["account.cred.reauthorize"]
         reveal(reauthorize)
+        XCTAssertTrue(reauthorize.isEnabled, app.debugDescription)
         reauthorize.tap()
         XCTAssertTrue(element("account.reauth.sheet").waitForExistence(timeout: 10), app.debugDescription)
         app.buttons["account.reauth.cancel"].tap()
         XCTAssertTrue(element("account.reauth.sheet").waitForNonExistence(timeout: 5), app.debugDescription)
+        app.buttons["account.detail.more"].tap()
+        let item = menuItem("刷新令牌")
+        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(item.isEnabled, app.debugDescription)
+        XCTAssertTrue(menuItem("重新授权…").isEnabled, app.debugDescription)
     }
 
     /// S2D1-09: a server older than credential redaction takes no credential PUT; the sheet points to the Web.

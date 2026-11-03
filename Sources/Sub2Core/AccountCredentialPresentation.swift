@@ -130,7 +130,13 @@ public enum AccountCredentialPresentation {
     public static let stored = "已设置 · 不可查看"
     public static let unset = "未设置"
     public static let noAutoRefresh = "不会自动刷新"
+    /// Under the greyed 刷新令牌 row (U-08).
+    public static let noRefreshToken = "没有刷新令牌，只能重新授权"
     private static let hour: TimeInterval = 3_600, day: TimeInterval = 86_400
+
+    /// `token_status.auto_refresh == false`: no refresh token (or an OpenAI personal access token), so 刷新令牌 could only fail.
+    /// A server without token_status keeps the entry.
+    public static func canRefresh(_ account: UpstreamAccount) -> Bool { account.tokenStatus?.autoRefresh != false }
 
     /// “已更换 · HH:MM” for a key replaced this session (`replacedAt`, ServerClock time). R12: the code is error_status_code only.
     public static func keyRow(_ account: UpstreamAccount, replacedAt: Date?, now: Date, timeZone: TimeZone) -> AccountKeyRow {

@@ -151,6 +151,15 @@ private func body(_ change: AccountEditChange?) throws -> String {
     #expect(AccountCredentialPresentation.tokenRow(tokenAccount(expiresIn: 2_400, autoRefresh: nil), now: rowNow, timeZone: utcZone).note == nil)
 }
 
+/// U-08: auto_refresh false means no refresh token (or an OpenAI personal access token), so 刷新令牌 could only fail.
+@Test func canRefreshFollowsAutoRefresh() {
+    #expect(!AccountCredentialPresentation.canRefresh(tokenAccount(expiresIn: 2_400, autoRefresh: false)))
+    #expect(AccountCredentialPresentation.canRefresh(tokenAccount(expiresIn: 2_400, autoRefresh: true)))
+    #expect(AccountCredentialPresentation.canRefresh(tokenAccount(expiresIn: 2_400, autoRefresh: nil)))
+    #expect(AccountCredentialPresentation.canRefresh(tokenAccount(expiresIn: nil)))
+    #expect(AccountCredentialPresentation.noRefreshToken == "没有刷新令牌，只能重新授权")
+}
+
 @Test func webOnlyCredentialValue() throws {
     let bedrock = try wireAccount(type: "bedrock", #""credentials":{"region":"us-east-1"},"credentials_status":{"has_aws_secret_access_key":true}"#)
     #expect(AccountCredentialPresentation.storedSecret(bedrock) == "已设置 · 不可查看")

@@ -88,7 +88,8 @@ private func expired() -> [String: Any] { ["auto_pause_on_expired": true, "expir
 
     let bare = card(try account(status: "error", fields: ["error_message": "boom"]))
     #expect(bare.errorBody == "上游返回异常")
-    #expect(bare.cause == nil)
+    // U-08: without a status code the badge still says where the error came from.
+    #expect(bare.cause == "上游返回错误")
     #expect(bare.scheduleNote == nil)
     #expect(card(try account(status: "error", fields: ["error_summary": "  "])).errorBody == "上游返回异常")
 }
