@@ -81,6 +81,10 @@ private struct GroupKeysList: View {
                 Task { await keys.reload() }
             }
         }
+        if keys.hasStaleToday {
+            GroupRecordsRefreshRow(title: GroupRecordsCopy.todayStale, systemImage: GroupRecordsRefreshRow.staleImage, updatedAt: nil, timeZone: timeZone,
+                                   refresh: keys.todayRefresh, isRefreshing: keys.isRetryingToday, id: "group.keys.today.retry") { keys.retryToday() }
+        }
         Section {
             if let feed = pager.feed {
                 if feed.rows.isEmpty {
@@ -112,7 +116,8 @@ private struct GroupKeysList: View {
 }
 
 /// 50 §6.3: the key glyph; name and status badge, the mask on the right; owner · last used and today's spend; the quota bar when
-/// the key has one. Exhausted keys ride the caution rail; stopped and expired keys are dimmed.
+/// the key has one. Exhausted keys ride the caution rail; stopped and expired keys are dimmed. A today amount kept through a failed
+/// read says 更新失败 in the caution ink; the strip above the rows reads it again (S5-高-3).
 private struct GroupKeyRowView: View {
     let row: GroupKeyRow
     let railPosition: RailPosition?
@@ -131,6 +136,7 @@ private struct GroupKeyRowView: View {
                     Text(row.secondLine).lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 8)
                     Text(row.today.text).monospacedDigit().lineLimit(1).fixedSize()
+                        .foregroundStyle(row.today.isStale ? Tone.caution.ink : Palette.ink2)
                         .redacted(reason: row.today == .pending ? .placeholder : [])
                 }
                 .font(.caption)

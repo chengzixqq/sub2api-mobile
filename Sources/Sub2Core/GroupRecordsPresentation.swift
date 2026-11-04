@@ -36,22 +36,38 @@ public struct GroupRecordsFeed<Row: Decodable & Identifiable & Sendable>: Sendab
 }
 extension GroupRecordsFeed: Equatable where Row: Equatable {}
 
-/// 50 §6.3 第二行右: today's actual charge. `missing` is a failed usage read or a read-only token, which never asks (R14).
+/// 50 §6.3 第二行右: today's actual charge. `missing` is a failed usage read or a read-only token, which never asks (R14); `stale`
+/// is an earlier amount kept through a failed read (S5-高-3), so only a first read that failed says 今日 —.
 public enum GroupKeyToday: Sendable, Equatable {
-    case pending, amount(Decimal), missing
+    case pending, amount(Decimal), stale(Decimal), missing
 
     public var text: String {
-        if case .amount(let value) = self { return "今日 " + DisplayFormat.money(value) }
-        return "今日 " + DisplayFormat.missing
+        switch self {
+        case .amount(let value): "今日 " + DisplayFormat.money(value)
+        case .stale(let value): "今日 " + DisplayFormat.money(value) + " · " + BlockStatusPresentation.updateFailed
+        case .pending, .missing: "今日 " + DisplayFormat.missing
+        }
     }
     public var spoken: String {
         switch self {
         case .amount: text
+        case .stale(let value): "今日 " + DisplayFormat.money(value) + "，" + BlockStatusPresentation.updateFailed
         case .pending: "今日读取中"
         case .missing: "今日" + DisplayFormat.missingSpoken
         }
     }
+    /// A fresh amount only.
     public var isAmount: Bool { if case .amount = self { true } else { false } }
+    public var isStale: Bool { if case .stale = self { true } else { false } }
+    /// The amount the row shows, fresh or kept.
+    public var lastAmount: Decimal? {
+        switch self {
+        case .amount(let value), .stale(let value): value
+        case .pending, .missing: nil
+        }
+    }
+    /// After a failed read: the amount shown so far stays, marked; without one 今日 —.
+    public var afterFailure: GroupKeyToday { lastAmount.map(GroupKeyToday.stale) ?? .missing }
     /// A requested id the reply leaves out spent nothing today (the server omits it).
     public static func resolve(id: Int, reply: [Int: Decimal]) -> GroupKeyToday { .amount(reply[id] ?? 0) }
 }
@@ -219,6 +235,10 @@ public enum GroupRecordsCopy {
     public static let subscriptionsUnit = "条"
     public static let moreFailed = "加载失败 · 重试"
     public static let refreshFailed = "刷新失败 · 重试"
+    /// S5-高-3 (U-12's own wording): above the keys whose today amount is kept through a failed read, and above the limits while
+    /// the subtitle's 生效中 count is.
+    public static let todayStale = "今日金额更新失败 · 重试"
+    public static let activeCountStale = "生效中计数更新失败 · 重试"
 
     /// “高级组 · 共 38 个”; either part alone when the other is unknown.
     public static func keysSubtitle(groupName: String?, total: Int?) -> String {

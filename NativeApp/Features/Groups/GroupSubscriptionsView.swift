@@ -82,6 +82,7 @@ private struct GroupSubscriptionsList: View {
                 Task { await subscriptions.reload() }
             }
         }
+        if subscriptions.activeCountStale { activeCountStrip }
         if let group = subscriptions.group, group.subscriptionType == "subscription" { limits(group) }
         Section {
             if let feed = pager.feed, let group = subscriptions.group {
@@ -100,6 +101,15 @@ private struct GroupSubscriptionsList: View {
                                  id: "group.subs.head")
         } footer: {
             Text(GroupRecordsCopy.subscriptionsFootnote).font(.footnote).foregroundStyle(Palette.ink3).accessibilityIdentifier("group.subs.footnote")
+        }
+    }
+
+    /// S5-高-3: the subtitle's 生效中 count is an earlier read's; a tap reads the count alone.
+    private var activeCountStrip: some View {
+        GroupRecordsRefreshRow(title: GroupRecordsCopy.activeCountStale, systemImage: GroupRecordsRefreshRow.staleImage,
+                               updatedAt: subscriptions.countUpdatedAt, timeZone: timeZone, refresh: subscriptions.countRefresh,
+                               isRefreshing: subscriptions.isReadingCount, id: "group.subs.count.retry") {
+            Task { await subscriptions.retryActiveCount() }
         }
     }
 
