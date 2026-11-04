@@ -117,7 +117,7 @@ final class GroupRecordsPager<Row: Decodable & Identifiable & Sendable> where Ro
 
 /// 50 §6: one group's keys. Each page's today spend is read right after it arrives, in a Task this model owns (not the footer's
 /// `.task`, which the arriving page would cancel); a read-only token never asks (R14) and every row says 今日 —. A failed read
-/// keeps an amount shown before, marked 更新失败, until a read works (S5-高-3).
+/// keeps an amount shown before, marked 更新失败, until a read works (S5-高-3); during a 429 wait no path reads today (00 §2.7.2).
 @MainActor @Observable
 final class GroupKeysModel {
     let groupID: Int
@@ -207,8 +207,10 @@ final class GroupKeysModel {
         todayByID = todayByID.filter { ids.contains($0.key) && $0.value.lastAmount != nil }
         readToday(rows.map(\.id))
     }
+    /// During a 429 wait nothing is sent and the rows read as after a failed read; a stale row's strip reads them once it ends.
     private func readToday(_ ids: [Int]) {
         guard !ids.isEmpty, !isDeleted, isCurrent(), !isReadOnlyToken() else { return }
+        guard todayRefresh.allowsRequest(at: now()) else { return markFailed(ids) }
         let ticket = todayTicket, source = source
         todayInFlight.formUnion(ids)
         todayTasks.append(Task { [weak self] in
@@ -228,10 +230,11 @@ final class GroupKeysModel {
             todayRefresh = todayRefresh.recordingSuccess()
         case .failure(let error) where error is CancellationError: break
         case .failure(let error):
-            for id in ids { todayByID[id] = (todayByID[id] ?? .pending).afterFailure }
+            markFailed(ids)
             todayRefresh = todayRefresh.recordingFailure(error, at: now())
         }
     }
+    private func markFailed(_ ids: [Int]) { for id in ids { todayByID[id] = (todayByID[id] ?? .pending).afterFailure } }
     private func readGroup(force: Bool) async {
         guard force || needsGroup, !isDeleted, isCurrent() else { return }
         do {
