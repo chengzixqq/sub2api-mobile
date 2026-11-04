@@ -180,3 +180,96 @@ private func routerBatchOutcome() -> GroupBatchOutcome {
         GroupBatchItem(accountID: 3, name: "Claude-官方-03", action: .add, result: .failed(.mixedChannel(nil)))
     ])
 }
+
+// MARK: - U-03 (S2-中-27): a routed sheet with unsaved input asks before a tab switch
+
+@MainActor private func routerUnderSheet(_ sheet: AppSheet) -> AppRouter {
+    let router = AppRouter()
+    router.setPath([.account(id: 1)], for: .accounts)
+    router.setPath([.groups()], for: .search)
+    router.selectedTab = .search
+    router.present(sheet)
+    return router
+}
+
+@MainActor @Test func selectDefersWhileSheetHasUnsavedInput() {
+    let router = routerUnderSheet(.groupEdit(id: nil))
+    router.sheetHasUnsavedInput = true
+    router.select(.accounts(filter: .limited))
+    #expect(router.selectedTab == .search)
+    #expect(router.presentedSheet == .groupEdit(id: nil))
+    #expect(router.path(for: .accounts) == [.account(id: 1)])
+    #expect(router.path(for: .search) == [.groups()])
+    #expect(router.pendingIntent == nil)
+    #expect(router.pendingSelect == .accounts(filter: .limited))
+    router.select(.monitor(segment: .alerts))
+    #expect(router.pendingSelect == .monitor(segment: .alerts))
+    #expect(router.selectedTab == .search)
+}
+
+@MainActor @Test func confirmPendingSelectMatchesPlainSelect() {
+    let plain = routerUnderSheet(.accountNew)
+    plain.select(.accounts(filter: .limited))
+    let guarded = routerUnderSheet(.accountNew)
+    guarded.sheetHasUnsavedInput = true
+    guarded.select(.accounts(filter: .limited))
+    #expect(guarded.confirmPendingSelect())
+    #expect(guarded.selectedTab == plain.selectedTab)
+    #expect(guarded.presentedSheet == nil)
+    #expect(plain.presentedSheet == nil)
+    #expect(MainTab.allCases.allSatisfy { guarded.path(for: $0) == plain.path(for: $0) })
+    #expect(guarded.pendingIntent == plain.pendingIntent)
+    #expect(guarded.pendingSelect == nil)
+    #expect(!guarded.sheetHasUnsavedInput)
+    // Nothing waits: the sheet's 放弃 closes it by itself.
+    #expect(!guarded.confirmPendingSelect())
+    #expect(guarded.selectedTab == .accounts)
+}
+
+@MainActor @Test func cancelPendingSelectLeavesEverything() {
+    let router = routerUnderSheet(.proxyEdit(id: 3))
+    router.sheetHasUnsavedInput = true
+    router.select(.accounts())
+    router.cancelPendingSelect()
+    #expect(router.pendingSelect == nil)
+    #expect(router.selectedTab == .search)
+    #expect(router.presentedSheet == .proxyEdit(id: 3))
+    #expect(router.path(for: .accounts) == [.account(id: 1)])
+    #expect(router.path(for: .search) == [.groups()])
+    #expect(router.pendingIntent == nil)
+    #expect(router.sheetHasUnsavedInput)
+    #expect(!router.confirmPendingSelect())
+    #expect(router.presentedSheet == .proxyEdit(id: 3))
+}
+
+@MainActor @Test func selectWithoutFlagOrSheetUnchanged() {
+    let router = routerUnderSheet(.announcementEdit(id: nil))
+    router.select(.users)
+    #expect(router.selectedTab == .users)
+    #expect(router.presentedSheet == nil)
+    #expect(router.pendingSelect == nil)
+    #expect(router.pendingIntent == .users)
+    // A flag without a sheet holds nothing.
+    router.sheetHasUnsavedInput = true
+    router.select(.monitor())
+    #expect(router.selectedTab == .monitor)
+    #expect(router.pendingSelect == nil)
+}
+
+@MainActor @Test func closingOrReplacingTheSheetDropsFlagAndPendingSelect() {
+    let router = routerUnderSheet(.groupEdit(id: 2))
+    router.sheetHasUnsavedInput = true
+    router.select(.users)
+    // Closed by its own 取消 / 放弃 (the sheet binding writes nil): the switch does not happen later.
+    router.presentedSheet = nil
+    #expect(!router.sheetHasUnsavedInput)
+    #expect(router.pendingSelect == nil)
+    #expect(router.selectedTab == .search)
+    router.present(.groupEdit(id: 2))
+    router.sheetHasUnsavedInput = true
+    router.present(.redeemGenerate)
+    #expect(!router.sheetHasUnsavedInput)
+    router.select(.users)
+    #expect(router.selectedTab == .users)
+    #expect(router.presentedSheet == nil)
+}

@@ -128,6 +128,7 @@ struct GroupEditSheet: View {
             .toolbar { toolbar }
             .interactiveDismissDisabled(isBusy || isUnconfirmed || draft.hasUnsavedChanges)
             .onDismissAttempt { if !isBusy { cancel() } }
+            .guardsTabSwitch(hasUnsavedInput: draft.hasUnsavedChanges && !isBusy) { cancel() }
             .alert(flow?.prompt?.confirmation.title ?? "", isPresented: promptShown, presenting: flow?.prompt) { prompt in
                 Button(prompt.confirmation.confirmTitle, role: prompt.confirmation.isDestructive ? .destructive : nil) { flow?.confirm() }
                 Button(GroupConfirmation.cancelTitle, role: .cancel) { flow?.cancelConfirmation() }
@@ -135,12 +136,12 @@ struct GroupEditSheet: View {
                 Text(prompt.confirmation.message)
             }
             .alert(GroupEditCopy.discardTitle, isPresented: $confirmingDiscard) {
-                Button(GroupEditCopy.discardConfirm, role: .destructive) { dismiss() }
-                Button(GroupEditCopy.keepEditing, role: .cancel) {}
+                Button(GroupEditCopy.discardConfirm, role: .destructive) { leave() }
+                Button(GroupEditCopy.keepEditing, role: .cancel) { router.cancelPendingSelect() }
             }
             .alert(GroupEditCopy.unconfirmedCloseTitle, isPresented: $confirmingLater) {
                 Button(GroupEditCopy.checkLater, role: .destructive) { checkLater() }
-                Button(GroupEditCopy.keepChecking, role: .cancel) {}
+                Button(GroupEditCopy.keepChecking, role: .cancel) { router.cancelPendingSelect() }
             } message: {
                 Text(GroupEditCopy.unconfirmedCloseMessage(isNew: original == nil, hasMemberChanges: flow?.hasMemberChangesPending ?? false))
             }
@@ -174,14 +175,19 @@ struct GroupEditSheet: View {
     /// Only the confirmation's own buttons change the flow, so closing the alert never leaves a prompt behind.
     private var promptShown: Binding<Bool> { Binding(get: { flow?.prompt != nil }, set: { _ in }) }
 
+    /// Also a tab switch's question (S2-中-27): the same answers, 放弃 / 稍后核对 going on to that tab.
     private func cancel() {
-        if flow?.phase == .failed(.gone) { return dismiss() }
-        if isUnconfirmed { confirmingLater = true } else if draft.hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        if flow?.phase == .failed(.gone) { return leave() }
+        if isUnconfirmed { confirmingLater = true } else if draft.hasUnsavedChanges { confirmingDiscard = true } else { leave() }
     }
     /// 稍后核对 (00 §2.5.4): closes without the number; the list reads again.
     private func checkLater() {
         flow?.checkLater()
-        dismiss()
+        leave()
+    }
+    /// Closes the sheet, or with a tab switch waiting goes on to that tab, which closes it too.
+    private func leave() {
+        if !router.confirmPendingSelect() { dismiss() }
     }
     /// Not tied to the view: the sheet cannot close while the write runs, and it closes itself when done.
     private func submit() {

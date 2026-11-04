@@ -117,6 +117,7 @@ struct AnnouncementEditSheet: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .interactiveDismissDisabled(isBusy || isUnconfirmed || hasChanges)
             .onDismissAttempt { if !isBusy { cancel() } }
+            .guardsTabSwitch(hasUnsavedInput: hasChanges && !isBusy) { cancel() }
             .task(id: session?.generation) { await prepare() }
             .task(id: session?.generation) { await model.groupDirectory?.ensureLoaded() }
             .onChange(of: flow?.exit) { _, exit in close(exit) }
@@ -130,12 +131,12 @@ struct AnnouncementEditSheet: View {
             }
         }
         .alert(AnnouncementEditCopy.discardTitle, isPresented: $confirmingDiscard) {
-            Button(AnnouncementEditCopy.discardConfirm, role: .destructive) { dismiss() }
-            Button(AnnouncementEditCopy.keepEditing, role: .cancel) {}
+            Button(AnnouncementEditCopy.discardConfirm, role: .destructive) { leave() }
+            Button(AnnouncementEditCopy.keepEditing, role: .cancel) { router.cancelPendingSelect() }
         }
         .alert(AnnouncementEditCopy.unconfirmedCloseTitle, isPresented: $confirmingLater) {
             Button(AnnouncementEditCopy.checkLater, role: .destructive) { checkLater() }
-            Button(AnnouncementEditCopy.keepChecking, role: .cancel) {}
+            Button(AnnouncementEditCopy.keepChecking, role: .cancel) { router.cancelPendingSelect() }
         } message: {
             Text(AnnouncementEditCopy.unconfirmedCloseMessage(creating: original == nil))
         }
@@ -236,14 +237,19 @@ struct AnnouncementEditSheet: View {
 
     // MARK: - Actions
 
-    /// 00 §2.5.4 first: with the result open it asks “结果未确认”, then unsaved changes ask “放弃修改？”.
+    /// 00 §2.5.4 first: with the result open it asks “结果未确认”, then unsaved changes ask “放弃修改？”. Also a tab switch's
+    /// question (S2-中-27): the same answers, 放弃 / 稍后核对 going on to that tab.
     private func cancel() {
-        if isUnconfirmed { confirmingLater = true } else if hasChanges { confirmingDiscard = true } else { dismiss() }
+        if isUnconfirmed { confirmingLater = true } else if hasChanges { confirmingDiscard = true } else { leave() }
     }
     /// 稍后核对: closes; a new one's attempt stays with the session (S6-高-13), the list and the detail read again.
     private func checkLater() {
         flow?.checkLater()
-        dismiss()
+        leave()
+    }
+    /// Closes the sheet, or with a tab switch waiting goes on to that tab, which closes it too.
+    private func leave() {
+        if !router.confirmPendingSelect() { dismiss() }
     }
     private func start(_ action: Action) {
         guard let flow else { return }

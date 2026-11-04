@@ -15,6 +15,7 @@ struct AccountNewView: View {
 
 private struct AccountNewForm: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppRouter.self) private var router
     @State private var model: AccountNewModel
     @State private var importingVertex = false
 
@@ -64,7 +65,8 @@ private struct AccountNewForm: View {
         }
         .interactiveDismissDisabled(model.blocksInteractiveDismiss)
         .onDismissAttempt { if !model.submission.isBusy { cancel() } }
-        .accountNewPrompts(model, dismiss: { dismiss() })
+        .guardsTabSwitch(hasUnsavedInput: asksBeforeTabSwitch) { askBeforeTabSwitch() }
+        .accountNewPrompts(model, close: { leave() }, stay: { router.cancelPendingSelect() })
         .fileImporter(isPresented: $importingVertex, allowedContentTypes: [.json]) { model.importVertex($0.map { [$0] }) }
         .onChange(of: model.draft) { _, draft in model.submission.draftDidChange(try? draft.createRequest()) }
         .accountNewTest(model)
@@ -125,6 +127,18 @@ private struct AccountNewForm: View {
     private func cancel() {
         if model.cancelRequested() { dismiss() }
     }
+    /// S2-中-27: a tab switch asks where 取消 asks “放弃新建账号？”: a platform picked, nothing created, sending or unconfirmed.
+    private var asksBeforeTabSwitch: Bool {
+        model.blocksInteractiveDismiss && !model.submission.isBusy && model.submission.createdAccountID == nil && !model.isResultUnconfirmed
+    }
+    private func askBeforeTabSwitch() {
+        guard let question = model.draft.discardConfirmation(oauthInProgress: model.oauthInProgress) else { return leave() }
+        model.prompt = .discard(question)
+    }
+    /// Closes the form, or with a tab switch waiting goes on to that tab, which closes it too.
+    private func leave() {
+        if !router.confirmPendingSelect() { dismiss() }
+    }
 }
 
 private extension View {
@@ -139,14 +153,18 @@ private extension View {
         }
     }
 
-    /// S2-18's questions (放弃 / 换平台 / 换方式 / 切换授权方式), and the stop or the create that was not confirmed.
-    func accountNewPrompts(_ model: AccountNewModel, dismiss: @escaping () -> Void) -> some View {
+    /// S2-18's questions (放弃 / 换平台 / 换方式 / 切换授权方式), and the stop or the create that was not confirmed. `close` closes
+    /// the form (or goes on to the tab that waits), `stay` lets a waiting tab switch go (S2-中-27).
+    func accountNewPrompts(_ model: AccountNewModel, close: @escaping () -> Void, stay: @escaping () -> Void) -> some View {
         let question = model.prompt?.confirmation
         return alert(question?.title ?? "", isPresented: Binding(get: { model.prompt?.confirmation != nil },
                                                                  set: { if !$0, model.prompt?.confirmation != nil { model.prompt = nil } }),
                      presenting: question) { question in
-            Button(question.confirmTitle, role: .destructive) { if model.confirmPrompt() { dismiss() } }
-            Button(question.cancelTitle, role: .cancel) { model.prompt = nil }
+            Button(question.confirmTitle, role: .destructive) { if model.confirmPrompt() { close() } }
+            Button(question.cancelTitle, role: .cancel) {
+                model.prompt = nil
+                stay()
+            }
         } message: { question in
             Text(question.message)
         }
