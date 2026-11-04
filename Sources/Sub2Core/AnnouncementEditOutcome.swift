@@ -198,8 +198,16 @@ public enum AnnouncementEditCopy {
     public static let loading = "正在读取公告…"
 
     public static func unconfirmedCloseMessage(creating: Bool) -> String {
-        creating ? "服务器可能已经创建了这条公告。关闭后不再保留这次的编号，公告列表会重新读取；再次新建前先在列表里核对，避免重复。"
+        creating ? "服务器可能已经创建了这条公告。关闭后这次的编号在本次使用期间保留，公告列表会重新读取；再次新建时会先提醒你核对，避免重复。"
             : "服务器可能已经保存了这次修改。关闭后公告列表会重新读取，再次修改前先在详情里核对。"
+    }
+    /// S6-高-13: 新建 while the session still holds a create left at 稍后核对; the buttons are `keepChecking`, `createAnyway`
+    /// and 取消.
+    public static let interceptTitle = "上一条公告的新建结果未确认"
+    /// “「维护通知」· 10/13 14:20 确认” on the site's calendar, the year added once it is another; `now` is the server-corrected clock.
+    public static func interceptMessage(title: String, confirmedAt: Date, timeZone: ServerTimeZone, now: Date) -> String {
+        "「\(AnnouncementPresentation.displayTitle(title))」· " + DisplayFormat.monthDayClock(confirmedAt, timeZone: timeZone, now: now)
+            + " 确认\n服务器可能已经创建了它，先核对，避免用户看到重复的公告。"
     }
     /// While a save runs: transport retries, then the server still working on the same key.
     public static func savingText(_ event: KeyedWriteEvent?) -> String {

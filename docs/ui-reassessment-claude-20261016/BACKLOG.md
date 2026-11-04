@@ -656,6 +656,7 @@
 | 简易模式且无 groups.member_batch 的站点，成员入口仍可编辑 | 这类站点上编辑 sheet 的成员区和详情页的加入 / 移出照常可点，但成员写入一定被拒（“服务器暂不支持批量调整成员。”）。S5-11 审查修正后，只改成员保存会留在 sheet 显示红字；是否在这类站点把成员入口置灰或隐藏，待定。 |
 | GroupsUITests 启动后不等登录页 | 与 S5-10 审查修正 64f8318 根因相同：GroupsUITests.launchAndOpenGroups 在 launchQuietly() 后直接 reveal(login.name)，reveal（第 287 行）读 app.navigationBars.firstMatch.frame 前不判断导航栏在不在。Mac 负载高、启动后窗口还空时，读 frame 约 2 秒后就会在登录前失败。目前没观察到它这样失败，按 GroupEditUITests 的修法补：先等 login.name，读导航栏前先判断。 |
 | 分组列表“更新失败 · 重试”细条的写法 | U-10 在列表顶部另加一条细条，右侧小字“今日 / 可用状态 / 今日、可用状态”和时钟图标是自拟的；清单原话是“行旁加小字”，因列表行第三行已排满没有照做。等用户看截图再定；如要严格放在行内，需要先把列表行改成两行，另起条目 |
+| 分组列表的 F04 错误账号兜底不记 429 等待 | 没有 groups.account_buckets 时，列表每次刷新都会一起发 accounts?status=error 的兜底请求（GroupStore.readErrorCounts，用 try? 吞掉错误，保留上次的计数）。遇到 429 时不记 retry_after，等待期间下拉或轮询仍会再发，不符合 00 §2.7.2“等待期间不再发这个块的请求”。可以照 usage / shortage 的做法给它也配一个 BlockRefresh。U-10 审查修正（3b8f5c9）没有改这里，因为它不进“更新失败”细条。 |
 
 ### App 与设计 · 阶段 6
 

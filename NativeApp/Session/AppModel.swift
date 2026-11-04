@@ -117,6 +117,8 @@ final class AppModel {
     // 阶段 6 的条目在这里追加
     /// 60 §12: the session's proxy catalog; the list, detail and editor read and write it (S6-11). Rebuilt with the session.
     private(set) var proxyStore: ProxyStore?
+    /// S6-高-13 (U-21): a new announcement left at 稍后核对, so the next 新建 asks first; in memory only, dropped with the session.
+    var pendingAnnouncementCreate: PendingAnnouncementCreate?
 
     // MARK: - 阶段 1 · App 级状态
     // 阶段 1 的条目在这里追加
@@ -346,6 +348,7 @@ final class AppModel {
             DemoData.proxySource(for: generation, base: next.serverClock.now())
         } else { ClientProxySource(client: next) }
         proxyStore = ProxyStore(generation: generation, source: proxySource, isCurrent: { [weak self] in self?.sessionGeneration == generation })
+        pendingAnnouncementCreate = nil
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
         else { profiles.append(profile) }
         savedActiveID = profile.id
@@ -394,6 +397,7 @@ final class AppModel {
         // MARK: - 阶段 6 · 会话级状态
         // 阶段 6 的条目在这里追加
         proxyStore = nil
+        pendingAnnouncementCreate = nil
         if case .siteLogin(let notice) = exit { openSiteLogin(profile, notice: notice) }
         persistProfiles()
         await old?.cancelAll()

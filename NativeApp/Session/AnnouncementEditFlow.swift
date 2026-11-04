@@ -18,11 +18,19 @@ struct AnnouncementEditSource: Sendable {
     }
 }
 
+/// A new announcement left at 稍后核对 (S6-高-13): the same key and bytes, the form as sent and where the check stood. AppModel
+/// keeps it for the session, in memory only; a sheet opened from it carries on with the same attempt.
+struct PendingAnnouncementCreate: Equatable {
+    let attempt: AnnouncementCreateAttempt
+    let draft: AnnouncementDraft
+    let phase: AnnouncementEditFlow.Phase
+}
+
 /// 60 §17.4: 存草稿 / 保存 / 发布 of the edit sheet. A new announcement's key is made when the administrator confirms and
 /// kept for the same bytes (R05); with `announcements.idempotent_create` an unknown result offers the same key again, without
 /// it nothing is resent and the title is looked up (H07). A PUT carries no key and is read back when its reply is lost.
 /// Results for an older session are dropped; success tells the list and the detail (`onChanged`), shows the receipt and sets
-/// `exit`, which closes the sheet.
+/// `exit`, which closes the sheet. A new one left unconfirmed goes to the session (`keepCreate`) when the sheet closes.
 @MainActor @Observable
 final class AnnouncementEditFlow {
     enum Phase: Equatable {
@@ -56,14 +64,26 @@ final class AnnouncementEditFlow {
     @ObservationIgnored private let pause: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var attempt: AnnouncementCreateAttempt?
     @ObservationIgnored private var pending: (update: AnnouncementUpdateRequest?, receipt: Receipt)?
+    /// The session's record of a new one left unconfirmed: set at 稍后核对, nil once this sheet settled the one it holds.
+    @ObservationIgnored private let keepCreate: @MainActor (PendingAnnouncementCreate?) -> Void
+    @ObservationIgnored private var sentDraft: AnnouncementDraft?
+    @ObservationIgnored private var holdsRecord = false
 
     init(original: Announcement?, source: AnnouncementEditSource, keyedCreate: Bool, receipts: ReceiptCenter,
          isCurrent: @escaping @MainActor () -> Bool, onChanged: @escaping @MainActor () -> Void, now: @escaping @MainActor () -> Date = { Date() },
          deviceNow: @escaping @MainActor () -> Date = { Date() },
-         pause: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+         pause: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+         keepCreate: @escaping @MainActor (PendingAnnouncementCreate?) -> Void = { _ in }, restoring record: PendingAnnouncementCreate? = nil) {
         self.original = original; self.source = source; self.keyedCreate = keyedCreate; self.receipts = receipts
         self.isCurrent = isCurrent; self.onChanged = onChanged; self.now = now; self.deviceNow = deviceNow; self.pause = pause
+        self.keepCreate = keepCreate
         role = AnnouncementEditRole(original: original)
+        guard original == nil, let record else { return }
+        attempt = record.attempt
+        sentDraft = record.draft
+        pending = (nil, Self.receipt(publishing: record.attempt.request.status == .active, role: role))
+        phase = record.phase
+        holdsRecord = true
     }
 
     var isBusy: Bool {
@@ -93,31 +113,32 @@ final class AnnouncementEditFlow {
     /// 存草稿 (a new one as a draft, a draft as it is) or 保存.
     func saveTrailing(_ draft: AnnouncementDraft) async {
         guard acceptsSave else { return }
-        let receipt = Receipt(text: role.trailingReceipt, systemImage: "tray.and.arrow.down")
+        let receipt = Self.receipt(publishing: false, role: role)
         if let original {
             await update(draft.updateRequest(from: original, status: nil), of: original, receipt: receipt)
         } else {
-            await create(draft.createRequest(status: role.trailingStatus ?? .draft), receipt: receipt)
+            await create(draft, status: role.trailingStatus ?? .draft, receipt: receipt)
         }
     }
     /// 发布 / 重新发布, after the confirmation: status active.
     func publish(_ draft: AnnouncementDraft) async {
         guard acceptsSave else { return }
-        let receipt = Receipt(text: AnnouncementEditRole.publishReceipt, systemImage: "megaphone")
+        let receipt = Self.receipt(publishing: true, role: role)
         if let original {
             await update(draft.updateRequest(from: original, status: .active), of: original, receipt: receipt)
         } else {
-            await create(draft.createRequest(status: .active), receipt: receipt)
+            await create(draft, status: .active, receipt: receipt)
         }
     }
 
-    private func create(_ request: AnnouncementCreateRequest, receipt: Receipt) async {
+    private func create(_ draft: AnnouncementDraft, status: AnnouncementStatus, receipt: Receipt) async {
         do {
-            attempt = try AnnouncementCreateAttempt.next(for: request, previous: attempt, now: now())
+            attempt = try AnnouncementCreateAttempt.next(for: draft.createRequest(status: status), previous: attempt, now: now())
         } catch {
             phase = .failed(AnnouncementEditFailure.classify(error).message)
             return
         }
+        sentDraft = draft
         pending = (nil, receipt)
         await sendCreate()
     }
@@ -190,6 +211,7 @@ final class AnnouncementEditFlow {
     /// H07: the one found is opened instead of making another.
     func viewExisting() {
         guard case .maybeCreated(let match) = phase, exit == nil, isCurrent() else { return }
+        releaseRecord()
         onChanged()
         exit = .open(match.id)
     }
@@ -205,9 +227,14 @@ final class AnnouncementEditFlow {
         await sendCreate()
     }
 
-    /// 稍后核对: the sheet closes without the key; the list and the detail read again so what the server did shows.
+    /// 稍后核对: the sheet closes; the list and the detail read again so what the server did shows. A new one's attempt stays
+    /// with the session (S6-高-13), so the next 新建 can offer it first; an edit's goes.
     func checkLater() {
         guard isUnconfirmed, exit == nil, isCurrent() else { return }
+        if original == nil, let attempt, let sentDraft {
+            keepCreate(PendingAnnouncementCreate(attempt: attempt, draft: sentDraft, phase: phase))
+            holdsRecord = true
+        }
         onChanged()
     }
 
@@ -246,10 +273,22 @@ final class AnnouncementEditFlow {
         return left > 0 ? left : nil
     }
     private func finish() {
+        releaseRecord()
         onChanged()
         if let receipt = pending?.receipt { receipts.show(receipt) }
         exit = .saved
         phase = .editing
+    }
+    /// The record this sheet took up is settled; a sheet that never held it leaves another attempt's record alone.
+    private func releaseRecord() {
+        guard holdsRecord else { return }
+        holdsRecord = false
+        keepCreate(nil)
+    }
+    /// What a save says when done: 发布 / 重新发布, or 存草稿 / 保存.
+    private static func receipt(publishing: Bool, role: AnnouncementEditRole) -> Receipt {
+        publishing ? Receipt(text: AnnouncementEditRole.publishReceipt, systemImage: "megaphone")
+            : Receipt(text: role.trailingReceipt, systemImage: "tray.and.arrow.down")
     }
     private func markGone() {
         onChanged()

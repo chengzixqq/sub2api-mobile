@@ -253,3 +253,46 @@ private let stamp = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(GroupWebLink.title == "模型白名单、组合路由、图片计费" && GroupWebLink.subtitle == "在 Web 中编辑")
     #expect(GroupWebLink.openedReceipt == "已打开 Web 分组管理")
 }
+
+// MARK: U-11 刷新失败保留上次值（S5-高-3）
+
+/// 贰 has one accessory for its three blocks: usage-summary, then dashboard/groups, then capacity. Only a value kept through a
+/// failed refresh counts; a first read that failed stays “—” and a refresh in flight shows nothing.
+@Test func staleBlockPicksFirstStale() {
+    let summary: GroupUsageSummary? = GroupUsageSummary(groupID: 1, todayCost: 1, yesterdayCost: 2, totalCost: 3)
+    let usageToday = GroupTodayUsage(requests: 1, totalTokens: 2, accountCost: 3)
+    let lines: GroupCapacitySummary? = capacity((5, 8), (0, 0), (0, 0))
+    func stale(usage: BlockState<GroupUsageSummary?> = .idle, today: BlockState<GroupTodayUsage> = .idle,
+               capacity: BlockState<GroupCapacitySummary?> = .idle) -> GroupDetailBlock? {
+        GroupDetailSectionsPresentation.staleBlock(usage: usage, today: today, capacity: capacity)
+    }
+    #expect(stale() == nil)
+    #expect(stale(usage: .failed(reason: "x", previous: summary, at: stamp)) == .usage)
+    #expect(stale(usage: .failed(reason: "x", previous: .some(nil), at: stamp)) == .usage)
+    #expect(stale(usage: .failed(reason: "x", previous: nil, at: nil)) == nil)
+    #expect(stale(usage: .loaded(summary, at: stamp)) == nil)
+    #expect(stale(usage: .loading(previous: summary, at: stamp)) == nil)
+    #expect(stale(today: .failed(reason: "x", previous: usageToday, at: stamp)) == .todayUsage)
+    #expect(stale(today: .failed(reason: "x", previous: nil, at: nil)) == nil)
+    #expect(stale(today: .loaded(usageToday, at: stamp)) == nil)
+    #expect(stale(capacity: .failed(reason: "x", previous: lines, at: stamp)) == .capacity)
+    #expect(stale(capacity: .failed(reason: "x", previous: nil, at: nil)) == nil)
+    #expect(stale(capacity: .loaded(lines, at: stamp)) == nil)
+    #expect(stale(usage: .failed(reason: "x", previous: summary, at: stamp), capacity: .failed(reason: "x", previous: lines, at: stamp)) == .usage)
+    #expect(stale(today: .failed(reason: "x", previous: usageToday, at: stamp), capacity: .failed(reason: "x", previous: lines, at: stamp)) == .todayUsage)
+    #expect(stale(usage: .failed(reason: "x", previous: nil, at: nil), today: .loaded(usageToday, at: stamp),
+                  capacity: .failed(reason: "x", previous: lines, at: stamp)) == .capacity)
+}
+
+/// The strip under the banner: only for an event kept through a failed refresh, not for “no event” kept nor a refresh in flight.
+@Test func alertStripOnlyForAKeptEvent() {
+    let shown = event()
+    func isStale(_ state: BlockState<AlertEvent?>) -> Bool { GroupDetailSectionsPresentation.alertIsStale(state) }
+    #expect(isStale(.failed(reason: "x", previous: shown, at: stamp)))
+    #expect(!isStale(.failed(reason: "x", previous: .some(nil), at: stamp)))
+    #expect(!isStale(.failed(reason: "x", previous: nil, at: nil)))
+    #expect(!isStale(.loaded(shown, at: stamp)))
+    #expect(!isStale(.loading(previous: shown, at: stamp)))
+    #expect(!isStale(.idle))
+    #expect(GroupDetailSectionsPresentation.alertStaleTitle == "告警更新失败 · 重试")
+}

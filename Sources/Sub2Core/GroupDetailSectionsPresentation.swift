@@ -147,6 +147,26 @@ public enum GroupCapacityDisplay: Equatable, Sendable {
     }
 }
 
+/// S5-高-3: a block whose last refresh failed while its earlier value still shows says so; a first read that failed stays as it
+/// was (“—”, no banner) and a refresh in flight shows nothing.
+public enum GroupDetailSectionsPresentation {
+    /// The caution strip under a banner kept through a failed refresh (U-11's own wording).
+    public static let alertStaleTitle = "告警更新失败 · 重试"
+
+    /// 贰 has one accessory for its three blocks: the first of usage-summary, dashboard/groups and capacity that is stale.
+    public static func staleBlock<Usage, Today, Capacity>(usage: BlockState<Usage>, today: BlockState<Today>,
+                                                          capacity: BlockState<Capacity>) -> GroupDetailBlock? {
+        if GroupStoreRules.isStale(usage) { return .usage }
+        if GroupStoreRules.isStale(today) { return .todayUsage }
+        if GroupStoreRules.isStale(capacity) { return .capacity }
+        return nil
+    }
+    /// The banner shows an event from an earlier read, since the last one failed.
+    public static func alertIsStale(_ state: BlockState<AlertEvent?>) -> Bool {
+        GroupStoreRules.isStale(state) && state.value.flatMap { $0 } != nil
+    }
+}
+
 /// 叁's rows in page order; the subscription row is only for a subscription group.
 public enum GroupRecordRow: String, CaseIterable, Sendable {
     case errors, upstream, usage, keys, subscriptions

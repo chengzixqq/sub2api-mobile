@@ -15,7 +15,8 @@ struct GroupDetailSections: View {
     var body: some View {
         let sections = detail.sections, keys = detail.keyCounts.state, opsOff = sections.opsKnownDisabled
         let capacity = GroupCapacityDisplay.make(sections.capacity.state, group: group, buckets: buckets)
-        GroupUsageSection(usage: sections.usage.state, today: sections.todayUsage.state, capacity: permissions.showsUsageAndCapacity ? capacity : nil)
+        GroupUsageSection(usage: sections.usage.state, today: sections.todayUsage.state, capacity: permissions.showsUsageAndCapacity ? capacity : nil,
+                          status: GroupUsageStatus(sections: sections) { Task { await detail.refresh(.pull) } })
         GroupRecordsSection(group: RouteObject(id: group.id, name: group.name), showsKeys: permissions.showsKeysAndSubscriptions,
                             showsSubscriptions: permissions.showsKeysAndSubscriptions && GroupRecordValues.showsSubscriptions(group),
                             trailing: .init(errors: GroupRecordValues.logCount(sections.requestErrors.state, opsKnownDisabled: opsOff),
@@ -48,12 +49,55 @@ struct GroupAlertBanner: View {
     }
 }
 
+/// S5-高-3: under a banner kept through a failed refresh, one caution strip of its own; a tap reads the banner again.
+struct GroupAlertStaleStrip: View {
+    let onRetry: () -> Void
+
+    var body: some View {
+        Section {
+            Button(action: onRetry) {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Tone.caution.base).accessibilityHidden(true)
+                    Text(GroupDetailSectionsPresentation.alertStaleTitle).font(.footnote).foregroundStyle(Palette.ink1)
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(GroupDetailSectionsPresentation.alertStaleTitle)
+            .accessibilityIdentifier("group.detail.alert.retry")
+            .listRowBackground(Tone.caution.wash)
+        }
+    }
+}
+
+/// 贰's one accessory (S5-高-3), not one per figure: 更新失败 for the first of usage-summary, dashboard/groups and capacity that
+/// kept its value through a failed refresh. The page polls on its own, so the end of a 429 wait is left to it.
+struct GroupUsageStatus: View {
+    let sections: GroupDetailSectionsModel
+    let retry: @MainActor () -> Void
+
+    var body: some View {
+        switch sections.staleUsageBlock {
+        case .usage?: BlockStatusAccessory(sections.usage, id: Self.id, resendsAfterWait: false, retry: retry)
+        case .todayUsage?: BlockStatusAccessory(sections.todayUsage, id: Self.id, resendsAfterWait: false, retry: retry)
+        case .capacity?: BlockStatusAccessory(sections.capacity, id: Self.id, resendsAfterWait: false, retry: retry)
+        default: EmptyView()
+        }
+    }
+    /// `group.usage.retry` on 更新失败.
+    private static let id = "group.usage"
+}
+
 /// 贰 · 用量与容量 (design GvUsageSection): the three amounts, 请求 · Tokens · 账号成本 and the capacity lines; `capacity` nil (simple
-/// mode) keeps only the middle line. A failed refresh keeps every figure without a word (S5D2a-15); a first read that failed is “—”.
-struct GroupUsageSection: View {
+/// mode) keeps only the middle line. A failed refresh keeps every figure and `status` beside the title says so (S5-高-3); a first
+/// read that failed is “—”.
+struct GroupUsageSection<Status: View>: View {
     let usage: BlockState<GroupUsageSummary?>
     let today: BlockState<GroupTodayUsage>
     let capacity: GroupCapacityDisplay?
+    let status: Status
 
     var body: some View {
         Section {
@@ -61,7 +105,9 @@ struct GroupUsageSection: View {
             todayLine
             if let capacity { capacityLines(capacity) }
         } header: {
-            NumberedSectionHeader(title: GroupUsageFigures.title, ordinal: GroupUsageFigures.ordinal, meta: GroupUsageFigures.meta, id: "group.usage.header")
+            NumberedSectionHeader(title: GroupUsageFigures.title, ordinal: GroupUsageFigures.ordinal, meta: GroupUsageFigures.meta, id: "group.usage.header") {
+                status
+            }
         }
     }
 
@@ -163,7 +209,10 @@ struct GroupUsageSection: View {
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
     }
 
-    private static let placeholderFigures = GroupUsageFigures(GroupUsageSummary(groupID: 0, todayCost: 100, yesterdayCost: 100, totalCost: 10_000))
+    /// Computed: a generic type keeps no static storage.
+    private static var placeholderFigures: GroupUsageFigures {
+        GroupUsageFigures(GroupUsageSummary(groupID: 0, todayCost: 100, yesterdayCost: 100, totalCost: 10_000))
+    }
 }
 
 /// 叁 · 记录与关联 (design GvRecordRows): the logs filtered by this group, then the group's keys and subscriptions. A count's
