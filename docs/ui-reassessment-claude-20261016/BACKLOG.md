@@ -666,6 +666,9 @@
 | 列表中区块头附件滚出屏幕后，429 等待结束可能不会自动重读（待核实） | BlockStatusAccessory 的自动重读挂在视图的 .task 上。List 卸载滚出屏幕的区块头时，这个任务会被取消；回到屏幕时如果等待已经结束，就不会再重读。分组详情“贰”、成员分区等处都可能受影响。 |
 | 删除订阅限额 0 的临时说明 | 后端统一订阅限额 0 的语义后（现在保存时当“不允许使用”、计费检查时当“不限”），删掉 GroupEditCopy.zeroLimitNote、GroupEditForm.limitRow 里的 zeroNote 行、GroupEditDraft.zeroLimitPeriods / hasZeroLimit，以及 zeroLimitDetection、testZeroLimitShowsNote 两个测试（U-13） |
 | 分组 API 密钥页 / 订阅页列表翻页不受 429 等待约束 | GroupRecordsPager.loadMore 不检查 refresh.allowsRequest：第 1 页下拉遇 429 后列表保留旧行，等待期间滚到底仍会发 GET 下一页；下一页本身遇 429 也只显示“加载失败 · 重试”，不进入等待、不倒计时。与 00 §2.7.2“这期间不再发这个块的请求”不一致，属 S5-12 既有行为，不在 U-12 范围内，待定是否按列表块统一拦截 |
+| 规格 50 §0.4.4 老服务器提示句同步 | App 已改为“服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。”（U-14），规格原文仍是旧句，请同步 FINAL-SPEC 与 spec/50 |
+| 规格 50 §0.7 简易模式不支持批量时成员入口置灰 | U-14 新增：简易模式且没有 groups.member_batch（或本会话收到 500 GROUP_REPOSITORY_UNSUPPORTED）时成员入口置灰，并写“服务器暂不支持批量调整成员”（详情放成员分区 footer，编辑 sheet 放成员区标题旁），规格未写，需补 |
+| U-14 置灰原因的版式待看截图定 | 详情成员分区 footer 用 ink2 小字；编辑 sheet 成员区标题右侧并排小字（大字号时可能换行）；这两处位置与字色是自定的，请用户看截图后定 |
 
 ### App 与设计 · 阶段 6
 
