@@ -11,12 +11,14 @@ extension DemoData {
         static let noArchived = "-ui-announcements-no-archived"
         /// 25 more archived ones, “历史公告 1…25” (ids 101…125, older than 21): 33 in all, page 2 ends with 101.
         static let many = "-ui-announcements-many"
-        /// The session's first page-1 read fails with 502.
+        /// The session's first page-1 load fails with 502: with read_stats, its read without them as well (U-20).
         static let listError = "-ui-announcements-error"
         /// Every count read fails, as all four failing would.
         static let countsError = "-ui-announcements-counts-error"
         /// The first page-2 read fails.
         static let pageError = "-ui-announcements-page-error"
+        /// U-20: every list read asking for read_stats fails with 502, as an old server refusing them would.
+        static let readStatsError = "-ui-announcements-read-stats-error"
         /// S6-26: the session's first create is lost before it reaches the store, so its result stays unconfirmed.
         static let saveLost = "-ui-announcement-save-lost"
     }
@@ -83,7 +85,7 @@ final class AnnouncementDemoStore {
     let base: Date
     private(set) var items: [Announcement]
     private let arguments: [String]
-    private var firstPageReads = 0
+    private var failedFirstLoad = false
     private var secondPageReads = 0
     private var lostCreate = false
     private static var latest: (generation: UUID, store: AnnouncementDemoStore)?
@@ -104,10 +106,13 @@ final class AnnouncementDemoStore {
     /// `GET admin/announcements`: the status filter, then pages; read_stats only when asked for.
     func page(_ page: Int, query: AnnouncementListQuery) throws -> Page<Announcement> {
         _ = try query.queryItems(page: page)
-        if page == 1 { firstPageReads += 1 }
         if page == 2 { secondPageReads += 1 }
-        if arguments.contains(DemoData.AnnouncementFixture.listError), page == 1, firstPageReads == 1 { throw Self.failure }
+        if arguments.contains(DemoData.AnnouncementFixture.listError), page == 1, !failedFirstLoad {
+            failedFirstLoad = !query.includeReadStats
+            throw Self.failure
+        }
         if arguments.contains(DemoData.AnnouncementFixture.pageError), page == 2, secondPageReads == 1 { throw Self.failure }
+        if arguments.contains(DemoData.AnnouncementFixture.readStatsError), query.includeReadStats { throw Self.failure }
         let matched = items.filter { query.status == nil || $0.status == query.status }
         let size = PageSize.clamped(query.pageSize)
         let shown = matched.dropFirst((page - 1) * size).prefix(size).map { query.includeReadStats ? $0 : Self.withoutReadStats($0) }

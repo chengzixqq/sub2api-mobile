@@ -769,4 +769,21 @@ final class AnnouncementsUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(app.staticTexts["receipt.text"], containing: "已发布 · 结束时间已过，用户看不到"), app.debugDescription)
         XCTAssertTrue(detailButton("archive").waitForExistence(timeout: 10), app.debugDescription)
     }
+
+    // MARK: - 不带已读统计重读（U-20）
+
+    /// S6-中-15: a site refusing include_read_stats still shows the list, without the read progress; page 2 goes without them too.
+    @MainActor func testListFallsBackWithoutReadStats() {
+        launchAnnouncements(["-ui-announcements-read-stats-error", "-ui-announcements-many"])
+        defer { diagnostics("announcements-read-stats-fallback-final") }
+        XCTAssertTrue(row(31).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(element("announcements.failure").exists, app.debugDescription)
+        XCTAssertTrue(row(31).label.contains("所有用户") && row(31).label.contains("展示中"), row(31).label)
+        XCTAssertFalse(row(31).label.contains("已读"), row(31).label)
+        XCTAssertFalse(row(30).label.contains("已读"), row(30).label)
+        diagnostics("announcements-read-stats-fallback")
+        XCTAssertTrue(app.scrollUntilExists(row(101), maxSwipes: 16), app.debugDescription)
+        XCTAssertFalse(row(101).label.contains("已读"), row(101).label)
+        XCTAssertFalse(app.buttons["announcements.more.retry"].exists, app.debugDescription)
+    }
 }

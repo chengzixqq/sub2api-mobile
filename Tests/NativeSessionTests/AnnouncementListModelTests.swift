@@ -183,7 +183,8 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
         if call == 1 { throw failure }
         return announcementPage(1...3, page: page)
     })
-    let model = makeModel(stub)
+    // Without read_stats: with them, page 1 would be read again at once (S6-中-15).
+    let model = makeModel(stub, readStats: false)
     await model.reload()
     #expect(model.state.value == nil)
     #expect(model.state.failureReason == failure.localizedDescription)
@@ -198,7 +199,7 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
         return announcementPage(1...3, page: page)
     })
     let clock = TestClock()
-    let model = makeModel(stub, clock: clock)
+    let model = makeModel(stub, readStats: false, clock: clock)
     await model.reload()
     let loadedAt = model.loadedAt
     clock.advance(5)
@@ -414,4 +415,73 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
         await model.appeared(revision: 1)
         #expect(await stub.pages == [1, 1, 1])
     }
+}
+
+/// S6-中-15: page 1 refused with read_stats is read once more without them; the list then stops asking, segments included.
+@MainActor @Test func readStatsFailureReadsPageOneAgainWithoutThem() async {
+    let stub = AnnouncementStub(page: { _, page, query in
+        if query.includeReadStats { throw failure }
+        return page == 1 ? announcementPage(1...20, pages: 2, total: 22) : announcementPage(21...22, page: 2, pages: 2, total: 22)
+    })
+    let model = makeModel(stub)
+    await model.reload()
+    #expect(await stub.queries.map(\.includeReadStats) == [true, false])
+    #expect(model.items.map(\.id) == Array(1...20))
+    #expect(model.state.failureReason == nil)
+    #expect(model.refresh.consecutiveFailures == 0)
+    #expect(model.droppedReadStats)
+    await model.loadMoreIfNeeded(after: 20)
+    #expect(model.items.count == 22)
+    await model.select(.draft)
+    await model.reload()
+    #expect(await stub.pages == [1, 1, 2, 1, 1])
+    #expect(await stub.queries.map(\.includeReadStats) == [true, false, false, false, false])
+    #expect(model.droppedReadStats)
+}
+
+@MainActor @Test func readStatsFallbackFailingTooShowsTheFailure() async {
+    let stub = AnnouncementStub(page: { call, _, _ in
+        if call == 2 { throw APIError.server(status: 500, reason: nil) }
+        throw failure
+    })
+    let model = makeModel(stub)
+    await model.reload()
+    #expect(await stub.queries.map(\.includeReadStats) == [true, false])
+    #expect(model.state.value == nil)
+    #expect(model.state.failureReason == APIError.server(status: 500, reason: nil).localizedDescription)
+    #expect(model.refresh.consecutiveFailures == 1)
+    #expect(model.droppedReadStats == false)
+    await model.reload()
+    #expect(await stub.queries.map(\.includeReadStats) == [true, false, true, false])
+}
+
+/// A cancellation, a 429 and a refusal of the session or the identity would refuse the second read too; without the capability
+/// there is nothing to drop.
+@MainActor @Test func readStatsFailureIsNotRetriedForRateLimitsSessionsOrCancellation() async {
+    let refusals: [any Error] = [
+        APIError.server(status: 429, envelope: nil, retryAfter: 30), APIError.server(status: 401, reason: "INVALID_TOKEN"),
+        APIError.server(status: 401, reason: "SESSION_BINDING_MISMATCH"), APIError.server(status: 403, reason: "FORBIDDEN"),
+        APIError.server(status: 403, reason: "STEP_UP_REQUIRED"), APIError.server(status: 423, reason: "ADMIN_COMPLIANCE_ACK_REQUIRED"),
+        APIError.authenticationRequired, APIError.refreshDeferred, CancellationError()
+    ]
+    for refusal in refusals {
+        #expect(AnnouncementListModel.canRetryWithoutStats(refusal) == false, "\(refusal)")
+        let stub = AnnouncementStub(page: { _, page, query in
+            if query.includeReadStats { throw refusal }
+            return announcementPage(1...3, page: page)
+        })
+        let model = makeModel(stub)
+        await model.reload()
+        #expect(await stub.queries.map(\.includeReadStats) == [true], "\(refusal)")
+        #expect(model.items.isEmpty && model.droppedReadStats == false, "\(refusal)")
+    }
+    let retried: [any Error] = [failure, APIError.server(status: 400, reason: "VALIDATION_ERROR"), APIError.server(status: 404, envelope: nil),
+                                APIError.invalidResponse, URLError(.notConnectedToInternet)]
+    for error in retried { #expect(AnnouncementListModel.canRetryWithoutStats(error), "\(error)") }
+
+    let without = AnnouncementStub(page: { _, _, _ in throw failure })
+    let plain = makeModel(without, readStats: false)
+    await plain.reload()
+    #expect(await without.queries.map(\.includeReadStats) == [false])
+    #expect(plain.state.failureReason == failure.localizedDescription)
 }
