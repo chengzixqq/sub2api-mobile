@@ -20,6 +20,10 @@ final class GroupFixtures {
         static let usageFailureAfterFirst = "-ui-group-usage-failure-after-first"
         /// The list's first status-summary works; later ones answer 502 (the list keeps 可用偏低, S5-中-8).
         static let shortageFailureAfterFirst = "-ui-group-shortage-failure-after-first"
+        /// The first usage-summary works, the second answers 502 and later ones fail only after `slowUsageDelay` (a retry that hangs).
+        static let usageFailureThenSlow = "-ui-group-usage-failure-then-slow"
+        /// The first usage-summary works, the second answers 429 (retry_after 60) and later ones work (00 §2.7.2).
+        static let usageThrottledAfterFirst = "-ui-group-usage-throttled-after-first"
         /// The site has no group.
         static let empty = "-ui-group-empty"
         /// Followed by attention, normal or off: the list opened without a segment scrolls to that section (X39).
@@ -46,6 +50,7 @@ final class GroupFixtures {
     private let arguments: [String]
     private static var latest: (generation: UUID, fixtures: GroupFixtures)?
     private static let failure = APIError.server(status: 502, reason: nil)
+    private static let throttled = APIError.server(status: 429, envelope: nil, retryAfter: 60)
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         self.arguments = arguments
@@ -97,10 +102,15 @@ final class GroupFixtures {
     /// `GET admin/groups/usage-summary`: a row for every group, as the backend's LEFT JOIN gives.
     func usageSummary() async throws -> [GroupUsageSummary] {
         usageReads += 1
-        let isLater = usageReads > 1
+        let read = usageReads
         if arguments.contains(Argument.usageSlow) { try await Task.sleep(for: Self.slowUsageDelay) }
         if arguments.contains(Argument.usageFailure) { throw Self.failure }
-        if arguments.contains(Argument.usageFailureAfterFirst), isLater { throw Self.failure }
+        if arguments.contains(Argument.usageFailureAfterFirst), read > 1 { throw Self.failure }
+        if arguments.contains(Argument.usageFailureThenSlow), read > 1 {
+            if read > 2 { try await Task.sleep(for: Self.slowUsageDelay) }
+            throw Self.failure
+        }
+        if arguments.contains(Argument.usageThrottledAfterFirst), read == 2 { throw Self.throttled }
         return groups.map { group in
             let row = Self.usage[group.id] ?? (0, 0, 0)
             return GroupUsageSummary(groupID: group.id, todayCost: row.today, yesterdayCost: row.yesterday, totalCost: row.total)

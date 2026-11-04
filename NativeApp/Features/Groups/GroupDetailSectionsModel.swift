@@ -82,6 +82,12 @@ final class GroupDetailSectionsModel {
 
     /// LiveOpsStore's latest signal, whichever page read it: the banner and both counts follow it at once (50 §2.5).
     var opsKnownDisabled: Bool { app?.liveOps?.opsDisabled ?? false }
+    /// 贰's one 更新失败 (S5-高-3): the first of its blocks whose refresh failed while the last value still shows.
+    var staleUsageBlock: GroupDetailBlock? {
+        GroupDetailSectionsPresentation.staleBlock(usage: usage.state, today: todayUsage.state, capacity: capacity.state)
+    }
+    /// The banner's event is an earlier read's: the strip under it says so (S5-高-3).
+    var alertIsStale: Bool { GroupDetailSectionsPresentation.alertIsStale(alert.state) }
 
     /// The blocks GroupDetailSectionReads picks for `trigger`, side by side.
     func refresh(_ trigger: GroupDetailTrigger, showsUsageAndCapacity: Bool) async {

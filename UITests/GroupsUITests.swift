@@ -13,6 +13,8 @@ final class GroupsUITests: XCTestCase {
         static let usageSlow = "-ui-group-usage-slow"
         static let usageFailureAfterFirst = "-ui-group-usage-failure-after-first"
         static let shortageFailureAfterFirst = "-ui-group-shortage-failure-after-first"
+        static let usageFailureThenSlow = "-ui-group-usage-failure-then-slow"
+        static let usageThrottledAfterFirst = "-ui-group-usage-throttled-after-first"
         static let empty = "-ui-group-empty"
         static let segment = "-ui-group-segment"
         static let withoutCapabilities = "-ui-without-capabilities"
@@ -456,5 +458,41 @@ final class GroupsUITests: XCTestCase {
         let normal = element("groups.section.normal")
         app.scrollUntilExists(normal)
         XCTAssertEqual(normal.label, "正常 4")
+    }
+
+    /// U-10 review: a retry of a kept 今日 that is slow to answer leaves the strip up, with a spinner and no tap, and the old
+    /// amount still marked.
+    @MainActor func testStaleStripStaysWhileRetrying() {
+        launchAndOpenGroups(arguments: [Fixture.usageFailureThenSlow])
+        defer { diagnostics("groups-list-stale-retrying-final") }
+        waitForLabel(row(7), contains: "今日 $18.40")
+        app.pullToRefresh(from: row(4))
+        let strip = app.buttons["groups.stale.retry"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(strip.isEnabled, app.debugDescription)
+        strip.tap()
+        // The third read hangs.
+        XCTAssertTrue(strip.poll(NSPredicate(format: "value == %@", "正在刷新"), timeout: 10), app.debugDescription)
+        XCTAssertFalse(strip.isEnabled, app.debugDescription)
+        XCTAssertTrue(strip.label.contains("更新失败") && strip.label.contains("今日"), strip.label)
+        XCTAssertTrue(row(7).label.contains("今日 $18.40"), row(7).label)
+    }
+
+    /// U-10 review (00 §2.7.2): a 429 on a kept 今日 counts down on the strip, which takes no tap, and the wait holds back
+    /// usage-summary — a pull during it does not read it (the next read would work and clear the strip).
+    @MainActor func testStaleStripCountsDownA429Wait() {
+        launchAndOpenGroups(arguments: [Fixture.usageThrottledAfterFirst])
+        defer { diagnostics("groups-list-stale-throttled-final") }
+        waitForLabel(row(7), contains: "今日 $18.40")
+        app.pullToRefresh(from: row(4))
+        let strip = app.buttons["groups.stale.retry"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(strip.label.contains("请求过于频繁") && strip.label.contains("秒后自动重试") && strip.label.contains("今日"), strip.label)
+        XCTAssertFalse(strip.isEnabled, app.debugDescription)
+        app.pullToRefresh(from: row(4))
+        // A third read would work and take the strip away.
+        XCTAssertFalse(strip.waitForNonExistence(timeout: 3), app.debugDescription)
+        XCTAssertTrue(strip.label.contains("请求过于频繁"), strip.label)
+        XCTAssertTrue(row(7).label.contains("今日 $18.40"), row(7).label)
     }
 }

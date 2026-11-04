@@ -177,23 +177,39 @@ private struct GroupListContent: View {
         return GroupStoreRules.staleItems(usageStale: store.usageStale, shortagesStale: store.shortagesAreStale)
     }
     /// A strip of its own under the list's: 更新失败 · 重试, with what is kept in small text on the right; tapping reads all again.
+    /// It stays while a kept block is read again (a spinner, no tap) and counts down a kept block's 429 wait (00 §2.7.2).
     private func staleStrip(_ items: String) -> some View {
-        Section {
-            Button(action: retry) {
-                HStack(spacing: 8) {
-                    Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Tone.caution.base).accessibilityHidden(true)
-                    Text(Self.staleTitle).font(.footnote).foregroundStyle(Palette.ink1)
-                    Spacer(minLength: 8)
-                    Text(items).font(.caption).foregroundStyle(Palette.ink2)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+        let status = store.staleStatus(at: Date())
+        return Section {
+            if case .throttled = status {
+                TimelineView(.periodic(from: .now, by: 1)) { context in staleButton(items, status: store.staleStatus(at: context.date)) }
+            } else {
+                staleButton(items, status: status)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(Self.staleTitle)，\(items)")
-            .accessibilityIdentifier("groups.stale.retry")
-            .listRowBackground(Tone.caution.wash)
         }
+    }
+    private func staleButton(_ items: String, status: BlockStatusPresentation.Accessory) -> some View {
+        let title = if case .throttled(let message) = status { message } else { Self.staleTitle }
+        return Button(action: retry) {
+            HStack(spacing: 8) {
+                if status == .refreshing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Tone.caution.base).accessibilityHidden(true)
+                }
+                Text(title).font(.footnote).foregroundStyle(Palette.ink1)
+                Spacer(minLength: 8)
+                Text(items).font(.caption).foregroundStyle(Palette.ink2)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(status != .updateFailed)
+        .accessibilityLabel("\(title)，\(items)")
+        .accessibilityValue(status == .refreshing ? BlockStatusPresentation.refreshingLabel : "")
+        .accessibilityIdentifier("groups.stale.retry")
+        .listRowBackground(Tone.caution.wash)
     }
     @ViewBuilder private func emptyOrNoMatch(_ display: BlockDisplay<[AdminGroup]>, sections: [GroupListSection]) -> some View {
         if case .value(let groups, _, _, _) = display, groups.isEmpty {

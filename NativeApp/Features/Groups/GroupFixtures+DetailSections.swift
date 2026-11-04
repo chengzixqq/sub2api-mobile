@@ -5,6 +5,7 @@ import Sub2Core
 /// session's demo accounts, so member writes and account actions change it; usage-summary is the list's (S5-04) and
 /// `-ui-group-usage-failure` fails dashboard/groups with it. The banner and the two 24-hour counts are not replaced: they come
 /// through LiveOpsStore from LiveOpsFixtures (#41 on 标准组, 37 / 9 errors), so a resolve in the alert detail ends the banner.
+/// `-ui-group-detail-blocks-failure-after-first` fails every read of 贰 and the banner after its first (S5-高-3).
 extension GroupFixtures {
     /// DEMO.groups[].todayStats (requests, tokens, account cost); a group not listed had no request today.
     static let todayUsage: [Int: GroupTodayUsage] = [
@@ -26,20 +27,27 @@ extension GroupFixtures {
 
     static func detailSectionsSource(_ app: AppModel, arguments: [String] = ProcessInfo.processInfo.arguments) -> GroupDetailSectionsSource {
         let live = GroupDetailSectionsSource.live(app)
+        let reads = DetailReads(failsAfterFirst: arguments.contains(Argument.detailBlocksFailureAfterFirst))
         return GroupDetailSectionsSource(
             capacity: { [weak app] id in
+                try reads.check(.capacity)
                 guard let context = app?.groupStore?.fixtureContext else { throw CancellationError() }
                 return try Self.capacity(groupID: id, groups: context.fixtures.groups, accounts: context.accounts, now: context.now).first
             },
             usageSummary: { [weak app] in
+                try reads.check(.usage)
                 guard let fixtures = app?.groupStore?.fixtures else { throw CancellationError() }
                 return try await fixtures.usageSummary()
             },
             todayUsage: { id in
+                try reads.check(.todayUsage)
                 if arguments.contains(Argument.usageFailure) { throw APIError.server(status: 502, reason: nil) }
                 return Self.todayUsage[id] ?? .zero
             },
-            firingAlert: live.firingAlert,
+            firingAlert: { id in
+                try reads.check(.alert)
+                return try await live.firingAlert(id)
+            },
             errorCount: live.errorCount)
     }
 
@@ -48,5 +56,26 @@ extension GroupFixtures {
     }
     private static func sum(_ accounts: [UpstreamAccount], _ value: KeyPath<UpstreamAccount, Int?>) -> Int {
         accounts.reduce(0) { $0 + ($1[keyPath: value] ?? 0) }
+    }
+}
+
+extension GroupFixtures.Argument {
+    /// On the group detail, the first read of capacity, usage-summary, dashboard/groups and the banner works; later ones answer
+    /// 502. Counted per page; entering takes the list's usage-summary, so the detail's own fails from its second read.
+    static let detailBlocksFailureAfterFirst = "-ui-group-detail-blocks-failure-after-first"
+}
+
+/// One detail page's reads per block under `-ui-group-detail-blocks-failure-after-first`.
+@MainActor private final class DetailReads {
+    private let failsAfterFirst: Bool
+    private var counts: [GroupDetailBlock: Int] = [:]
+
+    init(failsAfterFirst: Bool) { self.failsAfterFirst = failsAfterFirst }
+
+    /// Counts a read of `block`; a later one answers 502.
+    func check(_ block: GroupDetailBlock) throws {
+        guard failsAfterFirst else { return }
+        counts[block, default: 0] += 1
+        if counts[block, default: 0] > 1 { throw APIError.server(status: 502, reason: nil) }
     }
 }

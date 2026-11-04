@@ -336,6 +336,7 @@ final class GroupDetailUITests: XCTestCase {
         XCTAssertEqual(element("group.detail.card.figure").label, "2 / 3 个账号可用")
         for id in ["today", "yesterday", "total", "todayLine"] { expectValue("group.usage.\(id)", "无数据") }
         expectValue("group.capacity.concurrency", "5/8")
+        XCTAssertFalse(element("group.usage.retry").exists, app.debugDescription)
     }
 
     /// 叁: the 24-hour counts, the logs filtered by the group (either log page), the group's keys and subscriptions.
@@ -646,5 +647,56 @@ final class GroupDetailUITests: XCTestCase {
         let pattern = NSRegularExpression.escapedPattern(for: prefix) + "\\$[0-9,]+\\.[0-9]{2}"
         guard let range = text.range(of: pattern, options: .regularExpression) else { return nil }
         return Int(String(text[range].dropFirst(prefix.count).filter(\.isNumber)))
+    }
+
+    // MARK: - U-11 刷新失败保留上次值（S5-高-3）
+
+    private static let blocksFailureAfterFirst = "-ui-group-detail-blocks-failure-after-first"
+
+    /// 贰: a failed refresh keeps every figure and puts one 更新失败 beside the title for its three blocks; a tap reads again.
+    /// Entering took the list's usage-summary, so the first pull fails dashboard/groups and capacity, the second usage-summary too.
+    @MainActor func testStaleUsageHeaderOffersRetry() {
+        openGroup(1, arguments: [Self.blocksFailureAfterFirst])
+        defer { diagnostics("group-detail-stale-usage-final") }
+        let todayLine = "请求 10,194，Tokens 62.9M，账号成本 $370.27"
+        expectValue("group.usage.todayLine", todayLine)
+        expectPremiumCapacity()
+        let retry = app.buttons["group.usage.retry"]
+        XCTAssertFalse(retry.exists, app.debugDescription)
+        let card = element("group.detail.card")
+        app.scrollUntilExists(card, towardBottom: false)
+        app.pullToRefresh(from: card)
+        app.scrollUntilExists(element("group.usage.header"))
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(retry.label.contains("更新失败"), retry.label)
+        expectValue("group.usage.todayLine", todayLine)
+        expectPremiumCapacity()
+
+        app.scrollUntilExists(retry, towardBottom: false)
+        retry.tap()
+        // Every read after the first fails: the accessory comes back and every figure stays.
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        for (id, value) in [("today", "$933.30"), ("yesterday", "$2,985.60"), ("total", "$186,420.55")] { expectValue("group.usage.\(id)", value) }
+        expectValue("group.usage.todayLine", todayLine)
+        XCTAssertTrue(retry.label.contains("更新失败"), retry.label)
+    }
+
+    /// 告警横幅: a failed refresh keeps the banner and adds the caution strip under it; tapping it reads the banner again.
+    @MainActor func testAlertBannerStaleStrip() {
+        openGroup(2, arguments: [Self.blocksFailureAfterFirst])
+        defer { diagnostics("group-detail-stale-alert-final") }
+        let banner = element("group.detail.alert")
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
+        let strip = app.buttons["group.detail.alert.retry"]
+        XCTAssertFalse(strip.exists, app.debugDescription)
+        app.pullToRefresh(from: banner)
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(strip.label, "告警更新失败 · 重试")
+        XCTAssertEqual(banner.label, "P1 告警中 · 标准组错误率 5.2%")
+        XCTAssertLessThanOrEqual(banner.frame.maxY, strip.frame.minY, app.debugDescription)
+        XCTAssertLessThanOrEqual(strip.frame.maxY, element("group.detail.card").frame.minY, app.debugDescription)
+        strip.tap()
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(banner.label, "P1 告警中 · 标准组错误率 5.2%")
     }
 }
