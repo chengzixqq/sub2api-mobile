@@ -767,3 +767,4 @@
 | 分组目录首次读取被切后台取消后，其他页面不会补读 | GroupDirectory 在没有值时，读取被 APIClient.suspend() 取消会回到 .idle，此时也没有读取在途。不少页面只在 .task(id: session.generation) 里调一次 ensureLoaded（例如 RedeemEditSheet、RedeemGrantSheet、AnnouncementEditSheet 的分组目标、GroupAccountPicker、PushSettingsView、AccountGroupPicker），回到前台后不会补读。只用分组名的页面最多显示成 #id；把 idle 当读取中的选择器则可能一直转圈。U-17 只修了兑换码生成向导。待定：各页面逐个加 foregroundRevision 补读，还是在 AppModel 回前台时，对“有页面在用且没有值”的目录统一补读。 |
 | U-18 自拟文字待确认 | 兑换码批次“无法判断这一批是否已生成”在不能重试时（其他管理员发起、老服务器过编号保留期、只读令牌）只补“核对后，已经生成的点“放弃这一批”结束提醒。”，这一版是方案自拟，等用户看截图再定 |
 | 生成向导首次生成的 Face ID 覆盖层写法 | RedeemGenerateModel 的 authorize 仍是内联的“needsVerification → isVerifying 开关”，与 U-18 新增的 BiometricGate.authorize(_:verifying:) 等价，可在以后改为共用（本条未改，避免超出范围） |
+| 公告列表短暂失败后整个列表都不带已读统计 | U-20 的重读对 5xx、传输错误同样生效：带统计的第一页偶然遇到 502、不带统计的重读成功后，这个列表实例在本次会话里就不再带统计，直到换会话或重建列表。如果真机上发现已读进度无故消失，可以考虑只对 400 / 非 JSON 404 这类“参数不被认”的拒绝才永久去掉，或者隔一段时间再带统计试一次。 |
