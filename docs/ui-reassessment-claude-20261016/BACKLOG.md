@@ -659,6 +659,10 @@
 | GroupsUITests 启动后不等登录页 | 与 S5-10 审查修正 64f8318 根因相同：GroupsUITests.launchAndOpenGroups 在 launchQuietly() 后直接 reveal(login.name)，reveal（第 287 行）读 app.navigationBars.firstMatch.frame 前不判断导航栏在不在。Mac 负载高、启动后窗口还空时，读 frame 约 2 秒后就会在登录前失败。目前没观察到它这样失败，按 GroupEditUITests 的修法补：先等 login.name，读导航栏前先判断。 |
 | 分组列表“更新失败 · 重试”细条的写法 | U-10 在列表顶部另加一条细条，右侧小字“今日 / 可用状态 / 今日、可用状态”和时钟图标是自拟的；清单原话是“行旁加小字”，因列表行第三行已排满没有照做。等用户看截图再定；如要严格放在行内，需要先把列表行改成两行，另起条目 |
 | 分组列表的 F04 错误账号兜底不记 429 等待 | 没有 groups.account_buckets 时，列表每次刷新都会一起发 accounts?status=error 的兜底请求（GroupStore.readErrorCounts，用 try? 吞掉错误，保留上次的计数）。遇到 429 时不记 retry_after，等待期间下拉或轮询仍会再发，不符合 00 §2.7.2“等待期间不再发这个块的请求”。可以照 usage / shortage 的做法给它也配一个 BlockRefresh。U-10 审查修正（3b8f5c9）没有改这里，因为它不进“更新失败”细条。 |
+| 分组密钥页 / 订阅页“更新失败”细条文案与位置 | “今日金额更新失败 · 重试”“生效中计数更新失败 · 重试”是 U-12 自拟的；密钥行内没有放“重试”按钮（行是 NavigationLink，行内按钮读屏够不到），改为列表上方一条细条。等用户看截图定。 |
+| GroupRecordsRefreshRow 的 429 自动重读用设备时钟等待，模型用服务器时钟判断 | 细条按 refresh.notBefore 与设备时间 Date() 比较、等待结束后自动重读；而记录 notBefore 和判断能否发请求，模型用的都是 serverClock.now()。服务器时钟比设备慢时，等待结束那次自动重读会被模型拒绝，细条变回可点。列表的“刷新失败 · 重试”原来就是这样，U-12 的两条细条沿用了。偏差通常不到 1 秒，可以以后统一改成同一个时钟。 |
+| 分组详情其他块被取消的读取仍会推后退避 | GroupDetailModel.noteBackoff 管的分组、成员、成员今日、D02 四块，在页面取消读取（弹出 sheet、进入后台）后仍按失败次数重设 blockDue，下一次 60 秒轮询会跳过这些块。U-11 审查修正只改了 GroupDetailSectionsModel 的五块（加 Task.isCancelled 判断）。 |
+| 列表中区块头附件滚出屏幕后，429 等待结束可能不会自动重读（待核实） | BlockStatusAccessory 的自动重读挂在视图的 .task 上。List 卸载滚出屏幕的区块头时，这个任务会被取消；回到屏幕时如果等待已经结束，就不会再重读。分组详情“贰”、成员分区等处都可能受影响。 |
 
 ### App 与设计 · 阶段 6
 
