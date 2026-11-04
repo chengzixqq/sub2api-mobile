@@ -38,7 +38,8 @@ struct SiteTeardown: Sendable {
     /// A deleted `sat_` site sends up to four requests; past this the remaining steps are abandoned and reported.
     static let deadline: Duration = .seconds(20)
     static let tokenNotRevokedNote = "令牌未能吊销，可用 API 吊销"
-    static let pushNotRemovedNote = "推送设备未能从站点移除，可在 Web 删除"
+    /// The site is gone from the App and the Web has no push page: the device is removed after adding the site again (U-23).
+    static let pushNotRemovedNote = "推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除"
     private static let log = Logger(subsystem: "com.chengzixqq.sub2mobile", category: "session")
 
     let credential: Credential

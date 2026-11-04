@@ -115,6 +115,28 @@ private let ready = PushAPNsConfig(enabled: true, teamID: "ABCDE12345", keyID: "
     #expect(draft.issues.isEmpty); #expect(!draft.usesInsecureHTTP)
 }
 
+/// A topic on the public ntfy.sh can be read by anyone who knows its name: only that server gets the note.
+@Test func publicNtfyServerIsRecognizedByItsHost() {
+    var draft = PushTargetDraft(platform: .ntfy)
+    #expect(draft.usesPublicNtfy)
+    for endpoint in ["https://NTFY.sh/", " https://ntfy.sh ", "http://ntfy.sh", "https://ntfy.sh:443/"] {
+        draft.ntfyEndpoint = endpoint
+        #expect(draft.usesPublicNtfy, "\(endpoint)")
+    }
+    for endpoint in ["https://ntfy.example.com", "https://ntfy.sh.example.com", "https://example.com/ntfy.sh", "", "ntfy.sh"] {
+        draft.ntfyEndpoint = endpoint
+        #expect(!draft.usesPublicNtfy, "\(endpoint)")
+    }
+    draft.ntfyEndpoint = PushDeviceRegistration.defaultNtfyEndpoint
+    for platform in [PushPlatform.bark, .webhook] {
+        draft.platform = platform
+        #expect(!draft.usesPublicNtfy, "\(platform)")
+    }
+    var webhook = PushTargetDraft(platform: .webhook)
+    webhook.webhookURL = "https://ntfy.sh/sub2-alerts"
+    #expect(!webhook.usesPublicNtfy)
+}
+
 @Test func nameIsOptionalTrimmedAndCapped() throws {
     var draft = PushTargetDraft()
     draft.barkKey = "fixturekey"
@@ -421,5 +443,6 @@ private let ready = PushAPNsConfig(enabled: true, teamID: "ABCDE12345", keyID: "
     #expect(PushEditCopy.addedReceipt(name: "值班 Webhook", created: true) == "已添加接收方式「值班 Webhook」")
     #expect(PushEditCopy.addedReceipt(name: "值班 Webhook", created: false) == "这个接收方式已登记过，已重新启用「值班 Webhook」")
     #expect(PushEditCopy.stepUpPurpose == "修改站点 APNs 配置")
+    #expect(PushEditCopy.ntfyPublicTopicNote == "公共服务器上的主题，谁知道名字谁就能订阅，告警内容会被别人看到。")
     #expect(PushEditCopy.topicPlaceholder == PushPresentation.apnsRows(PushAPNsConfig()).topic)
 }

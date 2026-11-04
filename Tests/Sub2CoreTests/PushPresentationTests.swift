@@ -50,8 +50,8 @@ private func failure(_ status: Int, _ reason: String, _ metadata: [String: Strin
 @Test func statusLineForEachDisabledReason() {
     let now = at("2026-10-21T02:00:00Z")
     let texts: [(PushDisabledReason?, String)] = [
-        (.unregistered, "设备令牌已失效，关掉再打开即可恢复"), (.badDeviceToken, "设备令牌无效"),
-        (.topicMismatch, "App 的包名与站点 APNs 配置不符"), (.secretUndecryptable, "站点更换了加密密钥，关掉再打开即可恢复"),
+        (.unregistered, "设备令牌已失效，打开开关即可恢复"), (.badDeviceToken, "设备令牌无效"),
+        (.topicMismatch, "App 的包名与站点 APNs 配置不符"), (.secretUndecryptable, "站点更换了加密密钥，打开开关即可恢复"),
         (.endpointGone, "已停用"), (.other("quota"), "已停用"), (nil, "已停用")
     ]
     for (reason, text) in texts {
@@ -70,7 +70,7 @@ private func failure(_ status: Int, _ reason: String, _ metadata: [String: Strin
     #expect(PushPresentation.statusLine(device(success: success, error: error), now: now, timeZone: shanghai).hasSuffix(" · 最近失败：HTTP 410: Unregistered"))
     #expect(PushPresentation.statusLine(device(error: error, errorAt: later), now: now, timeZone: shanghai) == "已开启 · 还没有送达记录 · 最近失败：HTTP 410: Unregistered")
     #expect(PushPresentation.statusLine(device(enabled: false, reason: .unregistered, error: error, errorAt: later), now: now, timeZone: shanghai)
-            == "设备令牌已失效，关掉再打开即可恢复 · 最近失败：HTTP 410: Unregistered")
+            == "设备令牌已失效，打开开关即可恢复 · 最近失败：HTTP 410: Unregistered")
     #expect(PushPresentation.statusLine(device(error: "  ", errorAt: later), now: now, timeZone: shanghai) == "已开启 · 还没有送达记录")
     #expect(PushPresentation.statusLine(device(error: "line\none", errorAt: later), now: now, timeZone: shanghai).hasSuffix("最近失败：line one"))
 }
@@ -207,7 +207,7 @@ private func failure(_ status: Int, _ reason: String, _ metadata: [String: Strin
 @Test func fixedCopyMatchesSpec() {
     #expect(PushPresentation.systemPermissionDenied == "系统设置里关闭了通知 · 去设置")
     #expect(PushPresentation.loadFailed == "加载失败 · 重试")
-    #expect(PushPresentation.pendingDeletionNotice == "有设备未能从站点移除，可在 Web 删除")
+    #expect(PushPresentation.pendingDeletionNotice == "有设备未能从站点移除，可在下方“其他接收方式”里删除")
     #expect(PushPresentation.buildWithoutPush == "这个 App 构建没有开启推送能力；APNs 只适用于用站点同一 Apple Team 的 p8 私钥构建的 App。可改用 Bark / ntfy / Webhook。")
 }
 

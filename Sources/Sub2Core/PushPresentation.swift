@@ -84,8 +84,9 @@ public enum PushPresentation {
     public static let disabledBadge = "已停用"
     public static let addTarget = "+ 添加其他接收方式"
     public static let loadFailed = "加载失败 · 重试"
-    /// 00 §7.6: a deletion that failed when signing out is retried at the next sign-in.
-    public static let pendingDeletionNotice = "有设备未能从站点移除，可在 Web 删除"
+    /// 00 §7.6: a deletion that failed when signing out is retried at the next sign-in. The Web has no push page, so it points
+    /// at the list below (U-23).
+    public static let pendingDeletionNotice = "有设备未能从站点移除，可在下方“其他接收方式”里删除"
     public static let buildWithoutPush = "这个 App 构建没有开启推送能力；APNs 只适用于用站点同一 Apple Team 的 p8 私钥构建的 App。可改用 Bark / ntfy / Webhook。"
     /// Also the note on a greyed-out .p8 import while `encryption_key_configured` is false.
     public static let encryptionKeyMissing = "站点没有配置固定的 TOTP_ENCRYPTION_KEY，私钥不能保存"
@@ -114,12 +115,13 @@ public enum PushPresentation {
         if let failed = device.lastErrorAt, let succeeded = device.lastSuccessAt, failed < succeeded { return state }
         return state + " · 最近失败：" + error
     }
+    /// A disabled target shows its switch off (`isToggleOn`), so the way back reads 打开开关 (U-23).
     public static func disabledText(_ reason: PushDisabledReason?) -> String {
         switch reason {
-        case .unregistered: "设备令牌已失效，关掉再打开即可恢复"
+        case .unregistered: "设备令牌已失效，打开开关即可恢复"
         case .badDeviceToken: "设备令牌无效"
         case .topicMismatch: "App 的包名与站点 APNs 配置不符"
-        case .secretUndecryptable: "站点更换了加密密钥，关掉再打开即可恢复"
+        case .secretUndecryptable: "站点更换了加密密钥，打开开关即可恢复"
         case .endpointGone, .other, nil: disabledBadge
         }
     }

@@ -133,8 +133,8 @@ private actor ManualSleeper {
 /// D19: deleting another site ends with a receipt that lists what the server side could not do.
 @Test func siteRemovedReceiptJoinsTheNotes() {
     #expect(Receipt.siteRemoved(notes: []).text == "已删除站点")
-    #expect(Receipt.siteRemoved(notes: ["令牌未能吊销，可用 API 吊销", "推送设备未能从站点移除，可在 Web 删除"]).text
-            == "已删除站点 · 令牌未能吊销，可用 API 吊销；推送设备未能从站点移除，可在 Web 删除")
+    #expect(Receipt.siteRemoved(notes: ["令牌未能吊销，可用 API 吊销", "推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除"]).text
+            == "已删除站点 · 令牌未能吊销，可用 API 吊销；推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除")
     #expect(Receipt.siteRemoved(notes: ["令牌未能吊销，可用 API 吊销"]).tone == .caution)
     #expect(Receipt.siteRemoved(notes: []).tone == .ok)
 }
