@@ -12,6 +12,15 @@ public enum OldLoginPresentation {
         /// The record's site is not known at all.
         case none
     }
+    /// Where switching to a saved site without a credential goes (site menu, settings, a push tap; U-24).
+    public enum SwitchAction: Equatable, Sendable {
+        /// An older login of the connected site: nothing switches, a receipt says where its records are checked.
+        case stay
+        /// An older login of another saved site switches there.
+        case switchTo(ServerProfile)
+        /// The site's own login page.
+        case signIn
+    }
 
     public static let rootSectionTitle = "待核对"
     public static let rootFootnote = "以下写入保留原操作编号，结果还没确认。登录同一地址的站点后在“设置 → 待核对”里核对；地址已不在站点列表里的，请在原站点 Web 后台核对，勿新建重复操作。"
@@ -19,6 +28,14 @@ public enum OldLoginPresentation {
     /// The site list's note under an older login; `isActive` when it leads to the connected site.
     public static func rowNote(target: ServerProfile, isActive: Bool) -> String {
         isActive ? "旧登录 · 记录在下方“待核对”里核对" : "旧登录 · 切换到「\(target.name)」后在“待核对”里核对"
+    }
+    /// The receipt when an older login of the connected site is chosen.
+    public static func stayReceipt(name: String) -> String { "「\(name)」是旧登录 · 记录在“设置 → 待核对”里核对" }
+
+    /// `lead` is the site's entry of `oldLogins`; signing in to an older login again would make yet another site id (D17).
+    public static func switchAction(lead: ServerProfile?, activeID: UUID?) -> SwitchAction {
+        guard let lead else { return .signIn }
+        return lead.id == activeID ? .stay : .switchTo(lead)
     }
 
     /// The older logins of the site list and the saved site each leads to. A row counts when it is not the connected site, has

@@ -81,14 +81,17 @@ extension AppModel {
     }
 
     /// 00 §1.1: the candidate's me() decides first, so a failed switch keeps the connected site. A site without a credential,
-    /// or whose session the server ended, opens its own login page. The connected site is not switched to again: that would
-    /// reconnect and claim a switch that did not happen (every caller relies on this, not only the site menu).
-    func switchTo(_ profile: ServerProfile) async {
+    /// or whose session the server ended, opens its own login page; an older login goes to its address's site instead (U-24).
+    /// The connected site is not switched to again: that would reconnect and claim a switch that did not happen (every caller
+    /// relies on this, not only the site menu).
+    func switchTo(_ profile: ServerProfile) async { await switchTo(profile, followsOldLogin: true) }
+
+    private func switchTo(_ profile: ServerProfile, followsOldLogin: Bool) async {
         guard !isSigningOut, profile.id != activeProfile?.id else { return }
         let attempt = beginConnection()
         do {
             guard let credential = try await credentials.load(serverID: profile.id) else {
-                if isCurrent(attempt) { openSiteLogin(profile, notice: Self.credentialClearedNotice) }
+                await credentialMissing(profile, attempt: attempt, followsOldLogin: followsOldLogin)
                 return
             }
             if isUITesting, let refusal = DemoData.switchRefusal { throw refusal }
@@ -96,6 +99,32 @@ extension AppModel {
             // The site menu and the settings page both switch here (10 §0.7-5).
             receipts.show(.switched(to: profile.name))
         } catch { await connectionFailed(error, profile: profile) }
+    }
+    /// U-24 (S6D2a-04): an older login of the connected site stays there with a receipt; one of another site switches there,
+    /// once, so a lead without a credential opens its own login page.
+    private func credentialMissing(_ profile: ServerProfile, attempt: UUID, followsOldLogin: Bool) async {
+        let lead: ServerProfile? = if followsOldLogin { await oldLoginLead(for: profile) } else { nil }
+        guard isCurrent(attempt) else { return }
+        switch OldLoginPresentation.switchAction(lead: lead, activeID: activeProfile?.id) {
+        case .stay:
+            receipts.show(Receipt(text: OldLoginPresentation.stayReceipt(name: profile.name), systemImage: "server.rack", tone: .neutral))
+        case .switchTo(let lead): await switchTo(lead, followsOldLogin: false)
+        case .signIn: openSiteLogin(profile, notice: Self.credentialClearedNotice)
+        }
+    }
+    /// The saved site an older login leads to, nil for any other site; credentials are read now (S6D2a-04 ⑤).
+    func oldLoginLead(for profile: ServerProfile) async -> ServerProfile? {
+        let withoutCredential = await credentials.siteIDsWithoutCredential(profiles.map(\.id))
+        return oldLogins(withoutCredential: withoutCredential)[profile.id]
+    }
+    /// The settings site list and `oldLoginLead`: records as read (an unreadable file does not mark every site), and reuse as
+    /// openSiteLogin decides it (S6D2a-04 ③).
+    func oldLogins(withoutCredential: Set<UUID>) -> [UUID: ServerProfile] {
+        let ids = profiles.map(\.id)
+        return OldLoginPresentation.oldLogins(saved: profiles, activeID: activeProfile?.id,
+                                              withRecords: Set(ids.filter { !pendingMoneyWrites(serverID: $0).isEmpty }),
+                                              withoutCredential: withoutCredential,
+                                              reusable: Set(ids.filter { !hasPendingRecords(serverID: $0) }))
     }
     /// A switch or restore the server refused for good: the connected site ends like any invalidated session, another site
     /// has its credential erased; both open the site's login page. Any other failure keeps everything and is shown.

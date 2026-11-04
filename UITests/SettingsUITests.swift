@@ -445,5 +445,21 @@ final class SettingsUITests: XCTestCase {
         diagnostics("settings-old-login-row")
         reveal(element("settings.pending.check.\(refund)"))
         XCTAssertEqual(element("settings.pending.origin.\(refund)").label, "本站点的旧登录下发起")
+        // U-24: the site menu's older login leads to the connected site of its address: a receipt, no login page, no new site.
+        app.tabBars.buttons["概览"].tap()
+        let title = app.navigationBars["设置站点"].buttons["设置站点"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10), app.debugDescription)
+        title.tap()
+        let older = app.buttons.matching(NSPredicate(format: "identifier == '' AND label BEGINSWITH %@ AND selected == false", "设置站点,")).firstMatch
+        XCTAssertTrue(older.waitForExistence(timeout: 5), app.debugDescription)
+        diagnostics("settings-old-login-menu")
+        older.tap()
+        let receipt = app.staticTexts["receipt.text"]
+        XCTAssertTrue(receipt.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(receipt.label, "「设置站点」是旧登录 · 记录在“设置 → 待核对”里核对")
+        XCTAssertFalse(app.buttons["login.submit"].exists, app.debugDescription)
+        app.openSitesSettings()
+        XCTAssertEqual(app.buttons.matching(identifier: "settings.site.设置站点").count, 1)
+        XCTAssertTrue(element("settings.site.oldLogin.设置站点").exists, app.debugDescription)
     }
 }

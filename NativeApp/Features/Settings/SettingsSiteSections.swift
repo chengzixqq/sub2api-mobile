@@ -25,7 +25,8 @@ struct SettingsSiteRows: View {
     init(remove: @escaping (ServerProfile) -> Void) { self.remove = remove }
 
     var body: some View {
-        let leads = oldLogins
+        // The same leads AppModel.switchTo follows from the site menu (U-24).
+        let leads = model.oldLogins(withoutCredential: withoutCredential)
         ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
             row(profile, leadsTo: leads[profile.id]).id(index == 0 ? Self.anchorID : profile.id.uuidString)
         }
@@ -48,15 +49,6 @@ struct SettingsSiteRows: View {
         .task(id: CredentialKey(ids: model.profiles.map(\.id), generation: model.sessionGeneration, prompt: model.loginPrompt?.id)) {
             withoutCredential = await model.credentials.siteIDsWithoutCredential(model.profiles.map(\.id))
         }
-    }
-
-    /// Records as read (an unreadable file does not mark every site), and reuse as openSiteLogin decides it (S6D2a-04 ③).
-    private var oldLogins: [UUID: ServerProfile] {
-        let ids = model.profiles.map(\.id)
-        return OldLoginPresentation.oldLogins(saved: model.profiles, activeID: model.activeProfile?.id,
-                                              withRecords: Set(ids.filter { !model.pendingMoneyWrites(serverID: $0).isEmpty }),
-                                              withoutCredential: withoutCredential,
-                                              reusable: Set(ids.filter { !model.hasPendingRecords(serverID: $0) }))
     }
 
     private func row(_ profile: ServerProfile, leadsTo lead: ServerProfile?) -> some View {
