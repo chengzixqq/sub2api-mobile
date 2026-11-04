@@ -225,6 +225,7 @@ public enum ProxyPresentation {
         switch currentStatus(proxy) {
         case "expired": return expiredNote(proxy, mode: mode, target: target, supportsFallbackAccounts: supportsFallbackAccounts)
         case "active": return activeNote(proxy, mode: mode, target: target, now: now, timeZone: timeZone)
+        case "inactive": return inactiveNote(proxy, now: now, timeZone: timeZone)
         default: return nil
         }
     }
@@ -347,9 +348,21 @@ public enum ProxyPresentation {
         }
         let word = ProxyExpiry.describe(proxy, now: now, timeZone: timeZone)
         guard word.isSoon else { return nil }
-        guard mode == ProxyFallbackMode.none else { return ProxyExpiryNote(tone: .caution, text: "\(word.text)。到期后把在用的账号改为\(target)。") }
         let count = accountTotal(proxy)
+        if word.isOverdue { return ProxyExpiryNote(tone: .caution, text: overdueNote(mode: mode, target: target, count: count)) }
+        guard mode == ProxyFallbackMode.none else { return ProxyExpiryNote(tone: .caution, text: "\(word.text)。到期后把在用的账号改为\(target)。") }
         let tail = count > 0 ? "，在用的 \(count) 个账号会继续挂在这个过期代理上" : ""
         return ProxyExpiryNote(tone: .caution, text: "\(word.text)。到期后不回退\(tail)。")
+    }
+    /// U-26: active and past its day, waiting for the sweep that marks it expired and applies the fallback.
+    private static func overdueNote(mode: ProxyFallbackMode, target: String, count: Int) -> String {
+        let lead = "已到期，等后台处理。"
+        guard mode == ProxyFallbackMode.none else { return lead + "处理时把在用的账号改为\(target)。" }
+        return lead + (count > 0 ? "处理时不回退，在用的 \(count) 个账号会继续挂在这个过期代理上。" : "处理时不回退。")
+    }
+    /// U-26: stopped, and its time has passed; enabling it needs a renewal first (ProxyStatusToggle.renew).
+    private static func inactiveNote(_ proxy: AdminProxy, now: Date, timeZone: ServerTimeZone) -> ProxyExpiryNote? {
+        let word = ProxyExpiry.describe(proxy, now: now, timeZone: timeZone)
+        return word.isOverdue ? ProxyExpiryNote(tone: .neutral, text: word.text + "。启用前需要先续期。") : nil
     }
 }

@@ -26,6 +26,8 @@ final class ProxiesUITests: XCTestCase {
         expect(row(3), contains: ["已过期", "1 个账号仍在用", "链接失败"])
         reveal(row(1))
         expect(row(1), contains: ["182ms", "SOCKS5 · 203.0.113.24:1080", "3 个账号在用", "6 天后到期"])
+        // U-26: HK's short name, not the system's “中国香港特别行政区”.
+        XCTAssertTrue(row(1).label.contains("3 个账号在用 · 中国香港") && !row(1).label.contains("特别行政区"), row(1).label)
         // S6-14's sheet: nothing typed, 取消 closes it at once.
         app.buttons["proxies.add"].tap()
         let close = app.buttons["proxyEdit.cancel"]
@@ -655,5 +657,30 @@ final class ProxiesUITests: XCTestCase {
         XCTAssertTrue(app.buttons["proxy.account.1"].waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertFalse(retry.exists, app.debugDescription)
         XCTAssertTrue(app.navigationBars["hk-02"].exists, app.debugDescription)
+    }
+
+    // MARK: - U-26 停用后到期
+
+    /// de-fra-1 was stopped, then its day passed: 续期 leads the button row instead of 编辑, 壹 says so, and 续期 opens the sheet's
+    /// renewal mode.
+    @MainActor func testInactiveOverdueProxy() {
+        openDetail(6, title: "de-fra-1", arguments: ["-ui-proxy-inactive-overdue"])
+        defer { diagnostics("proxy-detail-inactive-overdue-final") }
+        XCTAssertEqual(element("proxy.detail.badge").label, "停用")
+        let renew = app.buttons["proxy.action.renew"], test = app.buttons["proxy.action.test"]
+        XCTAssertTrue(renew.exists && test.exists, app.debugDescription)
+        XCTAssertLessThan(renew.frame.minX, test.frame.minX, app.debugDescription)
+        XCTAssertFalse(app.buttons["proxy.action.edit"].exists, app.debugDescription)
+        let note = element("proxy.expiry.note")
+        reveal(note)
+        XCTAssertTrue(note.label.contains("已过到期日。启用前需要先续期。"), note.label)
+        XCTAssertFalse(element("proxy.kv.remaining").exists || element("proxy.kv.fallback").exists, app.debugDescription)
+        reveal(renew, down: false)
+        renew.tap()
+        XCTAssertTrue(app.navigationBars["续期代理"].waitForExistence(timeout: 10), app.debugDescription)
+        let close = app.buttons["proxyEdit.cancel"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10), app.debugDescription)
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10), app.debugDescription)
     }
 }

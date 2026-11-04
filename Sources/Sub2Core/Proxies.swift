@@ -91,14 +91,16 @@ public struct AdminProxy: Decodable, Sendable, Identifiable, Equatable {
     public var isActive: Bool { (status ?? "active") == "active" }
     /// “socks5://203.0.113.24:1080”; without a port just scheme://host.
     public var address: String { port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)" }
-    /// 60 §12.3: the country's Chinese name, then “ · city”; nil when neither is known.
+    /// 60 §12.3: the country's Chinese name, then “ · city”; nil when neither is known. Hong Kong and Macau take the short names
+    /// (the system's “…特别行政区” is cut off in a row).
     public var regionText: String? {
         let code = countryCode?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let place = city?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let country = code.isEmpty ? "" : Locale(identifier: "zh_CN").localizedString(forRegionCode: code) ?? code
+        let country = code.isEmpty ? "" : Self.shortRegionNames[code.uppercased()] ?? Locale(identifier: "zh_CN").localizedString(forRegionCode: code) ?? code
         let parts = [country, place].filter { !$0.isEmpty }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
+    private static let shortRegionNames = ["HK": "中国香港", "MO": "中国澳门"]
 }
 
 extension AdminProxy: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
@@ -118,11 +120,17 @@ public struct ProxyExpiryWord: Sendable, Equatable {
     /// lapsed critical, soon caution, otherwise none.
     public let tone: Tone?
     public var isSoon: Bool { kind == .soon }
-    public init(kind: Kind, text: String, tone: Tone?) { self.kind = kind; self.text = text; self.tone = tone }
+    /// Past its expiry but not marked expired yet: active after its day (the sweep has not run), or stopped once the time passed
+    /// (the sweep marks only active proxies).
+    public let isOverdue: Bool
+    public init(kind: Kind, text: String, tone: Tone?, isOverdue: Bool = false) {
+        self.kind = kind; self.text = text; self.tone = tone; self.isOverdue = isOverdue
+    }
 }
 
-/// 60 §12.3: by whole days on the server's calendar. expired → “MM/DD 已过期”; no expiry → “永不过期”; not active → “MM/DD 到期”;
-/// past due but not yet swept → “已到期 · 等待处理”; within the warning days → “今天到期” / “N 天后到期”; else “剩余 N 天”.
+/// 60 §12.3: by whole days on the server's calendar. expired → “MM/DD 已过期”; no expiry → “永不过期”; not active → “MM/DD 到期”,
+/// stopped and past the time → “MM/DD 已过到期日” (U-26); past due but not yet swept → “已到期 · 等待处理”; within the warning
+/// days → “今天到期” / “N 天后到期”; else “剩余 N 天”.
 public enum ProxyExpiry {
     public static func describe(_ proxy: AdminProxy, now: Date, timeZone: ServerTimeZone) -> ProxyExpiryWord {
         describe(status: proxy.status, expiresAt: proxy.expiresAt, warnDays: proxy.expiryWarnDays, now: now, timeZone: timeZone)
@@ -137,10 +145,12 @@ public enum ProxyExpiry {
         }
         guard let expiresAt else { return ProxyExpiryWord(kind: .never, text: "永不过期", tone: nil) }
         guard (status ?? "active") == "active" else {
-            return ProxyExpiryWord(kind: .idle, text: monthDay(expiresAt, timeZone: timeZone) + " 到期", tone: nil)
+            // As ProxyStatusToggle: a stopped proxy whose time has passed needs a renewal before it can be enabled.
+            let lapsed = status == "inactive" && expiresAt <= now
+            return ProxyExpiryWord(kind: .idle, text: monthDay(expiresAt, timeZone: timeZone) + (lapsed ? " 已过到期日" : " 到期"), tone: nil, isOverdue: lapsed)
         }
         let days = days(until: expiresAt, now: now, timeZone: timeZone)
-        if days < 0 { return ProxyExpiryWord(kind: .soon, text: "已到期 · 等待处理", tone: .caution) }
+        if days < 0 { return ProxyExpiryWord(kind: .soon, text: "已到期 · 等待处理", tone: .caution, isOverdue: true) }
         if days <= max(0, warnDays ?? 0) { return ProxyExpiryWord(kind: .soon, text: days == 0 ? "今天到期" : "\(days) 天后到期", tone: .caution) }
         return ProxyExpiryWord(kind: .ok, text: "剩余 \(days) 天", tone: nil)
     }

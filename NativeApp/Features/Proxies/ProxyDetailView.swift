@@ -98,7 +98,7 @@ struct ProxyDetailView: View {
                                         facts: ProxyPresentation.facts(proxy, isCheckingQuality: detail.isCheckingQuality, timeZone: zone),
                                         isReprobing: detail.isReprobing)
                     if canManage {
-                        ProxyDetailActions(isExpired: proxy.status == "expired", isTesting: detail.isTesting, isBusy: detail.isBusy,
+                        ProxyDetailActions(showsRenew: ProxyStatusToggle(proxy, now: now) == .renew, isTesting: detail.isTesting, isBusy: detail.isBusy,
                                            onTest: { Task { await detail.test() } }, onEdit: { router.present(.proxyEdit(id: id)) })
                     }
                 }

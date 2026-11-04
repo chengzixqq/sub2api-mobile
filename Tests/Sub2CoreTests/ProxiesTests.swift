@@ -87,7 +87,7 @@ private func proxyClient(_ transport: ScriptedTransport) -> APIClient {
     ("active", nil, 7, ProxyExpiryWord(kind: .never, text: "永不过期", tone: nil)),
     ("inactive", "2026-10-19T10:00:00+08:00", 7, ProxyExpiryWord(kind: .idle, text: "10/19 到期", tone: nil)),
     ("inactive", nil, 3, ProxyExpiryWord(kind: .never, text: "永不过期", tone: nil)),
-    ("active", "2026-10-15T10:00:00+08:00", 7, ProxyExpiryWord(kind: .soon, text: "已到期 · 等待处理", tone: .caution)),
+    ("active", "2026-10-15T10:00:00+08:00", 7, ProxyExpiryWord(kind: .soon, text: "已到期 · 等待处理", tone: .caution, isOverdue: true)),
     ("active", "2026-10-16T20:00:00+08:00", 7, ProxyExpiryWord(kind: .soon, text: "今天到期", tone: .caution)),
     ("active", "2026-10-22T09:00:00+08:00", 7, ProxyExpiryWord(kind: .soon, text: "6 天后到期", tone: .caution)),
     ("active", "2026-10-23T09:00:00+08:00", 7, ProxyExpiryWord(kind: .soon, text: "7 天后到期", tone: .caution)),
@@ -128,6 +128,34 @@ func proxyExpiryTable(status: String?, expires: String?, warnDays: Int?, expecte
     #expect(AdminProxy(id: 2, name: "sg-01", countryCode: "SG").regionText == singapore)
     #expect(AdminProxy(id: 2, name: "sg-01", city: "Jurong").regionText == "Jurong")
     #expect(AdminProxy(id: 2, name: "sg-01", countryCode: " ", city: "").regionText == nil)
+    // U-26: Hong Kong and Macau take the short names; the system's “…特别行政区” is cut off in a row.
+    #expect(AdminProxy(id: 1, name: "hk-02", countryCode: "HK").regionText == "中国香港")
+    #expect(AdminProxy(id: 1, name: "hk-02", countryCode: "HK", city: "Central").regionText == "中国香港 · Central")
+    #expect(AdminProxy(id: 1, name: "hk-02", countryCode: "hk").regionText == "中国香港")
+    #expect(AdminProxy(id: 9, name: "mo-01", countryCode: "MO").regionText == "中国澳门")
+}
+
+/// U-26: stopped before its day came, then the day passed (the sweep marks only active proxies): “已过到期日”, and enabling it
+/// asks for a renewal first, as ProxyStatusToggle.
+@Test func inactiveOverdueDescribe() {
+    let lapsed = at("2026-10-13T00:00:00+08:00")
+    #expect(ProxyExpiry.describe(status: "inactive", expiresAt: lapsed, warnDays: 7, now: noon, timeZone: shanghai)
+            == ProxyExpiryWord(kind: .idle, text: "10/13 已过到期日", tone: nil, isOverdue: true))
+    #expect(ProxyExpiry.describe(status: "inactive", expiresAt: at("2026-10-16T09:00:00+08:00"), warnDays: 7, now: noon, timeZone: shanghai).text
+            == "10/16 已过到期日")
+    let later = ProxyExpiry.describe(status: "inactive", expiresAt: at("2026-10-16T20:00:00+08:00"), warnDays: 7, now: noon, timeZone: shanghai)
+    #expect(later == ProxyExpiryWord(kind: .idle, text: "10/16 到期", tone: nil))
+    #expect(!later.isOverdue)
+
+    let stopped = AdminProxy(id: 6, name: "de-fra-1", status: "inactive", expiresAt: lapsed)
+    #expect(ProxyExpiry.describe(stopped, now: noon, timeZone: shanghai).text == "10/13 已过到期日")
+    #expect(ProxyStatusToggle(stopped, now: noon) == .renew)
+    let waiting = AdminProxy(id: 6, name: "de-fra-1", status: "inactive", expiresAt: at("2026-10-19T00:00:00+08:00"))
+    #expect(ProxyStatusToggle(waiting, now: noon) == .enable && ProxyExpiry.describe(waiting, now: noon, timeZone: shanghai).text == "10/19 到期")
+
+    let account = AccountProxy(id: 6, name: "de-fra-1", status: "inactive", expiresAt: "2026-10-13T00:00:00+08:00", scheme: "socks5")
+    #expect(ProxyExpiry.describe(account, now: noon, timeZone: shanghai).text == "10/13 已过到期日")
+    #expect(!ProxyExpiry.describe(status: "expired", expiresAt: lapsed, warnDays: 7, now: noon, timeZone: shanghai).isOverdue)
 }
 
 // MARK: - S6-10: results, queries, writes and the rest of the proxy endpoints

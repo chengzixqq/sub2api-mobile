@@ -20,7 +20,9 @@ extension DemoData {
         /// The first list read answers 429 with retry_after `throttleSeconds`.
         static let throttledArgument = "-ui-proxies-throttled"
         static let throttleSeconds = 6
-        var isEmpty, soonOnly, listError, secondPageError, testHTTPError, throttled: Bool
+        /// U-26: de-fra-1 (stopped) was due 3 days ago; the sweep marks only active proxies, so it is still “inactive”.
+        static let inactiveOverdueArgument = "-ui-proxy-inactive-overdue"
+        var isEmpty, soonOnly, listError, secondPageError, testHTTPError, throttled, inactiveOverdue: Bool
 
         init(arguments: [String]) {
             isEmpty = arguments.contains(Self.emptyArgument)
@@ -29,6 +31,7 @@ extension DemoData {
             secondPageError = arguments.contains(Self.secondPageErrorArgument)
             testHTTPError = arguments.contains(Self.testHTTPErrorArgument)
             throttled = arguments.contains(Self.throttledArgument)
+            inactiveOverdue = arguments.contains(Self.inactiveOverdueArgument)
         }
     }
 
@@ -48,13 +51,14 @@ extension DemoData {
         }
         func with(_ fields: [String: Any], _ more: [String: Any] = [:]) -> [String: Any] { fields.merging(more) { $1 } }
         let untested: [String: Any] = ["country_code": NSNull(), "city": NSNull()]
+        let overdue: [String: Any] = ["status": "inactive", "expires_at": ServerTime.utcTimestamp(base.addingTimeInterval(-3 * 86_400))]
         let overlays: [Int: [String: Any]] = [
             1: with(["account_count": 3, "fallback_mode": "proxy", "backup_proxy_id": 2], probe(182, exit: "203.0.113.24")),
             2: with(["account_count": 2], probe(96, exit: "198.51.100.7")),
             3: with(["account_count": options.soonOnly ? 0 : 1], failed("dial tcp 198.51.100.30:1080: i/o timeout")),
             4: with(["account_count": 1, "fallback_mode": "proxy", "backup_proxy_id": 1, "fallback_account_count": 2], probe(311, exit: "203.0.113.9")),
             5: untested,
-            6: untested,
+            6: options.inactiveOverdue ? with(untested, overdue) : untested,
             7: with(["fallback_account_count": 2], untested),
             8: with(["account_count": 1], options.soonOnly ? probe(140, exit: "203.0.113.77") : failed(proxyAuthFailure))
         ]

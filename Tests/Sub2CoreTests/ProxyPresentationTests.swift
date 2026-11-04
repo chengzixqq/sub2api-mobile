@@ -107,7 +107,7 @@ private let soonDate = "2026-10-22T09:00:00+08:00"
     let soon = row(hk02)
     #expect(soon.id == 1 && soon.title == "hk-02" && soon.address == "SOCKS5 · 203.0.113.24:1080")
     #expect(soon.tone == .caution && soon.glyph == .normal && soon.trailing == .latency("182ms"))
-    #expect(soon.footnote == "3 个账号在用 · " + place("HK") && soon.expiryBadge == ProxyBadge(text: "6 天后到期", tone: .caution))
+    #expect(soon.footnote == "3 个账号在用 · 中国香港" && soon.expiryBadge == ProxyBadge(text: "6 天后到期", tone: .caution))
     #expect(!soon.showsLinkFailedBadge && !soon.isDimmed)
 
     let calm = row(sg01)
@@ -178,7 +178,7 @@ private let soonDate = "2026-10-22T09:00:00+08:00"
 
 @Test func factsCells() {
     func facts(_ proxy: AdminProxy, checking: Bool = false) -> ProxyFacts { ProxyPresentation.facts(proxy, isCheckingQuality: checking, timeZone: shanghai) }
-    #expect(facts(hk02) == ProxyFacts(exitIP: "203.0.113.24", exitIPIsMonospaced: true, region: place("HK"), quality: "A · 92", qualityDate: "10/15"))
+    #expect(facts(hk02) == ProxyFacts(exitIP: "203.0.113.24", exitIPIsMonospaced: true, region: "中国香港", quality: "A · 92", qualityDate: "10/15"))
     #expect(ProxyPresentation.facts(hk02, isCheckingQuality: false, timeZone: utc).qualityDate == "10/15")
     #expect(facts(proxy()) == ProxyFacts(exitIP: "—", exitIPIsMonospaced: false, region: "—", quality: "—", qualityDate: nil))
     #expect(facts(AdminProxy(id: 2, name: "sg-01", qualityGrade: "A")).quality == "A")
@@ -260,4 +260,47 @@ private let soonDate = "2026-10-22T09:00:00+08:00"
     #expect(ProxyPresentation.addressLine(hk02) == "SOCKS5 · 203.0.113.24:1080")
     #expect(ProxyPresentation.addressLine(AdminProxy(id: 2, name: "sg-01", scheme: "http", host: "198.51.100.7")) == "HTTP · 198.51.100.7")
     #expect(ProxyPresentation.addressLine(AdminProxy(id: 2, name: "v6", scheme: "socks5", host: "2001:db8::1", port: 1080)) == "SOCKS5 · [2001:db8::1]:1080")
+}
+
+// MARK: - U-26
+
+/// Active and past its day, not swept yet: the sentence says it waits for the sweep, by the fallback. Accounts moved off it still
+/// come first; a day not yet passed, the badge and the 即将到期 filter stay.
+@Test func activeNoteThreeFallbacks() {
+    func note(_ proxy: AdminProxy, backup: String? = nil) -> ProxyExpiryNote? {
+        ProxyPresentation.expiryNote(proxy, backupName: backup, supportsFallbackAccounts: true, now: noon, timeZone: shanghai)
+    }
+    let overdue = "2026-10-15T09:00:00+08:00"
+    #expect(note(proxy(expires: overdue, fallback: "none", accounts: 3)) == ProxyExpiryNote(tone: .caution,
+            text: "已到期，等后台处理。处理时不回退，在用的 3 个账号会继续挂在这个过期代理上。"))
+    #expect(note(proxy(expires: overdue, fallback: "none", accounts: 0)) == ProxyExpiryNote(tone: .caution, text: "已到期，等后台处理。处理时不回退。"))
+    #expect(note(proxy(expires: overdue, fallback: "direct", accounts: 3))
+            == ProxyExpiryNote(tone: .caution, text: "已到期，等后台处理。处理时把在用的账号改为直连。"))
+    #expect(note(proxy(expires: overdue, fallback: "proxy", accounts: 3), backup: "sg-01")?.text
+            == "已到期，等后台处理。处理时把在用的账号改为备用 sg\u{2011}01。")
+    #expect(note(proxy(expires: overdue, fallback: "proxy", accounts: 0))?.text == "已到期，等后台处理。处理时把在用的账号改为备用代理。")
+
+    #expect(note(proxy(expires: overdue, fallback: "none", accounts: 3, moved: 2))?.text == "2 个账号在本代理到期时被改走，还没恢复。")
+    #expect(note(proxy(expires: soonDate, fallback: "none", accounts: 3))?.text == "6 天后到期。到期后不回退，在用的 3 个账号会继续挂在这个过期代理上。")
+    #expect(note(proxy(expires: "2026-10-16T09:00:00+08:00", fallback: "none", accounts: 0))?.text == "今天到期。到期后不回退。")
+    let stuck = proxy(expires: overdue, accounts: 3)
+    #expect(ProxyPresentation.row(stuck, now: noon, timeZone: shanghai).expiryBadge == ProxyBadge(text: "已到期 · 等待处理", tone: .caution))
+    #expect(ProxyPresentation.matches(stuck, filter: .soon, now: noon, timeZone: shanghai))
+}
+
+/// Stopped before its day came, then the day passed: 壹 says it and that enabling needs a renewal; with the sentence, 剩余 and
+/// 到期回退 leave the rows. One stopped with days left still has none.
+@Test func inactiveOverdueExpiryNote() {
+    func note(_ proxy: AdminProxy) -> ProxyExpiryNote? {
+        ProxyPresentation.expiryNote(proxy, backupName: nil, supportsFallbackAccounts: true, now: noon, timeZone: shanghai)
+    }
+    let lapsed = "2026-10-13T00:00:00+08:00"
+    let stopped = proxy(status: "inactive", expires: lapsed, accounts: 0)
+    #expect(note(stopped) == ProxyExpiryNote(tone: .neutral, text: "10/13 已过到期日。启用前需要先续期。"))
+    #expect(note(proxy(status: "inactive", expires: lapsed, fallback: "direct", accounts: 2, moved: 1))?.text == "10/13 已过到期日。启用前需要先续期。")
+    #expect(note(proxy(status: "inactive", expires: "2026-10-16T09:00:00+08:00"))?.text == "10/16 已过到期日。启用前需要先续期。")
+    #expect(note(deFra) == nil && note(proxy(status: "inactive", expires: nil)) == nil)
+    let rows = ProxyDetailRows.expiry(stopped, backupName: nil, hasNote: note(stopped) != nil, now: noon, timeZone: shanghai)
+    #expect(rows.map(\.key) == [.expiresAt, .warnDays])
+    #expect(ProxyPresentation.row(stopped, now: noon, timeZone: shanghai).trailing == .status(ProxyBadge(text: "停用", tone: .neutral)))
 }
