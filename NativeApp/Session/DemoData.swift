@@ -46,12 +46,14 @@ enum DemoData {
                                                         documentURLZH: "https://example.invalid/admin-compliance.zh.md",
                                                         ackPhraseZH: "我已阅读、理解并同意 Sub2API 部署与运营合规承诺")
     /// The simulator never shows the system prompt: checks pass unless `-ui-biometric-deny`, and `-ui-biometric-unavailable`
-    /// stands for a phone without Face ID or a lock screen code. `-ui-faceid-on` starts with the switch on.
+    /// stands for a phone without Face ID or a lock screen code. `-ui-faceid-on` starts with the switch on; `-ui-biometric-slow`
+    /// makes every check take about 1.5 seconds, so a page's Face ID overlay can be seen (U-18).
     @MainActor static func biometricAuthenticator(_ preferences: AppPreferences) -> FixedBiometricAuthenticator {
         let arguments = ProcessInfo.processInfo.arguments
         if arguments.contains("-ui-faceid-on") { preferences.storeFaceIDRequirement(true) }
         return FixedBiometricAuthenticator(isAvailable: !arguments.contains("-ui-biometric-unavailable"),
-                                           succeeds: !arguments.contains("-ui-biometric-deny"))
+                                           succeeds: !arguments.contains("-ui-biometric-deny"),
+                                           delay: arguments.contains("-ui-biometric-slow") ? .milliseconds(1_500) : nil)
     }
     /// `-ui-pending-money` (60 §3.3 柒): a refund and a redeem batch of the first connected site, and a compensation of a
     /// deleted site that is kept for its record. `-ui-pending-unreadable` also marks the batch file unreadable.

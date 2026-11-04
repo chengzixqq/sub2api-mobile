@@ -32,12 +32,20 @@ struct SystemBiometricAuthenticator: BiometricAuthenticating {
     }
 }
 
-/// UI tests and unit tests: never shows the system prompt.
+/// UI tests and unit tests: never shows the system prompt. `delay` stands for the time a real check takes, so a page's
+/// Face ID overlay can be seen (`-ui-biometric-slow`).
 struct FixedBiometricAuthenticator: BiometricAuthenticating {
     let isAvailable: Bool
     let succeeds: Bool
+    let delay: Duration?
+    init(isAvailable: Bool, succeeds: Bool, delay: Duration? = nil) {
+        self.isAvailable = isAvailable; self.succeeds = succeeds; self.delay = delay
+    }
     func canAuthenticate() -> Bool { isAvailable }
-    func authenticate(reason: String) async -> Bool { isAvailable && succeeds }
+    func authenticate(reason: String) async -> Bool {
+        if let delay { try? await Task.sleep(for: delay) }
+        return isAvailable && succeeds
+    }
 }
 
 /// 60 §3.4 Face ID 覆盖清单, the App's only list (R16): pages name what they are about to do, the gate decides.
@@ -121,6 +129,14 @@ struct BiometricGate {
     func authorize(_ action: GatedAction, reason: String? = nil) async -> Bool {
         guard needsVerification(action) else { return true }
         return await confirm(reason: reason ?? action.defaultReason)
+    }
+    /// The same for a page that draws its own “Face ID · …” overlay (60 §10.5, §19.5): `verifying` is on only while a check
+    /// runs, and off again whatever it answers.
+    func authorize(_ action: GatedAction, verifying: @MainActor (Bool) -> Void) async -> Bool {
+        guard needsVerification(action) else { return true }
+        verifying(true)
+        defer { verifying(false) }
+        return await confirm(reason: action.defaultReason)
     }
 
     /// U48: turning the switch on and turning it off are both verified once; a failed or cancelled check keeps the old value.

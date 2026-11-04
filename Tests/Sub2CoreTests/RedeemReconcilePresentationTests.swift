@@ -26,13 +26,13 @@ private func codes(_ count: Int, expiresAt: Date? = ServerTime.parseTimestamp("2
 
 @Test func reconcileHeadersAndFootnotesFollowTheStage() {
     typealias P = RedeemReconcilePresentation
-    #expect(P.header(for: .awaitingCheck) == P.Header(systemImage: "hourglass", title: "请求可能已提交", message: "没有收到服务器确认。不要重新生成，先核对。", tone: .caution))
-    #expect(P.header(for: .notGenerated(heuristic: false))
+    #expect(P.header(for: .awaitingCheck, retry: context()) == P.Header(systemImage: "hourglass", title: "请求可能已提交", message: "没有收到服务器确认。不要重新生成，先核对。", tone: .caution))
+    #expect(P.header(for: .notGenerated(heuristic: false), retry: context())
             == P.Header(systemImage: "magnifyingglass", title: "服务器上没有这一批", message: "这次生成没有生效。用同一编号重试，或者放弃。", tone: .neutral))
-    #expect(P.header(for: .notGenerated(heuristic: true)).title == "服务器上没有这一批")
-    #expect(P.header(for: .settled).title == "这一批已核对或已放弃"); #expect(P.header(for: .settled).message == nil)
-    #expect(P.header(for: .undetermined).tone == .caution)
-    #expect(P.header(for: .refused("过期时间无效")) == P.Header(systemImage: "xmark.octagon", title: "这一批没有生成", message: "过期时间无效", tone: .critical))
+    #expect(P.header(for: .notGenerated(heuristic: true), retry: context()).title == "服务器上没有这一批")
+    #expect(P.header(for: .settled, retry: context()).title == "这一批已核对或已放弃"); #expect(P.header(for: .settled, retry: context()).message == nil)
+    #expect(P.header(for: .undetermined, retry: context()).tone == .caution)
+    #expect(P.header(for: .refused("过期时间无效"), retry: context()) == P.Header(systemImage: "xmark.octagon", title: "这一批没有生成", message: "过期时间无效", tone: .critical))
 
     #expect(P.footnote(for: .awaitingCheck, isLegacyServer: false) == "编号已保存在本机。核对会按这个编号在服务器上找这一批；用同一编号重试时，服务器生成过就直接返回那一批，不会重复生成。关闭后，概览“待处理”和兑换码列表顶部会一直提醒，直到核对完成。")
     #expect(P.footnote(for: .awaitingCheck, isLegacyServer: true)?.contains("另一位管理员同时生成时可能分不清") == true)
@@ -126,4 +126,36 @@ private func codes(_ count: Int, expiresAt: Date? = ServerTime.parseTimestamp("2
     #expect(P.copyAllTitle(count: 20, copied: false) == "全部复制（20 个，每行一个）"); #expect(P.copyAllTitle(count: 20, copied: true) == "已复制全部 20 个")
     #expect(P.copyAllTitle(count: 1, copied: false) == "复制兑换码"); #expect(P.copyAllTitle(count: 1, copied: true) == "已复制兑换码")
     #expect(P.copyAllText(codes(2)) == String(format: "%032lx", 1) + "\n" + String(format: "%032lx", 2))
+}
+
+// U-18 (S6-高-5): an old server that cannot tell the batch apart says what to tap after the web; the retry half only when this
+// login may send it. The cooldown only greys the button for a while, so the line does not change with it.
+@Test func undeterminedHeaderOffersNextStep() {
+    typealias P = RedeemReconcilePresentation
+    let lead = "最近生成的兑换码太多，分不出这一批。请到 Web 的兑换码列表核对。"
+    let full = lead + "核对后，已经生成的点“放弃这一批”结束提醒；确认没生成再用同一编号重试。"
+    let abandonOnly = lead + "核对后，已经生成的点“放弃这一批”结束提醒。"
+    #expect(P.header(for: .undetermined, retry: context())
+            == P.Header(systemImage: "questionmark.circle", title: "无法判断这一批是否已生成", message: full, tone: .caution))
+    #expect(P.header(for: .undetermined, retry: context(.allowedActorUnknown)).message == full)
+    #expect(P.header(for: .undetermined, retry: context(heldUntil: later.addingTimeInterval(5))).message == full)
+    for cannot in [context(readOnly: true), context(.otherActor, actor: "bob@example.com"), context(legacy: true, expired: true)] {
+        #expect(P.header(for: .undetermined, retry: cannot).message == abandonOnly, "\(cannot)")
+    }
+    // Every other stage reads the same whatever the retry.
+    let none = context(.otherActor, readOnly: true, legacy: true, expired: true)
+    for stage: RedeemReconcileStage in [.awaitingCheck, .notGenerated(heuristic: false), .notGenerated(heuristic: true), .settled, .refused("x")] {
+        #expect(P.header(for: stage, retry: context()) == P.header(for: stage, retry: none), "\(stage)")
+    }
+}
+
+// A read-only token is offered the retry (grey, with its line) but may not send it, so the header leaves the retry out.
+@Test func undeterminedHeaderReadOnlyTokenOmitsRetry() {
+    typealias P = RedeemReconcilePresentation
+    let readOnly = context(readOnly: true)
+    #expect(readOnly.offersRetry); #expect(!readOnly.canRetry(now: later))
+    #expect(P.header(for: .undetermined, retry: readOnly).message?.contains("用同一编号重试") == false)
+    #expect(summary(P.actions(for: .undetermined, retry: readOnly, busy: nil, now: later))
+            == ["check:核对生成结果!", "retry:用同一编号重试(off)", "abandon:放弃这一批"])
+    #expect(P.notes(for: .undetermined, retry: readOnly, now: later) == ["当前登录的是只读令牌，不能修改"])
 }

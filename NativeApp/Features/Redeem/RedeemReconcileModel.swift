@@ -26,6 +26,8 @@ final class RedeemReconcileModel {
     private(set) var isConfirmed = false
     /// Another administrator's email for the restriction line.
     private(set) var actorLabel: String?
+    /// A retry's Face ID check is running: the sheet shows “Face ID · 验证后生成兑换码” like the first generation (U-18).
+    private(set) var isVerifying = false
 
     init(batchID: UUID, record: PendingRedeemBatch?) {
         self.batchID = batchID; snapshot = record
@@ -66,7 +68,7 @@ final class RedeemReconcileModel {
         guard busy == nil else { return }
         busy = .retrying; notice = nil
         defer { busy = nil }
-        switch await model.redeemBatchCheck().retry(batchID) {
+        switch await model.redeemBatchCheck(verifying: { [weak self] in self?.isVerifying = $0 }).retry(batchID) {
         case .gone: phase = .pending(.settled)
         case .refused(let text): notice = Notice(text: text, tone: .caution)
         case .notAuthorized, .stale: break
@@ -105,8 +107,9 @@ final class RedeemReconcileModel {
 
 extension AppModel {
     /// S6-06's check, retry and closing of a pending batch on the site, or under `-ui-testing` on this session's RedeemDemoStore
-    /// with the `-ui-redeem-*` answers (RedeemFixtures). Every send goes through `sendRedeemBatch`.
-    func redeemBatchCheck() -> RedeemBatchCheck {
+    /// with the `-ui-redeem-*` answers (RedeemFixtures). Every send goes through `sendRedeemBatch`; `verifying` turns the
+    /// sheet's Face ID overlay on and off around a retry's check.
+    func redeemBatchCheck(verifying: @escaping @MainActor @Sendable (Bool) -> Void = { _ in }) -> RedeemBatchCheck {
         let generation = sessionGeneration
         return RedeemBatchCheck(effects: RedeemBatchCheck.Effects(
             record: { [weak self] id in self?.pendingRedeemBatches.first { $0.id == id } },
@@ -124,7 +127,7 @@ extension AppModel {
                 return try await revealRedeemCodes(codes)
             },
             retryContext: { [weak self] batch in self?.redeemRetryContext(for: batch) ?? .refusing },
-            authorize: { [weak self] in await self?.biometricGate.authorize($0) ?? false },
+            authorize: { [weak self] in await self?.biometricGate.authorize($0, verifying: verifying) ?? false },
             persist: { [weak self] batch in
                 guard let self else { throw CancellationError() }
                 return try persisted(batch)

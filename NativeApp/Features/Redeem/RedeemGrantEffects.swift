@@ -10,13 +10,7 @@ extension AppModel {
         let generation = sessionGeneration
         return CompensationSubmission(effects: CompensationSubmission.Effects(
             gate: { [weak self] userID in self?.moneyWriteGate(.compensation(userID: userID)) ?? .paused(.compensation) },
-            authorize: { [weak self] action in
-                guard let self else { return false }
-                guard biometricGate.needsVerification(action) else { return true }
-                verifying(true)
-                defer { verifying(false) }
-                return await biometricGate.authorize(action)
-            },
+            authorize: { [weak self] in await self?.biometricGate.authorize($0, verifying: verifying) ?? false },
             persist: { [weak self] grant in
                 guard let self else { throw CancellationError() }
                 return try persisted(grant)

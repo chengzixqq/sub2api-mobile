@@ -36,6 +36,8 @@ private func keyed(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFa
     var fallbackResult: Result<RedeemBatchFallbackOutcome, any Error> = .success(.notFound)
     var revealFails = false
     var authorizes = true
+    /// The Face ID gate as AppModel wires it; the page's overlay switches are logged as `verifying:true` / `verifying:false`.
+    var gate: BiometricGate?
     var persistFails = false
     var resolveFails = false
     var isCurrent = true
@@ -62,7 +64,11 @@ private func keyed(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFa
                 return masked.map { AdminRedeemCode(id: $0.id, code: String(format: "%032lx", $0.id), type: $0.type, value: $0.value, status: $0.status) }
             },
             retryContext: { [self] _ in context },
-            authorize: { [self] action in log.append("authorize"); gated.append(action); return authorizes },
+            authorize: { [self] action in
+                log.append("authorize"); gated.append(action)
+                guard let gate else { return authorizes }
+                return await gate.authorize(action, verifying: { [self] in log.append("verifying:\($0)") })
+            },
             persist: { [self] record in
                 log.append("persist")
                 if persistFails { throw PendingMoneyError(kind: .redeemBatch, reason: .unsaved) }
@@ -204,6 +210,53 @@ private func keyed(_ disposition: KeyedWriteFailure.Disposition) -> KeyedWriteFa
     let older = BatchHarness(pendingBatch())
     older.deliver = { [older] _ in older.isCurrent = false; return WriteOutcome(value: codes(), batchID: batchID) }
     #expect(await older.check.retry(batchID) == .stale); #expect(older.resolved == [batchID])
+}
+
+// MARK: Face ID overlay (U-18, S6-中-9)
+
+@MainActor private func faceIDGate(enabled: Bool = true, threshold: Decimal, succeeds: Bool = true,
+                                   in scratch: ScratchDefaults) -> (BiometricGate, RecordingAuthenticator) {
+    let preferences = AppPreferences(defaults: scratch.defaults)
+    preferences.storeFaceIDRequirement(enabled)
+    preferences.setFaceIDThreshold(threshold)
+    let authenticator = RecordingAuthenticator(succeeds: succeeds)
+    return (BiometricGate(preferences: preferences, authenticator: authenticator), authenticator)
+}
+
+/// The retry's Face ID is checked only when the gate asks for it, and the page's overlay is on only around that check, off
+/// again before anything is saved or sent, also when it is refused.
+@MainActor @Test func authorizeOnlyWhenNeeded() async {
+    let scratch = ScratchDefaults(); defer { scratch.remove() }
+    let (above, asked) = faceIDGate(threshold: 10, in: scratch)
+    let checked = BatchHarness(pendingBatch()); checked.gate = above
+    #expect(await checked.check.retry(batchID) == .succeeded(codes(), replayed: false))
+    #expect(checked.log == ["authorize", "verifying:true", "verifying:false", "persist", "send", "resolve", "listChanged"])
+    #expect(asked.calls == 1); #expect(asked.lastReason == "确认生成余额兑换码")
+
+    let (refusing, refused) = faceIDGate(threshold: 10, succeeds: false, in: scratch)
+    let denied = BatchHarness(pendingBatch()); denied.gate = refusing
+    #expect(await denied.check.retry(batchID) == .notAuthorized)
+    #expect(denied.log == ["authorize", "verifying:true", "verifying:false"]); #expect(refused.calls == 1)
+
+    // $20 is not above $100, the switch is off, or the batch is not money: no check, no overlay.
+    for (enabled, threshold) in [(true, Decimal(100)), (false, Decimal(10))] {
+        let (gate, authenticator) = faceIDGate(enabled: enabled, threshold: threshold, in: scratch)
+        let quiet = BatchHarness(pendingBatch()); quiet.gate = gate
+        #expect(await quiet.check.retry(batchID) == .succeeded(codes(), replayed: false))
+        #expect(quiet.log == ["authorize", "persist", "send", "resolve", "listChanged"]); #expect(authenticator.calls == 0)
+    }
+    let concurrency = BatchHarness(pendingBatch(RedeemGenerateSpec(type: .concurrency, value: 2, count: 5))); concurrency.gate = above
+    _ = await concurrency.check.retry(batchID)
+    #expect(!concurrency.log.contains { $0.hasPrefix("verifying") || $0 == "authorize" })
+}
+
+/// `-ui-biometric-slow`: the fixture's check waits before it answers, so a UI test can see the overlay.
+@Test func fixedAuthenticatorWaitsItsDelay() async {
+    let clock = ContinuousClock(), began = clock.now
+    #expect(await FixedBiometricAuthenticator(isAvailable: true, succeeds: true, delay: .milliseconds(200)).authenticate(reason: "x"))
+    #expect(clock.now - began >= .milliseconds(200))
+    #expect(await FixedBiometricAuthenticator(isAvailable: true, succeeds: false, delay: .milliseconds(10)).authenticate(reason: "x") == false)
+    #expect(await FixedBiometricAuthenticator(isAvailable: true, succeeds: true).authenticate(reason: "x"))
 }
 
 // MARK: Close

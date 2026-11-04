@@ -42,6 +42,7 @@ struct RedeemGrantPendingView: View {
                 Button("关闭") { dismiss() }.disabled(page?.busy != nil).accessibilityIdentifier("sheet.close")
             }
         }
+        .overlay { if page?.isVerifying == true { GrantFaceIDOverlay() } }
         .interactiveDismissDisabled(page?.busy != nil)
         .alert(Copy.abandonPromptTitle, isPresented: $confirmsAbandon) {
             Button(Copy.abandonTitle, role: .destructive) { abandon() }
@@ -138,6 +139,8 @@ final class RedeemGrantPendingModel {
     private(set) var actorLabel: String?
     private(set) var exit: Exit?
     private(set) var regrant: GrantRegrant?
+    /// A retry's Face ID check is running: the page shows “Face ID · 验证后发放” like the first grant (U-18).
+    private(set) var isVerifying = false
     private var stage: CompensationPendingState
 
     init(recordID: UUID, record: PendingCompensation?) {
@@ -188,7 +191,7 @@ final class RedeemGrantPendingModel {
         guard busy == nil, let grant = snapshot else { return }
         busy = .retrying; notice = nil
         defer { busy = nil }
-        switch await app.compensationSubmission().retry(recordID, progress: { _ in }) {
+        switch await app.compensationSubmission(verifying: { [weak self] in self?.isVerifying = $0 }).retry(recordID, progress: { _ in }) {
         case .granted(let code, let replayed): exit = .granted(code, replayed: replayed, grant: grant)
         case .gone: stage = .settled
         case .pending(let text):
