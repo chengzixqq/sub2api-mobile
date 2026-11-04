@@ -792,3 +792,6 @@
 | 公告新建 sheet 从会话记录恢复的入口约束 | AnnouncementEditLoader 在 id == nil 且 model.pendingAnnouncementCreate 不为空时总是恢复那次未确认的新建（U-22）；目前只有 AnnouncementsView.compose() 的“继续核对”会走到。以后若加别的新建公告入口（深链、跨 Tab 等），要先经过 compose() 的拦截，或者给路由加显式的恢复参数，否则会跳过确认直接恢复 |
 | UI 测试里用 Swift contains 判断带换行的弹框正文会失败 | U-22 第一次 check 时，弹框正文 label 在无障碍树里显示含“确认\n服务器…”，但 XCUIElement.label.contains("确认\n服务器…") 返回 false，原因没查明；已改用 NSPredicate 分段匹配。以后断言多行弹框正文时建议同样用 NSPredicate |
 | 公告新建同一编号重试的期限只按确认时间 + 24 小时算 | 结果未确认时收不到 X-Idempotency-Expires-At（后端只在成功响应里下发），App 按 00 §2.5.5 的默认值 24 小时判断。站点把 IDEMPOTENCY_DEFAULT_TTL_SECONDS 设得短于 24 小时时，期限内的“用同一编号重试”仍可能被服务端当成新请求执行。要收紧，需要后端给出 TTL（例如放进 capability 或 /admin/me，或在 409 / 503 回复里也带 X-Idempotency-Expires-At）。 |
+| 站点菜单里分不出旧登录 | U-24 只改了行为：概览 / 账号标题的站点菜单里，旧登录与同地址的新站点仍同名同主机，用户分不出哪个是旧登录。第二行是否改用 OldLoginPresentation.rowNote 或加“旧登录”字样，看模拟器截图后再定。 |
+| U-24 旧登录回执文字待确认 | “「{旧站点名}」是旧登录 · 记录在“设置 → 待核对”里核对”是方案自拟的，round-u1-noncode.md 第四节第 7 项，请看截图后定稿。 |
+| 推送点按旧登录站点 | U-24 之后，点按旧登录站点的通知会被导到同地址站点或只出回执，PushAppDelegate.openSite 判为 .failed，丢掉待跳转目标。是否改成跳到同地址站点的对应页面，另行决定。 |
