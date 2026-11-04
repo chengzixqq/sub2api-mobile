@@ -116,7 +116,8 @@ final class GroupRecordsPager<Row: Decodable & Identifiable & Sendable> where Ro
 }
 
 /// 50 §6: one group's keys. Each page's today spend is read right after it arrives, in a Task this model owns (not the footer's
-/// `.task`, which the arriving page would cancel); a read-only token never asks (R14) and every row says 今日 —.
+/// `.task`, which the arriving page would cancel); a read-only token never asks (R14) and every row says 今日 —. A failed read
+/// keeps an amount shown before, marked 更新失败, until a read works (S5-高-3).
 @MainActor @Observable
 final class GroupKeysModel {
     let groupID: Int
@@ -125,19 +126,23 @@ final class GroupKeysModel {
     private(set) var group: AdminGroup?
     private(set) var isDeleted = false
     private(set) var todayByID: [Int: GroupKeyToday] = [:]
+    /// The today reads' failures and 429 wait (00 §2.7.2): the strip counts the wait down and 重试 waits it out.
+    private(set) var todayRefresh = BlockRefresh()
+    /// Observed: while a stale row is read again the strip stays, spinning.
+    private var todayInFlight: Set<Int> = []
 
     @ObservationIgnored private let source: GroupRecordsSource
     @ObservationIgnored private let isReadOnlyToken: @MainActor () -> Bool
     @ObservationIgnored private let isCurrent: @MainActor () -> Bool
+    @ObservationIgnored private let now: @MainActor () -> Date
     @ObservationIgnored private var needsGroup: Bool
     @ObservationIgnored private var todayTicket = UUID()
-    @ObservationIgnored private var todayInFlight: Set<Int> = []
     @ObservationIgnored private var todayTasks: [Task<Void, Never>] = []
 
     init(groupID: Int, snapshot: AdminGroup?, source: GroupRecordsSource, isReadOnlyToken: @escaping @MainActor () -> Bool,
          isCurrent: @escaping @MainActor () -> Bool, now: @escaping @MainActor () -> Date = { Date() }) {
         self.groupID = groupID; group = snapshot; needsGroup = snapshot == nil
-        self.source = source; self.isReadOnlyToken = isReadOnlyToken; self.isCurrent = isCurrent
+        self.source = source; self.isReadOnlyToken = isReadOnlyToken; self.isCurrent = isCurrent; self.now = now
         pager = GroupRecordsPager(pathTemplate: "admin/groups/:id/api-keys", read: { page in try await source.keys(groupID, page) },
                                   isCurrent: isCurrent, now: now)
     }
@@ -150,6 +155,10 @@ final class GroupKeysModel {
     }
     var subtitle: String { GroupRecordsCopy.keysSubtitle(groupName: group?.name, total: pager.feed?.total) }
     func today(for keyID: Int) -> GroupKeyToday { isReadOnlyToken() ? .missing : todayByID[keyID] ?? .pending }
+    /// S5-高-3: some row shows an amount kept through a failed read.
+    var hasStaleToday: Bool { !isReadOnlyToken() && todayByID.values.contains(where: \.isStale) }
+    /// A stale row's today is being read again.
+    var isRetryingToday: Bool { todayByID.contains { $0.value.isStale && todayInFlight.contains($0.key) } }
 
     /// Every appearance and the foreground: page 1 when it was never read, the group when unknown, today for keys still pending.
     func start() async {
@@ -173,6 +182,11 @@ final class GroupKeysModel {
         guard !isDeleted, let added = await pager.retryMore() else { return }
         readToday(added.map(\.id))
     }
+    /// 今日金额更新失败 · 重试: today again for the rows without a fresh amount, once a 429 wait is over.
+    func retryToday() {
+        guard todayRefresh.allowsRequest(at: now()) else { return }
+        readToday(pager.rows.map(\.id).filter { todayByID[$0]?.isAmount != true && !todayInFlight.contains($0) })
+    }
     /// Waits for the today reads this model started (tests).
     func settleTodayReads() async {
         while !todayTasks.isEmpty {
@@ -184,13 +198,13 @@ final class GroupKeysModel {
 
     private var pendingIDs: [Int] { pager.rows.map(\.id).filter { todayByID[$0] == nil && !todayInFlight.contains($0) } }
 
-    /// S5D2a-15: amounts of keys still on page 1 stay until the new read answers or if it fails.
+    /// S5D2a-15: amounts of keys still on page 1 stay until the new read answers, marked stale if it fails (S5-高-3).
     private func readFirstPage() async {
         todayTicket = UUID()
         todayInFlight = []
         guard let rows = await pager.reload() else { return }
         let ids = Set(rows.map(\.id))
-        todayByID = todayByID.filter { ids.contains($0.key) && $0.value.isAmount }
+        todayByID = todayByID.filter { ids.contains($0.key) && $0.value.lastAmount != nil }
         readToday(rows.map(\.id))
     }
     private func readToday(_ ids: [Int]) {
@@ -203,15 +217,19 @@ final class GroupKeysModel {
             self?.applyToday(result, ids: ids, ticket: ticket)
         })
     }
-    /// A failure leaves an earlier amount and marks the rest 今日 —; a cancelled read stays pending for the next start.
+    /// A failure keeps an earlier amount marked stale and marks the rest 今日 —; a cancelled read stays as it was for the next start.
     private func applyToday(_ result: Result<[Int: Decimal], any Error>, ids: [Int], ticket: UUID) {
         guard ticket == todayTicket else { return }
         todayInFlight.subtract(ids)
         guard isCurrent(), !isDeleted else { return }
         switch result {
-        case .success(let reply): for id in ids { todayByID[id] = .resolve(id: id, reply: reply) }
+        case .success(let reply):
+            for id in ids { todayByID[id] = .resolve(id: id, reply: reply) }
+            todayRefresh = todayRefresh.recordingSuccess()
         case .failure(let error) where error is CancellationError: break
-        case .failure: for id in ids where todayByID[id]?.isAmount != true { todayByID[id] = .missing }
+        case .failure(let error):
+            for id in ids { todayByID[id] = (todayByID[id] ?? .pending).afterFailure }
+            todayRefresh = todayRefresh.recordingFailure(error, at: now())
         }
     }
     private func readGroup(force: Bool) async {
@@ -240,15 +258,24 @@ final class GroupSubscriptionsModel {
     private(set) var groupError: APIError?
     private(set) var isDeleted = false
     private(set) var activeCount: Int?
+    /// S5-高-3: the count shown is an earlier read's, since the last one failed; a read that works clears it.
+    private(set) var activeCountStale = false
+    /// When the count shown was read (更新于 on its strip).
+    private(set) var countUpdatedAt: Date?
+    /// The count's failures and 429 wait (00 §2.7.2).
+    private(set) var countRefresh = BlockRefresh()
+    private var countReadsInFlight = 0
 
     @ObservationIgnored private let source: GroupRecordsSource
     @ObservationIgnored private let isCurrent: @MainActor () -> Bool
+    @ObservationIgnored private let now: @MainActor () -> Date
     @ObservationIgnored private var needsGroup: Bool
     @ObservationIgnored private var needsCount = true
 
     init(groupID: Int, snapshot: AdminGroup?, source: GroupRecordsSource, isCurrent: @escaping @MainActor () -> Bool,
          now: @escaping @MainActor () -> Date = { Date() }) {
         self.groupID = groupID; group = snapshot; needsGroup = snapshot == nil; self.source = source; self.isCurrent = isCurrent
+        self.now = now
         pager = GroupRecordsPager(pathTemplate: "admin/groups/:id/subscriptions", read: { page in try await source.subscriptions(groupID, page) },
                                   isCurrent: isCurrent, now: now)
     }
@@ -262,6 +289,8 @@ final class GroupSubscriptionsModel {
     }
     var failureError: APIError? { pager.lastError ?? groupError }
     var subtitle: String { GroupRecordsCopy.subscriptionsSubtitle(groupName: group?.name, active: activeCount) }
+    /// The count is being read: a stale strip stays, spinning.
+    var isReadingCount: Bool { countReadsInFlight > 0 }
 
     /// Entry: page 1, the active count and (without a snapshot) the group, side by side; shown again only what never answered.
     func start() async {
@@ -281,6 +310,8 @@ final class GroupSubscriptionsModel {
     }
     func loadMore() async { if !isDeleted { await pager.loadMore() } }
     func retryMore() async { if !isDeleted { await pager.retryMore() } }
+    /// 生效中计数更新失败 · 重试: the count alone, once a 429 wait is over.
+    func retryActiveCount() async { await readActiveCount(force: true) }
 
     private func readGroup(force: Bool) async {
         guard force || needsGroup, !isDeleted, isCurrent() else { return }
@@ -296,17 +327,24 @@ final class GroupSubscriptionsModel {
             groupError = failure ?? APIError(kind: .response, message: BlockStatusPresentation.loadFailed)
         }
     }
-    /// A failed read keeps the count shown (S5D2a-15); stats failing is not an older server, so it does not fall back.
+    /// A failed read keeps the count shown, marked stale (S5D2a-15, S5-高-3); stats failing is not an older server, so it does not
+    /// fall back. Nothing is sent during a 429 wait.
     private func readActiveCount(force: Bool) async {
-        guard force || needsCount, !isDeleted, isCurrent() else { return }
+        guard force || needsCount, !isDeleted, isCurrent(), countRefresh.allowsRequest(at: now()) else { return }
         let source = source, id = groupID
+        countReadsInFlight += 1
+        defer { countReadsInFlight -= 1 }
         do {
             let count: Int
             if let stats = try await source.stats(id) { count = stats.subscriptionsActive } else { count = try await source.activeSubscriptionCount(id) }
             guard isCurrent() else { return }
-            activeCount = count; needsCount = false
+            activeCount = count; needsCount = false; activeCountStale = false
+            countUpdatedAt = now(); countRefresh = countRefresh.recordingSuccess()
         } catch {
-            if !(error is CancellationError) { needsCount = false }
+            guard isCurrent(), !(error is CancellationError) else { return }
+            needsCount = false
+            countRefresh = countRefresh.recordingFailure(error, at: now())
+            activeCountStale = activeCount != nil
         }
     }
 }

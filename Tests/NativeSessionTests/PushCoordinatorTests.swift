@@ -563,3 +563,19 @@ private func body(_ request: URLRequest?) throws -> [String: Any] {
     await coordinator.settle()
     #expect(await api.calls == ["POST " + newSite.uuidString])
 }
+
+/// U-23 review: a pending device deleted from the push page, or found gone there, no longer waits for the next login, and the
+/// page's banner follows at once; an id that was not pending changes nothing.
+@MainActor @Test func pushPageRemovalResolvesThePendingDeletion() {
+    let store = PushTestDefaults(); defer { store.clear() }
+    let serverID = UUID()
+    store.records.apply(TeardownReport(failedPushDeviceIDs: [8, 9]), serverID: serverID)
+    let coordinator = makePushCoordinator(store.records)
+    let before = coordinator.revision
+    coordinator.resolvePendingDeletion(8, serverID: serverID)
+    #expect(coordinator.pendingDeletions(serverID: serverID) == [9])
+    #expect(coordinator.revision == before + 1)
+    coordinator.resolvePendingDeletion(42, serverID: serverID)
+    #expect(coordinator.pendingDeletions(serverID: serverID) == [9])
+    #expect(coordinator.revision == before + 1)
+}

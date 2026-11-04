@@ -38,7 +38,9 @@ struct LogsView: View {
             .navigationTitle(Self.title)
             .navigationBarTitleDisplayMode(.inline)
             .navigationSubtitle(subtitle)
-            .logFilterPicker(isPresented: $pickingObject) { pick in Task { await store?.pick(pick) } }
+            .logFilterPicker(isPresented: $pickingObject, conditions: store?.conditions ?? LogConditions()) { pick in
+                Task { await store?.pick(pick) }
+            }
             .sheet(isPresented: $pickingRange) { if let store { customRange(store) } }
             .onAppear { onScreen = true; appear() }
             .onChange(of: model.sessionGeneration) { _, _ in appear() }

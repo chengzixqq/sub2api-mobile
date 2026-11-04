@@ -136,6 +136,21 @@ private func keyRow(_ key: AdminAPIKey, today: GroupKeyToday = .pending, now: Da
     #expect(try keyRow(AdminAPIKey(id: 3, quota: 0, quotaUsed: 5)).quota == nil)
 }
 
+/// S5-高-3: an amount kept through a failed read says 更新失败; only a fresh amount counts as one, both keep their value.
+@Test func staleTodayText() throws {
+    let stale = GroupKeyToday.stale(amount("3.2"))
+    #expect(stale.text == "今日 $3.20 · 更新失败" && stale.spoken == "今日 $3.20，更新失败")
+    #expect(!stale.isAmount && stale.isStale && stale.lastAmount == amount("3.2"))
+    #expect(GroupKeyToday.amount(amount("12.4")).lastAmount == amount("12.4") && !GroupKeyToday.amount(1).isStale)
+    #expect(GroupKeyToday.pending.lastAmount == nil && GroupKeyToday.missing.lastAmount == nil && !GroupKeyToday.missing.isStale)
+    #expect(GroupKeyToday.amount(amount("3.2")).afterFailure == stale && stale.afterFailure == stale)
+    #expect(GroupKeyToday.pending.afterFailure == .missing && GroupKeyToday.missing.afterFailure == .missing)
+    let active = AdminAPIKey(id: 1, userID: 21, keyMasked: "sk-…Kp21", name: "生产", effectiveStatus: "active",
+                             lastUsedAt: try moment("2026-10-16T01:38:00Z"), user: nova)
+    #expect(try keyRow(active, today: stale).spokenLabel == "生产，sk-…Kp21，Nova 工作室 · 09:38，今日 $3.20，更新失败")
+    #expect(GroupRecordsCopy.todayStale == "今日金额更新失败 · 重试" && GroupRecordsCopy.activeCountStale == "生效中计数更新失败 · 重试")
+}
+
 @Test func keyRowSpokenLabelOrder() throws {
     let now = try moment("2026-10-16T01:41:00Z")
     let active = AdminAPIKey(id: 1, userID: 21, keyMasked: "sk-…Kp21", name: "生产", effectiveStatus: "active",

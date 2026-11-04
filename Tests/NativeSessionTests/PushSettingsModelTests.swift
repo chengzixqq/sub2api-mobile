@@ -43,6 +43,7 @@ private actor StubPushSource: PushSettingsSource {
 }
 
 @MainActor private final class TestFlag { var value = true }
+@MainActor private final class GoneIDs { var ids: [Int] = [] }
 
 private func device(_ id: Int, platform: PushPlatform = .ios, enabled: Bool = true, subscription: PushSubscription? = .default) -> PushDevice {
     PushDevice(id: id, platform: platform, deviceName: id == 12 ? "我的 Bark" : nil, enabled: enabled, subscription: subscription)
@@ -63,10 +64,12 @@ private let resolved = PushSubscriptionEdit.setting(.opsAlertResolved, on: true,
     let model: PushSettingsModel
     let receipts: ReceiptCenter
     let current: TestFlag
+    let gone: GoneIDs
 }
 @MainActor private func makeBench(_ source: any PushSettingsSource) -> Bench {
-    let receipts = stillReceipts(), current = TestFlag()
-    return Bench(model: PushSettingsModel(source: source, receipts: receipts, isCurrent: { current.value }), receipts: receipts, current: current)
+    let receipts = stillReceipts(), current = TestFlag(), gone = GoneIDs()
+    let model = PushSettingsModel(source: source, receipts: receipts, isCurrent: { current.value }, deviceGone: { gone.ids.append($0) })
+    return Bench(model: model, receipts: receipts, current: current, gone: gone)
 }
 
 /// Up to five seconds: under `swift test --parallel` a child task can take a while to be scheduled.
@@ -379,6 +382,32 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     #expect(bench.receipts.current?.text == "删除没有成功：" + PushPresentation.failureMessage(serverError))
     #expect(bench.receipts.current?.tone == .critical)
     #expect(await source.deletes == 1)
+}
+
+/// U-23 review: a target the server no longer has (deleted, 404, or missing from the list read back) leaves the pending
+/// deletions, so the banner that points here goes; one still there, or a failed delete, does not.
+@MainActor @Test func targetsTheServerNoLongerHasAreReportedGone() async {
+    let readBackGone: StubPushSource.DevicesHandler = { call in call == 1 ? sampleDevices : sampleDevices.filter { $0.id != 12 } }
+    let cases: [(source: StubPushSource, gone: [Int])] = [
+        (StubPushSource(), [12]),
+        (StubPushSource(delete: { _ in throw notFound }), [12]),
+        (StubPushSource(devices: readBackGone, delete: { _ in throw lost }), [12]),
+        (StubPushSource(delete: { _ in throw lost }), []),
+        (StubPushSource(delete: { _ in throw serverError }), [])]
+    for item in cases {
+        let bench = makeBench(item.source)
+        await bench.model.reloadDevices()
+        _ = await bench.model.delete(id: 12)
+        #expect(bench.gone.ids == item.gone)
+    }
+    let tested = makeBench(StubPushSource(test: { _ in throw notFound }))
+    await tested.model.reloadDevices()
+    #expect(await tested.model.test(id: 13) == .gone)
+    #expect(tested.gone.ids == [13])
+    let edited = makeBench(StubPushSource(update: { _, _, _ in throw notFound }))
+    await edited.model.reloadDevices()
+    await edited.model.updateSubscription(id: 12, to: resolved)
+    #expect(edited.gone.ids == [12])
 }
 
 // MARK: - 本地修改

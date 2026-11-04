@@ -607,6 +607,8 @@
 | OpsErrorTrend.bars(in:) 暂时没有调用方 | （补充已有行）S4-20 决定保留：它是 40 §2.7 点名用例（errorTrendHourlyBarsInSiteZoneStackOnlySLAAndBusinessLimited、errorTrendDailyBarsSplitAtSiteMidnightNotUTC 等 6 个）的被测对象，删除要同时改写这些用例；界面用的是 S4-18 按页面范围分的桶 |
 | B03 补漏：dashboard/groups 的 model_source 不生效（高优先级） | （补充已有行）后端 main 的 dd80618fe（2026-10-19）已修复，chore/upgrade-upstream-v0.2.18 也包含；App 不需要改。集成者核对生产已部署后可移出或注明已修复 |
 | 下拉刷新辅助的起手点 | 共用的 app.pullToRefresh(from:) 从元素中点起手。元素被吸顶条或浮层盖住时（UITestNavigation.isBetweenBars 只按导航栏判断，不知道 safeAreaInset 吸顶条），手势会落到条上的按钮，列表不动。S4-17 只修了更多图表这一处；其他有吸顶条的页面以后写下拉用例时，应从条下方起手，或让 scrollUntilExists 把吸顶条也算进去。 |
+| 按对象筛选面板已选标记的样式 | U-27 自拟：当前对象行尾用 accent 色 checkmark（subheadline semibold），参照统计筛选面板，等用户看截图再定 |
+| 按对象筛选面板已设对象不在前几行时看不到勾 | 账号、分组、用户三组只显示前 6、4、3 行，已设对象不在其中就没有勾；U-27 按最小改动没有置顶，以后再决定要不要把已选对象放到第一行 |
 
 ### App 与设计 · 阶段 5
 
@@ -657,6 +659,10 @@
 | GroupsUITests 启动后不等登录页 | 与 S5-10 审查修正 64f8318 根因相同：GroupsUITests.launchAndOpenGroups 在 launchQuietly() 后直接 reveal(login.name)，reveal（第 287 行）读 app.navigationBars.firstMatch.frame 前不判断导航栏在不在。Mac 负载高、启动后窗口还空时，读 frame 约 2 秒后就会在登录前失败。目前没观察到它这样失败，按 GroupEditUITests 的修法补：先等 login.name，读导航栏前先判断。 |
 | 分组列表“更新失败 · 重试”细条的写法 | U-10 在列表顶部另加一条细条，右侧小字“今日 / 可用状态 / 今日、可用状态”和时钟图标是自拟的；清单原话是“行旁加小字”，因列表行第三行已排满没有照做。等用户看截图再定；如要严格放在行内，需要先把列表行改成两行，另起条目 |
 | 分组列表的 F04 错误账号兜底不记 429 等待 | 没有 groups.account_buckets 时，列表每次刷新都会一起发 accounts?status=error 的兜底请求（GroupStore.readErrorCounts，用 try? 吞掉错误，保留上次的计数）。遇到 429 时不记 retry_after，等待期间下拉或轮询仍会再发，不符合 00 §2.7.2“等待期间不再发这个块的请求”。可以照 usage / shortage 的做法给它也配一个 BlockRefresh。U-10 审查修正（3b8f5c9）没有改这里，因为它不进“更新失败”细条。 |
+| 分组密钥页 / 订阅页“更新失败”细条文案与位置 | “今日金额更新失败 · 重试”“生效中计数更新失败 · 重试”是 U-12 自拟的；密钥行内没有放“重试”按钮（行是 NavigationLink，行内按钮读屏够不到），改为列表上方一条细条。等用户看截图定。 |
+| GroupRecordsRefreshRow 的 429 自动重读用设备时钟等待，模型用服务器时钟判断 | 细条按 refresh.notBefore 与设备时间 Date() 比较、等待结束后自动重读；而记录 notBefore 和判断能否发请求，模型用的都是 serverClock.now()。服务器时钟比设备慢时，等待结束那次自动重读会被模型拒绝，细条变回可点。列表的“刷新失败 · 重试”原来就是这样，U-12 的两条细条沿用了。偏差通常不到 1 秒，可以以后统一改成同一个时钟。 |
+| 分组详情其他块被取消的读取仍会推后退避 | GroupDetailModel.noteBackoff 管的分组、成员、成员今日、D02 四块，在页面取消读取（弹出 sheet、进入后台）后仍按失败次数重设 blockDue，下一次 60 秒轮询会跳过这些块。U-11 审查修正只改了 GroupDetailSectionsModel 的五块（加 Task.isCancelled 判断）。 |
+| 列表中区块头附件滚出屏幕后，429 等待结束可能不会自动重读（待核实） | BlockStatusAccessory 的自动重读挂在视图的 .task 上。List 卸载滚出屏幕的区块头时，这个任务会被取消；回到屏幕时如果等待已经结束，就不会再重读。分组详情“贰”、成员分区等处都可能受影响。 |
 
 ### App 与设计 · 阶段 6
 
@@ -774,3 +780,4 @@
 | 409 PUSH_DEVICE_LIMIT_REACHED 的通用文案仍让人去 Web 删设备 | ReasonCatalog.swift 第 201 行写“推送设备已达上限，请在 Web 删除不用的设备”，但 Web 没有推送管理界面。推送页自己的 PushPresentation.failureMessage 写的是“最多 N 个推送目标，先删除不用的”，不受影响。建议改成指向“其他接收方式”。等用户点头，U-23 未改。 |
 | U-21 自拟文字待确认 | 公告新建未确认的关闭说明“服务器可能已经创建了这条公告。关闭后这次的编号在本次使用期间保留，公告列表会重新读取；再次新建时会先提醒你核对，避免重复。”，以及拦截框标题“上一条公告的新建结果未确认”和正文“「标题」· MM/dd HH:mm 确认\n服务器可能已经创建了它，先核对，避免用户看到重复的公告。”都是方案自拟（round-u1-noncode.md 第四节第 7 项），等用户看截图后再定 |
 | 公告未确认新建的记录只在内存 | pendingAnnouncementCreate 不落盘：杀掉进程后记录丢失，关闭说明已写明“本次使用期间”。要不要落盘（以及代理、分组要不要做同样处理）以后再定 |
+| 推送待删横幅在待删设备已不在列表时仍显示 | 退出登录时 DELETE 实际已生效但没拿到回应，下次连接时重删又遇到网络失败，这时待删 id 不在已读到的设备列表里，横幅却仍提示去“其他接收方式”里删除，那里找不到对应的行；要到下次连接重删得到 404 才消失。可以把横幅条件改成“待删 id 与已读到的其他接收方式有交集，或列表未读到”，但这会偏离 00 §7.6 只看待删记录的口径，需要用户决定（U-23 审查修正时未做）。 |

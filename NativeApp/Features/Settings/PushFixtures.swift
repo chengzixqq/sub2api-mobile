@@ -255,6 +255,14 @@ extension PushDemoStore: PushSettingsSource {
                                 subscription: .default, createdAt: now.addingTimeInterval(-7 * 86_400), updatedAt: now)
         seed(device, registeredAs: registration)
     }
+    /// The device whose deletion failed (`-ui-push-pending-deletion`): an older registration of this phone the server still
+    /// holds, listed under 其他接收方式, where the pending banner sends the user (U-23).
+    func seedPendingDevice() {
+        let created = Date(timeIntervalSince1970: 1_790_000_000)
+        stored.removeAll { $0.id == PushFixture.pendingDeletionID }
+        stored.append(PushDevice(id: PushFixture.pendingDeletionID, platform: .ios, tokenHint: "0f3c", bundleID: "com.chengzixqq.sub2mobile",
+                                 deviceName: "旧 iPhone", timezone: "Asia/Shanghai", subscription: .default, createdAt: created, updatedAt: created))
+    }
 
     private func seed(_ device: PushDevice, registeredAs registration: PushDeviceRegistration) {
         stored.removeAll { $0.id == device.id }
@@ -282,7 +290,8 @@ extension DemoData {
     @MainActor static func pushSettingsSource(serverID: UUID, records: PushDeviceRecords) async -> any PushSettingsSource {
         if let seeding = pushSeeds[serverID] { await seeding.value; return pushStore }
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains(PushFixture.pendingDeletionArgument) {
+        let seedsPending = arguments.contains(PushFixture.pendingDeletionArgument)
+        if seedsPending {
             records.apply(TeardownReport(failedPushDeviceIDs: [PushFixture.pendingDeletionID]), serverID: serverID)
         }
         let unregistered = arguments.contains(PushFixture.localUnregisteredArgument)
@@ -292,6 +301,7 @@ extension DemoData {
             records.setLocalPushOn(true, serverID: serverID)
         }
         let seeding = Task {
+            if seedsPending { await pushStore.seedPendingDevice() }
             guard seedsLocal else { return }
             await pushStore.seedLocalDevice(id: PushFixture.localID, serverID: serverID, tokenHex: FixtureRemoteRegistrar.fixedTokenHex,
                                             disabledReason: unregistered ? .unregistered : nil)

@@ -64,13 +64,20 @@ struct GroupRecordsMoreFooter: View {
 }
 
 /// 00 §4.6: a failed refresh keeps the rows under “刷新失败 · 重试” and “更新于 HH:MM”. During a 429 wait it counts down instead
-/// and reads again by itself once the wait is over (00 §2.7.2).
+/// and reads again by itself once the wait is over (00 §2.7.2). S5-高-3's strips over a kept amount or count use it with their own
+/// title and the 更新失败 clock, and stay while that block is read again (a spinner, no tap).
 struct GroupRecordsRefreshRow: View {
+    var title = GroupRecordsCopy.refreshFailed
+    var systemImage = "exclamationmark.triangle"
     let updatedAt: Date?
     let timeZone: ServerTimeZone
     let refresh: BlockRefresh
+    var isRefreshing = false
     let id: String
     let retry: @MainActor () -> Void
+
+    /// The 更新失败 strips' icon, as on the group list and detail (S5-高-3).
+    static let staleImage = "clock.badge.exclamationmark"
 
     var body: some View {
         Group {
@@ -88,12 +95,15 @@ struct GroupRecordsRefreshRow: View {
         let throttle = refresh.throttleMessage(at: now)
         let detail = throttle ?? GroupRecordsCopy.updatedText(updatedAt, timeZone: timeZone)
         return Button(action: retry) {
-            StatusBanner(tone: .caution, systemImage: "exclamationmark.triangle", title: GroupRecordsCopy.refreshFailed, detail: detail)
-                .frame(minHeight: 44).contentShape(Rectangle())
+            StatusBanner(tone: .caution, systemImage: systemImage, title: title, detail: detail) {
+                if isRefreshing { ProgressView().controlSize(.small) }
+            }
+            .frame(minHeight: 44).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(throttle != nil)
-        .accessibilityLabel([GroupRecordsCopy.refreshFailed, detail].compactMap { $0 }.joined(separator: "，"))
+        .disabled(throttle != nil || isRefreshing)
+        .accessibilityLabel([title, detail].compactMap { $0 }.joined(separator: "，"))
+        .accessibilityValue(isRefreshing ? BlockStatusPresentation.refreshingLabel : "")
         .accessibilityIdentifier(id)
     }
 

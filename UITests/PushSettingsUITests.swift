@@ -706,4 +706,31 @@ final class PushSettingsUITests: XCTestCase {
         XCTAssertTrue(note.waitForNonExistence(timeout: 5), app.debugDescription)
         diagnostics("push-add-ntfy-self-hosted")
     }
+
+    /// U-23 review: the pending banner sends the user to 其他接收方式; deleting the device there takes the banner away.
+    @MainActor func testDeletingThePendingDeviceTakesTheBannerAway() {
+        launchAndLogin(arguments: ["-ui-push-pending-deletion", "-ui-faceid-on"])
+        defer { diagnostics("push-pending-delete-final") }
+        openPushSettings()
+        let pending = element("push.pendingDeletion")
+        XCTAssertTrue(pending.waitForExistence(timeout: 10), app.debugDescription)
+        let row = element("push.targets.row.99")
+        reveal(row)
+        XCTAssertTrue(row.label.contains("旧 iPhone") && row.label.contains("iOS · …0f3c"), row.label)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["旧 iPhone"].waitForExistence(timeout: 10), app.debugDescription)
+        let delete = app.buttons["push.target.delete"]
+        reveal(delete)
+        delete.tap()
+        let confirm = app.buttons["delete.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+        confirm.tap()
+        XCTAssertTrue(waitForReceipt("已删除接收方式「旧 iPhone」"), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["推送通知"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(element("push.targets.row.99").waitForNonExistence(timeout: 10), app.debugDescription)
+        // Back at the top of the page, where the banner was.
+        element("push.list").swipeDown()
+        XCTAssertTrue(localSwitch().isHittable, app.debugDescription)
+        XCTAssertTrue(pending.waitForNonExistence(timeout: 5), app.debugDescription)
+    }
 }
