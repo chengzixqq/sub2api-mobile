@@ -12,6 +12,10 @@ extension GroupFixtures {
         static let keysMoreFailure = "-ui-group-keys-more-failure"
         /// Reads past page 1 take 5 seconds, so the “已显示” footer can be read.
         static let slowMore = "-ui-group-records-slow-more"
+        /// S5-高-3: on one key page the second today read answers 502; the first and later ones work.
+        static let keysTodayFailureAfterFirst = "-ui-group-keys-today-failure-after-first"
+        /// S5-高-3: on one subscription page the second active-count read answers 502; the first and later ones work.
+        static let subsCountFailureAfterFirst = "-ui-group-subs-count-failure-after-first"
     }
     static let slowMoreDelay: Duration = .seconds(5)
 
@@ -65,6 +69,7 @@ extension GroupFixtures {
     static func recordsSource(_ app: AppModel, session: SessionContext, group: @escaping @MainActor @Sendable (_ id: Int) async throws -> AdminGroup,
                               arguments: [String] = ProcessInfo.processInfo.arguments) -> GroupRecordsSource {
         let generation = session.generation
+        let reads = RecordReads(arguments: arguments)
         return GroupRecordsSource(
             group: group,
             keys: { groupID, page in
@@ -75,10 +80,14 @@ extension GroupFixtures {
             },
             keysToday: { [weak app] ids in
                 if app?.siteSession?.isReadOnlyToken != false { throw APIError.server(status: 403, reason: "ACCESS_TOKEN_READ_ONLY") }
+                if reads.failsSecond(RecordsArgument.keysTodayFailureAfterFirst) { throw recordsFailure }
                 return recordKeyCosts.filter { ids.contains($0.key) }
             },
             subscriptions: { groupID, page in recordsPage(recordSubscriptions(groupID: groupID, now: Date()), page: page) },
-            stats: { servedStats(groupID: $0, arguments: arguments) },
+            stats: { groupID in
+                if reads.failsSecond(RecordsArgument.subsCountFailureAfterFirst) { throw recordsFailure }
+                return servedStats(groupID: groupID, arguments: arguments)
+            },
             activeSubscriptionCount: { stats(groupID: $0).subscriptionsActive })
     }
 
@@ -116,6 +125,21 @@ extension GroupFixtures {
         default:
             return []
         }
+    }
+}
+
+/// One records page's reads under the `…-failure-after-first` arguments (each page makes its own source).
+@MainActor private final class RecordReads {
+    private let arguments: [String]
+    private var counts: [String: Int] = [:]
+
+    init(arguments: [String]) { self.arguments = arguments }
+
+    /// Counts a read under `argument` when it is on; the second answers 502.
+    func failsSecond(_ argument: String) -> Bool {
+        guard arguments.contains(argument) else { return false }
+        counts[argument, default: 0] += 1
+        return counts[argument] == 2
     }
 }
 

@@ -147,23 +147,42 @@ public enum GroupCapacityDisplay: Equatable, Sendable {
     }
 }
 
-/// S5-高-3: a block whose last refresh failed while its earlier value still shows says so; a first read that failed stays as it
-/// was (“—”, no banner) and a refresh in flight shows nothing.
+/// S5-高-3: a block whose last refresh failed while its earlier value still shows says so, as the group list does
+/// (GroupStoreRules.isStale(_:refresh:)): also while it is read again and after a read the page cancelled, until a read works. A
+/// first read that failed stays as it was (“—”, no banner), and a refresh of a block that never failed shows nothing.
 public enum GroupDetailSectionsPresentation {
     /// The caution strip under a banner kept through a failed refresh (U-11's own wording).
     public static let alertStaleTitle = "告警更新失败 · 重试"
 
     /// 贰 has one accessory for its three blocks: the first of usage-summary, dashboard/groups and capacity that is stale.
-    public static func staleBlock<Usage, Today, Capacity>(usage: BlockState<Usage>, today: BlockState<Today>,
-                                                          capacity: BlockState<Capacity>) -> GroupDetailBlock? {
-        if GroupStoreRules.isStale(usage) { return .usage }
-        if GroupStoreRules.isStale(today) { return .todayUsage }
-        if GroupStoreRules.isStale(capacity) { return .capacity }
+    public static func staleBlock<Usage, Today, Capacity>(usage: (BlockState<Usage>, BlockRefresh), today: (BlockState<Today>, BlockRefresh),
+                                                          capacity: (BlockState<Capacity>, BlockRefresh)) -> GroupDetailBlock? {
+        if GroupStoreRules.isStale(usage.0, refresh: usage.1) { return .usage }
+        if GroupStoreRules.isStale(today.0, refresh: today.1) { return .todayUsage }
+        if GroupStoreRules.isStale(capacity.0, refresh: capacity.1) { return .capacity }
         return nil
     }
+    /// What BlockStatusAccessory draws for the stale block: a read the page cancelled went back to the kept value
+    /// (BlockState.withCancelledLoad), which still says 更新失败.
+    public static func accessoryState<Value>(_ state: BlockState<Value>, refresh: BlockRefresh) -> BlockState<Value> {
+        guard case .loaded(let value, let at) = state, refresh.consecutiveFailures > 0 else { return state }
+        return .failed(reason: BlockStatusPresentation.loadFailed, previous: value, at: at)
+    }
+    /// 00 §2.7.2 / S1D1-20: a block the 60-second refresh reads is left to it after a 429 wait; the others read again by themselves.
+    public static func resendsAfterWait(_ block: GroupDetailBlock) -> Bool { !GroupDetailRefreshPlan.blocks(for: .poll).contains(block) }
     /// The banner shows an event from an earlier read, since the last one failed.
-    public static func alertIsStale(_ state: BlockState<AlertEvent?>) -> Bool {
-        GroupStoreRules.isStale(state) && state.value.flatMap { $0 } != nil
+    public static func alertIsStale(_ state: BlockState<AlertEvent?>, refresh: BlockRefresh) -> Bool {
+        GroupStoreRules.isStale(state, refresh: refresh) && state.value.flatMap { $0 } != nil
+    }
+    /// The strip as the group list's (GroupStoreRules.staleStatus): the banner read again now, then its 429 wait (the 60-second
+    /// refresh reads after it), then 更新失败. Only `.updateFailed` takes a tap.
+    public static func alertStripStatus(_ state: BlockState<AlertEvent?>, refresh: BlockRefresh, at now: Date) -> BlockStatusPresentation.Accessory {
+        GroupStoreRules.staleStatus(refreshing: state.isLoading, waits: [refresh], at: now)
+    }
+    /// “请求过于频繁，N 秒后自动重试” during the wait, otherwise `alertStaleTitle`.
+    public static func alertStripTitle(_ status: BlockStatusPresentation.Accessory) -> String {
+        if case .throttled(let message) = status { return message }
+        return alertStaleTitle
     }
 }
 

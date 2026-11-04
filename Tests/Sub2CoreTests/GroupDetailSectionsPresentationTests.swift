@@ -256,43 +256,106 @@ private let stamp = Date(timeIntervalSince1970: 1_800_000_000)
 
 // MARK: U-11 刷新失败保留上次值（S5-高-3）
 
+private let failedRead = BlockRefresh().recordingFailure(APIError.server(status: 502, reason: nil), at: stamp)
+private let throttledRead = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: 60), at: stamp)
+
 /// 贰 has one accessory for its three blocks: usage-summary, then dashboard/groups, then capacity. Only a value kept through a
-/// failed refresh counts; a first read that failed stays “—” and a refresh in flight shows nothing.
+/// failed refresh counts; a first read that failed stays “—” and a refresh of a block that never failed shows nothing.
 @Test func staleBlockPicksFirstStale() {
     let summary: GroupUsageSummary? = GroupUsageSummary(groupID: 1, todayCost: 1, yesterdayCost: 2, totalCost: 3)
     let usageToday = GroupTodayUsage(requests: 1, totalTokens: 2, accountCost: 3)
     let lines: GroupCapacitySummary? = capacity((5, 8), (0, 0), (0, 0))
-    func stale(usage: BlockState<GroupUsageSummary?> = .idle, today: BlockState<GroupTodayUsage> = .idle,
-               capacity: BlockState<GroupCapacitySummary?> = .idle) -> GroupDetailBlock? {
+    let fresh = BlockRefresh()
+    func stale(usage: (BlockState<GroupUsageSummary?>, BlockRefresh) = (.idle, BlockRefresh()),
+               today: (BlockState<GroupTodayUsage>, BlockRefresh) = (.idle, BlockRefresh()),
+               capacity: (BlockState<GroupCapacitySummary?>, BlockRefresh) = (.idle, BlockRefresh())) -> GroupDetailBlock? {
         GroupDetailSectionsPresentation.staleBlock(usage: usage, today: today, capacity: capacity)
     }
     #expect(stale() == nil)
-    #expect(stale(usage: .failed(reason: "x", previous: summary, at: stamp)) == .usage)
-    #expect(stale(usage: .failed(reason: "x", previous: .some(nil), at: stamp)) == .usage)
-    #expect(stale(usage: .failed(reason: "x", previous: nil, at: nil)) == nil)
-    #expect(stale(usage: .loaded(summary, at: stamp)) == nil)
-    #expect(stale(usage: .loading(previous: summary, at: stamp)) == nil)
-    #expect(stale(today: .failed(reason: "x", previous: usageToday, at: stamp)) == .todayUsage)
-    #expect(stale(today: .failed(reason: "x", previous: nil, at: nil)) == nil)
-    #expect(stale(today: .loaded(usageToday, at: stamp)) == nil)
-    #expect(stale(capacity: .failed(reason: "x", previous: lines, at: stamp)) == .capacity)
-    #expect(stale(capacity: .failed(reason: "x", previous: nil, at: nil)) == nil)
-    #expect(stale(capacity: .loaded(lines, at: stamp)) == nil)
-    #expect(stale(usage: .failed(reason: "x", previous: summary, at: stamp), capacity: .failed(reason: "x", previous: lines, at: stamp)) == .usage)
-    #expect(stale(today: .failed(reason: "x", previous: usageToday, at: stamp), capacity: .failed(reason: "x", previous: lines, at: stamp)) == .todayUsage)
-    #expect(stale(usage: .failed(reason: "x", previous: nil, at: nil), today: .loaded(usageToday, at: stamp),
-                  capacity: .failed(reason: "x", previous: lines, at: stamp)) == .capacity)
+    #expect(stale(usage: (.failed(reason: "x", previous: summary, at: stamp), failedRead)) == .usage)
+    #expect(stale(usage: (.failed(reason: "x", previous: .some(nil), at: stamp), failedRead)) == .usage)
+    #expect(stale(usage: (.failed(reason: "x", previous: nil, at: nil), failedRead)) == nil)
+    #expect(stale(usage: (.loaded(summary, at: stamp), fresh)) == nil)
+    #expect(stale(usage: (.loading(previous: summary, at: stamp), fresh)) == nil)
+    #expect(stale(today: (.failed(reason: "x", previous: usageToday, at: stamp), failedRead)) == .todayUsage)
+    #expect(stale(today: (.failed(reason: "x", previous: nil, at: nil), failedRead)) == nil)
+    #expect(stale(today: (.loaded(usageToday, at: stamp), fresh)) == nil)
+    #expect(stale(capacity: (.failed(reason: "x", previous: lines, at: stamp), failedRead)) == .capacity)
+    #expect(stale(capacity: (.failed(reason: "x", previous: nil, at: nil), failedRead)) == nil)
+    #expect(stale(capacity: (.loaded(lines, at: stamp), fresh)) == nil)
+    #expect(stale(usage: (.failed(reason: "x", previous: summary, at: stamp), failedRead),
+                  capacity: (.failed(reason: "x", previous: lines, at: stamp), failedRead)) == .usage)
+    #expect(stale(today: (.failed(reason: "x", previous: usageToday, at: stamp), failedRead),
+                  capacity: (.failed(reason: "x", previous: lines, at: stamp), failedRead)) == .todayUsage)
+    #expect(stale(usage: (.failed(reason: "x", previous: nil, at: nil), failedRead), today: (.loaded(usageToday, at: stamp), fresh),
+                  capacity: (.failed(reason: "x", previous: lines, at: stamp), failedRead)) == .capacity)
 }
 
-/// The strip under the banner: only for an event kept through a failed refresh, not for “no event” kept nor a refresh in flight.
+/// U-11 review: 贰's accessory stays while its stale block is read again (正在刷新) and after a read the page cancelled (the
+/// state went back to the kept value); only a read that works clears it. During a 429 wait it counts down.
+@Test func staleUsageStaysThroughARetryUntilAReadWorks() {
+    let usageToday = GroupTodayUsage(requests: 1, totalTokens: 2, accountCost: 3)
+    let kept = BlockState<GroupTodayUsage>.loaded(usageToday, at: stamp).withLoading().withFailure("x")
+    func stale(_ today: BlockState<GroupTodayUsage>, _ refresh: BlockRefresh) -> GroupDetailBlock? {
+        GroupDetailSectionsPresentation.staleBlock(usage: (BlockState<GroupUsageSummary?>.idle, BlockRefresh()), today: (today, refresh),
+                                                   capacity: (BlockState<GroupCapacitySummary?>.idle, BlockRefresh()))
+    }
+    #expect(stale(kept, failedRead) == .todayUsage)
+    #expect(stale(kept.withLoading(), failedRead) == .todayUsage)
+    #expect(stale(kept.withLoading().withCancelledLoad(), failedRead) == .todayUsage)
+    #expect(stale(.loaded(usageToday, at: stamp), failedRead.recordingSuccess()) == nil)
+    func accessory(_ state: BlockState<GroupTodayUsage>, _ refresh: BlockRefresh) -> BlockStatusPresentation.Accessory {
+        BlockStatusPresentation.accessory(for: GroupDetailSectionsPresentation.accessoryState(state, refresh: refresh), refresh: refresh, at: stamp)
+    }
+    #expect(accessory(kept, failedRead) == .updateFailed)
+    #expect(accessory(kept.withLoading(), failedRead) == .refreshing)
+    #expect(accessory(kept.withLoading().withCancelledLoad(), failedRead) == .updateFailed)
+    #expect(accessory(kept, throttledRead) == .throttled("请求过于频繁，60 秒后自动重试"))
+    #expect(accessory(.loaded(usageToday, at: stamp), BlockRefresh()) == .none)
+}
+
+/// 00 §2.7.2 / S1D1-20: after a 429 a block the 60-second refresh reads waits for it; usage-summary and dashboard/groups, which it
+/// leaves out, read again by themselves.
+@Test func onlyBlocksLeftOutOfPollingResendAfterAWait() {
+    #expect(GroupDetailSectionsPresentation.resendsAfterWait(.usage))
+    #expect(GroupDetailSectionsPresentation.resendsAfterWait(.todayUsage))
+    #expect(!GroupDetailSectionsPresentation.resendsAfterWait(.capacity))
+    #expect(!GroupDetailSectionsPresentation.resendsAfterWait(.alert))
+}
+
+/// The strip under the banner: only for an event kept through a failed refresh, not for “no event” kept nor a refresh of a banner
+/// that never failed.
 @Test func alertStripOnlyForAKeptEvent() {
     let shown = event()
-    func isStale(_ state: BlockState<AlertEvent?>) -> Bool { GroupDetailSectionsPresentation.alertIsStale(state) }
+    func isStale(_ state: BlockState<AlertEvent?>, _ refresh: BlockRefresh = failedRead) -> Bool {
+        GroupDetailSectionsPresentation.alertIsStale(state, refresh: refresh)
+    }
     #expect(isStale(.failed(reason: "x", previous: shown, at: stamp)))
     #expect(!isStale(.failed(reason: "x", previous: .some(nil), at: stamp)))
     #expect(!isStale(.failed(reason: "x", previous: nil, at: nil)))
-    #expect(!isStale(.loaded(shown, at: stamp)))
-    #expect(!isStale(.loading(previous: shown, at: stamp)))
+    #expect(!isStale(.loaded(shown, at: stamp), BlockRefresh()))
+    #expect(!isStale(.loading(previous: shown, at: stamp), BlockRefresh()))
     #expect(!isStale(.idle))
     #expect(GroupDetailSectionsPresentation.alertStaleTitle == "告警更新失败 · 重试")
+}
+
+/// U-11 review: the strip stays while the banner is read again (a spinner, no tap) and after a read the page cancelled; a 429
+/// wait counts down without a tap (00 §2.7.2) and the 60-second refresh reads after it.
+@Test func alertStripStaysThroughARetryAndCountsDownA429() {
+    let shown = event()
+    let kept = BlockState<AlertEvent?>.failed(reason: "x", previous: shown, at: stamp)
+    #expect(GroupDetailSectionsPresentation.alertIsStale(kept.withLoading(), refresh: failedRead))
+    #expect(GroupDetailSectionsPresentation.alertIsStale(kept.withLoading().withCancelledLoad(), refresh: failedRead))
+    #expect(!GroupDetailSectionsPresentation.alertIsStale(.loaded(shown, at: stamp), refresh: failedRead.recordingSuccess()))
+    func status(_ state: BlockState<AlertEvent?>, _ refresh: BlockRefresh, at time: Date = stamp) -> BlockStatusPresentation.Accessory {
+        GroupDetailSectionsPresentation.alertStripStatus(state, refresh: refresh, at: time)
+    }
+    #expect(status(kept, failedRead) == .updateFailed)
+    #expect(status(kept.withLoading(), failedRead) == .refreshing)
+    #expect(status(kept.withLoading().withCancelledLoad(), failedRead) == .updateFailed)
+    #expect(status(kept, throttledRead) == .throttled("请求过于频繁，60 秒后自动重试"))
+    #expect(status(kept, throttledRead, at: stamp.addingTimeInterval(60)) == .updateFailed)
+    #expect(GroupDetailSectionsPresentation.alertStripTitle(.throttled("请求过于频繁，60 秒后自动重试")) == "请求过于频繁，60 秒后自动重试")
+    #expect(GroupDetailSectionsPresentation.alertStripTitle(.refreshing) == "告警更新失败 · 重试")
+    #expect(GroupDetailSectionsPresentation.alertStripTitle(.updateFailed) == "告警更新失败 · 重试")
 }

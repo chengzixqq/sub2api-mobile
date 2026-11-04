@@ -10,6 +10,8 @@ final class GroupRecordsUITests: XCTestCase {
         static let keysFailure = "-ui-group-keys-failure"
         static let keysMoreFailure = "-ui-group-keys-more-failure"
         static let slowMore = "-ui-group-records-slow-more"
+        static let keysTodayFailureAfterFirst = "-ui-group-keys-today-failure-after-first"
+        static let subsCountFailureAfterFirst = "-ui-group-subs-count-failure-after-first"
     }
 
     /// 高级组: the status badges, masks, owners, today's spend and the quota bar; the head and the footnote; a row opens its owner
@@ -148,6 +150,48 @@ final class GroupRecordsUITests: XCTestCase {
         app.scrollUntilExists(soon, towardBottom: false)
         soon.tap()
         XCTAssertTrue(element("user.detail").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    /// S5-高-3: a pull whose today read fails keeps every amount, marked 更新失败, under a strip whose tap reads today again.
+    @MainActor func testStaleTodayKeepsAmountsAndRetries() {
+        openKeys(group: 4, arguments: [Fixture.keysTodayFailureAfterFirst])
+        defer { diagnostics("group-keys-today-stale-final") }
+        let gateway = key(5406)
+        waitForLabel(gateway, contains: "今日 $4.50")
+        let strip = app.buttons["group.keys.today.retry"]
+        XCTAssertFalse(strip.exists, app.debugDescription)
+        app.pullToRefresh(from: gateway)
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(strip.label.contains("今日金额更新失败 · 重试"), strip.label)
+        waitForLabel(gateway, contains: "今日 $4.50，更新失败")
+        XCTAssertFalse(element("group.keys.refresh.retry").exists, app.debugDescription)
+        strip.tap()
+        XCTAssertTrue(strip.waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(gateway.poll(NSPredicate(format: "NOT (label CONTAINS %@)", "更新失败"), timeout: 10), gateway.label)
+        waitForLabel(gateway, contains: "今日 $4.50")
+    }
+
+    /// S5-高-3: a pull whose stats read fails keeps 生效中 12 个 in the subtitle; a strip above the limits says so and its tap reads
+    /// the count again.
+    @MainActor func testStaleActiveCountKeepsSubtitleAndRetries() {
+        launchAndOpenGroups(arguments: [Fixture.subsCountFailureAfterFirst])
+        openListedGroupRecords(4, record: "subscriptions")
+        defer { diagnostics("group-subscriptions-count-stale-final") }
+        let subtitle = app.staticTexts["企业专线 · 生效中 12 个"]
+        XCTAssertTrue(subtitle.waitForExistence(timeout: 10), app.debugDescription)
+        let soon = subscription(815)
+        XCTAssertTrue(soon.waitForExistence(timeout: 10), app.debugDescription)
+        let strip = app.buttons["group.subs.count.retry"]
+        XCTAssertFalse(strip.exists, app.debugDescription)
+        app.pullToRefresh(from: soon)
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(strip.label.contains("生效中计数更新失败 · 重试") && strip.label.contains("更新于"), strip.label)
+        XCTAssertTrue(subtitle.exists, app.debugDescription)
+        XCTAssertLessThanOrEqual(strip.frame.maxY, element("group.subs.limits").frame.minY, app.debugDescription)
+        XCTAssertFalse(element("group.subs.refresh.retry").exists, app.debugDescription)
+        strip.tap()
+        XCTAssertTrue(strip.waitForNonExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(subtitle.exists, app.debugDescription)
     }
 
     // MARK: - Helpers

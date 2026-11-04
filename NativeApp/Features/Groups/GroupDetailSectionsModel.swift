@@ -84,10 +84,11 @@ final class GroupDetailSectionsModel {
     var opsKnownDisabled: Bool { app?.liveOps?.opsDisabled ?? false }
     /// 贰's one 更新失败 (S5-高-3): the first of its blocks whose refresh failed while the last value still shows.
     var staleUsageBlock: GroupDetailBlock? {
-        GroupDetailSectionsPresentation.staleBlock(usage: usage.state, today: todayUsage.state, capacity: capacity.state)
+        GroupDetailSectionsPresentation.staleBlock(usage: (usage.state, usage.refresh), today: (todayUsage.state, todayUsage.refresh),
+                                                   capacity: (capacity.state, capacity.refresh))
     }
     /// The banner's event is an earlier read's: the strip under it says so (S5-高-3).
-    var alertIsStale: Bool { GroupDetailSectionsPresentation.alertIsStale(alert.state) }
+    var alertIsStale: Bool { GroupDetailSectionsPresentation.alertIsStale(alert.state, refresh: alert.refresh) }
 
     /// The blocks GroupDetailSectionReads picks for `trigger`, side by side.
     func refresh(_ trigger: GroupDetailTrigger, showsUsageAndCapacity: Bool) async {
@@ -174,8 +175,10 @@ final class GroupDetailSectionsModel {
         if case .idle = state { return true }
         return false
     }
-    /// 60 → 120 → 240 → 300 seconds after consecutive failures, as GroupDetailModel's blocks.
+    /// 60 → 120 → 240 → 300 seconds after consecutive failures, as GroupDetailModel's blocks. A read the page cancelled (a sheet,
+    /// the background) counts for nothing: the next 60-second refresh still reads a block that was due.
     private func noteBackoff(_ block: GroupDetailBlock, _ refresh: BlockRefresh) {
+        guard !Task.isCancelled else { return }
         guard refresh.consecutiveFailures > 0 else { blockDue[block] = nil; return }
         blockDue[block] = Date().addingTimeInterval(refresh.nextDelay(base: GroupDetailRefreshPlan.interval, at: Date()) - Self.backoffTolerance)
     }

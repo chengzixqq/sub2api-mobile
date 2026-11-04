@@ -53,6 +53,11 @@ private func ids(_ range: ClosedRange<Int>) -> [Int] { Array(range.reversed()) }
     init(_ value: Bool) { self.value = value }
 }
 
+@MainActor private final class Moment {
+    var date = Date(timeIntervalSince1970: 1_800_000_000)
+}
+private let throttled = APIError.server(status: 429, envelope: nil, retryAfter: 30)
+
 @MainActor private func keysModel(_ stub: RecordsStub, snapshot: AdminGroup? = premium, readOnly: Flag = Flag(false),
                                   current: Flag = Flag(true)) -> GroupKeysModel {
     GroupKeysModel(groupID: 1, snapshot: snapshot, source: stub.source, isReadOnlyToken: { readOnly.value }, isCurrent: { current.value })
@@ -105,13 +110,14 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     await model.start()
     await model.settleTodayReads()
     #expect(model.today(for: 38) == .missing && model.today(for: 19) == .missing)
-    #expect(model.page == .content && model.pager.lastError == nil)
+    #expect(model.page == .content && model.pager.lastError == nil && !model.hasStaleToday)
     await model.start()
     await model.settleTodayReads()
     #expect(stub.todayIDs.count == 1)
 }
 
-/// S5D2a-15: a pull whose today read fails keeps the amounts read before; only a key never read says 今日 —.
+/// S5D2a-15 / S5-高-3: a pull whose today read fails keeps the amounts read before, marked 更新失败; only a key never read says
+/// 今日 —.
 @MainActor @Test func todayRefreshFailureKeepsEarlierAmounts() async {
     let stub = RecordsStub()
     stub.keys = { call, page in keyPage(page, total: call == 1 ? 38 : 39) }
@@ -125,8 +131,71 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     await model.reload()
     await model.settleTodayReads()
     #expect(stub.todayIDs.count == 2 && stub.todayIDs[1] == ids(20...39))
-    #expect(model.today(for: 38) == .amount(Decimal(string: "12.4")!) && model.today(for: 20) == .amount(0))
-    #expect(model.today(for: 39) == .missing)
+    #expect(model.today(for: 38) == .stale(Decimal(string: "12.4")!) && model.today(for: 20) == .stale(0))
+    #expect(model.today(for: 39) == .missing && model.hasStaleToday)
+}
+
+/// S5-高-3: 重试 reads today again for the rows without a fresh amount; a stale row stays marked (the strip spins) until the read
+/// answers, and a tap meanwhile sends nothing more.
+@MainActor @Test func todayKeepsLastAmountAsStale() async {
+    let gate = SessionGate()
+    let stub = RecordsStub()
+    stub.today = { call, ids in
+        if call == 2 { throw serverError }
+        if call == 3 { await gate.wait() }
+        return [ids[0]: Decimal(call)]
+    }
+    let model = keysModel(stub)
+    await model.start()
+    await model.settleTodayReads()
+    #expect(model.today(for: 38) == .amount(1) && !model.hasStaleToday)
+    await model.reload()
+    await model.settleTodayReads()
+    #expect(model.today(for: 38) == .stale(1) && model.today(for: 19) == .stale(0) && model.hasStaleToday && !model.isRetryingToday)
+    #expect(model.todayRefresh.consecutiveFailures == 1)
+    model.retryToday()
+    #expect(await eventually { await gate.arrived })
+    #expect(model.isRetryingToday && model.today(for: 38) == .stale(1) && model.hasStaleToday)
+    model.retryToday()
+    await gate.open()
+    await model.settleTodayReads()
+    #expect(stub.todayIDs.count == 3 && stub.todayIDs[2] == ids(19...38))
+    #expect(model.today(for: 38) == .amount(3) && model.today(for: 19) == .amount(0) && !model.hasStaleToday && !model.isRetryingToday)
+    #expect(model.todayRefresh == BlockRefresh())
+}
+
+/// 00 §2.7.2: after a 429 the strip's 重试 sends nothing until the wait is over.
+@MainActor @Test func todayRetryWaitsOutA429() async {
+    let clock = Moment()
+    let stub = RecordsStub()
+    stub.today = { call, ids in
+        if call == 2 { throw throttled }
+        return [ids[0]: 1]
+    }
+    let model = GroupKeysModel(groupID: 1, snapshot: premium, source: stub.source, isReadOnlyToken: { false }, isCurrent: { true },
+                               now: { clock.date })
+    await model.start()
+    await model.settleTodayReads()
+    await model.reload()
+    await model.settleTodayReads()
+    #expect(model.hasStaleToday && model.todayRefresh.notBefore == clock.date.addingTimeInterval(30))
+    model.retryToday()
+    await model.settleTodayReads()
+    #expect(stub.todayIDs.count == 2 && model.hasStaleToday)
+    clock.date = clock.date.addingTimeInterval(30)
+    model.retryToday()
+    await model.settleTodayReads()
+    #expect(stub.todayIDs.count == 3 && !model.hasStaleToday && model.today(for: 38) == .amount(1))
+}
+
+/// Read-only: today is never read, so nothing is ever stale and 重试 sends nothing (R14).
+@MainActor @Test func readOnlyTokenNeverHasStaleToday() async {
+    let stub = RecordsStub()
+    let model = keysModel(stub, readOnly: Flag(true))
+    await model.start()
+    model.retryToday()
+    await model.settleTodayReads()
+    #expect(stub.todayIDs.isEmpty && !model.hasStaleToday)
 }
 
 @MainActor @Test func loadMoreAppendsNextPageAndReadsTodayOnlyForNewRows() async {
@@ -284,8 +353,56 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     let statsFailed = subscriptionsModel(broken)
     await statsFailed.start()
     #expect(statsFailed.activeCount == nil && broken.countReads == 0 && statsFailed.page == .content && broken.subscriptionPages == [1])
+    #expect(!statsFailed.activeCountStale)
     await statsFailed.start()
     #expect(broken.statsReads == 1)
+}
+
+/// S5-高-3: a failed refresh keeps the active count, marked stale (also while it is read again), until a read works; the strip's
+/// 重试 reads the count alone.
+@MainActor @Test func activeCountStale() async {
+    let gate = SessionGate()
+    let stub = RecordsStub()
+    stub.group = { _ in enterprise }
+    stub.stats = { call in
+        if call == 2 { throw serverError }
+        if call == 3 { await gate.wait() }
+        return GroupStats(totalAPIKeys: 6, activeAPIKeys: 6, subscriptionsTotal: 15, subscriptionsActive: call == 1 ? 5 : 6)
+    }
+    let model = subscriptionsModel(stub)
+    await model.start()
+    #expect(model.activeCount == 5 && !model.activeCountStale)
+    await model.reload()
+    #expect(model.activeCount == 5 && model.activeCountStale && model.subtitle == "企业专线 · 生效中 5 个" && !model.isReadingCount)
+    let retry = Task { await model.retryActiveCount() }
+    #expect(await eventually { await gate.arrived })
+    #expect(model.isReadingCount && model.activeCountStale)
+    await gate.open()
+    await retry.value
+    #expect(stub.statsReads == 3 && model.activeCount == 6 && !model.activeCountStale && !model.isReadingCount)
+    #expect(stub.subscriptionPages == [1, 1] && stub.groupReads == 1)
+}
+
+/// 00 §2.7.2: during a 429 wait neither a pull nor 重试 reads the count; “更新于” stays at the last success.
+@MainActor @Test func activeCountWaitsOutA429() async {
+    let clock = Moment()
+    let start = clock.date
+    let stub = RecordsStub()
+    stub.stats = { call in
+        if call == 2 { throw throttled }
+        return GroupStats(totalAPIKeys: 6, activeAPIKeys: 6, subscriptionsTotal: 15, subscriptionsActive: 12)
+    }
+    let model = GroupSubscriptionsModel(groupID: 4, snapshot: enterprise, source: stub.source, isCurrent: { true }, now: { clock.date })
+    await model.start()
+    clock.date = clock.date.addingTimeInterval(60)
+    await model.reload()
+    #expect(model.activeCountStale && model.countRefresh.notBefore == clock.date.addingTimeInterval(30) && model.countUpdatedAt == start)
+    await model.reload()
+    await model.retryActiveCount()
+    #expect(stub.statsReads == 2 && stub.subscriptionPages == [1, 1, 1] && model.activeCountStale)
+    clock.date = clock.date.addingTimeInterval(30)
+    await model.retryActiveCount()
+    #expect(stub.statsReads == 3 && !model.activeCountStale && model.countUpdatedAt == clock.date && model.countRefresh == BlockRefresh())
 }
 
 @MainActor @Test func subscriptionsNeedTheGroupForLimits() async {

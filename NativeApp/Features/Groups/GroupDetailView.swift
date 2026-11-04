@@ -88,7 +88,7 @@ private struct GroupDetailContent: View {
                 if let banner { Section { snapshotBanner(banner) }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 if let alert = alertBanner {
                     Section { GroupAlertBanner(content: alert) { openAlert(alert.eventID) } }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
-                    if detail.sections.alertIsStale { GroupAlertStaleStrip { Task { await detail.refresh(.alertReturn) } } }
+                    if detail.sections.alertIsStale { GroupAlertStaleStrip(alert: detail.sections.alert) { Task { await detail.refresh(.alertReturn) } } }
                 }
                 Section { top(group, buckets: buckets, health: health) }
                     .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
@@ -98,7 +98,7 @@ private struct GroupDetailContent: View {
                                     onLoadMore: { Task { await detail.loadMoreMembers() } }, memberActions: memberActions, permissions: permissions,
                                     hidden: detail.hiddenMemberIDs, onAddAccounts: { openPicker(group) })
                 GroupDetailSections(detail: detail, group: group, buckets: buckets, permissions: permissions, fallbackName: fallbackName(group),
-                                    onEdit: { openEditor(group) }, onOpenWeb: { detail.sections.openGroupsInWeb(using: openURL) })
+                                    autoRetry: isRefreshOpen, onEdit: { openEditor(group) }, onOpenWeb: { detail.sections.openGroupsInWeb(using: openURL) })
             } else {
                 Section { GroupStatusCardSkeleton() }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                 Section { ForEach(0..<3, id: \.self) { _ in AccountRowSkeleton().listRowInsets(EdgeInsets()) } }
