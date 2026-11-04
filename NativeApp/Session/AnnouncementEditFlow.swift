@@ -19,7 +19,8 @@ struct AnnouncementEditSource: Sendable {
 }
 
 /// A new announcement left at 稍后核对 (S6-高-13): the same key and bytes, the form as sent and where the check stood. AppModel
-/// keeps it for the session, in memory only; a sheet opened from it carries on with the same attempt.
+/// keeps it for the session, in memory only; a sheet opened from it carries on with the same attempt, by title once the key
+/// no longer replays (`resumeCheck`).
 struct PendingAnnouncementCreate: Equatable {
     let attempt: AnnouncementCreateAttempt
     let draft: AnnouncementDraft
@@ -189,15 +190,21 @@ final class AnnouncementEditFlow {
 
     // MARK: - Unknown results
 
-    /// Keyed create: the same key and bytes again, after what is left of the cooldown when one was given.
+    /// Keyed create: the same key and bytes again, after what is left of the cooldown when one was given. Past the replay
+    /// window (00 §2.5.5) the server would run the key again, so the title is looked up instead (H07).
     func retrySameKey() async {
         guard case .createUnconfirmed(let notBefore) = phase, exit == nil, isCurrent() else { return }
-        if let wait = cooldownLeft(until: notBefore) {
+        if canReplay, let wait = cooldownLeft(until: notBefore) {
             phase = .saving(nil)
             try? await pause(.seconds(wait))
             guard isCurrent() else { return }
         }
-        await sendCreate()
+        if canReplay { await sendCreate() } else { await checkRecent() }
+    }
+    /// On opening: a create restored from the session's record past its replay window goes straight to the H07 lookup.
+    func resumeCheck() async {
+        guard case .createUnconfirmed = phase, !canReplay, exit == nil, isCurrent() else { return }
+        await checkRecent()
     }
     /// The H07 lookup again, or the PUT read back again.
     func recheck() async {
@@ -265,6 +272,8 @@ final class AnnouncementEditFlow {
 
     // MARK: - Helpers
 
+    /// A create has no business-level dedupe (00 §2.5.5): its key goes out again only while the server still replays it.
+    private var canReplay: Bool { attempt?.isReplayable(at: now()) ?? false }
     /// Counted on the device clock that set it, and never longer than the cooldown, so a skewed or reset clock neither skips
     /// the wait nor holds the sheet.
     private func cooldownLeft(until notBefore: Date?) -> TimeInterval? {

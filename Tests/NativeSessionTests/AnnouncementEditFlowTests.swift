@@ -92,13 +92,14 @@ private func draft(_ change: (inout AnnouncementDraft) -> Void = { _ in }) -> An
 }
 
 @MainActor private func makeBench(_ stub: EditStub, original: Announcement? = nil, keyed: Bool = true,
+                                  now: @escaping @MainActor () -> Date = { start },
                                   deviceNow: @escaping @MainActor () -> Date = { start },
                                   pause: @escaping @Sendable (Duration) async throws -> Void = { _ in },
                                   slot: PendingSlot? = nil, restoring: PendingAnnouncementCreate? = nil) -> Bench {
     let receipts = ReceiptCenter(sleep: { _ in try await Task.sleep(for: .seconds(3_600)) })
     let changed = Counter(), current = Flag()
     let flow = AnnouncementEditFlow(original: original, source: stub.source, keyedCreate: keyed, receipts: receipts,
-                                    isCurrent: { current.value }, onChanged: { changed.hit() }, now: { start },
+                                    isCurrent: { current.value }, onChanged: { changed.hit() }, now: now,
                                     deviceNow: deviceNow, pause: pause, keepCreate: { slot?.keep($0) }, restoring: restoring)
     return Bench(flow: flow, receipts: receipts, changed: changed, current: current)
 }
@@ -404,4 +405,51 @@ private func draft(_ change: (inout AnnouncementDraft) -> Void = { _ in }) -> An
     let original = Announcement(id: 7, title: "维护通知", content: "正文", status: .active, notifyMode: .silent)
     let editing = makeBench(EditStub(), original: original, slot: untouched, restoring: kept)
     #expect(editing.flow.phase == .editing && !editing.flow.isUnconfirmed)
+}
+
+// MARK: - 同一编号的重放期限（U-21 审查修正，00 §2.5.5）
+
+/// A create has no business-level dedupe: from 24 hours after the confirmation the server may run the same key again, so
+/// 用同一编号重试 looks the title up instead (H07), without the cooldown, and a sheet restored from the session's record
+/// does so on opening; within the window the restored sheet keeps the same key.
+@MainActor @Test func sameKeyIsNotResentPastTheReplayWindow() async throws {
+    let clock = DeviceClock(start), pauses = PauseLog()
+    let unavailable = KeyedWriteFailure(disposition: .unconfirmed(.storeUnavailable, retryNotBefore: start.addingTimeInterval(10)),
+                                        key: "k", actionID: nil, lastError: nil)
+    let stub = EditStub(create: { call, _ in
+        if call == 1 { throw unavailable }
+        return WriteOutcome(value: saved(40))
+    }, recent: { _ in [saved(41)] })
+    let bench = makeBench(stub, now: { clock.now }, pause: { await pauses.add($0) })
+    await bench.flow.saveTrailing(draft())
+    #expect(bench.flow.phase == .createUnconfirmed(retryNotBefore: start.addingTimeInterval(10)))
+    clock.now = start.addingTimeInterval(IdempotencyPolicy.defaultExpiry)
+    await bench.flow.retrySameKey()
+    let creates = await stub.creates, recents = await stub.recents, waited = await pauses.seen
+    #expect(creates.count == 1 && recents == ["维护通知"] && waited.isEmpty)
+    let found = AnnouncementRecentMatch(id: 41, title: "维护通知", createdAt: start.addingTimeInterval(5), status: .draft)
+    #expect(bench.flow.phase == .maybeCreated(found) && bench.flow.exit == nil)
+
+    let slot = PendingSlot()
+    let first = makeBench(EditStub(create: { _, _ in throw lost }), slot: slot)
+    await first.flow.publish(draft())
+    first.flow.checkLater()
+    let kept = try #require(slot.value)
+    let later = EditStub()
+    let restored = makeBench(later, now: { start.addingTimeInterval(IdempotencyPolicy.defaultExpiry + 60) }, slot: slot, restoring: kept)
+    await restored.flow.resumeCheck()
+    await restored.flow.retrySameKey()
+    let resent = await later.creates, looked = await later.recents
+    #expect(restored.flow.phase == .notFoundYet && resent.isEmpty && looked == ["维护通知"])
+    restored.flow.checkLater()
+    #expect(slot.value == PendingAnnouncementCreate(attempt: kept.attempt, draft: kept.draft, phase: .notFoundYet))
+
+    let soon = EditStub()
+    let within = makeBench(soon, now: { start.addingTimeInterval(IdempotencyPolicy.defaultExpiry - 60) }, slot: PendingSlot(), restoring: kept)
+    await within.flow.resumeCheck()
+    let untouched = await soon.recents
+    #expect(within.flow.phase == kept.phase && untouched.isEmpty)
+    await within.flow.retrySameKey()
+    let sameKey = await soon.creates.map(\.key)
+    #expect(sameKey == [kept.attempt.key] && within.flow.exit == .saved)
 }

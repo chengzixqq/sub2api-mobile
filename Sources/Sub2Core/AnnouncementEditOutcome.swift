@@ -16,6 +16,12 @@ public struct AnnouncementCreateAttempt: Sendable, Equatable {
         if let previous, previous.body == body { return previous }
         return AnnouncementCreateAttempt(key: makeKey(), request: request, body: body, confirmedAt: now)
     }
+
+    /// 00 §2.5.5: an unknown result brings no X-Idempotency-Expires-At, so the key replays until 24 hours after the
+    /// confirmation (the server's record starts at the first send, a little later). A create has no business-level dedupe:
+    /// past this the server would run the same key again, so only the check is left (H07).
+    public var replayExpiresAt: Date { confirmedAt.addingTimeInterval(IdempotencyPolicy.defaultExpiry) }
+    public func isReplayable(at now: Date) -> Bool { now < replayExpiresAt }
 }
 
 /// How a save of the edit sheet failed (60 §17.4). Catalog or sheet wording only, never the server's message (00 §3.4).

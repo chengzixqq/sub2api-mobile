@@ -117,7 +117,7 @@ struct AnnouncementEditSheet: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .interactiveDismissDisabled(isBusy || isUnconfirmed || hasChanges)
             .onDismissAttempt { if !isBusy { cancel() } }
-            .task(id: session?.generation) { prepare() }
+            .task(id: session?.generation) { await prepare() }
             .task(id: session?.generation) { await model.groupDirectory?.ensureLoaded() }
             .onChange(of: flow?.exit) { _, exit in close(exit) }
     }
@@ -262,17 +262,20 @@ struct AnnouncementEditSheet: View {
         if case .open(let id) = exit { router.push(.announcementDetail(id: id)) }
         dismiss()
     }
-    /// One flow per session; results of an older one are dropped (C-0.2).
-    private func prepare() {
+    /// One flow per session; results of an older one are dropped (C-0.2). A restored create past its replay window is looked
+    /// up by title at once (00 §2.5.5).
+    private func prepare() async {
         guard let session, session.generation == model.sessionGeneration, flowGeneration != session.generation else { return }
         let generation = session.generation
-        flow = AnnouncementEditFlow(original: original, source: model.announcementEditSource(for: session),
-                                    keyedCreate: session.has(.announcementsIdempotentCreate), receipts: model.receipts,
-                                    isCurrent: { [weak model] in model?.sessionGeneration == generation },
-                                    onChanged: { [weak model] in model?.announcementChanges.bump() },
-                                    now: { session.client.serverClock.now() },
-                                    keepCreate: { [weak model] record in model?.pendingAnnouncementCreate = record }, restoring: restoring)
+        let flow = AnnouncementEditFlow(original: original, source: model.announcementEditSource(for: session),
+                                        keyedCreate: session.has(.announcementsIdempotentCreate), receipts: model.receipts,
+                                        isCurrent: { [weak model] in model?.sessionGeneration == generation },
+                                        onChanged: { [weak model] in model?.announcementChanges.bump() },
+                                        now: { session.client.serverClock.now() },
+                                        keepCreate: { [weak model] record in model?.pendingAnnouncementCreate = record }, restoring: restoring)
+        self.flow = flow
         flowGeneration = generation
+        await flow.resumeCheck()
     }
 }
 
