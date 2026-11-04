@@ -72,7 +72,11 @@ struct PushPendingTarget: Sendable, Equatable {
     let id: UUID
     let serverID: UUID
     let target: PushTarget
-    init(serverID: UUID, target: PushTarget) { id = UUID(); self.serverID = serverID; self.target = target }
+    /// The tap's time by PushCoordinator's clock; the target is dropped after `PushCoordinator.pendingTargetLifetime`.
+    let createdAt: Date
+    init(serverID: UUID, target: PushTarget, createdAt: Date) {
+        id = UUID(); self.serverID = serverID; self.target = target; self.createdAt = createdAt
+    }
 }
 
 enum PushSiteOpening: Sendable, Equatable { case connected, loginPage, failed }

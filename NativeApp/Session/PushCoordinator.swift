@@ -14,6 +14,9 @@ final class PushCoordinator {
     nonisolated static let tokenTimeoutMessage = "没有拿到推送令牌，请检查网络后再试"
     /// How long signing out or deleting the connected site waits for a registration already sent (siteWillEnd).
     nonisolated static let endWait: Duration = .seconds(10)
+    /// A tapped target not taken by then is dropped without a word (S6-中-24): a login put off for long would otherwise land
+    /// on an old alert.
+    nonisolated static let pendingTargetLifetime: TimeInterval = 600
     private(set) var authorization: PushAuthorization = .notDetermined
     /// The switch is being turned on or off.
     private(set) var isUpdating = false
@@ -193,18 +196,18 @@ final class PushCoordinator {
     func openTap(_ tap: PushTap, navigator: any PushSiteNavigating) async {
         switch PushDeepLink.decision(for: tap, activeServerID: navigator.activeServerID, profiles: navigator.profiles) {
         case .openOnly: pendingTarget = nil
-        case .current(let serverID, let target): pendingTarget = PushPendingTarget(serverID: serverID, target: target)
+        case .current(let serverID, let target): pendingTarget = PushPendingTarget(serverID: serverID, target: target, createdAt: now())
         case .otherSite(let profile, let target):
-            pendingTarget = PushPendingTarget(serverID: profile.id, target: target)
+            pendingTarget = PushPendingTarget(serverID: profile.id, target: target, createdAt: now())
             if navigator.activeServerID == nil { await openPendingSite(from: nil, navigator: navigator) }
         }
     }
 
     /// Another site's target waits for the sheet like this site's (S6D2b-07): switching rebuilds the tabs and cancels the
     /// connected site's requests, a write in the sheet included. Its site is opened once; one that cannot be opened, or is
-    /// gone, drops it.
+    /// gone, drops it, and so does its lifetime ending first.
     func openPendingSite(from router: AppRouter?, navigator: any PushSiteNavigating) async {
-        guard router?.presentedSheet == nil, let pending = pendingTarget, pending.id != openedTarget,
+        guard router?.presentedSheet == nil, let pending = livePendingTarget(), pending.id != openedTarget,
               pending.serverID != navigator.activeServerID else { return }
         openedTarget = pending.id
         guard let profile = navigator.profiles.first(where: { $0.id == pending.serverID }) else { pendingTarget = nil; return }
@@ -212,7 +215,7 @@ final class PushCoordinator {
     }
 
     func takeTarget(for serverID: UUID) -> PushTarget? {
-        guard let pending = pendingTarget, pending.serverID == serverID else { return nil }
+        guard let pending = livePendingTarget(), pending.serverID == serverID else { return nil }
         pendingTarget = nil
         return pending.target
     }
@@ -230,6 +233,12 @@ final class PushCoordinator {
 
     private func isCurrent(_ site: PushSite) -> Bool { self.site?.generation == site.generation }
     private func hasEnded(_ site: PushSite) -> Bool { endedGenerations.contains(site.generation) }
+    /// The pending target, or nil once its lifetime is over, which also drops it.
+    private func livePendingTarget() -> PushPendingTarget? {
+        guard let pending = pendingTarget else { return nil }
+        guard now().timeIntervalSince(pending.createdAt) <= Self.pendingTargetLifetime else { pendingTarget = nil; return nil }
+        return pending
+    }
     /// A device id without the switch is a registration from before the switch was stored.
     private func isOn(_ serverID: UUID) -> Bool { records.isLocalPushOn(serverID: serverID) || records.registeredDeviceID(serverID: serverID) != nil }
 
