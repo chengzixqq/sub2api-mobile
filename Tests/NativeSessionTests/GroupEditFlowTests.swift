@@ -679,3 +679,23 @@ private func premiumDraft(_ change: (GroupMemberDraft) -> GroupMemberDraft, fiel
     await harness.save(premiumDraft({ $0.removing(3) }, fields: { $0.name = "高级组 B" }))
     #expect(harness.source.writes.count == 1 && harness.receiptText == nil && harness.flow.isFinished && members.calls.isEmpty)
 }
+
+/// U-13: the members are sent only after the group's own write, so while its result is open (and after 稍后核对) they are still
+/// unsent; a save without member changes has none.
+@MainActor @Test func checkLaterKeepsMemberPlan() async throws {
+    let (harness, members) = memberHarness(premiumCounted)
+    harness.source.writeReplies = [.failure(lostReply)]
+    harness.source.readReplies = [.success(premiumCounted)]
+    #expect(!harness.flow.hasMemberChangesPending)
+    await harness.save(premiumDraft({ $0.removing(3) }, fields: { $0.name = "高级组 A" }))
+    #expect(try #require(harness.unconfirmed).check == .differs && members.calls.isEmpty)
+    #expect(harness.flow.hasMemberChangesPending)
+    harness.flow.checkLater()
+    #expect(!harness.flow.isUnconfirmed && harness.flow.hasMemberChangesPending && members.calls.isEmpty)
+
+    let (fieldsOnly, _) = memberHarness(premiumCounted)
+    fieldsOnly.source.writeReplies = [.failure(lostReply)]
+    fieldsOnly.source.readReplies = [.success(premiumCounted)]
+    await fieldsOnly.save(premiumDraft({ $0 }, fields: { $0.name = "高级组 A" }))
+    #expect(fieldsOnly.flow.isUnconfirmed && !fieldsOnly.flow.hasMemberChangesPending)
+}

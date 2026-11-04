@@ -62,6 +62,9 @@ private let throttled = APIError.server(status: 429, envelope: nil, retryAfter: 
                                   current: Flag = Flag(true)) -> GroupKeysModel {
     GroupKeysModel(groupID: 1, snapshot: snapshot, source: stub.source, isReadOnlyToken: { readOnly.value }, isCurrent: { current.value })
 }
+@MainActor private func keysModel(_ stub: RecordsStub, clock: Moment) -> GroupKeysModel {
+    GroupKeysModel(groupID: 1, snapshot: premium, source: stub.source, isReadOnlyToken: { false }, isCurrent: { true }, now: { clock.date })
+}
 @MainActor private func subscriptionsModel(_ stub: RecordsStub, snapshot: AdminGroup? = enterprise) -> GroupSubscriptionsModel {
     GroupSubscriptionsModel(groupID: 4, snapshot: snapshot, source: stub.source, isCurrent: { true })
 }
@@ -172,8 +175,7 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
         if call == 2 { throw throttled }
         return [ids[0]: 1]
     }
-    let model = GroupKeysModel(groupID: 1, snapshot: premium, source: stub.source, isReadOnlyToken: { false }, isCurrent: { true },
-                               now: { clock.date })
+    let model = keysModel(stub, clock: clock)
     await model.start()
     await model.settleTodayReads()
     await model.reload()
@@ -186,6 +188,53 @@ private func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     model.retryToday()
     await model.settleTodayReads()
     #expect(stub.todayIDs.count == 3 && !model.hasStaleToday && model.today(for: 38) == .amount(1))
+}
+
+/// 00 §2.7.2: during the wait a pull or the next page reads no today either; their rows read as after a failed read (an amount
+/// stays, marked), and the strip's read once the wait is over covers them.
+@MainActor @Test func todayPullAndNextPageWaitOutA429() async {
+    let clock = Moment()
+    let stub = RecordsStub()
+    stub.today = { call, ids in
+        if call == 2 { throw throttled }
+        return [ids[0]: 1]
+    }
+    let model = keysModel(stub, clock: clock)
+    await model.start()
+    await model.settleTodayReads()
+    await model.reload()
+    await model.settleTodayReads()
+    let notBefore = clock.date.addingTimeInterval(30)
+    clock.date = clock.date.addingTimeInterval(10)
+    await model.reload()
+    await model.loadMore()
+    await model.settleTodayReads()
+    #expect(stub.keyPages == [1, 1, 1, 2] && stub.todayIDs.count == 2 && model.todayRefresh.notBefore == notBefore)
+    #expect(model.today(for: 38) == .stale(1) && model.today(for: 19) == .stale(0) && model.today(for: 18) == .missing && model.hasStaleToday)
+    clock.date = notBefore
+    model.retryToday()
+    await model.settleTodayReads()
+    #expect(stub.todayIDs.count == 3 && stub.todayIDs[2] == ids(1...38) && !model.hasStaleToday && model.today(for: 18) == .amount(0))
+}
+
+/// 00 §2.7.2: back in the foreground during the wait, keys still pending are not read; they say 今日 — as after a failed read.
+@MainActor @Test func todayForegroundWaitsOutA429() async {
+    let clock = Moment()
+    let stub = RecordsStub()
+    stub.today = { call, ids in
+        if call == 1 { throw CancellationError() }
+        if call == 2 { throw throttled }
+        return [ids[0]: 1]
+    }
+    let model = keysModel(stub, clock: clock)
+    await model.start()
+    await model.settleTodayReads()
+    await model.loadMore()
+    await model.settleTodayReads()
+    #expect(model.today(for: 38) == .pending && model.today(for: 18) == .missing && !model.todayRefresh.allowsRequest(at: clock.date))
+    await model.start()
+    await model.settleTodayReads()
+    #expect(stub.todayIDs == [ids(19...38), ids(1...18)] && model.today(for: 38) == .missing && !model.hasStaleToday)
 }
 
 /// Read-only: today is never read, so nothing is ever stale and 重试 sends nothing (R14).

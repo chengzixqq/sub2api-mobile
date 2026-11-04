@@ -170,8 +170,16 @@ struct GroupEditForm<Members: View>: View {
     }
     @ViewBuilder private func limitRow(_ period: GroupLimitPeriod) -> some View {
         if access(.limits) == .editable {
-            GroupEditAmountRow(label: "\(period.title)限额", text: Binding(get: { draft[limit: period] }, set: { draft[limit: period] = $0 }),
-                               isFlagged: issues.contains(.limitInvalid(period)), id: "limit.\(period.rawValue)")
+            VStack(alignment: .leading, spacing: 2) {
+                GroupEditAmountRow(label: "\(period.title)限额", text: Binding(get: { draft[limit: period] }, set: { draft[limit: period] = $0 }),
+                                   isFlagged: issues.contains(.limitInvalid(period)), id: "limit.\(period.rawValue)")
+                // U-13: until the backend gives 0 one meaning.
+                if draft.zeroLimitPeriods().contains(period) {
+                    Text(GroupEditCopy.zeroLimitNote).font(.footnote).foregroundStyle(Tone.caution.ink)
+                        .padding(.bottom, 6)
+                        .accessibilityIdentifier("group-edit.limit.\(period.rawValue).zeroNote")
+                }
+            }
         } else {
             GroupEditValueRow(label: "\(period.title)限额", value: GroupFormat.limitText(limitValue(period)), id: "limit.\(period.rawValue).value")
         }

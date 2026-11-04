@@ -142,7 +142,7 @@ struct GroupEditSheet: View {
                 Button(GroupEditCopy.checkLater, role: .destructive) { checkLater() }
                 Button(GroupEditCopy.keepChecking, role: .cancel) {}
             } message: {
-                Text(GroupEditCopy.unconfirmedCloseMessage(isNew: original == nil))
+                Text(GroupEditCopy.unconfirmedCloseMessage(isNew: original == nil, hasMemberChanges: flow?.hasMemberChangesPending ?? false))
             }
             .task(id: session?.generation) {
                 prepare()

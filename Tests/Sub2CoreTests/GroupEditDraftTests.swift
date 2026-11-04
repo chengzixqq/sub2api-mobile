@@ -298,3 +298,38 @@ private func named(_ name: String) -> GroupEditDraft {
     #expect(GroupEditCopy.checkNote(.differs) == "服务器上的分组还不是这次的修改。")
     #expect(GroupEditCopy.notApplied(isNew: true) == "服务器上没有这次的新建，可以重新创建。")
 }
+
+// MARK: - 第一轮用户反馈（U-13）
+
+@Test func zeroLimitDetection() {
+    var draft = named("订阅组")
+    draft.subscriptionType = "subscription"
+    #expect(!draft.hasZeroLimit && draft.zeroLimitPeriods().isEmpty)
+    for (text, isZero) in [("0", true), ("0.00", true), (" 0 ", true), ("", false), ("20", false), ("0.5", false), ("abc", false)] {
+        draft.dailyLimit = text
+        #expect(draft.hasZeroLimit == isZero, "\(text)")
+        #expect(draft.zeroLimitPeriods() == (isZero ? [.daily] : []), "\(text)")
+    }
+    draft.dailyLimit = ""
+    for period in GroupLimitPeriod.allCases {
+        var one = draft
+        one[limit: period] = "0"
+        #expect(one.zeroLimitPeriods() == [period] && one.hasZeroLimit)
+    }
+    draft.weeklyLimit = "0"
+    draft.monthlyLimit = "0.0"
+    #expect(draft.zeroLimitPeriods() == [.weekly, .monthly])
+    let opened = GroupEditDraft(editing: AdminGroup(id: 9, name: "零限额组", platform: "openai", subscriptionType: "subscription", dailyLimitUSD: 0))
+    #expect(opened.zeroLimitPeriods() == [.daily])
+    #expect(GroupEditCopy.zeroLimitNote == "服务器对 0 的处理还不一致，可能等于不限；要不限请留空")
+}
+
+@Test func unconfirmedCloseMessageMembers() {
+    let created = "服务器可能已经创建了这个分组。关闭后不再保留这次的编号，分组列表会重新读取；再次新建前先在列表里核对，避免重复。"
+    let saved = "服务器可能已经保存了这次修改。关闭后分组列表会重新读取，再次修改前先在详情里核对。"
+    let members = "这次的成员调整还没有发送，关闭后需要到详情里重新调整。"
+    #expect(GroupEditCopy.unconfirmedCloseMessage(isNew: true, hasMemberChanges: false) == created)
+    #expect(GroupEditCopy.unconfirmedCloseMessage(isNew: false, hasMemberChanges: false) == saved)
+    #expect(GroupEditCopy.unconfirmedCloseMessage(isNew: true, hasMemberChanges: true) == created + members)
+    #expect(GroupEditCopy.unconfirmedCloseMessage(isNew: false, hasMemberChanges: true) == saved + members)
+}
