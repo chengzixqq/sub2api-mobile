@@ -145,3 +145,18 @@ private func card(_ range: AnalyticsRange = today, summary: AnalyticsSummary?, c
     #expect(empty.bars.isEmpty)
     #expect(empty.amount == "$0.00" && empty.requests == "0")
 }
+
+/// 40 §1.6: the totals' 重试本项 reads the trend again too, so a second retryable failure line under it is left out.
+@Test func trendFailureHidesOnlyUnderARetryableTotalsFailure() {
+    let shows = AnalyticsBillingCard.showsTrendFailure
+    // Both failed with 重试本项, or the totals kept under 更新失败 (whose retry is always offered).
+    #expect(!shows(true, true, true, true))
+    // Only the trend failed: as before.
+    #expect(shows(false, false, true, true) && shows(false, true, true, false))
+    // Totals refused (400 / 403) without a retry: the trend keeps its own.
+    #expect(shows(true, false, true, true))
+    // A refused trend says something else than the totals' 加载失败.
+    #expect(shows(true, true, true, false))
+    // Only the totals failed: the trend has nothing to show.
+    #expect(shows(true, true, false, true))
+}

@@ -294,3 +294,11 @@ private struct TrendRow: Equatable, Sendable { let date: String; let value: Int 
     #expect(AnalyticsCustomDraft(range: range(.preset(.last14), now: fourteenth)).matchedShortcut == .last14)
     #expect(AnalyticsCustomDraft(range: range(.preset(.thisMonth), now: fourteenth)).matchedShortcut == .thisMonth)
 }
+
+@Test func analyticsCustomDraftSingleDayFootnoteSaysByTheHour() {
+    let single = AnalyticsCustomDraft(range: range(.preset(.today))).settingFrom(day("2026-10-16"))
+    #expect(single.from == single.to && single.dayCount == 1)
+    #expect(single.footnote == "共 1 天，按小时统计；按站点时区计算。")
+    let two = single.settingFrom(day("2026-10-15"))
+    #expect(two.footnote == "共 2 天，按天统计（只选一天按小时）；按站点时区计算。")
+}
