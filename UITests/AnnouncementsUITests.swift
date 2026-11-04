@@ -561,9 +561,9 @@ final class AnnouncementsUITests: XCTestCase {
         XCTAssertTrue(row(31).waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    @MainActor private func editButton(_ name: String) -> XCUIElement { app.buttons["announcement.edit.\(name)"] }
+    @MainActor func editButton(_ name: String) -> XCUIElement { app.buttons["announcement.edit.\(name)"] }
     /// Types into the title, then the body (the keyboard stays up).
-    @MainActor private func fillEdit(title: String, content: String) {
+    @MainActor func fillEdit(title: String, content: String) {
         let titleField = app.textFields["announcement.edit.title"]
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), app.debugDescription)
         titleField.tap()

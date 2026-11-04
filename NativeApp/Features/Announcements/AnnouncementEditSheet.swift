@@ -1,8 +1,9 @@
 import SwiftUI
 import Sub2Core
 
-/// 60 §17 `.announcementEdit(id:)`. A new announcement opens at once; an existing one is read first (GET :id), so the form
-/// starts from what the server holds. A failed read offers 重试, 取消 always closes.
+/// 60 §17 `.announcementEdit(id:)`. A new announcement opens at once, on the session's record of one left at 稍后核对 when
+/// there is one (S6-高-13: 新建 asked first); an existing one is read first (GET :id), so the form starts from what the server
+/// holds. A failed read offers 重试, 取消 always closes.
 struct AnnouncementEditLoader: View {
     let id: Int?
     @Environment(AppModel.self) private var model
@@ -15,7 +16,7 @@ struct AnnouncementEditLoader: View {
     var body: some View {
         NavigationStack {
             if id == nil {
-                AnnouncementEditSheet(original: nil)
+                AnnouncementEditSheet(original: nil, restoring: model.pendingAnnouncementCreate)
             } else if let loaded {
                 AnnouncementEditSheet(original: loaded)
             } else {
@@ -74,6 +75,8 @@ struct AnnouncementEditSheet: View {
     private enum Action { case trailing, primary }
 
     let original: Announcement?
+    /// A new one opened from the session's record carries on with that attempt, the form as it was sent (S6-高-13).
+    private let restoring: PendingAnnouncementCreate?
     @Environment(AppModel.self) private var model
     @Environment(AppRouter.self) private var router
     @Environment(\.sessionContext) private var session
@@ -89,9 +92,12 @@ struct AnnouncementEditSheet: View {
     @State private var confirmingDiscard = false
     @State private var confirmingLater = false
 
-    init(original: Announcement?) {
+    init(original: Announcement?, restoring: PendingAnnouncementCreate? = nil) {
         self.original = original
-        let start = original.map { AnnouncementDraft(announcement: $0, now: Date(), timeZone: .current) } ?? AnnouncementDraft(now: Date(), timeZone: .current)
+        let record = original == nil ? restoring : nil
+        self.restoring = record
+        let start = original.map { AnnouncementDraft(announcement: $0, now: Date(), timeZone: .current) }
+            ?? record?.draft ?? AnnouncementDraft(now: Date(), timeZone: .current)
         _draft = State(initialValue: start)
         _baseline = State(initialValue: start)
     }
@@ -111,7 +117,7 @@ struct AnnouncementEditSheet: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .interactiveDismissDisabled(isBusy || isUnconfirmed || hasChanges)
             .onDismissAttempt { if !isBusy { cancel() } }
-            .task(id: session?.generation) { prepare() }
+            .task(id: session?.generation) { await prepare() }
             .task(id: session?.generation) { await model.groupDirectory?.ensureLoaded() }
             .onChange(of: flow?.exit) { _, exit in close(exit) }
     }
@@ -256,17 +262,20 @@ struct AnnouncementEditSheet: View {
         if case .open(let id) = exit { router.push(.announcementDetail(id: id)) }
         dismiss()
     }
-    /// One flow per session; results of an older one are dropped (C-0.2).
-    private func prepare() {
+    /// One flow per session; results of an older one are dropped (C-0.2). A restored create past its replay window is looked
+    /// up by title at once (00 §2.5.5).
+    private func prepare() async {
         guard let session, session.generation == model.sessionGeneration, flowGeneration != session.generation else { return }
         let generation = session.generation
-        flow = AnnouncementEditFlow(original: original, source: model.announcementEditSource(for: session),
-                                    keyedCreate: session.has(.announcementsIdempotentCreate), receipts: model.receipts,
-                                    isCurrent: { [weak model] in model?.sessionGeneration == generation },
-                                    onChanged: { [weak model] in model?.announcementChanges.bump() },
-                                    now: { session.client.serverClock.now() },
-                                    keepCreate: { [weak model] record in model?.pendingAnnouncementCreate = record })
+        let flow = AnnouncementEditFlow(original: original, source: model.announcementEditSource(for: session),
+                                        keyedCreate: session.has(.announcementsIdempotentCreate), receipts: model.receipts,
+                                        isCurrent: { [weak model] in model?.sessionGeneration == generation },
+                                        onChanged: { [weak model] in model?.announcementChanges.bump() },
+                                        now: { session.client.serverClock.now() },
+                                        keepCreate: { [weak model] record in model?.pendingAnnouncementCreate = record }, restoring: restoring)
+        self.flow = flow
         flowGeneration = generation
+        await flow.resumeCheck()
     }
 }
 

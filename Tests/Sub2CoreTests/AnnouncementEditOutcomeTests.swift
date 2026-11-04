@@ -27,6 +27,15 @@ private func item(_ id: Int, title: String = "维护通知", content: String = "
     }
 }
 
+/// 00 §2.5.5: an unknown result brings no X-Idempotency-Expires-At, so the key replays for 24 hours from the confirmation;
+/// a create has no business-level dedupe, so after that only the check is left.
+@Test func createAttemptReplaysForADay() throws {
+    let attempt = try AnnouncementCreateAttempt.next(for: request, previous: nil, now: confirmedAt, makeKey: { firstKey })
+    #expect(attempt.replayExpiresAt == confirmedAt.addingTimeInterval(86_400))
+    #expect(attempt.isReplayable(at: confirmedAt) && attempt.isReplayable(at: confirmedAt.addingTimeInterval(86_399)))
+    #expect(!attempt.isReplayable(at: confirmedAt.addingTimeInterval(86_400)) && !attempt.isReplayable(at: confirmedAt.addingTimeInterval(90_000)))
+}
+
 @Test func editFailureClassification() {
     let cases: [(String, String)] = [("ANNOUNCEMENT_TITLE_INVALID", "标题不能为空，最多 200 字节"), ("ANNOUNCEMENT_CONTENT_REQUIRED", "请填写正文"),
                                      ("ANNOUNCEMENT_INVALID_TARGET", "可见对象条件无效，请重新设置"),
