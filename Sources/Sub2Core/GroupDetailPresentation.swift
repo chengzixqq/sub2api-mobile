@@ -49,14 +49,22 @@ public enum GroupDetailPageState: Sendable, Equatable {
     case failure(message: String)
     /// 404 GROUP_NOT_FOUND / RESOURCE_NOT_FOUND: the whole page says so and the navigation keeps only 返回.
     case deleted
+    /// S5-中-10: simple mode refuses to read a composite group; the whole page explains, with no 重试 (it would fail again).
+    case unsupportedSimpleModeComposite
 
     /// A failed read while only the list's row is shown adds the snapshot banner; once the server answered, a later failure
     /// shows nothing (the next round tries again).
-    public static func resolve(hasGroup: Bool, loadedFromServer: Bool, failure: String?, deleted: Bool) -> GroupDetailPageState {
+    public static func resolve(hasGroup: Bool, loadedFromServer: Bool, failure: String?, deleted: Bool,
+                               isSimpleModeComposite: Bool = false) -> GroupDetailPageState {
         if deleted { return .deleted }
+        if isSimpleModeComposite { return .unsupportedSimpleModeComposite }
         if hasGroup { return .content(banner: !loadedFromServer && failure != nil ? GroupDetailCopy.snapshotBanner : nil) }
         if let failure { return .failure(message: failure) }
         return .skeleton
+    }
+    /// The group's read answered 400 SIMPLE_MODE_GROUP_NOT_BINDABLE on a simple-mode site; told by the reason, never the words.
+    public static func isSimpleModeComposite(_ error: APIError?, isSimpleMode: Bool) -> Bool {
+        isSimpleMode && error?.statusCode == 400 && error?.reason == "SIMPLE_MODE_GROUP_NOT_BINDABLE"
     }
 }
 
@@ -64,6 +72,8 @@ public enum GroupDetailCopy {
     /// The 404 page's title (design GvGone).
     public static let deletedTitle = "分组"
     public static let loadFailedTitle = "读取分组失败"
+    public static let simpleModeCompositeTitle = "简易模式下不能打开组合分组"
+    public static let simpleModeCompositeBody = "这个分组在简易模式下读不到，请到 Web 后台查看。"
     public static let snapshotBanner = "读取最新数据失败，显示的是列表里的快照"
     public static let membersTitle = "成员账号"
     public static let membersOrdinal = ChineseOrdinal.text(1)

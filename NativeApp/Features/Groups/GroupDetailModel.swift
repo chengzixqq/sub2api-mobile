@@ -47,6 +47,8 @@ final class GroupDetailModel {
     private(set) var group: AdminGroup?
     private(set) var loadedFromServer = false
     private(set) var isDeleted = false
+    /// S5-中-10: simple mode refused to read this composite group; like a deleted one the page stops reading.
+    private(set) var isSimpleModeComposite = false
     let groupRead = LoadState<AdminGroup>()
     let members = LoadState<GroupMemberList>()
     let memberToday = LoadState<GroupMemberToday>()
@@ -85,7 +87,8 @@ final class GroupDetailModel {
     }
 
     var page: GroupDetailPageState {
-        GroupDetailPageState.resolve(hasGroup: group != nil, loadedFromServer: loadedFromServer, failure: groupRead.error, deleted: isDeleted)
+        GroupDetailPageState.resolve(hasGroup: group != nil, loadedFromServer: loadedFromServer, failure: groupRead.error, deleted: isDeleted,
+                                     isSimpleModeComposite: isSimpleModeComposite)
     }
     /// F04's buckets; an older server's errors are counted from the members once all are here, otherwise from the list's fallback.
     var buckets: GroupBuckets? {
@@ -212,8 +215,13 @@ final class GroupDetailModel {
         await groupRead.load(isCurrent: { self.isCurrent }) { try await source.group(id) }
         noteBackoff(.group, groupRead.refresh)
         if case .loaded(let read, let at) = groupRead.state, at != answeredBefore { apply(read); return }
-        if groupRead.lastErrorAt != failedBefore, let error = groupRead.lastError,
-           GroupErrorCopy.resolve(error, context: .read).action == .treatAsDeleted { markDeleted() }
+        guard groupRead.lastErrorAt != failedBefore, let error = groupRead.lastError else { return }
+        if GroupErrorCopy.resolve(error, context: .read).action == .treatAsDeleted { markDeleted(); return }
+        let isSimpleMode = app?.sessionContext.map { permissions($0).isSimpleMode } ?? false
+        if GroupDetailPageState.isSimpleModeComposite(error, isSimpleMode: isSimpleMode) {
+            isSimpleModeComposite = true
+            stopReading()
+        }
     }
     /// The pages already shown are read again and replace the list at once.
     private func loadMembers(if needed: Bool, thenToday: Bool) async {
@@ -268,7 +276,7 @@ final class GroupDetailModel {
     // MARK: - Internals
 
     private var isLive: Bool { app?.sessionGeneration == generation }
-    private var isCurrent: Bool { isLive && !isDeleted }
+    private var isCurrent: Bool { isLive && !isDeleted && !isSimpleModeComposite }
     private var serverNow: Date { app?.serverNow() ?? Date() }
     private var memberQuery: AccountListQuery {
         GroupMemberList.query(groupID: groupID, supportsListQuery: app?.sessionContext?.has(.accountsListQuery) ?? false)
@@ -292,8 +300,11 @@ final class GroupDetailModel {
     /// 50 §0.8: the page turns into “这个分组已删除” and the group leaves the list and the directory.
     private func markDeleted() {
         isDeleted = true
-        members.cancel(); memberToday.cancel(); shortage.cancel(); keyCounts.cancel(); sections.cancel()
+        stopReading()
         app?.groupStore?.remove(id: groupID)
+    }
+    private func stopReading() {
+        members.cancel(); memberToday.cancel(); shortage.cancel(); keyCounts.cancel(); sections.cancel()
     }
     private func due(_ blocks: Set<GroupDetailBlock>, polling: Bool) -> Set<GroupDetailBlock> {
         guard polling else { return blocks }

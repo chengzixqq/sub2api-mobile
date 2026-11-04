@@ -55,6 +55,27 @@ private func today(_ cost: String) -> AccountTodayStats {
     #expect(GroupDetailCopy.membersLoadFailed == "成员加载失败" && GroupDetailCopy.membersEmpty == "没有成员账号")
 }
 
+@Test func simpleModeCompositeState() {
+    let refused = APIError.server(status: 400, reason: "SIMPLE_MODE_GROUP_NOT_BINDABLE")
+    #expect(GroupDetailPageState.isSimpleModeComposite(refused, isSimpleMode: true))
+    #expect(!GroupDetailPageState.isSimpleModeComposite(refused, isSimpleMode: false))
+    #expect(!GroupDetailPageState.isSimpleModeComposite(APIError.server(status: 400, reason: "INVALID_GROUP_ID"), isSimpleMode: true))
+    #expect(!GroupDetailPageState.isSimpleModeComposite(APIError.server(status: 502, reason: nil), isSimpleMode: true))
+    #expect(!GroupDetailPageState.isSimpleModeComposite(nil, isSimpleMode: true))
+    // The whole page, over the list's row too; only a 404 comes first.
+    let failure = refused.localizedDescription
+    #expect(GroupDetailPageState.resolve(hasGroup: false, loadedFromServer: false, failure: failure, deleted: false, isSimpleModeComposite: true)
+            == .unsupportedSimpleModeComposite)
+    #expect(GroupDetailPageState.resolve(hasGroup: true, loadedFromServer: false, failure: failure, deleted: false, isSimpleModeComposite: true)
+            == .unsupportedSimpleModeComposite)
+    #expect(GroupDetailPageState.resolve(hasGroup: false, loadedFromServer: false, failure: failure, deleted: true, isSimpleModeComposite: true) == .deleted)
+    // The same reason outside simple mode keeps the ordinary failure page.
+    #expect(GroupDetailPageState.resolve(hasGroup: false, loadedFromServer: false, failure: failure, deleted: false, isSimpleModeComposite: false)
+            == .failure(message: failure))
+    #expect(GroupDetailCopy.simpleModeCompositeTitle == "简易模式下不能打开组合分组")
+    #expect(GroupDetailCopy.simpleModeCompositeBody == "这个分组在简易模式下读不到，请到 Web 后台查看。")
+}
+
 // MARK: 2.2 成员
 
 @Test func localMemberOrderPutsUnavailableFirst() {
