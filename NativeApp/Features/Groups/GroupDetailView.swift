@@ -88,6 +88,7 @@ private struct GroupDetailContent: View {
                 if let banner { Section { snapshotBanner(banner) }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 if let alert = alertBanner {
                     Section { GroupAlertBanner(content: alert) { openAlert(alert.eventID) } }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+                    if detail.sections.alertIsStale { GroupAlertStaleStrip { Task { await detail.refresh(.alertReturn) } } }
                 }
                 Section { top(group, buckets: buckets, health: health) }
                     .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
