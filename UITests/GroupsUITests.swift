@@ -11,6 +11,8 @@ final class GroupsUITests: XCTestCase {
         static let refreshFailure = "-ui-group-refresh-failure"
         static let usageFailure = "-ui-group-usage-failure"
         static let usageSlow = "-ui-group-usage-slow"
+        static let usageFailureAfterFirst = "-ui-group-usage-failure-after-first"
+        static let shortageFailureAfterFirst = "-ui-group-shortage-failure-after-first"
         static let empty = "-ui-group-empty"
         static let segment = "-ui-group-segment"
         static let withoutCapabilities = "-ui-without-capabilities"
@@ -78,6 +80,8 @@ final class GroupsUITests: XCTestCase {
         waitForLabel(row(1), contains: "今日无数据")
         XCTAssertFalse(element("groups.refresh.retry").exists, app.debugDescription)
         XCTAssertFalse(element("groups.list.failure").exists, app.debugDescription)
+        // Never read: no 更新失败 strip (U-10).
+        XCTAssertFalse(element("groups.stale.retry").exists, app.debugDescription)
     }
 
     @MainActor func testListFailureShowsErrorStateAndRetryLoads() {
@@ -411,5 +415,46 @@ final class GroupsUITests: XCTestCase {
         guard element("group.detail.card").waitForExistence(timeout: 2) else { return }
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.buttons["groups.create"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    // MARK: - U-10 刷新失败保留上次的“今日”与“可用偏低”
+
+    /// S5-高-3: a failed usage refresh keeps 今日 under a second strip, 更新失败 · 重试 naming 今日; tapping it reads again.
+    @MainActor func testStaleTodayShowsUpdateFailedStrip() {
+        launchAndOpenGroups(arguments: [Fixture.usageFailureAfterFirst])
+        defer { diagnostics("groups-list-stale-today-final") }
+        waitForLabel(row(7), contains: "今日 $18.40")
+        let strip = app.buttons["groups.stale.retry"]
+        XCTAssertFalse(strip.exists, app.debugDescription)
+        app.pullToRefresh(from: row(4))
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(strip.label.contains("更新失败") && strip.label.contains("今日"), strip.label)
+        XCTAssertFalse(strip.label.contains("可用状态"), strip.label)
+        XCTAssertTrue(row(7).label.contains("今日 $18.40"), row(7).label)
+        // The list itself was read again.
+        XCTAssertFalse(element("groups.refresh.retry").exists, app.debugDescription)
+        strip.tap()
+        // Every read after the first fails: the strip comes back and the amount stays.
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(row(7).label.contains("今日 $18.40"), row(7).label)
+    }
+
+    /// S5-中-8: a failed status-summary refresh keeps D02's judgement, so 标准组 stays 可用偏低 in 需处理 (the local half rule
+    /// would move it to 正常), under the strip naming 可用状态.
+    @MainActor func testStaleShortageKeepsSection() {
+        launchAndOpenGroups(arguments: [Fixture.shortageFailureAfterFirst])
+        defer { diagnostics("groups-list-stale-shortage-final") }
+        let attention = element("groups.section.attention")
+        XCTAssertTrue(attention.poll(NSPredicate(format: "label == %@", "需处理 6"), timeout: 10), attention.label)
+        app.pullToRefresh(from: row(4))
+        let strip = app.buttons["groups.stale.retry"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(strip.label.contains("更新失败") && strip.label.contains("可用状态"), strip.label)
+        XCTAssertFalse(strip.label.contains("今日"), strip.label)
+        XCTAssertEqual(attention.label, "需处理 6")
+        assertLabel(row(2), contains: ["标准组", "可用偏低"])
+        let normal = element("groups.section.normal")
+        app.scrollUntilExists(normal)
+        XCTAssertEqual(normal.label, "正常 4")
     }
 }

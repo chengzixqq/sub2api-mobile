@@ -50,6 +50,15 @@ public enum GroupStoreRules {
     public static func autoRefreshDelay(lastRefreshAt: Date?, refresh: BlockRefresh, now: Date) -> TimeInterval {
         UserListPresentation.autoRefreshDelay(lastRefreshAt: lastRefreshAt, refresh: refresh, now: now, base: refreshInterval)
     }
+    /// S5-高-3 / S5-中-8: the last refresh failed while an earlier success still shows; not while a refresh is out.
+    public static func isStale<Value>(_ state: BlockState<Value>) -> Bool {
+        state.display.homePhase == .value(updateFailed: true)
+    }
+    /// The small text of the list's 更新失败 strip: what it shows from an earlier read, “今日”, “可用状态” or both; nil for neither.
+    public static func staleItems(usageStale: Bool, shortagesStale: Bool) -> String? {
+        let items = [(usageStale, "今日"), (shortagesStale, "可用状态")].filter(\.0).map(\.1)
+        return items.isEmpty ? nil : items.joined(separator: "、")
+    }
 }
 
 /// A local change to the group list: a written or optimistic row, or a removed id.
