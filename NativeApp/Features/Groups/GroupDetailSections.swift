@@ -9,6 +9,8 @@ struct GroupDetailSections: View {
     let buckets: GroupBuckets
     let permissions: GroupPermissions
     let fallbackName: String?
+    /// The page's refresh gate (50 §2.6): 贰's resend after a 429 wait goes out only while the page could refresh.
+    let autoRetry: Bool
     let onEdit: () -> Void
     let onOpenWeb: () -> Void
 
@@ -16,7 +18,7 @@ struct GroupDetailSections: View {
         let sections = detail.sections, keys = detail.keyCounts.state, opsOff = sections.opsKnownDisabled
         let capacity = GroupCapacityDisplay.make(sections.capacity.state, group: group, buckets: buckets)
         GroupUsageSection(usage: sections.usage.state, today: sections.todayUsage.state, capacity: permissions.showsUsageAndCapacity ? capacity : nil,
-                          status: GroupUsageStatus(sections: sections) { Task { await detail.refresh(.pull) } })
+                          status: GroupUsageStatus(sections: sections, autoRetry: autoRetry) { Task { await detail.refresh(.pull) } })
         GroupRecordsSection(group: RouteObject(id: group.id, name: group.name), showsKeys: permissions.showsKeysAndSubscriptions,
                             showsSubscriptions: permissions.showsKeysAndSubscriptions && GroupRecordValues.showsSubscriptions(group),
                             trailing: .init(errors: GroupRecordValues.logCount(sections.requestErrors.state, opsKnownDisabled: opsOff),
@@ -49,44 +51,68 @@ struct GroupAlertBanner: View {
     }
 }
 
-/// S5-高-3: under a banner kept through a failed refresh, one caution strip of its own; a tap reads the banner again.
+/// S5-高-3: under a banner kept through a failed refresh, one caution strip of its own; a tap reads the banner again. As the group
+/// list's strip it stays while the banner is read again (a spinner, no tap) and counts down a 429 wait without a tap (00 §2.7.2);
+/// the 60-second refresh reads the banner after the wait.
 struct GroupAlertStaleStrip: View {
+    let alert: LoadState<AlertEvent?>
     let onRetry: () -> Void
 
     var body: some View {
         Section {
-            Button(action: onRetry) {
-                HStack(spacing: 8) {
-                    Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Tone.caution.base).accessibilityHidden(true)
-                    Text(GroupDetailSectionsPresentation.alertStaleTitle).font(.footnote).foregroundStyle(Palette.ink1)
-                    Spacer(minLength: 0)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+            if let notBefore = alert.refresh.notBefore, notBefore > Date() {
+                TimelineView(.periodic(from: .now, by: 1)) { context in strip(at: context.date) }
+            } else {
+                strip(at: Date())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(GroupDetailSectionsPresentation.alertStaleTitle)
-            .accessibilityIdentifier("group.detail.alert.retry")
-            .listRowBackground(Tone.caution.wash)
         }
+    }
+    private func strip(at now: Date) -> some View {
+        let status = GroupDetailSectionsPresentation.alertStripStatus(alert.state, refresh: alert.refresh, at: now)
+        let title = GroupDetailSectionsPresentation.alertStripTitle(status)
+        return Button(action: onRetry) {
+            HStack(spacing: 8) {
+                if status == .refreshing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Tone.caution.base).accessibilityHidden(true)
+                }
+                Text(title).font(.footnote).monospacedDigit().foregroundStyle(Palette.ink1)
+                Spacer(minLength: 0)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(status != .updateFailed)
+        .accessibilityLabel(title)
+        .accessibilityValue(status == .refreshing ? BlockStatusPresentation.refreshingLabel : "")
+        .accessibilityIdentifier("group.detail.alert.retry")
+        .listRowBackground(Tone.caution.wash)
     }
 }
 
-/// 贰's one accessory (S5-高-3), not one per figure: 更新失败 for the first of usage-summary, dashboard/groups and capacity that
-/// kept its value through a failed refresh. The page polls on its own, so the end of a 429 wait is left to it.
+/// 贰's one accessory (S5-高-3), not one per figure: the first of usage-summary, dashboard/groups and capacity whose last read failed
+/// while its value still shows — 正在刷新 while it is read again, the 429 countdown, 更新失败. After a 429 wait capacity is left to
+/// the page's 60-second refresh; usage-summary and dashboard/groups, which it does not read, go again by themselves (S1D1-20).
 struct GroupUsageStatus: View {
     let sections: GroupDetailSectionsModel
+    let autoRetry: Bool
     let retry: @MainActor () -> Void
 
     var body: some View {
         switch sections.staleUsageBlock {
-        case .usage?: BlockStatusAccessory(sections.usage, id: Self.id, resendsAfterWait: false, retry: retry)
-        case .todayUsage?: BlockStatusAccessory(sections.todayUsage, id: Self.id, resendsAfterWait: false, retry: retry)
-        case .capacity?: BlockStatusAccessory(sections.capacity, id: Self.id, resendsAfterWait: false, retry: retry)
+        case .usage?: accessory(sections.usage, block: .usage)
+        case .todayUsage?: accessory(sections.todayUsage, block: .todayUsage)
+        case .capacity?: accessory(sections.capacity, block: .capacity)
         default: EmptyView()
         }
     }
-    /// `group.usage.retry` on 更新失败.
+    private func accessory<Value: Sendable>(_ load: LoadState<Value>, block: GroupDetailBlock) -> some View {
+        BlockStatusAccessory(state: GroupDetailSectionsPresentation.accessoryState(load.state, refresh: load.refresh), refresh: load.refresh,
+                             id: Self.id, resendsAfterWait: autoRetry && GroupDetailSectionsPresentation.resendsAfterWait(block), retry: retry)
+    }
+    /// `group.usage.retry` on 更新失败, `group.usage.status` otherwise.
     private static let id = "group.usage"
 }
 

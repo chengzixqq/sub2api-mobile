@@ -699,4 +699,66 @@ final class GroupDetailUITests: XCTestCase {
         XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(banner.label, "P1 告警中 · 标准组错误率 5.2%")
     }
+
+    // MARK: U-11 审查修正
+
+    private static let blocksFailureThenSlow = "-ui-group-detail-blocks-failure-then-slow"
+    private static let blocksThrottledAfterFirst = "-ui-group-detail-blocks-throttled-after-first"
+
+    /// A retry of a kept banner or of 贰 that is slow to answer keeps its mark: the strip stays with a spinner and no tap (as the
+    /// group list's, U-10), and 贰's 更新失败 turns into 正在刷新 instead of going away while the old figures still show.
+    @MainActor func testStaleMarksStayWhileRetrying() {
+        openGroup(2, arguments: [Self.blocksFailureThenSlow])
+        defer { diagnostics("group-detail-stale-retrying-final") }
+        let banner = element("group.detail.alert")
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
+        app.pullToRefresh(from: banner)
+        let strip = app.buttons["group.detail.alert.retry"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(strip.isEnabled, app.debugDescription)
+        strip.tap()
+        // The banner's third read hangs.
+        XCTAssertTrue(strip.poll(NSPredicate(format: "value == %@", "正在刷新"), timeout: 10), app.debugDescription)
+        XCTAssertFalse(strip.isEnabled, app.debugDescription)
+        XCTAssertEqual(strip.label, "告警更新失败 · 重试")
+        XCTAssertEqual(banner.label, "P1 告警中 · 标准组错误率 5.2%")
+
+        app.scrollUntilExists(element("group.usage.header"))
+        let retry = app.buttons["group.usage.retry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), app.debugDescription)
+        let todayLine = element("group.usage.todayLine").value as? String ?? ""
+        XCTAssertTrue(todayLine.hasPrefix("请求 "), todayLine)
+        retry.tap()
+        // dashboard/groups' third read hangs too: the accessory says 正在刷新 and the figures stay.
+        let status = element("group.usage.status")
+        XCTAssertTrue(status.poll(NSPredicate(format: "label == %@", "正在刷新"), timeout: 10), app.debugDescription)
+        XCTAssertFalse(retry.exists, app.debugDescription)
+        expectValue("group.usage.todayLine", todayLine)
+    }
+
+    /// 00 §2.7.2: a 429 on the kept banner counts down on its strip, which takes no tap; a 429 on 贰's dashboard/groups counts down
+    /// beside the title and, as the 60-second refresh does not read it, goes again by itself once the wait is over.
+    @MainActor func testStaleMarksCountDownA429() {
+        openGroup(2, arguments: [Self.blocksThrottledAfterFirst])
+        defer { diagnostics("group-detail-stale-throttled-final") }
+        let banner = element("group.detail.alert")
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), app.debugDescription)
+        app.pullToRefresh(from: banner)
+        let strip = app.buttons["group.detail.alert.retry"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(strip.label.hasPrefix("请求过于频繁，") && strip.label.hasSuffix("秒后自动重试"), strip.label)
+        XCTAssertFalse(strip.isEnabled, app.debugDescription)
+        XCTAssertEqual(banner.label, "P1 告警中 · 标准组错误率 5.2%")
+
+        app.scrollUntilExists(element("group.usage.header"))
+        let status = element("group.usage.status")
+        XCTAssertTrue(status.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(status.label.hasPrefix("请求过于频繁，") && status.label.hasSuffix("秒后自动重试"), status.label)
+        let todayLine = element("group.usage.todayLine").value as? String ?? ""
+        XCTAssertTrue(todayLine.hasPrefix("请求 "), todayLine)
+        // The resend after the wait works: neither the countdown nor 更新失败 is left.
+        XCTAssertTrue(status.pollGone(timeout: 40), app.debugDescription)
+        XCTAssertFalse(app.buttons["group.usage.retry"].waitForExistence(timeout: 3), app.debugDescription)
+        expectValue("group.usage.todayLine", todayLine)
+    }
 }
