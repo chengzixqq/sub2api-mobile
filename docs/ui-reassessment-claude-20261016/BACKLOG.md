@@ -664,6 +664,8 @@
 | GroupRecordsRefreshRow 的 429 自动重读用设备时钟等待，模型用服务器时钟判断 | 细条按 refresh.notBefore 与设备时间 Date() 比较、等待结束后自动重读；而记录 notBefore 和判断能否发请求，模型用的都是 serverClock.now()。服务器时钟比设备慢时，等待结束那次自动重读会被模型拒绝，细条变回可点。列表的“刷新失败 · 重试”原来就是这样，U-12 的两条细条沿用了。偏差通常不到 1 秒，可以以后统一改成同一个时钟。 |
 | 分组详情其他块被取消的读取仍会推后退避 | GroupDetailModel.noteBackoff 管的分组、成员、成员今日、D02 四块，在页面取消读取（弹出 sheet、进入后台）后仍按失败次数重设 blockDue，下一次 60 秒轮询会跳过这些块。U-11 审查修正只改了 GroupDetailSectionsModel 的五块（加 Task.isCancelled 判断）。 |
 | 列表中区块头附件滚出屏幕后，429 等待结束可能不会自动重读（待核实） | BlockStatusAccessory 的自动重读挂在视图的 .task 上。List 卸载滚出屏幕的区块头时，这个任务会被取消；回到屏幕时如果等待已经结束，就不会再重读。分组详情“贰”、成员分区等处都可能受影响。 |
+| 删除订阅限额 0 的临时说明 | 后端统一订阅限额 0 的语义后（现在保存时当“不允许使用”、计费检查时当“不限”），删掉 GroupEditCopy.zeroLimitNote、GroupEditForm.limitRow 里的 zeroNote 行、GroupEditDraft.zeroLimitPeriods / hasZeroLimit，以及 zeroLimitDetection、testZeroLimitShowsNote 两个测试（U-13） |
+| 分组 API 密钥页 / 订阅页列表翻页不受 429 等待约束 | GroupRecordsPager.loadMore 不检查 refresh.allowsRequest：第 1 页下拉遇 429 后列表保留旧行，等待期间滚到底仍会发 GET 下一页；下一页本身遇 429 也只显示“加载失败 · 重试”，不进入等待、不倒计时。与 00 §2.7.2“这期间不再发这个块的请求”不一致，属 S5-12 既有行为，不在 U-12 范围内，待定是否按列表块统一拦截 |
 
 ### App 与设计 · 阶段 6
 
