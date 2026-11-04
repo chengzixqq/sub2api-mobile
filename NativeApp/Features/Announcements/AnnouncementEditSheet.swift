@@ -234,7 +234,7 @@ struct AnnouncementEditSheet: View {
     private func cancel() {
         if isUnconfirmed { confirmingLater = true } else if hasChanges { confirmingDiscard = true } else { dismiss() }
     }
-    /// 稍后核对: closes without the key; the list and the detail read again.
+    /// 稍后核对: closes; a new one's attempt stays with the session (S6-高-13), the list and the detail read again.
     private func checkLater() {
         flow?.checkLater()
         dismiss()
@@ -264,7 +264,8 @@ struct AnnouncementEditSheet: View {
                                     keyedCreate: session.has(.announcementsIdempotentCreate), receipts: model.receipts,
                                     isCurrent: { [weak model] in model?.sessionGeneration == generation },
                                     onChanged: { [weak model] in model?.announcementChanges.bump() },
-                                    now: { session.client.serverClock.now() })
+                                    now: { session.client.serverClock.now() },
+                                    keepCreate: { [weak model] record in model?.pendingAnnouncementCreate = record })
         flowGeneration = generation
     }
 }
