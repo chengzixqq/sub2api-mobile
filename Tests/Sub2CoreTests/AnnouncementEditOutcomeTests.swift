@@ -91,3 +91,28 @@ private func item(_ id: Int, title: String = "维护通知", content: String = "
     #expect(MarkdownEdit.countText("👍🏽好") == "2 字" && MarkdownEdit.countText(String(repeating: "字", count: 1_234)) == "1,234 字")
     #expect(MarkdownSnippet.allCases.map(\.title) == ["粗体", "列表", "小标题", "链接"])
 }
+
+// MARK: - 新建结果未确认的会话记录（U-21，S6-高-13）
+
+/// 稍后核对 now keeps the number for the session, so the closing words say so.
+@Test func closeMessageMentionsRetained() {
+    #expect(AnnouncementEditCopy.unconfirmedCloseMessage(creating: true)
+            == "服务器可能已经创建了这条公告。关闭后这次的编号在本次使用期间保留，公告列表会重新读取；再次新建时会先提醒你核对，避免重复。")
+    #expect(AnnouncementEditCopy.unconfirmedCloseMessage(creating: false) == "服务器可能已经保存了这次修改。关闭后公告列表会重新读取，再次修改前先在详情里核对。")
+}
+
+/// The words of the prompt before another 新建: the confirmation on the site's calendar, with the year once it is another.
+@Test func interceptCopy() throws {
+    let zone = try #require(ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00"))
+    let format = ISO8601DateFormatter()
+    let confirmed = try #require(format.date(from: "2026-10-13T06:20:00Z"))
+    let now = try #require(format.date(from: "2026-10-14T01:00:00Z"))
+    #expect(AnnouncementEditCopy.interceptTitle == "上一条公告的新建结果未确认")
+    #expect(AnnouncementEditCopy.interceptMessage(title: "维护通知", confirmedAt: confirmed, timeZone: zone, now: now)
+            == "「维护通知」· 10/13 14:20 确认\n服务器可能已经创建了它，先核对，避免用户看到重复的公告。")
+    let lastYear = try #require(format.date(from: "2025-12-30T15:10:00Z"))
+    let message = AnnouncementEditCopy.interceptMessage(title: "维护通知", confirmedAt: lastYear, timeZone: zone, now: now)
+    #expect(message == "「维护通知」· 2025/12/30 23:10 确认\n服务器可能已经创建了它，先核对，避免用户看到重复的公告。")
+    #expect(message.contains(DisplayFormat.monthDayClock(lastYear, timeZone: zone, now: now)))
+    #expect(AnnouncementEditCopy.keepChecking == "继续核对" && AnnouncementEditCopy.createAnyway == "仍要新建")
+}

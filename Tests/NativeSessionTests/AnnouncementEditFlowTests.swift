@@ -84,14 +84,22 @@ private func draft(_ change: (inout AnnouncementDraft) -> Void = { _ in }) -> An
     let current: Flag
 }
 
+/// The session's record of a new announcement left unconfirmed (AppModel.pendingAnnouncementCreate).
+@MainActor private final class PendingSlot {
+    var value: PendingAnnouncementCreate?
+    private(set) var writes = 0
+    func keep(_ pending: PendingAnnouncementCreate?) { value = pending; writes += 1 }
+}
+
 @MainActor private func makeBench(_ stub: EditStub, original: Announcement? = nil, keyed: Bool = true,
                                   deviceNow: @escaping @MainActor () -> Date = { start },
-                                  pause: @escaping @Sendable (Duration) async throws -> Void = { _ in }) -> Bench {
+                                  pause: @escaping @Sendable (Duration) async throws -> Void = { _ in },
+                                  slot: PendingSlot? = nil, restoring: PendingAnnouncementCreate? = nil) -> Bench {
     let receipts = ReceiptCenter(sleep: { _ in try await Task.sleep(for: .seconds(3_600)) })
     let changed = Counter(), current = Flag()
     let flow = AnnouncementEditFlow(original: original, source: stub.source, keyedCreate: keyed, receipts: receipts,
                                     isCurrent: { current.value }, onChanged: { changed.hit() }, now: { start },
-                                    deviceNow: deviceNow, pause: pause)
+                                    deviceNow: deviceNow, pause: pause, keepCreate: { slot?.keep($0) }, restoring: restoring)
     return Bench(flow: flow, receipts: receipts, changed: changed, current: current)
 }
 
@@ -294,7 +302,8 @@ private func draft(_ change: (inout AnnouncementDraft) -> Void = { _ in }) -> An
     #expect(!refused.flow.isUnconfirmed && !gone.flow.isUnconfirmed && !makeBench(EditStub()).flow.isUnconfirmed)
 }
 
-/// 稍后核对 tells the list and the detail to read again and keeps nothing; anywhere else, or for an ended session, it does nothing.
+/// 稍后核对 tells the list and the detail to read again and keeps nothing in the sheet (the session's record:
+/// checkLaterKeepsNewCreate); anywhere else, or for an ended session, it does nothing.
 @MainActor @Test func checkLaterTellsTheListAndKeepsNothing() async throws {
     let bench = makeBench(EditStub(create: { _, _ in throw lost }))
     await bench.flow.saveTrailing(draft())
@@ -310,4 +319,89 @@ private func draft(_ change: (inout AnnouncementDraft) -> Void = { _ in }) -> An
     ended.current.value = false
     ended.flow.checkLater()
     #expect(ended.changed.count == 0)
+}
+
+// MARK: - 稍后核对后会话里保留新建（U-21，S6-高-13）
+
+/// 稍后核对 of a new announcement hands the session its attempt (same key, same bytes), the form as sent and where the check
+/// stood; an edit's, or one for an ended session, hands nothing.
+@MainActor @Test func checkLaterKeepsNewCreate() async throws {
+    let slot = PendingSlot(), stub = EditStub(create: { _, _ in throw lost })
+    let bench = makeBench(stub, slot: slot)
+    let sent = draft { $0.notifyMode = .popup }
+    await bench.flow.publish(sent)
+    #expect(slot.writes == 0)
+    bench.flow.checkLater()
+    let kept = try #require(slot.value)
+    let creates = await stub.creates
+    let body = try creates[0].request.requestBody()
+    #expect(kept.attempt.key == creates[0].key && kept.attempt.request == creates[0].request && kept.attempt.body == body)
+    #expect(kept.attempt.confirmedAt == start && kept.draft == sent && kept.phase == .createUnconfirmed(retryNotBefore: nil))
+    #expect(bench.changed.count == 1 && bench.flow.exit == nil)
+
+    let unkeyedSlot = PendingSlot()
+    let unkeyed = makeBench(EditStub(create: { _, _ in throw lost }), keyed: false, slot: unkeyedSlot)
+    await unkeyed.flow.saveTrailing(draft())
+    unkeyed.flow.checkLater()
+    #expect(unkeyedSlot.value?.phase == .notFoundYet && unkeyedSlot.value?.attempt.request.status == .draft)
+
+    let original = Announcement(id: 7, title: "维护通知", content: "正文", status: .active, notifyMode: .silent)
+    var changed = AnnouncementDraft(announcement: original, now: start, timeZone: .current)
+    changed.content = "新正文"
+    let editSlot = PendingSlot()
+    let update = makeBench(EditStub(update: { _, _ in throw timedOut }, load: { _ in throw timedOut }), original: original, slot: editSlot)
+    await update.flow.saveTrailing(changed)
+    update.flow.checkLater()
+    #expect(update.flow.phase == .updateUnconfirmed && update.changed.count == 1 && editSlot.writes == 0)
+
+    let endedSlot = PendingSlot()
+    let ended = makeBench(EditStub(create: { _, _ in throw lost }), slot: endedSlot)
+    await ended.flow.saveTrailing(draft())
+    ended.current.value = false
+    ended.flow.checkLater()
+    #expect(endedSlot.writes == 0)
+}
+
+/// A sheet opened from the record resumes the same attempt: a confirmed result or 查看 clears the record, another 稍后核对 keeps
+/// where the check now stands, and a sheet that did not take it up leaves it alone.
+@MainActor @Test func finishClearsPending() async throws {
+    let slot = PendingSlot()
+    let first = makeBench(EditStub(create: { _, _ in throw lost }), slot: slot)
+    await first.flow.publish(draft())
+    first.flow.checkLater()
+    let kept = try #require(slot.value)
+    let stub = EditStub()
+    let resumed = makeBench(stub, slot: slot, restoring: kept)
+    #expect(resumed.flow.phase == kept.phase && resumed.flow.isUnconfirmed && resumed.flow.locksForm)
+    await resumed.flow.retrySameKey()
+    let creates = await stub.creates
+    #expect(creates.map(\.key) == [kept.attempt.key] && creates.first?.request == kept.attempt.request)
+    #expect(resumed.flow.exit == .saved && slot.value == nil && resumed.receipts.current?.text == "已发布公告")
+
+    let viewSlot = PendingSlot()
+    let notFound = makeBench(EditStub(create: { _, _ in throw lost }), keyed: false, slot: viewSlot)
+    await notFound.flow.saveTrailing(draft())
+    notFound.flow.checkLater()
+    let open = try #require(viewSlot.value)
+    let lookup = EditStub(recent: { _ in [saved(41)] })
+    let rechecked = makeBench(lookup, keyed: false, slot: viewSlot, restoring: open)
+    await rechecked.flow.recheck()
+    let lookups = await lookup.recents, resent = await lookup.creates
+    #expect(lookups == ["维护通知"] && resent.isEmpty)
+    let found = AnnouncementRecentMatch(id: 41, title: "维护通知", createdAt: start.addingTimeInterval(5), status: .draft)
+    #expect(rechecked.flow.phase == .maybeCreated(found))
+    rechecked.flow.checkLater()
+    #expect(viewSlot.value == PendingAnnouncementCreate(attempt: open.attempt, draft: open.draft, phase: .maybeCreated(found)))
+    let viewing = makeBench(EditStub(), keyed: false, slot: viewSlot, restoring: viewSlot.value)
+    viewing.flow.viewExisting()
+    #expect(viewing.flow.exit == .open(41) && viewSlot.value == nil)
+
+    let untouched = PendingSlot()
+    untouched.value = kept
+    let fresh = makeBench(EditStub(), slot: untouched)
+    await fresh.flow.saveTrailing(draft { $0.title = "另一条" })
+    #expect(fresh.flow.exit == .saved && untouched.value == kept && untouched.writes == 0)
+    let original = Announcement(id: 7, title: "维护通知", content: "正文", status: .active, notifyMode: .silent)
+    let editing = makeBench(EditStub(), original: original, slot: untouched, restoring: kept)
+    #expect(editing.flow.phase == .editing && !editing.flow.isUnconfirmed)
 }
