@@ -177,7 +177,7 @@
 | UI 测试 6 并发下的快照停顿 | S0-07 的 gate 里，Mac 负载 90–170 时模拟器无障碍快照会停顿 15–20 秒（基线 709c047 同样出现）。Sub2MobileUITests.testDashboardSlowTrendDoesNotDelayCountersOrMonitoring 只有夹具 8 秒的趋势延迟作窗口，停顿落在登录后就误报；趋势缩放用例的 5 秒等待同理。S0-19 诊断时考虑：降低默认并发、把慢趋势夹具延迟加长或改为由测试显式放行、等待改为基于状态而不是时间窗。S0-19 结论：基线 7 个不稳定用例里 6 个的失败来自“拖动后列表还在减速就点按”与每步全量快照，已改为点按前等待 frame 稳定（waitUntilSettled）并去掉每步截图与 print，gate 76 / 76 无重跑。**仍依赖快照不停顿、没有修好的两个**（S0-LOW-B 复核更正）：AccountListCustomizationUITests.testSlowTodayStatsAllowsIndependentRuntimeRefresh 不调用 setField / moveFieldToFirst，S0-19 没有改到它，它的等待（assertDetail 10 秒、runtime-updated 5 秒）本来就是按状态的谓词等待，只是负载下快照停顿会吃掉窗口，S0-19 / S0-LOW-A / S0-LOW-B 的 gate 通过只说明没有复现，阶段 2 账号页重写时整体替换；Sub2MobileUITests.testDashboardSlowTrendDoesNotDelayCountersOrMonitoring 的 8 秒夹具窗口同理，如再出现可改为由测试显式放行。在此之前这两个用例再失败按既有不稳定处理，不算新回归 |
 | 数值格式里规格没写清的定法 | S0-08 在 DisplayFormat 里按字面或“按舍入后的值”定了这些细节，等用户确认：RPM 小于 10 保留 1 位（2 → 2.0、0.04 → 0.0）；minutesLeft 整点写“2 小时”（设计稿 fmt 会写“2 小时 0 分钟”）；change 舍入为 0 写“0.0%”不带箭头；relativeTime 跨年的日期不带年份、未来 60 秒内也写“刚刚”；跨档按舍入后的值（999,950 → 1M、99.96 秒 → 100s、$999.995 → $1.00K）；countdown 秒数向上取整；compact 不加千分位（1000B 以上才会出现）。要改只改 `Sources/Sub2Core/DisplayFormat.swift` 一处与 DisplayFormatTests。 |
 | 缺失值“—”的读屏 | S0-08 把全 App 的缺失值统一为“—”，现有页面的 accessibilityValue 沿用显示文字，VoiceOver 可能读成“破折号”或跳过。各页面重写时决定是否给缺失值单独的朗读文案（如“无数据”）。 |
-| 倍率的显示位数 | 账号倍率、分组计费倍率与上游探测倍率规格没有格式规则，S0-08 仍显示服务端原值的全部位数（如 1.234567890123456789×），不走 DisplayFormat。阶段 2 / 5 重写账号、分组页时定位数，届时用 DisplayFormat.decimal。 |
+| 倍率的显示位数 | **已统一（2026-11-03 用户定）**：费率倍数全 App 用 DisplayFormat.multiplier / multiplierChange（U-02）：× 在前，三位小数四舍五入，去掉末尾的 0，至少一位小数（×0.125、×0.13、×1.0）；确认框两侧按三位相同而实际不同时写完整精度（×0.13 → ×0.1304），见 00 §6.2。原记录：账号倍率、分组计费倍率与上游探测倍率规格没有格式规则，S0-08 仍显示服务端原值的全部位数（如 1.234567890123456789×），不走 DisplayFormat。阶段 2 / 5 重写账号、分组页时定位数，届时用 DisplayFormat.decimal。 |
 | 区块刷新失败退避的第三档 | 00 §4.6 与 D23 写“连续失败时间隔加倍（60 → 120 → 300 秒封顶）”，S0-09 按加倍实现为 60 → 120 → 240 → 300；如要严格三档（第 3 次直接 300 秒），只改 `BlockRefresh.nextRefreshInterval` 一处并更新 BlockStateTests |
 | 区块 429 倒计时文案与重试按钮 | S0-09 的 LoadState 已在 429 后按 retry_after（最长 300 秒）暂停该区块请求并提供“请求过于频繁，N 秒后自动重试”（`BlockRefresh.throttleMessage`），现有页面还没显示它：仍显示目录文案“请求过于频繁，请 N 秒后再试”（等待期内清空或切换范围的 reset() 也保留这条文案；统计分析页换筛选也改用 reset()，不再新建 LoadState 丢掉等待，S0-LOW-A），等待期内点“重试”没有反应；没开自动刷新的页面（如账号今日统计）等待结束后不会自动重发，要手动重试。阶段 1 的区块小视图接入时显示倒计时文案、在等待期内禁用重试，并在等待结束时自动重发 |
 | 登录设备名 | 00 §1.2 的 `client.device_name` 首版照规格发 `UIDevice.current.name`；iOS 16 起没有 `com.apple.developer.device-information.user-assigned-device-name` 权限时只返回“iPhone”这类机型名，“登录设备”列表里所有手机同名。待定：申请该权限，或改为“机型 + 用户自定义名称”（S0-10） |
@@ -224,6 +224,7 @@
 | 新建账号已创建后跳 Tab 不问 | U-03 只在“取消”会问“放弃新建账号？”时拦跳 Tab；账号已创建（测试未过 / 停止调度未确认）或创建结果未确认时，从别处跳 Tab 仍像原来一样直接关闭表单（没有“仍然关闭”的回执）。要不要让跳 Tab 也走这些状态的处理 / 结果未确认问法，待定 |
 | 跨 Tab 先问缺 UI 用例 | 现在没有能在路由 sheet 打开时触发 AppRouter.select 的界面入口，U-03 只有 AppRouterTests 单元测试。以后出现这种入口（例如 sheet 内的跨 Tab 链接、推送不再等 sheet 关闭）时补 UI 用例，并验证分组编辑推入“添加账号”页时确认框能否弹出 |
 | 规格 20 章三处表格竖线未转义 | 20-accounts.md 第 553 行（test-runs/latest 的 status 取值）、第 611 行（recover-state 的 {"schedulable": true\|false}）、第 676 行（reauthorize 的请求体）都在反引号里用了没转义的“\|”，GFM 渲染时这几行会多出列、错位。改动前就有，本条没动；以后改规格时改成“\|”。 |
+| 开放代运营登录前必做 | 首版仍不支持代运营（vendor）登录（00 §1.11，U01）。开放前必须完成：40 章给 vendor 定的可见范围（不显示用户排行，没有“运行”主题，模型页不显示用户区，以及 S4-14 单图页的 vendor 规则）；以及这四行要补的夹具、用例与权限：阶段 1“监控 Tab 的 vendor 分支不可达”、阶段 2“vendor 读定时测试结果”（vendor 读结果被 403，要不要放开到时再定）、阶段 5“vendor 视角的分组页没有 UI 夹具”、阶段 6“全局搜索 vendor 发送规则只有单测”。（2026-11-03 第一轮用户反馈，阶段 4 高-9） |
 
 ### App 与设计 · 阶段 1
 
@@ -268,7 +269,7 @@
 | 告警详情“分组已删除”的误判 | status-summary 的 groups[] 不含“停用且没有账号”的分组（account_status_summary_repo.go:86-105），告警详情只在 status-summary?group_id 成功且没有该组时判为已删除，这种分组仍会显示“分组已删除”、不可点；待后端在汇总里带回指定 group_id 的分组后改判。 |
 | 告警详情的分组名来源 | 分组名优先用事件的 group_name；旧服务端没有时用 S1-07 收事件处从 groups/all 补的名字，再没有就用 status-summary 汇总的 group_name，都没有写“分组 #id”。详情页不另拉 groups/all。 |
 | 监控分段计数的读屏 | 系统分段控件没有角标，S1-13 把计数写进段标题（“告警 2”），读屏会读“告警 2”；如果要读成“告警，2 条进行中”，需要自绘分段控件 |
-| 监控 Tab 的 vendor 分支不可达 | 首版不允许 vendor 登录（U01），“代运营工作区没有运维监控权限”只是防御分支，没有 UI 夹具和用例；开放 vendor 登录时再补 |
+| 监控 Tab 的 vendor 分支不可达 | **2026-11-03 定去向：列入“开放代运营登录前必做”**：首版不开放 vendor 登录，开放前补夹具与用例。原记录：首版不允许 vendor 登录（U01），“代运营工作区没有运维监控权限”只是防御分支，没有 UI 夹具和用例；开放 vendor 登录时再补 |
 | 首页与监控的健康分行合并 | 监控概况的健康分行（MonitorOverviewSection 私有 MonitorHealthRow）和首页 HomeRunSection 的私有健康分行版式一致、各写一份，由 S1-18 收口时合成一个行组件 |
 | S2-09 的 CapacityBar 合入后统一监控 CPU / 内存条 | S1-14 在 MonitorServerSection.swift 里用的是私有 MeterBar；S2-09 的通用 CapacityBar（C-7）合入后，评估改用它，避免两套容量条 |
 | S1-18 的标识静态核查要接受插值后缀 | S1-14 的读数标识带色调后缀（monitor.server.cpu.<normal\|caution\|critical>），任务行标识带任务名后缀（monitor.server.job.<job_name>）；按字面量 grep 的核查要能识别这类前缀 |
@@ -312,26 +313,26 @@
 |---|---|
 | ConditionalCache 缓存账号列表原始响应体 | S2-01 解码时剔除了凭据敏感键，但 ConditionalCache 按 00 §4.2 缓存原始响应体；2026-05 以前未脱敏的旧服务端，明文凭据会留在内存缓存里（登出、切站、401 时清空）。是否对 admin/accounts 的缓存体做脱敏或不缓存，由 S2-23 的凭据专项复核决定 |
 | UpstreamAccount.credentials 可直接赋值 | credentials 是 public var，只在解码和 init 时剔除敏感键；之后代码直接赋值可以绕过。目前没有这种调用点，S2-05 / S2-10 / S2-12 的夹具若要在本地套用 credentials_patch，应经 init 重建或另加一个会剔除敏感键的辅助方法 |
-| 账号平台显示名口径待用户确认 | S2D1-12 采用“App 已知平台用内置中文名（智谱 GLM），目录 display_name 只给后端新登记的平台”，与 20 §0.3 字面“目录 display_name 优先”不同；用户若坚持目录优先，只改 AccountNaming.platformName 一处与 accountNamingPlatformNames 一行断言 |
+| 账号平台显示名口径待用户确认 | **2026-11-03 用户确认保持**：已知平台用内置中文名，目录 display_name 只给后端新登记的平台。原记录：S2D1-12 采用“App 已知平台用内置中文名（智谱 GLM），目录 display_name 只给后端新登记的平台”，与 20 §0.3 字面“目录 display_name 优先”不同；用户若坚持目录优先，只改 AccountNaming.platformName 一处与 accountNamingPlatformNames 一行断言 |
 | MetaCatalog.builtin 需随后端同步重抄 | 内置平台清单是 sub2 main 70116315d 的 platformCatalog.builtin.json 与站长口径 platform_auth 的手抄快照（单测 builtinCatalogMatchesSub2BuiltinJSON 锁住当前值）；后端登记新平台或改官方端点时要重抄 |
-| 账号列表超过 2000 行时按平台懒加载（U15） | S2-03 只加载前 2000 行（新服务端按紧急度，旧服务端按名称），底部提示“还有 N 个账号未加载，用平台筛选缩小范围”；旧服务端时 2000 行以外的错误账号看不到。U15 实测后再定是否按平台分区懒加载。 |
+| 账号列表超过 2000 行时按平台懒加载（U15） | **2026-11-03 定去向：等测试环境实测**：看账号超过 2000 的站点（尤其旧版本服务端）只加载前 2000 行够不够用，测完再定要不要按平台分区加载；本轮保持现状。原记录：S2-03 只加载前 2000 行（新服务端按紧急度，旧服务端按名称），底部提示“还有 N 个账号未加载，用平台筛选缩小范围”；旧服务端时 2000 行以外的错误账号看不到。U15 实测后再定是否按平台分区懒加载。 |
 | 账号平台分区同级时的最后排序键 | 20 §1.3 只给到“需处理数降序、总数降序”，S2-03 再按平台 id 升序；以后若要按 meta/catalog 的平台顺序排，只改 AccountListLayout.platformOrder 一处。 |
-| 账号行暂停 / 停用的降色方式 | S2-04 按设计稿 is-idle 只把名称改为 ink2，没有按 20 §1.3 整行降低不透明度（整行降透明度会让 ink2 / ink3 文字低于 4.5:1）。请看 AccountListUITests 的 account-row-idle 截图确认，要改只动 AccountRow.swift 的 AccountRowTitle |
-| 平台菜单的平台个数位置 | iOS 系统菜单项不能放右对齐的自定义文字，S2-04 把“N 个”放在菜单项第二行（同站点菜单写法）；设计稿是右侧数字，实机看过后再决定是否改 |
+| 账号行暂停 / 停用的降色方式 | **2026-11-03 用户确认保持**：只把名称改为 ink2，不整行降低不透明度。原记录：S2-04 按设计稿 is-idle 只把名称改为 ink2，没有按 20 §1.3 整行降低不透明度（整行降透明度会让 ink2 / ink3 文字低于 4.5:1）。请看 AccountListUITests 的 account-row-idle 截图确认，要改只动 AccountRow.swift 的 AccountRowTitle |
+| 平台菜单的平台个数位置 | **2026-11-03 用户确认保持**：“N 个”放在菜单项第二行。原记录：iOS 系统菜单项不能放右对齐的自定义文字，S2-04 把“N 个”放在菜单项第二行（同站点菜单写法）；设计稿是右侧数字，实机看过后再决定是否改 |
 | 旧接口 APIClient.accounts(page:…) | S2-04 删掉 AppModel 包装后，只剩 CoreTests / AccountRuntimeTests / ConditionalRequestTests 在用，与 managedAccounts 重复（R19）；交 S2-23 删除，并把测试改用 managedAccounts |
 | 账号 Tab 意图的端到端 UI 测试 | S2-04 用夹具参数 -ui-accounts-intent 覆盖“从意图进入受限”；概览“受限 N 个账号”等行真正发出 .accounts(filter:) 的端到端测试由 S1-10 的 HomeUITests 补 |
 | 进入账号 Tab 的完整刷新判定 | S2-04 以“根视图消失时账号栈为空”视为离开 Tab，下次出现时完整刷新（20 §1.6）；从详情返回不重刷。若以后要求返回也刷新，或改为监听 selectedTab，只改 AccountsView 的 appeared / disappeared |
 | 账号写接口 reason 进 ReasonCatalog | CREDENTIAL_KEY_NOT_DELETABLE、ACCOUNT_NOT_IN_FALLBACK、PROXY_FALLBACK_ORIGIN_UNAVAILABLE 现在走 400 / 409 通用兜底文案；页面（S2-10 / S2-11）按 AccountWriteReason 常量给 20 §0.5 的文案。是否要在 ReasonCatalog 补表行，以后再定 |
 | DELETE 账号的 ACCOUNT_NOT_FOUND | 核实后端：站长再次 DELETE 已删除的账号返回 200，vendor 越权返回 404 RESOURCE_NOT_FOUND，当前不会返回 ACCOUNT_NOT_FOUND。App 已按规格把 404 ACCOUNT_NOT_FOUND 当已删除，等后端补校验后自然生效 |
 | :id/models 不存在时的 404 | 后端用 response.NotFound 返回无 reason 的 JSON 404，App 照抛（kind .notFound）；S2-12 / S2-14 应按 kind 处理，不依赖 reason |
-| 错误账号的列表右滑 | 开关关着的错误账号，右滑按 20 §1.4 字面给“启用调度”。打开开关并不清除错误，账号仍不参与调度，回执“已启用调度”可能让人误以为修好了。可改为右滑给“恢复状态…”（打开 AccountRecoverDialog），只需改 AccountActionCopy.swipeAction 一处。需要用户拍板 |
+| 错误账号的列表右滑 | **已处理（2026-11-03 第一轮用户反馈，U-04）**：开关关着的错误账号右滑改给“恢复状态…”（打开 AccountRecoverDialog），凭据类错误也给，更换凭据 / 重新授权仍在详情页。原记录：开关关着的错误账号，右滑按 20 §1.4 字面给“启用调度”。打开开关并不清除错误，账号仍不参与调度，回执“已启用调度”可能让人误以为修好了。可改为右滑给“恢复状态…”（打开 AccountRecoverDialog），只需改 AccountActionCopy.swipeAction 一处。需要用户拍板 |
 | 账号动作的等待进度 | AccountActions 不订阅 KeyedWriteEvent，带 key 的写最长等待约 35 秒 × 3，期间只靠 isRunning 表示进行中。如果 S2-08 的按钮行要显示“正在确认结果… / 已等待 N 秒”，需要 S2-05 的包装把 onEvent 透传过来，AccountActions 再加一个 confirming 状态 |
-| 批量调度“稍后核对” | 带 key 的 bulk-update 最坏要等约 3–4 分钟（65 秒 × 3 次 + 退避 + IN_PROGRESS 最多 30 秒），期间坞锁定、“完成”不可点，坞左侧显示“正在确认结果…”。是否加“稍后核对”（放弃等待、直接 runtime/batch 读回），对应 D31，待定 |
+| 批量调度“稍后核对” | **2026-11-03 用户确认保持**：不加“稍后核对”。原记录：带 key 的 bulk-update 最坏要等约 3–4 分钟（65 秒 × 3 次 + 退避 + IN_PROGRESS 最多 30 秒），期间坞锁定、“完成”不可点，坞左侧显示“正在确认结果…”。是否加“稍后核对”（放弃等待、直接 runtime/batch 读回），对应 D31，待定 |
 | 批量撤销依据的操作前状态 | 撤销用列表快照里的 schedulable 判断哪些账号真正被改动；选择模式期间轻刷新暂停，快照可能已过时。规格没要求执行前再读一次 runtime，本条没加 |
-| 批量选择数量不设上限 | 规格只限每次请求 50 个；全选 2000 行会变成 40 次顺序请求，期间坞一直显示进度。是否要上限或提示，待定 |
+| 批量选择数量不设上限 | **已处理（2026-11-03 第一轮用户反馈，U-06）**：不设硬上限；批量“停止调度”超过 50 个账号时先确认数量，确认后才 Face ID，“启用调度”和撤销不确认。原记录：规格只限每次请求 50 个；全选 2000 行会变成 40 次顺序请求，期间坞一直显示进度。是否要上限或提示，待定 |
 | S2-23 首页刷新接入点 | 批量有成功时让首页刷新（model.liveOps?.noteExternalWrite()）要加在 NativeApp/Features/Accounts/AccountBatchRunner.swift 的 run / undo 里，不是 items.json 写的 AccountBatchDock.swift，请集成者告知 S2-23 |
-| 到期自动暂停账号的详情主按钮 | S2D1-20 默认“修改过期时间…”，与 20 §2.3 字面的“启用调度”不同；S2-08 暂时打开旧编辑页，S2-10 改为 beginEdit(.sched)。用户若要照字面，只改 AccountDetailPresentation.actionRow 和 AccountActionCopy.swipeAction 两处 |
-| 账号详情错误态牌旁的原因 | 按 spec_issues 写“上游 {error_status_code}”，没有时不写；设计稿是 a.cause 或“上游返回错误”。等用户看过效果图再定 |
+| 到期自动暂停账号的详情主按钮 | **2026-11-03 用户确认保持**：主按钮仍是“修改过期时间…”。原记录：S2D1-20 默认“修改过期时间…”，与 20 §2.3 字面的“启用调度”不同；S2-08 暂时打开旧编辑页，S2-10 改为 beginEdit(.sched)。用户若要照字面，只改 AccountDetailPresentation.actionRow 和 AccountActionCopy.swipeAction 两处 |
+| 账号详情错误态牌旁的原因 | **已处理（2026-11-03 第一轮用户反馈，U-08）**：有状态码时写“上游 {码}”，没有时写“上游返回错误”。原记录：按 spec_issues 写“上游 {error_status_code}”，没有时不写；设计稿是 a.cause 或“上游返回错误”。等用户看过效果图再定 |
 | 详情里写操作后返回列表的即时刷新 | 列表回到可见时不立刻轻刷新，在详情里停止 / 启用调度后返回列表，最多 60 秒内仍显示旧状态；交 S2-23 收口（noteExternalWrite，或列表 setVisible(true) 时按 marks 补一次轻刷新） |
 | 分组页旧夹具与账号夹具的分组 id 不一致 | GroupsView 旧夹具的分组 10、11 在 AccountDemoStore 里没有成员，S2-08 加了 -ui-account-group-transition 让账号 4、7 归入分组 10，供过渡入口用例使用；S5-04 / S5-13 重写分组页、删除过渡入口时一并删掉这个参数和对应用例 |
 | 按 id 进入账号详情的 UI 用例路径 | AccountDetailUITests 里两个按 id 进入的用例走旧 RequestLogsView 的“查看账号”视图式链接；S4-05 / S4-08 重写日志页后要改路径（入口应 push .account(id:)） |
@@ -340,62 +341,61 @@
 | 运维关闭后上游错误计数的恢复 | 账号详情遇到 404 OPS_DISABLED 后，60 秒轻刷新不再请求上游错误。在 Web 开启运维监控后，要下拉刷新、回前台或重新进入详情才会显示计数。如果要自动恢复，可以改成每 N 分钟再试一次 |
 | 账号详情 UI 测试对旧日志页与占位页的断言 | 两个用例断言旧 RequestLogsView 的 logs.mode / logs.account-filter：testRecordsRowsOpenLogsFilteredByAccount、testOpsDisabledShowsNoticeRowAndErroredAtLine；testErrorAccountLatestUpstreamErrorOpensRequestRoute 断言 route.placeholder。S4-05 / S4-08 重写日志页和请求详情时要同步改这几处 |
 | 日志页旧夹具与账号详情上游错误计数不一致 | RequestLogsView 私有的 LogFixtures 里账号 1 有 1 条错误、账号 7 没有；AccountDemoStore.upstreamErrorPage 给 #1 0 条、#7 3 条。S4-05 重写日志页夹具时按 AccountDemoStore 统一，让“近 24 小时 N 条”与点进去看到的列表一致 |
-| 测试输出脱敏规则是否扩展 | 现只覆盖规格列的 Bearer、sk-…、URL（20 §4.3）；x-api-key 原值、JWT、sat_ 令牌、AKIA… 不在规则内。后端 error_message 已做 logredact，残留风险低（S2-13） |
-| Bedrock / Vertex 账号 401 的失败原因文案 | 暂按 20 §7.3 写“API Key 无效或已撤销”，措辞不准确，待用户看效果图后再定（S2-13） |
+| 测试输出脱敏规则是否扩展 | **已处理（2026-11-03 第一轮用户反馈，U-05）**：输出区补五类脱敏：PEM 私钥、密钥键名后的值（含转义 JSON 里的写法）、JWT、AWS AKIA / ASIA、Google AIza；跨多行的 PEM 与后端名单对齐另见本表 U-05 的几行。原记录：现只覆盖规格列的 Bearer、sk-…、URL（20 §4.3）；x-api-key 原值、JWT、sat_ 令牌、AKIA… 不在规则内。后端 error_message 已做 logredact，残留风险低（S2-13） |
+| Bedrock / Vertex 账号 401 的失败原因文案 | **已处理（2026-11-03 第一轮用户反馈，U-05）**：Bedrock / Vertex 账号 401 写“凭据无效或已撤销”。原记录：暂按 20 §7.3 写“API Key 无效或已撤销”，措辞不准确，待用户看效果图后再定（S2-13） |
 | 老服务端测试结果比对的精度 | AccountTestOutcome.legacy 用 error_summary / error_kind 判断错误是否被改写，App 的快照里没有 error_message / error_at；清除限流按测试前限流或临时不可调度有效、测试后没有来判断（S2-13） |
 | 保存遇到 GROUP_NOT_FOUND 时刷新分组目录 | S2-10 的分区 sheet 遇到 404 GROUP_NOT_FOUND 只显示目录文案“对象不存在或已删除”，不进已删除页，但没有自动调用 GroupDirectory.refresh()，分组页要等下次刷新才去掉已删除的分组；需要的话让 AccountPatchFlow 在 failed 里带上 reason，sheet 据此刷新 |
 | 密钥账号详情暂时没有 ⋯ 菜单 | S2-10 删掉过渡的“编辑账号”后，⋯ 只剩令牌账号的“刷新令牌”，密钥账号暂不显示 ⋯；S2-11（在 Web 中编辑、删除账号…）和 S2-16（更换 API Key…）加项时恢复，并按 20 §3.4 的顺序排 |
 | 账号删除“先 pop 再回执”的顺序 | 现在是回执在确认框关闭前出现、确认框关闭后再 pop（和公告删除一致）。如果要严格按规格先 pop 再回执，需要让 S3-00 的 DeleteConfirmationSheet 在 perform 结束后把关闭交给调用方，各章删除一起改 |
 | 账号删除确认框的后果行 | 后端删除账号会级联删除 spark 影子账号和定时测试计划；设计稿没有后果行，目前不写。等 DTO 给出影子数量后再考虑加“影子账号一并删除” |
-| 停用代理副行写法 | 规格写到期词（“MM/DD 到期 / 永不过期”），设计稿写“已停用”。用户看效果图后如果要“已停用”，只改 AccountProxyPresentation 的 row |
+| 停用代理副行写法 | **2026-11-03 用户确认保持**：副行照规格写到期词。原记录：规格写到期词（“MM/DD 到期 / 永不过期”），设计稿写“已停用”。用户看效果图后如果要“已停用”，只改 AccountProxyPresentation 的 row |
 | 其余详情写操作的列表完整刷新 | S2-06 的状态动作、S2-10 的保存、凭据写入还没有 bump AccountListSignal（本条只接了删除、恢复原代理、换代理），由 S2-23 收口时统一接上 |
 | .proxyDetail 占位断言 | S6-12 换上正式代理详情页后，要改 AccountDetailMenuUITests 里 testProxyRowOpensProxyDetail 与 testRevertOriginUnavailableOffersOriginDetail 对 route.placeholder 的断言 |
-| 账号模型分区空映射的文案 | Antigravity / Grok / Gemini Google One / OpenAI OAuth / DeepSeek 在映射为空时，后端实际按平台默认列表调度（service/account.go resolveModelMapping / IsModelSupported）；App 照规格写“支持所有模型”“未限制”。是否改成“按平台默认模型”待用户看图决定（S2-12） |
-| 多协议账号切换账号类型 / API 协议时联动接入端点 | 规格只写改 account_mode / api_protocol；App 照 Web EditAccountModal，在端点为官方预设或缺省时一并改写 base_url / api_base_urls / protocol_rules；自定义端点时两行只读并加脚注“这个账号用的是自定义接入端点，账号类型和 API 协议请在 Web 中修改。”（新文案，待用户看效果图；S2-12） |
+| 账号模型分区空映射的文案 | **已处理（2026-11-03 第一轮用户反馈，U-07）**：Antigravity / Grok / DeepSeek / Gemini Google One / OpenAI OAuth（未开透传）空映射时写“按平台默认模型”，分区右上写“平台默认”，编辑 sheet 脚注换新句（自拟文字待看截图，见本表“U-07 自拟文字待确认”）。原记录：Antigravity / Grok / Gemini Google One / OpenAI OAuth / DeepSeek 在映射为空时，后端实际按平台默认列表调度（service/account.go resolveModelMapping / IsModelSupported）；App 照规格写“支持所有模型”“未限制”。是否改成“按平台默认模型”待用户看图决定（S2-12） |
+| 多协议账号切换账号类型 / API 协议时联动接入端点 | **2026-11-03 用户确认保持**：照 Web 联动改写端点，自定义端点时两行只读并加脚注。原记录：规格只写改 account_mode / api_protocol；App 照 Web EditAccountModal，在端点为官方预设或缺省时一并改写 base_url / api_base_urls / protocol_rules；自定义端点时两行只读并加脚注“这个账号用的是自定义接入端点，账号类型和 API 协议请在 Web 中修改。”（新文案，待用户看效果图；S2-12） |
 | MetaCatalog 补解码 multi_protocol.routing | S2-12 用“任一模式有 protocol_rules”判断按模型分流（与当前目录一致：opencode_go、command_code）；将来出现没有规则的 by_model 平台会误判，影响未设置 api_protocol 时显示“Chat Completions”还是“自适应”，建议由 S2-02 的目录解码补上 routing |
-| 高级分区：倍率同步开启时探测行的提示 | 账号开着“按上游声明倍率同步账号计费倍率”时，关闭“自动探测上游声明倍率”会让后端连同步一起关掉（撤销可以恢复）。规格的副文案“只探测，不改账号计费倍率”没有提到这一点。是否在同步开启时给探测行加一句提示（例如“关闭后倍率同步也会关闭”），等用户定。 |
-| 中断回执是否带账号名 | 20 §4.4 的回执“测试被中断，不能判定是否成功”照抄规格，不带账号名；多个账号同时在后台测试时分不清是哪个被中断（点“重新测试”针对的是该任务的账号）。是否改为“「{name}」测试被中断，不能判定是否成功”待定（S2-14） |
-| ACCOUNT_TEST_BUSY 的按钮倒计时文案 | 后端对 ACCOUNT_TEST_BUSY 不写 Retry-After，按 00 §2.7.2 默认 30 秒；按钮文案“N 秒后重新测试”和置灰到点为止的做法是 S2-14 定的，规格没给，待设计确认 |
+| 高级分区：倍率同步开启时探测行的提示 | **已处理（2026-11-03 第一轮用户反馈，U-07）**：倍率同步开着时，探测开关下方加“关闭后倍率同步也会关闭”。原记录：账号开着“按上游声明倍率同步账号计费倍率”时，关闭“自动探测上游声明倍率”会让后端连同步一起关掉（撤销可以恢复）。规格的副文案“只探测，不改账号计费倍率”没有提到这一点。是否在同步开启时给探测行加一句提示（例如“关闭后倍率同步也会关闭”），等用户定。 |
+| 中断回执是否带账号名 | **已处理（2026-11-03 第一轮用户反馈，U-05）**：回执改为“「{name}」测试被中断，不能判定是否成功”。原记录：20 §4.4 的回执“测试被中断，不能判定是否成功”照抄规格，不带账号名；多个账号同时在后台测试时分不清是哪个被中断（点“重新测试”针对的是该任务的账号）。是否改为“「{name}」测试被中断，不能判定是否成功”待定（S2-14） |
+| ACCOUNT_TEST_BUSY 的按钮倒计时文案 | **2026-11-03 用户确认保持**：默认等 30 秒，按钮写“N 秒后重新测试”。原记录：后端对 ACCOUNT_TEST_BUSY 不写 Retry-After，按 00 §2.7.2 默认 30 秒；按钮文案“N 秒后重新测试”和置灰到点为止的做法是 S2-14 定的，规格没给，待设计确认 |
 | AccountDetailUITests.testBasicAndScheduleSectionsShowReadOnlyValues 不稳定 | 用例用字典遍历 6 个调度行，Swift 字典顺序每次进程随机，而 reveal 只向下滚，靠上的行排到后面时滚不回去，失败在第 325 行；集成 gate 0fc3f65 记为 FLAKY，S2-14 check 中两次都失败，单独重跑通过。应改为有序的数组遍历（测试文件归 S2-10，S2-14 未改） |
 | items.json 补登记 S2-14 的文件外改动 | S2-14 新建了 NativeApp/Session/DemoData+AccountTests.swift（DemoData+Accounts.swift 已有 703 行，放不下），并在 Package.swift 的 NativeSessionSupport exclude 阶段 2 段加了一行；这两个文件都不在条目 files 里，请补进 items.json 并重跑 build.py |
 | 后端：Claude / Gemini / Antigravity 换码网络失败缺 reason | 新建账号换码时，Claude 的上游失败是不带 reason 的 500，Gemini / Antigravity 是不带 reason 的 400（oauth_exchange_error.go），App 分不出“授权码还没用掉 · 换个代理再试”，目前退回通用文案；建议后端给这三个平台补上和 OPENAI_OAUTH_TOKEN_EXCHANGE_FAILED 同类的 reason |
-| reauthorize / exchange-code / apply 的 30 秒超时 | 按 00 §2.3 保持不带 key 的写 30 秒；后端换码上限 2 分钟、保存 30 秒，上游慢时会先超时、落到“不能确认是否已替换”。建议实测后再决定是否放宽（S2D1-03） |
 | items.json files 补登记 | S2-15 实际新增了 OAuthCredentialBuilder.swift、AccountOAuthErrorCopy.swift、OAuthCredentialBuilderTests.swift、AccountOAuthErrorCopyTests.swift（方案已列出拆分），需要补进 items.json 的 files 并重跑 build.py |
 | 没有幂等能力时“用同一编号重试”实际是新的创建 | 站点没有 admin.idempotent_writes 时没有 key，核对没找到后的重试是一次新的 POST；如果第一次其实在核对之后才落库，会建出第二个账号。建议 S2-19 在没有 key 时把按钮改成“重新创建”并保留核对说明，文案待用户确认 |
 | 创建后换认证方式，旧密钥会留在服务端 | PATCH 不能删除敏感凭据键（CREDENTIAL_KEY_NOT_DELETABLE），PUT 也保留旧敏感键，所以换方式做不到字面上的“替换原来的凭据”（旧密钥对新类型不起作用，且始终脱敏）；建议后端提供换类型时整份替换凭据的方式 |
-| 多协议端点预设表（MiniMax Intl 等） | meta/catalog 每个模式的每个协议只有一个官方端点；新建表单目前只提供目录端点和自定义端点。预设表需要后端在目录里提供，或由用户决定是否在 App 内置 |
+| 多协议端点预设表（MiniMax Intl 等） | **已处理（1e0dfb6，S2-19 审查修正）**：新建账号的端点已按 Web 的预设表内置进 App（Sub2Core 的 AccountNewOptions），后端改预设时随之同步重抄（2026-11-03 核对）。原记录：meta/catalog 每个模式的每个协议只有一个官方端点；新建表单目前只提供目录端点和自定义端点。预设表需要后端在目录里提供，或由用户决定是否在 App 内置 |
 | Gemini OAuth 档位选择 | 新建时只用默认档位（Google One → google_one_free、Code Assist → gcp_standard），App 不提供档位选择 |
 | 新建 apikey 账号默认开启上游倍率探测 | 按 Web 默认发 upstream_billing_probe_enabled: true；如果不想默认开启，只需改 createRequest 一行和一条测试 |
-| 无刷新令牌时的“刷新令牌”行 | token_status.auto_refresh == false（没有 refresh_token）时，Claude 刷新会得到不带 reason 的 500。目前照规格保留该行，失败按 500 兜底。待用户决定是否置灰并注“没有刷新令牌，只能重新授权”（S2-16） |
+| 无刷新令牌时的“刷新令牌”行 | **已处理（2026-11-03 第一轮用户反馈，U-08）**：没有刷新令牌（token_status.auto_refresh == false）时“刷新令牌”置灰并注明“没有刷新令牌，只能重新授权”；OpenAI 个人访问令牌除外（审查修正 42a018f）。原记录：token_status.auto_refresh == false（没有 refresh_token）时，Claude 刷新会得到不带 reason 的 500。目前照规格保留该行，失败按 500 兜底。待用户决定是否置灰并注“没有刷新令牌，只能重新授权”（S2-16） |
 | 后端补 SPARK_SHADOW_NO_REFRESH 文档 | 刷新影子账号返回 400 SPARK_SHADOW_NO_REFRESH，但 docs/API_ERROR_CODES.md 和 20 §0.5 都没有。App 已用“影子账号的凭据跟随母账号，请刷新母账号的令牌”（S2-16） |
-| 真机确认更换 API Key 输入框 | SecureField 已加 textContentType(nil)、autocorrectionDisabled、privacySensitive。模拟器测不出真机会不会弹“存储密码”或钥匙串自动填充；若会弹，改用 .oneTimeCode 抑制（S2-16） |
-| bedrock / service_account 凭据区文案 | 规格只定了这两类账号的主按钮去 Web（U17）。凭据区目前是“凭据 · 已设置 · 不可查看”加“在 Web 中更换凭据”，脚注“已保存的凭据不可查看；这类凭据请在 Web 中更换。”为自拟，请用户看效果图后确认（S2-16） |
+| 真机确认更换 API Key 输入框 | **2026-11-03 定去向：真机验收**：并入真机验收的账号部分，先看会不会弹“存储密码”。原记录：SecureField 已加 textContentType(nil)、autocorrectionDisabled、privacySensitive。模拟器测不出真机会不会弹“存储密码”或钥匙串自动填充；若会弹，改用 .oneTimeCode 抑制（S2-16） |
+| bedrock / service_account 凭据区文案 | **2026-11-03 用户确认保持**：脚注沿用现有写法。原记录：规格只定了这两类账号的主按钮去 Web（U17）。凭据区目前是“凭据 · 已设置 · 不可查看”加“在 Web 中更换凭据”，脚注“已保存的凭据不可查看；这类凭据请在 Web 中更换。”为自拟，请用户看效果图后确认（S2-16） |
 | Base URL 回执的按钮 | 按设计稿给“测试”。按 20 §0.4-1，可逆的内联编辑应给“撤销”；若要撤销，可用 AccountBaseURLDraft.original 发 PATCH 写回旧值（S2-16） |
 | 访问令牌剩余比例刻度 | 已定设计稿没有刻度，本条不画。以后要加时用 token_status.lifetime_seconds 作分母，只在它有值时画（S2-16） |
-| 重新授权 / 换码 / apply 的超时 | 按 S2D1-03 沿用不带 key 的写 30 秒；服务端换码最长 2 分钟、保存最长 30 秒，客户端断开后仍会继续，所以上游慢时 App 会落到“不能确认是否已替换 + 重试”。建议在真实站点实测后再定是否放宽（例如 150 秒） |
-| OAuthCallbackListener 真机验证 | NWListener 加 SFSafariViewController 跳本机端口只能在真机上验证：localhost 先连 ::1 的双栈情况、端口被其他 App 占用时退回粘贴、是否需要 NSLocalNetworkUsageDescription。重新授权不开监听，首个开启方是 S2-19 |
+| 重新授权 / 换码 / apply 的超时 | **2026-11-03 定去向：等测试环境实测**：实测重新授权、换取授权码、保存授权凭据三个请求的耗时；经常超过 30 秒时只把这三个请求的超时放宽到约 150 秒，其他请求不变，本轮 App 不改。本行合并了原“reauthorize / exchange-code / apply 的 30 秒超时”（S2D1-03，同一件事）。原记录：按 S2D1-03 沿用不带 key 的写 30 秒；服务端换码最长 2 分钟、保存最长 30 秒，客户端断开后仍会继续，所以上游慢时 App 会落到“不能确认是否已替换 + 重试”。建议在真实站点实测后再定是否放宽（例如 150 秒） |
+| OAuthCallbackListener 真机验证 | **2026-11-03 定去向：真机验收**：并入真机验收的账号部分：localhost 的 IPv4 / IPv6、端口被占用时改用粘贴、要不要本地网络权限说明、Safari 授权后能否跳回。原记录：NWListener 加 SFSafariViewController 跳本机端口只能在真机上验证：localhost 先连 ::1 的双栈情况、端口被其他 App 占用时退回粘贴、是否需要 NSLocalNetworkUsageDescription。重新授权不开监听，首个开启方是 S2-19 |
 | 复制授权链接不限本机 | 为了能复制到走同一代理的电脑上打开，“复制链接”不加 .localOnly（会经通用剪贴板同步到其他设备），只把到期设为链接剩余时间；链接里没有 code_verifier，风险可接受。以后需要收紧时再定 |
 | REAUTH_PERSIST_FAILED 缺 retry_within_seconds | S2-15 的口径是缺省时只给“重新授权”（不给“重试保存”）；后端目前总是带 300。若后端改了，再决定是否按 300 秒兜底 |
 | 新建账号 UI 测试补跑 | S2-19 的 AccountNewUITests（13 个）是在 UI_UNAVAILABLE 下写的，从未在模拟器跑过；Mac 修好后（Xcode 27.2 需 runFirstLaunch，Toolchain.json 仍固定 27.1）补跑 check AccountNewUITests,AccountListUITests,AccountCredentialUITests,AccountEditUITests,AppNavigationUITests 并修正 |
-| 新建账号停调度没有确认时“仍然关闭” | S2-19 的取消确认框给“重试停止调度 / 仍然关闭 / 继续处理”；“仍然关闭”关闭表单并回执“「{name}」停止调度没有确认 · 结果待核对”+“查看”。规格只写了重试与删除，文案待用户确认；“删除账号…”随 S2-20 加入 |
-| 新建账号多协议端点预设 | 新建表单的“端点”只有目录官方端点与“自定义”。Web 的 CN_BASE_URL_PRESETS（kimi / zhipu / deepseek / minimax）不在 S2-18 的数据里，是否补齐待用户决定 |
-| 跨 Tab 跳转关闭新建表单 | AppRouter.select 会无确认地关闭新建表单，已填内容和内存里的令牌一并丢弃；已发出的创建与停调度仍会做完并照常发回执。是否在 select 前询问，留给 S2-23 或用户决定 |
+| 新建账号停调度没有确认时“仍然关闭” | **2026-11-03 用户确认保持**：“仍然关闭”与回执文案沿用。原记录：S2-19 的取消确认框给“重试停止调度 / 仍然关闭 / 继续处理”；“仍然关闭”关闭表单并回执“「{name}」停止调度没有确认 · 结果待核对”+“查看”。规格只写了重试与删除，文案待用户确认；“删除账号…”随 S2-20 加入 |
+| 新建账号多协议端点预设 | **已处理（1e0dfb6，S2-19 审查修正）**：Web 的 CN_BASE_URL_PRESETS（kimi / zhipu / deepseek / minimax）已内置进 App（AccountNewOptions），后端改预设时随之同步重抄（2026-11-03 核对）。原记录：新建表单的“端点”只有目录官方端点与“自定义”。Web 的 CN_BASE_URL_PRESETS（kimi / zhipu / deepseek / minimax）不在 S2-18 的数据里，是否补齐待用户决定 |
+| 跨 Tab 跳转关闭新建表单 | **已处理（2026-11-03 第一轮用户反馈，U-03）**：新建账号、分组、代理、公告四个路由 sheet 有未保存内容时，跳到别的 Tab 先问（复用各自“取消”的问法）；新建账号已创建后跳 Tab 仍直接关闭，见“App 与设计”表“新建账号已创建后跳 Tab 不问”。原记录：AppRouter.select 会无确认地关闭新建表单，已填内容和内存里的令牌一并丢弃；已发出的创建与停调度仍会做完并照常发回执。是否在 select 前询问，留给 S2-23 或用户决定 |
 | 新建账号遇到 503 IDEMPOTENCY_STORE_UNAVAILABLE | 创建遇到 store-unavailable 时按结果不明核对，找不到就给“用同一编号重试”，没有按 retryNotBefore 延后；S2-20 / S2-23 可统一处理 |
 | S2-19 新建账号三个 UI 用例原有失败 | Mac 能跑 UI 后首次跑出，c38ab7e 起就失败，不是这次审查修正带来的：testDockListsMissingItemsAndJumpsToFirst（第 49 行 clear 名称没清掉，坞仍是“还差API Key”）、testTurningOffMixedSchedulingRemovesGroupsWithUndo（第 165 行 sheet 内 ReceiptOverlay 的 receipt.text 找不到）、testCredentialSectionsFollowMethod（第 279 行“更多”里的负载因子行滚不到）。要查是测试辅助方法的问题，还是 sheet 内回执 / 更多分区的实现问题。 |
 | 新建账号坞的“重试”（.resend）分支已经走不到 | 建号现在一律带 key，AccountNewDockContent 里无 key 时的“重试”分支不会再出现；S2-20 动这个文件时可以顺手删掉，或保留作兜底。 |
 | PATCH 改 type 时清空旧凭据键 | 新建账号测试失败后改认证方式再保存：PATCH 的 credentials_patch 不能删除敏感键（CREDENTIAL_KEY_NOT_DELETABLE），PUT 退路又会保留没有提供的敏感键，旧方式的 api_key / access_token 会留在服务端（不参与新方式）。请后端评估 PATCH 改 type 时允许清空凭据；现在要彻底清除只能删除后重建。 |
-| 创建失败时是否也打开测试 sheet | 规格 20 §7.5 写“创建失败 → 测试 sheet 第一行标失败”。S2-20 改为账号存在后才打开 sheet，创建失败 / 结果不明 / 混合渠道确认仍在 S2-19 的坞和弹框里处理，避免确认框和 sheet 同时出现。是否按规格改，待用户决定。 |
+| 创建失败时是否也打开测试 sheet | **2026-11-03 用户确认保持**：创建失败仍在坞和弹框里处理，账号存在后才打开测试 sheet。原记录：规格 20 §7.5 写“创建失败 → 测试 sheet 第一行标失败”。S2-20 改为账号存在后才打开 sheet，创建失败 / 结果不明 / 混合渠道确认仍在 S2-19 的坞和弹框里处理，避免确认框和 sheet 同时出现。是否按规格改，待用户决定。 |
 | AccountNewUITests 三个用例在主分支上稳定失败 | testCredentialSectionsFollowMethod、testDockListsMissingItemsAndJumpsToFirst（底栏只列“还差API Key”，不列“名称”）、testTurningOffMixedSchedulingRemovesGroupsWithUndo（没有回执）。在 091294f 上用 MAC_REF 复跑同样失败，线 A S2-20 的 check、集成者的 gate 里也一样；不在 app-rules 的基线清单里，需要 S2-19 / S2-20 的线修复或补登基线（S2-22 汇报） |
-| 告警 sheet“只看需处理的账号”是否同时展开或筛到该平台 | 规格与设计稿都只切胶囊（S2-22 照做）。有平台筛选、或该平台分区已收起时，切过去可能看不到本平台需处理的账号；要不要同时展开分区或筛到该平台，待用户决定 |
-| 10 §0.5 补一句“账号 Tab 也会触发 firing 列表刷新” | 20 审查记录第 7 条的建议；规格文件线上不能改，S2-22 已按这个口径实现（AccountListModel 调 LiveOpsStore.refreshFiringAlerts()） |
+| 告警 sheet“只看需处理的账号”是否同时展开或筛到该平台 | **已处理（2026-11-03 第一轮用户反馈，U-04）**：切到“需处理”时同时筛到该平台并展开这个平台的分区。原记录：规格与设计稿都只切胶囊（S2-22 照做）。有平台筛选、或该平台分区已收起时，切过去可能看不到本平台需处理的账号；要不要同时展开分区或筛到该平台，待用户决定 |
+| 10 §0.5 补一句“账号 Tab 也会触发 firing 列表刷新” | **已处理（2026-11-03 第一轮用户反馈，U-29）**：10 §0.5 已补“账号 Tab 可见时也刷新和监控页共用的告警列表”，FINAL-SPEC 随 U-30 同步。原记录：20 审查记录第 7 条的建议；规格文件线上不能改，S2-22 已按这个口径实现（AccountListModel 调 LiveOpsStore.refreshFiringAlerts()） |
 | 新建账号测试通过后换模型重测 | S2-20 审查修正后，测试通过（含启用没有成功）时测试行不再可点模型名。规格 20 §7.3 和设计稿允许结束后都能换模型，但通过后账号已参与调度，失败的结论没有正确文案（现有文案都说“已停止调度”）。如果要恢复，需要给“通过后重测失败、仍参与调度”定文案和按钮。 |
 | 定时测试接口补信封 | 后端 GET /admin/accounts/:id/scheduled-test-plans 与 /admin/scheduled-test-plans/:id/results 用 c.JSON 返回裸数组（无数据时 null），App 靠 APIClient.decode 的 UnenvelopedReply 分支读取（S2-21）；后端补上 {code,data} 信封后可删掉这个分支 |
-| vendor 读定时测试结果 | /admin/scheduled-test-plans/:id/results 不在 vendor 路由白名单，vendor 能看到计划但读结果返回 403 FORBIDDEN；App 目前写“没有权限查看测试结果，在 Web 中查看”。是否给 vendor 放开（只读、限自家账号），待用户决定 |
-| 定时测试状态码正则是否放宽 | App 按规格 20 §0.1 用窄正则 \((\d{3})\)\|returned (\d{3})；后端自己用更宽的 (?:returned\|返回\|HTTP)\s*(\d{3})\b\|\((\d{3})\)。旧结果写“返回 429”“HTTP 403”时 App 解析不到码、徽章显示“—”，看实测再决定是否放宽 |
-| 定时测试“每 1 分钟”写法与失败行耗时 | cron */1 照规格字面写成“每 1 分钟 / 每 1 小时”；失败结果行照规格不写耗时（设计稿 VdTests 写了）；“其他”分类词写成“529 上游 529”这种重复写法。都等用户看截图后定 |
+| vendor 读定时测试结果 | **2026-11-03 用户确认保持**：首版不开放 vendor 登录，现状不改；列入“开放代运营登录前必做”。原记录：/admin/scheduled-test-plans/:id/results 不在 vendor 路由白名单，vendor 能看到计划但读结果返回 403 FORBIDDEN；App 目前写“没有权限查看测试结果，在 Web 中查看”。是否给 vendor 放开（只读、限自家账号），待用户决定 |
+| 定时测试状态码正则是否放宽 | **已处理（2026-11-03 第一轮用户反馈，U-09）**：正则改为与后端 account_test_trace.go 的写法一致（只认 100–599），20 §0.1 随 U-29 同步。原记录：App 按规格 20 §0.1 用窄正则 \((\d{3})\)\|returned (\d{3})；后端自己用更宽的 (?:returned\|返回\|HTTP)\s*(\d{3})\b\|\((\d{3})\)。旧结果写“返回 429”“HTTP 403”时 App 解析不到码、徽章显示“—”，看实测再决定是否放宽 |
+| 定时测试“每 1 分钟”写法与失败行耗时 | **已处理（2026-11-03 第一轮用户反馈，U-09）**：步长 1 写“每分钟 / 每小时”，失败行也带耗时，“上游 {码}”只写一次（码牌版式待看截图，见本表“定时测试失败行“上游 {码}”的版式”）。原记录：cron */1 照规格字面写成“每 1 分钟 / 每 1 小时”；失败结果行照规格不写耗时（设计稿 VdTests 写了）；“其他”分类词写成“529 上游 529”这种重复写法。都等用户看截图后定 |
 | LoadState 重读被取消后恢复成 loaded，失败标记随之丢失 | 上次读取失败后，如果下一次重读被取消（下拉刷新、切换胶囊等会取消伴随请求），withCancelledLoad 会把 .loading(旧值) 恢复成 .loaded(旧值, 上次成功时间)。监控页等直接看 BlockState 的地方，“更新失败”标记会跟着消失，要等下一次读取才会回来。S2-22 的组头告警牌已经改用 lastErrorAt 绕开这个问题；BlockState / LoadState 的共用语义要不要改（例如取消时回到 failed），需要另外决定。 |
 | 真机确认 ETag 304 | （补充已有行）S2-23 未实测：测试环境地址只在主工作区的未跟踪目录里，线上实现者不进入主工作区，而且测试环境与生产同机。方案记录的后端事实：buildAccountsListETag 覆盖 items 里的并发、RPM、会话、窗口费用等运行时采样，命中时返回 304、没有响应体，并带 Vary: If-None-Match，所以只有没有流量的站点才稳定 304。单测证据见 ConditionalRequestTests.accountListPageKeepsCountsOn304AndLaterPagesOmitCounts。请集成者或用户在测试环境用 curl 带上次的 If-None-Match，连发两次 GET admin/accounts?page=1&page_size=500&lite=1&sort_by=urgency&include_counts=1 确认（地址不入库） |
-| 倍率的显示位数 | （补充已有行）账号一侧已按 DisplayFormat.decimal 定（S2-10 的 AccountEditCopy.rate：调度分区“×1.2”和新建 / 编辑里的分组倍率，最多 3 位小数）；App 不显示上游探测倍率；分组页由阶段 5 处理 |
+| 倍率的显示位数 | **已统一（2026-11-03 用户定）**：费率倍数全 App 用 DisplayFormat.multiplier / multiplierChange（U-02）：× 在前，三位小数四舍五入，去掉末尾的 0，至少一位小数（×0.125、×0.13、×1.0）；确认框两侧按三位相同而实际不同时写完整精度（×0.13 → ×0.1304），见 00 §6.2。原记录：（补充已有行）账号一侧已按 DisplayFormat.decimal 定（S2-10 的 AccountEditCopy.rate：调度分区“×1.2”和新建 / 编辑里的分组倍率，最多 3 位小数）；App 不显示上游探测倍率；分组页由阶段 5 处理 |
 | 缺失值“—”的读屏 | （补充已有行）阶段 2 账号页（列表行、详情状态卡、容量、今日、记录、编辑分区、定时测试小页）的读屏值都经 DisplayFormat.spoken / spokenValue / missingSpoken，读作“无数据”（S2-23 grep 核对；其余 accessibilityValue 是名称或整数，不会出现“—”） |
 | 区块 429 倒计时文案与重试按钮 | （补充已有行）账号部分已处理：账号详情今日节改用 S1-08 的 BlockFailureRow / BlockStatusAccessory（S2-23，X37），等待期重试置灰，到时自动重读；定时测试小页在 S2-21 修正时已改；账号列表的今日金额只显示“—”，不单独提示（20 §1.5） |
 | 读区块的“完成合规确认”入口 | （补充已有行）账号详情今日节经 BlockFailureRow 也有了（S2-23） |
@@ -503,10 +503,10 @@
 
 | 事项 | 说明 |
 |---|---|
-| 使用记录在旧服务端不发 key_view | 没有 api_keys.masked_view 的服务端（早于 2026-10-19）仍会在 admin/usage 响应里下发明文 api_key.key，App 只是不解码；若希望一律发 key_view=masked（旧服务端会忽略），需要为 00 §0 硬规则 8 开一个例外，待用户确认（S4D1 需要拍板第 3 条） |
+| 使用记录在旧服务端不发 key_view | **2026-11-03 用户确认保持**：旧服务端仍不发 key_view；另请用户尽早把约 10 月 19 日以前的站点升级到带 Key 脱敏（api_keys.masked_view）的版本。原记录：没有 api_keys.masked_view 的服务端（早于 2026-10-19）仍会在 admin/usage 响应里下发明文 api_key.key，App 只是不解码；若希望一律发 key_view=masked（旧服务端会忽略），需要为 00 §0 硬规则 8 开一个例外，待用户确认（S4D1 需要拍板第 3 条） |
 | errorCount 的口径 | 近 24 小时 N 条一律带 view=all，包含用户自身余额、额度、频率限制，与告警 error_rate 的 SLA 口径不同；S1-17、S2-09、S5-07 的文案只写“近 24 小时 N 条”，不要当作错误率依据 |
 | 页面状态注册表只对 AppRoute 推入的页面生效 | PageStateRegistry 按 Tab 的 path 释放状态。视图式 NavigationLink 推入的页面不在 path 里，它登记的状态会在该 Tab 下一次出栈或替换时释放，path 一直不变时留到会话结束。过渡期的旧入口（S4-05 的 LegacyLogsEntry）会这样，S4-20 删掉兼容入口后就没有了。新页面必须经 AppRoute 推入（X39），并一律用 prunedBy 重载登记。 |
-| 性能趋势范围上限 31 天 + 1 小时 | S4-10 按 S4D1-10 把 throughput-trend 的本地上限由 40 §2.7 字面的 30 天放宽为 31 天 + 1 小时（PerformanceTrend.maximumSpan），以覆盖“上月”与夏令时；后端没有上限。待用户确认，S4-18 平均账号切换超限时的卡内提示按这个常量走。 |
+| 性能趋势范围上限 31 天 + 1 小时 | **2026-11-03 用户确认保持**，现状不改。原记录：S4-10 按 S4D1-10 把 throughput-trend 的本地上限由 40 §2.7 字面的 30 天放宽为 31 天 + 1 小时（PerformanceTrend.maximumSpan），以覆盖“上月”与夏令时；后端没有上限。待用户确认，S4-18 平均账号切换超限时的卡内提示按这个常量走。 |
 | 删除 PerformanceTrend 的 Decodable 与 init(from:) | S4-10 按 X29 没改 APIClient.swift，只为旧的 dashboardPerformanceTrend(start:end:) 保留 Decodable 和按点列推窗口的 init(from:)；S1-09b 删除旧方法时同一提交删掉（S1D1-18），漏掉的话由 S4-20 收口。 |
 | 请求详情退路：客户端已成功但查不到成功记录 | 已恢复样子走退路时，如果用 client:<client_request_id> 查不到成功那次，fallbackRows 只有失败尝试，最后一次的副行会写“失败，错误返回客户端”，与客户端实际拿到 200 矛盾。S4-08 需要决定此时的写法（例如不显示该副行，或改写成“失败，后续尝试未记录”），规格没有对应文案 |
 | 退路尝试行的账号名 | failover 事件常常没有 account_name，退路行的标题会显示“#<id>”。可以借用同 id 的其他事件或成功记录里的名字，需要时再加 |
@@ -517,11 +517,11 @@
 | Token 速度多行合并的权重是近似值 | 后端 avg_tokens_per_sec 只对 duration_ms > 0 且 output_tokens > 0 的行求平均，App 只能按 request_count 加权（40 §5.2）。要精确需后端在 items 里加 requests_with_tps（只增字段）。另外 avg_duration_ms 无数据时是 0 而不是 null |
 | 错误趋势 60 秒与 3600 秒桶的底注句式 | 40 §2.3 只给了 300 秒桶的文案。建议 S4-18 用同一句式：60 秒“后端每分钟一桶，这里按 5 分钟合计。”，3600 秒“后端每小时一桶，这里按天合计。”，后半句不变 |
 | 首页退路每小时图的账号成本 | S4-02 之后 TrendPoint 已解码 account_cost，但 HomeFallback.hourly(_:now:) 构造 HomeHourlyPoint 时仍没带上 accountCost，注释还写着“trend point 里还没有 account_cost（S4-02）”。本条按 S4D1-12 只改了 dashboardTrend 的函数体，没动这里。由首页相关条目或 S4-20 收口时接上并更新注释。 |
-| 自定义范围 sheet 单天时的底部说明 | 规格固定写“共 N 天，按天统计（只选一天按小时）；按站点时区计算。”，设计稿单天写“按小时统计”。S4-09 照规格实现，要改只需改 AnalyticsCustomDraft.footnote 一处，留给 UI 审查确认。 |
+| 自定义范围 sheet 单天时的底部说明 | **已处理（2026-11-03 第一轮用户反馈，U-28）**：只选一天时写“共 1 天，按小时统计；按站点时区计算。”，多天不变。原记录：规格固定写“共 N 天，按天统计（只选一天按小时）；按站点时区计算。”，设计稿单天写“按小时统计”。S4-09 照规格实现，要改只需改 AnalyticsCustomDraft.footnote 一处，留给 UI 审查确认。 |
 | 按小时刻度中末桶“现在”的替换规则 | 40 §1.4 按小时从 0 时起每隔 N 个桶标一个刻度，含现在时末桶常常不在刻度上。S4-09 的做法是把最后一个刻度换成末桶写“现在”（例如 11 桶时为 0时 / 3时 / 6时 / 现在），以免两个标签相邻重叠。留给 UI 审查确认。 |
 | 利润增减两边都为 0 时的显示 | 规格写“任一边 ≤ 0 用金额差”，所以写“$0.00 · 比昨天同时”；设计稿 AxDelta 在两边都为 0 时写“比昨天同时 —”。S4-09 按规格实现，S4-13 接线时如果要改成“—”，可在调用处判断。 |
 | 自定义范围日历的“今天”高亮按手机时区 | S4-12 的 DatePicker(.graphical) 已设站点时区与日历，选出的日期按站点日计算（R20）；但系统控件的“今天”高亮仍按手机时区，跨时区时可能差一天。S4-13 挂载后在模拟器上确认，必要时改成自绘月历。 |
-| 筛选 sheet 占比读取失败没有提示 | dashboard/groups 或 dashboard/models 的占比读取失败时：分组行照常显示、右侧没有数字，也没有重试入口；模型列表失败时有 BlockFailureRow。是否给分组占比失败加一行“占比读取失败 · 重试”，待 S4-13 的 UI 用例与设计确认。 |
+| 筛选 sheet 占比读取失败没有提示 | **已处理（2026-11-03 第一轮用户反馈，U-28）**：筛选面板分组占比读取失败时，在最后一个分组之后给“占比读取失败 · 重试”（BlockFailureRow，只重读占比，分组照常可选；位置待看截图，见本表“统计筛选面板 · 分组占比失败行的位置”）。本行合并了原“筛选 sheet 分组占比读取失败没有提示”（S4-13 未做，延后到 UI 审查）。原记录：dashboard/groups 或 dashboard/models 的占比读取失败时：分组行照常显示、右侧没有数字，也没有重试入口；模型列表失败时有 BlockFailureRow。是否给分组占比失败加一行“占比读取失败 · 重试”，待 S4-13 的 UI 用例与设计确认。 |
 | 利润明细合计口径（40 §1.4 分段取整与 §0.2 冲突） | 规格要求实际、账号成本各自以 usage/stats 合计舍入到分为总数、利润取两者之差，同时又要求合计利润等于首页 6 格利润。但 round(A) − round(C) 与 round(A − C) 约四次有一次差 $0.01，两条不能同时满足。S4-09 审查修正（66da4cb）保住利润：利润合计 = round(A − C)，与首页、利润卡大数一致；账号成本列总数 = round(A) − round(A − C)，可能比计费卡三数里的账号成本（round(C)）差 1 分。要改回“账号成本严格等于自己的舍入值、利润合计可能与首页差 1 分”，只动 ProfitRows.init 里 costTotal / profitTotal 两行。 |
 | 使用记录行展示的规格未写处 | 首字与总耗时都缺时写一个“—”；自定义时段标题“10/14 09:00 – 10/15 18:00”与空态“所选时间内…”；不在今年的节头带年份；30 天提示只给起点早于 30 天前的自定义范围（U35）；站点没有 usage.model_source 时用量段非请求口径的模型胶囊置灰。待 UI 审查确认 |
 | 日志列表行的业务限制灰 | ops 错误列表项（OpsErrorLog）没有 is_business_limited，日志行只能按 codeTone(status_code) 着色，业务限制灰目前只在请求详情里有。要在列表里区分，需要后端在列表项加这个字段 |
@@ -532,11 +532,10 @@
 | 路由参数在旧页面上不生效（补充） | .analytics 的 range 自 S4-13 生效，focus == .perf 的首次滚动已做，metric 由 S4-16 的 RPM / TPM 卡读取 |
 | 区块 429 倒计时文案与重试按钮（补充） | 统计分析各卡经 AnalyticsCardStatusRow 用 BlockFailureRow，按钮写“重试本项”，429 等待期间倒计时、重试禁用（S4-13 已有 UI 用例） |
 | 缺失值“—”的读屏（补充） | 统计分析计费卡的大数、账号成本 / 标准 / 利润三格、请求 · Tokens · 平均耗时的缺失值都读“无数据”（S4-13） |
-| 筛选 sheet 分组占比读取失败没有提示 | S4-13 未做（要改 S4-12 的 AnalyticsSheets.swift / AnalyticsFixtures+Filter.swift），延后到 UI 审查 |
 | 自定义范围日历的“今天”高亮按手机时区（核对结果） | S4-13 在模拟器上设手机时区 America/Los_Angeles、站点 Asia/Shanghai 截图核对：图形日历的“今天”标在站点日期（11月1日），因为 DatePicker 已注入站点 timeZone / calendar，没有错位；这一行可以关闭 |
 | S4-20 清理清单补充：旧趋势页的残留 | LegacyTrendPage 删除后，AppModel.dashboardTrend() 及其 -ui-trend-long-series / -ui-dashboard-detail-errors 夹具分支、DemoData.longHourlyTrend 已没有调用方（PerformanceTrendView 与 dashboardPerformanceTrend(hours:) 归 S4-16）；docs/API_COMPATIBILITY.md:32 仍写“过渡页 LegacyTrendPage”，需要随 S4-20 改写 |
-| 卡内失败行偏重 | 计费卡合计与趋势同时失败时，卡内出现两组“加载失败 · 重试本项 + 详情”，各管一个读取；是否合并成一行留给 UI 审查 |
-| 请求详情分区编号 | 按已定设计稿：头部状态卡与按钮行不编号，耗时从“壹”起；40 §7.1 字面从头部卡开始编号，待用户确认（S4D2a-14；若按规格只改 RequestDetailLayout.sections / ordinal 与对应单测） |
+| 卡内失败行偏重 | **已处理（2026-11-03 第一轮用户反馈，U-28）**：计费趋势卡合计与趋势同时失败（都可重试）时只留一条失败行；任一边是 400 / 403 时两行都留。原记录：计费卡合计与趋势同时失败时，卡内出现两组“加载失败 · 重试本项 + 详情”，各管一个读取；是否合并成一行留给 UI 审查 |
+| 请求详情分区编号 | **2026-11-03 用户确认保持**：按已定设计稿，头部状态卡与按钮行不编号，耗时从“壹”起。原记录：按已定设计稿：头部状态卡与按钮行不编号，耗时从“壹”起；40 §7.1 字面从头部卡开始编号，待用户确认（S4D2a-14；若按规格只改 RequestDetailLayout.sections / ordinal 与对应单测） |
 | 请求详情 UI 夹具按请求 ID 查使用记录 | LogFixtures+Detail 的 requestUsageRecord 目前一律返回 nil：UI 夹具里已恢复请求的退路查不到成功那次。S6-20 / S6-21 用请求 ID 搜索进入 .usageRequestID 时在该文件补脚本 |
 | 请求详情 429 等待的时钟与失败行不一致 | 线 B 的 S4-08（aa67dc3/0e333d3）里，RequestDetailModel 的 detailRefresh 也用 client.serverClock.now() 记录和判定 429 等待（RequestDetailModel.swift:184/222），RequestDetailView 又把它交给 BlockFailureRow，按设备时钟倒计时和自动重发。这和 S4-05 审查修正 cf34f8f 修的是同一个问题：服务器时钟偏慢时，等待结束后的自动重发会被挡掉。应在 S4-08 的修正里照 LogsStoreState 的做法改用设备时钟（phoneNow）。 |
 | 使用记录分段计数的读屏 | SwiftUI 分段 Picker（UISegmentedControl）的逐项 accessibilityLabel 通常不生效，“用量明细 —”会读成破折号，读不成 C-0.5 的“无数据”；S4-05b 没换控件。要逐项读屏，得改成自定义分段控件，或接受现状 |
@@ -545,8 +544,8 @@
 | 请求详情按请求 ID 查使用记录遇 429 不记录等待 | RequestDetailModel.lookUpUsage（.usageRequestID 路由，阶段 6 请求 ID 搜索才会接入，现在还没有入口）失败时只设 pageError 和 page = .failed，不往 detailRefresh 里记 429 等待。整页失败行因此不显示“N 秒后自动重试”，等待期间也能立即重试再发请求，不符合 00 §2.7.2。接入搜索入口时要为这次查询记录 BlockRefresh（用设备时钟），并让失败行用上它。 |
 | 利润亏损的固定演示状态 | （补充已有行）统计分析部分由 AnalyticsFixtures 的 -ui-analytics-loss 兑现（倒数第 2 个有用量的桶利润 −$50.00，合计不变，S4-13b，AnalyticsUITests.testProfitLossBucketDrawsBelowZeroAndReadsNegative）；首页部分已由 S1-09 兑现，本行两部分都已处理 |
 | 缺失值“—”的读屏 | （补充）统计分析利润明细卡的大数、最近 4 段表各格与每根柱的缺失值都读“无数据”（S4-13b） |
-| 旧站点逐段利润的重读 | 没有 trend account_cost 的站点按 40 §1.3 逐段读 usage/stats；刷新时只重读窗口变了的桶（正在进行的桶、读时还在进行的桶）与缺失的桶，过去的段到范围或筛选改变才重读（S4D2b-09 ⑥，S4-13b），待用户确认；如要每次全部重读，只改 ProfitBreakdown.segmentsToRefresh / AnalyticsSession.loadProfitSegments 一处 |
-| 利润明细“空”的判定 | 默认每个桶的实际扣费与账号成本都为 0 才写“这个范围内没有扣费”；规格字面只看扣费，会把倍率为 0 的分组的整段亏损藏掉（S4D2b-09 ②，S4-13b），待用户确认；只改 ProfitBreakdown.isEmpty 一处 |
+| 旧站点逐段利润的重读 | **2026-11-03 用户确认保持**，现状不改。原记录：没有 trend account_cost 的站点按 40 §1.3 逐段读 usage/stats；刷新时只重读窗口变了的桶（正在进行的桶、读时还在进行的桶）与缺失的桶，过去的段到范围或筛选改变才重读（S4D2b-09 ⑥，S4-13b），待用户确认；如要每次全部重读，只改 ProfitBreakdown.segmentsToRefresh / AnalyticsSession.loadProfitSegments 一处 |
+| 利润明细“空”的判定 | **2026-11-03 用户确认保持**，现状不改。原记录：默认每个桶的实际扣费与账号成本都为 0 才写“这个范围内没有扣费”；规格字面只看扣费，会把倍率为 0 的分组的整段亏损藏掉（S4D2b-09 ②，S4-13b），待用户确认；只改 ProfitBreakdown.isEmpty 一处 |
 | 利润增减行两边都为 0 | 沿用 S4-09 的 DisplayFormat.profitChange 写“$0.00 · 比昨天同时”，设计稿 AxDelta 写“比昨天同时 —”，截图评审时确认；要改只改 DisplayFormat+AmountChange.swift 并同步 S4-09 测试 |
 | S4-06 回前台一拍与计数补取 | S4-06 把 foregroundResumed 改成“自动刷新中立即一拍”（增量，不读第 1 页）时，这个分支要调 counter.resumeInterrupted(listReadsAgain: false, holdingBack: …)，可以直接用 LogsStoreState 里的 resumeCounts(listReadsAgain: false)。否则被后台打断第 1 页的当前错误段，计数会一直只显示段名（S4-05b 审查修正 799e1f0）。 |
 | LogsStoreStateTests.swift 超过 800 行 | S4-05b 之后已有 810 行。S4-06、S4-07、S4-08b 的新单测宜放进各自的新文件（审查修正已把计数用例放在 LogsStoreCountTests.swift），或者顺手拆分这个文件。 |
@@ -554,42 +553,42 @@
 | AnalyticsCardFoot 的 meta 为空时读屏仍带“ · ” | S4-15 的“全部 9 个分组 ›”“查看前 50 位用户 ›”按规格没有 meta，传空串后 accessibilityLabel 为“全部 9 个分组 · ”。组件在 AnalyticsCards.swift（归 S4-13，X44 本条不改），建议 S4-20 收口时让 meta 为空时不拼“ · ”。 |
 | B03 补漏行备注（S4-15 核对） | 后端 dd80618fe（fix(dashboard): dashboard/groups 的模型筛选按 model_source 匹配）已修；App 的排行只发 requested，无需改动。请在 BACKLOG 的“B03 补漏：dashboard/groups 的 model_source 不生效”一行备注“后端 dd80618fe 已修，App 无需改动”。 |
 | 排行卡 / 全部排行的规格空白处按默认实现（S4-15） | 用户卡底在旧站点（没有 total_users）按取回满 5 行判断；构成条不足 3 行写“前 2 占 100.0%”；未分组不可点；分组名为空用目录名或“#id”；模型名为空写“未命名”不可点；映射口径未映射的行也写“→ 同名”。需用户确认。 |
-| 使用记录自动刷新时菜单 / sheet 是否暂停 | 规格只要求离开页面、切 Tab、进后台时暂停，打开时间菜单或筛选 sheet 时照常刷新。UI 测试里 2 秒一拍时，时间胶囊菜单的第一次点按偶尔被列表重绘吞掉（用例已改为最多重试三次）；生产 60 秒一拍时影响小。要不要在菜单或 sheet 打开期间暂停，待用户拍板 |
-| 使用记录加载更多或下拉刷新失败时自动刷新暂停 | 列表末尾已有“加载失败 · 重试”时，自动刷新不发请求，直到用户点重试（S4-06 的取舍）。要不要改成继续轮询、并保留那一行失败提示，待定 |
+| 使用记录自动刷新时菜单 / sheet 是否暂停 | **2026-11-03 用户确认保持**：打开时间菜单或筛选 sheet 时照常刷新。原记录：规格只要求离开页面、切 Tab、进后台时暂停，打开时间菜单或筛选 sheet 时照常刷新。UI 测试里 2 秒一拍时，时间胶囊菜单的第一次点按偶尔被列表重绘吞掉（用例已改为最多重试三次）；生产 60 秒一拍时影响小。要不要在菜单或 sheet 打开期间暂停，待用户拍板 |
+| 使用记录加载更多或下拉刷新失败时自动刷新暂停 | **已按现状更正（S4-06 审查修正 d210f18）**：现在不会暂停。第 1 页读取失败而旧行还在时，下一拍（定时或回前台）静默重读第 1 页；“加载更多”失败时，旧行还在就照常自动刷新，新行并到顶部，列表末尾的失败行保留，“重试”仍读失败的那一页。原记录：列表末尾已有“加载失败 · 重试”时，自动刷新不发请求，直到用户点重试（S4-06 的取舍）。要不要改成继续轮询、并保留那一行失败提示，待定 |
 | S4-06 条目 files 补登 | 实际改动还涉及 Tests/NativeSessionTests/LogsStoreRefreshTests.swift（新建，LogsStoreStateTests.swift 已超 800 行）和 Tests/NativeSessionTests/LogsStoreCountTests.swift（一个用例随回前台行为变化改写）；条件项 Sources/Sub2Core/LogListPolicy+Refresh.swift、NativeApp/Session/LogsStoreState+Refresh.swift 没有建 |
 | 利润明细未对齐时的说明只写前半句 | S4-14：旧服务端逐段有失败（ProfitBreakdown.isReconciled 为 false）时，单图页利润表说明只写“每小时（每天）的利润 = 这段的实际扣费 − 账号成本。”，不写“逐段相加等于合计”（S4D2b-09 ③），待 UI 审查确认 |
 | AnalyticsUITests 旧用例仍接受占位标题“图表” | S4-13 的 testBillingFootOpensTheBillingDetail 与 S4-13b 的 testProfitCardShowsTotalLatestFourRowsAndSelection 仍允许导航栏标题为“图表”（S4-14 之前的占位）；S4-14 之后只会是“计费明细 / 利润明细”，S4-20 收口时可收紧断言并删去“图表 until S4-14”注释 |
 | 路由参数在旧页面上不生效（X39）补记 | .analytics 的 metric 自 S4-16 起生效：概览 RPM / TPM 格进入时优先并写回记忆，只在第一次出现时生效；focus 的滚动由 S4-13 处理。整行留到 S4-20 收口。 |
-| RPM / TPM 性能明细的残桶写法（待用户确认） | 现在照规格写“只覆盖 N 秒”（如“只覆盖 240 秒”），设计稿写的是“只覆盖 N 分钟”；如改成整分钟时写分钟，只需改 PerfTrendPresentation 里的 coverage 一处。卡底桶数取实际点数，近 1 小时永远是 60 桶。 |
+| RPM / TPM 性能明细的残桶写法（待用户确认） | **2026-11-03 用户确认保持**：照规格写“只覆盖 N 秒”。原记录：现在照规格写“只覆盖 N 秒”（如“只覆盖 240 秒”），设计稿写的是“只覆盖 N 分钟”；如改成整分钟时写分钟，只需改 PerfTrendPresentation 里的 coverage 一处。卡底桶数取实际点数，近 1 小时永远是 60 桶。 |
 | RPM / TPM 卡在 404 宽限期内的卡头小字 | 刚开启运维的 30 秒内，LiveOpsStore 还认为开着，接口却可能回 404 OPS_DISABLED。这时卡体显示“运维监控未开启”组件并每 30 秒以上重读，但卡头小字仍写“截至现在 · 运维监控”（卡头只读 analyticsOpsDisabled）。如要一致，需要让卡头也读到卡片状态。 |
 | 模型页速度区在旧服务端只支持请求口径 | 没有 ops.dashboard_model_filter 能力时，上游 / 映射口径的速度三格写 —（全站 top_n 行按请求模型分组，对不上上游模型名和“a -> b”）。规格“top_n=10 找同名行”的写法需要按后端实际分组修订（S4D2b-20）。 |
 | LogFixtures 零点边界 | RequestLogsUITests.testScrollingToEndLoadsNextPageOnce 在 Mac 本地时间 00:00 后约 1 分钟内运行时必定失败。原因：LogFixtureClock.today 把“今天”的行夹到 dayStart + rank*2 秒，零点刚过时这些行晚于当前时刻被滤掉，用量明细只剩 19 行。夹具注释只提到零点前两分钟的边界，零点后这一段没覆盖。gate 碰巧跨零点时会误报。 |
 | 模型页速度夹具不认 -ui-analytics-ops-gone | S4D2b-12 ② 要求所有运维图表在 -ui-analytics-ops-gone 下抛 404 OPS_DISABLED，但 AnalyticsFixtures.modelSpeed 不抛。所以“已读到 .opsDisabled → 重新开启运维 → 速度区恢复”这条路径只有 NativeSessionTests 单测（S4-19 审查修正 c5c84d3），没有 UI 测试。 |
-| 使用记录用户胶囊文字统一 | 从筛选 sheet 选用户时胶囊写邮箱（“用户：xm.wang@example.com”，40 §6.3 示例），从用户详情进入时写用户名（“用户：Alice”，路由带 displayName）；S4-20 收口时决定是否统一 |
-| 按对象筛选 sheet 的停用分组与已选标记 | 分组组显示停用分组但不标“停用”（统计页 AnalyticsFilterSheet 会标），行上也没有“已选中”标记；规格没要求，待定 |
+| 使用记录用户胶囊文字统一 | **已处理（2026-11-03 第一轮用户反馈，U-27）**：从用户详情进入时“用户：”胶囊也写邮箱（LogsRoute.userUsage(id:email:)，邮箱为空写“用户：#id”），与筛选 sheet 选用户一致。原记录：从筛选 sheet 选用户时胶囊写邮箱（“用户：xm.wang@example.com”，40 §6.3 示例），从用户详情进入时写用户名（“用户：Alice”，路由带 displayName）；S4-20 收口时决定是否统一 |
+| 按对象筛选 sheet 的停用分组与已选标记 | **已处理（2026-11-03 第一轮用户反馈，U-27）**：停用分组加“停用”标签、照样可选，已设对象行尾打勾（勾的样式待看截图，见本表“按对象筛选面板已选标记的样式”）。原记录：分组组显示停用分组但不标“停用”（统计页 AnalyticsFilterSheet 会标），行上也没有“已选中”标记；规格没要求，待定 |
 | LogsStoreStateTests.swift 超过 800 行 | 现在 810 行；S4-07 的 pick 测试已改写到 LogFilterPickerModelTests.swift。S4-08b 等后续条目再加 LogsStoreState 测试时宜新开文件，或拆分这个文件 |
 | 更多图表：.analyticsChart 非计费键转到更多图表页 | 应用内没有入口（40 §3.1），S4-14 的占位保留；如需转向，S4-20 收口时把该分支改为 AnalyticsMoreView(chart: key, topic: nil)（页面内部已自建会话） |
 | 统计会话按（范围, 筛选）保留多份缓存 | 40 §2.6 写“结果按（范围、筛选）缓存到会话结束”，S4-12 状态机每个卡键只存当前一份，切回之前的范围会重新请求；如需多份缓存另立条目 |
 | AnalyticsOpsOffCard 内 ops.disabled.empty 标识被合并 | 外层卡的 .accessibilityElement(children: .contain) + 标识把 OpsDisabledNotice 的 ops.disabled.empty 合并掉了（请求详情页同样包了一层）；S4-18 的 AnalyticsOpsTopic 如需按 ops.disabled.empty 定位，需要换一种包法 |
 | Token 使用趋势长范围性能 | 自选 366 天按天时约 1,500 个 RectangleMark，未实测滚动与点选是否掉帧，留给 S4-20 评估 |
-| 后端 resolved_by_user_name 是邮箱、resolve 不回处理时间与人 | ops_repo.go 里 resolved_by_user_name 取的是 COALESCE(u2.email, '')，请求详情的“已处理 · 人 · 时间”显示的是邮箱，不是用户名；PUT …/resolve 只回 {ok:true}，本机标记后要等下次读详情才有时间和处理人。建议后端改成用户名优先（COALESCE(NULLIF(username,''), email)），并在 resolve 的响应里返回 resolved_at 和处理人（交后端维护者） |
+| 后端 resolved_by_user_name 是邮箱、resolve 不回处理时间与人 | **2026-11-03 定去向：已提给后端**：请后端在标记已处理的响应里带回处理时间和处理人（用户名优先，没有再给邮箱）；上线前 App 保持现状。原记录：ops_repo.go 里 resolved_by_user_name 取的是 COALESCE(u2.email, '')，请求详情的“已处理 · 人 · 时间”显示的是邮箱，不是用户名；PUT …/resolve 只回 {ok:true}，本机标记后要等下次读详情才有时间和处理人。建议后端改成用户名优先（COALESCE(NULLIF(username,''), email)），并在 resolve 的响应里返回 resolved_at 和处理人（交后端维护者） |
 | 使用记录列表夹具不随已处理表变化 | -ui-testing 下标记已处理只改 LogFixtures+Detail 的 resolutions 表和内存里的列表行；下拉刷新后列表夹具仍是原值（X44：LogFixtures.swift 只由 S4-05 / S4-05b 改），目前列表行也不显示已处理状态，暂无影响 |
-| 请求类型降级扇出部分失败的显示 | 现为任一类失败整卡失败（占比依赖五类合计）；若要显示部分结果需另定占比口径，待用户拍板（S4D2b-20） |
-| 请求类型第 5 类（Live）的分类样式 | 设计稿只有 4 种分类样式，Live 暂用 ink3 点纹 + ink2 描边、未新增调色板颜色，交 UI 审查定稿 |
+| 请求类型降级扇出部分失败的显示 | **2026-11-03 用户确认保持**：任一类失败整卡失败。原记录：现为任一类失败整卡失败（占比依赖五类合计）；若要显示部分结果需另定占比口径，待用户拍板（S4D2b-20） |
+| 请求类型第 5 类（Live）的分类样式 | **2026-11-03 定去向：交 UI 审查看截图定稿**：定稿前保持 ink3 点纹 + ink2 描边。原记录：设计稿只有 4 种分类样式，Live 暂用 ink3 点纹 + ink2 描边、未新增调色板颜色，交 UI 审查定稿 |
 | 用户用量趋势回执时区与请求时区不同 | 迷你折线按请求时区的桶对齐（与 Token 使用趋势同样处理），回执时区不同时折线会是 0，合计与排名不受影响；若 S4-20 统一按回执时区重建桶，这里一起改 |
-| 平均账号切换、请求时长分布、错误趋势的点选 | 40 §2.4 写“图表点选同 1.5”，但 §2.3 这三张表没有“选中”行，选中后该显示什么没有定义。S4-18 按 S4D2b-04 ⑧ 不接点选，只保留读屏描述，需要用户拍板 |
+| 平均账号切换、请求时长分布、错误趋势的点选 | **2026-11-03 定去向：真机验收时再定**：加上模型页趋势共四张图；如需要，再做选中的柱子加深、下方写时段全称和数值、再点一下取消，每张图约 0.5 小时；现在不改。原记录：40 §2.4 写“图表点选同 1.5”，但 §2.3 这三张表没有“选中”行，选中后该显示什么没有定义。S4-18 按 S4D2b-04 ⑧ 不接点选，只保留读屏描述，需要用户拍板 |
 | 运行类图表的全屏尺寸 | 三个 body 的 .full（图高 150pt、分位表加“平均”“最长”）只在单测覆盖；40 §3.1 不给运行类图开单图页入口，以后要开时在 AnalyticsDestinations 的 .analyticsChart 加分支 |
 | OpsErrorTrend.bars(in:) 暂时没有调用方 | S4-18 的错误趋势柱改为按页面范围的桶给出（空桶也画、单天 3600 秒桶按小时、范围前残桶记入第一根），没有用 S4-11 的 bars(in:)；S4-20 收口时决定删除还是保留 |
 | BACKLOG 359、363 可标为已处理 | S4-18 已实现：单天拿到 3600 秒桶时按小时出柱；60 秒桶写“后端每分钟一桶，这里按 5 分钟合计。”，3600 秒桶多日写“后端每小时一桶，这里按天合计。”，单天写“后端每小时一桶。” |
-| 运行类其余四行磁贴 | 40 §2.3 里 RPM / TPM（最新一桶）、平均账号切换（平均 · 次/请求）、错误分布（47% / 429 占错误）、Token 请求统计（最快 · 模型）的“磁贴”行，只在未选的目录网格变体里出现；已定版式 AxMoreCard 只有 4 块，S4-18b 没做。以后改用目录网格时再补，OpsErrorDistribution.leading 与 OpsTokenStats.fastest 已备好（S4D2b-20，待用户拍板）。 |
+| 运行类其余四行磁贴 | **2026-11-03 用户确认保持**，现状不改。原记录：40 §2.3 里 RPM / TPM（最新一桶）、平均账号切换（平均 · 次/请求）、错误分布（47% / 429 占错误）、Token 请求统计（最快 · 模型）的“磁贴”行，只在未选的目录网格变体里出现；已定版式 AxMoreCard 只有 4 块，S4-18b 没做。以后改用目录网格时再补，OpsErrorDistribution.leading 与 OpsTokenStats.fastest 已备好（S4D2b-20，待用户拍板）。 |
 | Token 请求统计随模型筛选重读 | 卡键 ops.tokenStats 的 scope 是 .rangeAndFilter，请求本身不带 model，但换模型筛选也会重发一次 45 秒聚合查询。如果要省掉这次重读，需要给会话加“只跟分组变化”的 scope。 |
 | 测试组夹具口径 | -ui-testing 下测试组（6）筛选时，错误分布与 Token 请求统计为空，但 S4-18 的错误趋势、时长分布、平均账号切换夹具不随筛选变化（仍是 397 个错误）。夹具之间不一致，只影响 UI 测试演示数据。 |
 | RequestLogFilter 的五个旧编辑器条件与 AnalyticsSummary.cacheTokens | 仍保留（40 §6.7 允许留作内部用，S4D2b-18 ①）。S4-20 grep：没有页面设置 apiKeyID / requestType / category / resolved / statusCode（请求类型降级用的是 AnalyticsQuery.requestType），cacheTokens 只在 UsageAnalytics.swift 解码。确认第 2 波在途条目都没有引用后可删，连同 RequestLogsTests 的三个用例与 UsageAnalyticsTests 一行 |
 | 缺失值读屏的最终决定 | 全 App 已统一按 DisplayFormat.missingSpoken 读“无数据”（X33，S1-00 定），阶段 4 的统计与使用记录页面也是如此。请用户确认是否保留，或改成“暂无数据”“没有数据”；只改 DisplayFormat.swift 一处与 DisplayFormatTests |
-| 30 天 usage/stats 与 throughput-trend 的实测（U54） | 统计聚合客户端超时 45 秒（RequestTimeout.aggregate），超时后按读请求自动重试 2 次；平均账号切换按页面范围请求 throughput-trend（最长 31 天 + 1 小时，后端扫原始日志）。S4-20 未实测：未获授权访问测试环境（S1D1-27）。生产量级实测超过 45 秒时，把这两类放宽到 90 秒档，并决定超时后是否还自动重试（后端 B10 / 维护者 Q17） |
+| 30 天 usage/stats 与 throughput-trend 的实测（U54） | **2026-11-03 定去向：等测试环境实测**：超过 45 秒时再另做改动：只把统计类接口用到的几处放宽到 90 秒、超时后不再按读请求自动重试，不直接改 RequestTimeout.aggregate（账号排行、分组、运维接口也在用）；超过 7 天的范围还取不取用量明细随这次实测一起定。原记录：统计聚合客户端超时 45 秒（RequestTimeout.aggregate），超时后按读请求自动重试 2 次；平均账号切换按页面范围请求 throughput-trend（最长 31 天 + 1 小时，后端扫原始日志）。S4-20 未实测：未获授权访问测试环境（S1D1-27）。生产量级实测超过 45 秒时，把这两类放宽到 90 秒档，并决定超时后是否还自动重试（后端 B10 / 维护者 Q17） |
 | AnalyticsUITests.swift 超过 800 行 | 830 行（S4-13 / S4-13b / S4-14 / S4-16 共用，规则列为多阶段共用测试文件，S4-20 不重构，同 S1D1-14）。下次往这个类加用例时，按主题拆到 AnalyticsUITests+<主题>.swift 扩展，并把共用的私有 helper 改为模块内可见 |
 | 利润明细卡“最近 4 段”私有表 | S4-13b 的卡内私有表与 S4-14 的 AnalyticsDetailTableView 写法相近；S4-20 没有替换（S4D2b-09 ④ 的可选项），以后改利润卡时再换成 AnalyticsDetailTableView(limit: 4)，前提是 AnalyticsUITests 的利润用例照常通过 |
-| 阶段 4 待用户拍板的取舍 | 默认值都已实现，等用户确认：S4D1 三项（平均账号切换 31 天 + 1 小时、统计记忆只在用户改动时写入、旧服务端不发 key_view）；批次 2a 七项（第三种模型胶囊置灰、请求详情分区编号、分段计数写法、标记已处理撤回、恢复请求最后一行、用户胶囊文字、上游错误不校准）；批次 2b 九项（利润“空”的判定、逐段失败时的说明、旧站点逐段只重读当前与缺失段、无选中行的图不点选、模型页速度区旧服务端、请求类型降级一类失败整卡失败、排行卡刷新丢弃隐藏段、40 §2.3 六个磁贴行不做、性能明细写秒）；以及 dag.md 第 8 节第 8 条（长范围计数照取） |
+| 阶段 4 待用户拍板的取舍 | **2026-11-03 用户裁定**：用户胶囊改为邮箱（已处理，U-27）；dag.md 第 8 节第 8 条“长范围计数照取”随 30 天实测一起定（见本表“30 天 usage/stats 与 throughput-trend 的实测（U54）”）；“无选中行的图不点选”等真机验收再看（见本表“平均账号切换、请求时长分布、错误趋势的点选”）；其余各项保持现状。原记录：默认值都已实现，等用户确认：S4D1 三项（平均账号切换 31 天 + 1 小时、统计记忆只在用户改动时写入、旧服务端不发 key_view）；批次 2a 七项（第三种模型胶囊置灰、请求详情分区编号、分段计数写法、标记已处理撤回、恢复请求最后一行、用户胶囊文字、上游错误不校准）；批次 2b 九项（利润“空”的判定、逐段失败时的说明、旧站点逐段只重读当前与缺失段、无选中行的图不点选、模型页速度区旧服务端、请求类型降级一类失败整卡失败、排行卡刷新丢弃隐藏段、40 §2.3 六个磁贴行不做、性能明细写秒）；以及 dag.md 第 8 节第 8 条（长范围计数照取） |
 | 路由参数在旧页面上不生效 | （补充已有行）阶段 4 部分已处理：.logs 的 user / model / modelSource 经 LogsRoute.conditions 生效（S4-05 起）；.analytics 的 range（S4-12 / S4-13，有记忆时用记忆）、focus（S4-13 首次滚到 RPM / TPM 卡）、metric（S4-16，优先并写回记忆）都已生效；兼容入口 LegacyLogsEntry 与 AnalyticsView(accountID:groupID:) 已由 S4-20 删除 |
 | 跨 Tab 跳转撤不掉视图式推入的页面 | （补充已有行）阶段 4 部分已处理：S4-20 删除 LogsView 的 navigationDestination(item:) 后，grep Features/Logs、Features/Analytics 已没有 NavigationLink { 目的视图 }、NavigationLink(destination:)、navigationDestination(isPresented:) / (item:)，一律经 AppRoute 推入（X39） |
 | 页面状态注册表只对 AppRoute 推入的页面生效 | （补充已有行）过渡入口 LegacyLogsEntry 已由 S4-20 删除，LogsView 一律经 PageStateRegistry 登记；日志与统计页都经 AppRoute 推入，阶段 4 的风险已消除，可关闭 |
@@ -603,7 +602,7 @@
 | AnalyticsCardFoot 的 meta 为空时读屏仍带“ · ” | （补充已有行）S4-20 已改：meta 为空时只读标题，AnalyticsRankUITests 断言“查看前 50 位用户”“全部 9 个分组”整句，可关闭 |
 | AnalyticsUITests 旧用例仍接受占位标题“图表” | （补充已有行）S4-20 已收紧：两处只认“计费明细 / 利润明细”，“until S4-14”注释已删，可关闭 |
 | 路由参数在旧页面上不生效（X39）补记 | （补充已有行）已在阶段 4 收口，见“路由参数在旧页面上不生效”的阶段 4 补充，可关闭 |
-| 使用记录用户胶囊文字统一 | （补充已有行）S4-20 暂不统一（S4D2a-18，列入需要用户拍板批次 2a 第 6 项）：从筛选 sheet 选用户写邮箱，从用户详情进入写显示名，等用户决定 |
+| 使用记录用户胶囊文字统一 | **已处理（2026-11-03 第一轮用户反馈，U-27）**：从用户详情进入时也写邮箱，与筛选 sheet 一致，同上方同名行。原记录：（补充已有行）S4-20 暂不统一（S4D2a-18，列入需要用户拍板批次 2a 第 6 项）：从筛选 sheet 选用户写邮箱，从用户详情进入写显示名，等用户决定 |
 | 更多图表：.analyticsChart 非计费键转到更多图表页 | （补充已有行）S4-20 保留占位：应用内没有入口（40 §3.1），不影响任何用户路径；以后有入口需求时只改 AnalyticsRouteDestination 的这一个分支 |
 | Token 使用趋势长范围性能 | （补充已有行）S4-20 未评估：需要模拟器或真机交互测量，留到真机验收 |
 | 用户用量趋势回执时区与请求时区不同 | （补充已有行）S4-20 未改：维持按请求时区对齐桶，出现实际案例再统一按回执时区重建桶 |
@@ -619,47 +618,44 @@
 | 事项 | 说明 |
 |---|---|
 | AccountsView 手写 composite 过滤改用 GroupPlatform.concrete | AccountsView.swift 约 220 行还自己写了 values.filter { $0 != "composite" }，不在 S5-01 的文件范围内；留给后续改 AccountsView 的条目，或 S5-13 收口时统一 grep 替换 |
-| 倍率的显示位数 | （补充已有行）分组一侧按 50 §0.6 定：GroupFormat.rateText 精确到 0.1 时写 1 位，否则最多 2 位（×0.8、×1.0、×1.25，DisplayFormat.decimal minFractionDigits 1 / maxFractionDigits 2）；账号一侧仍归阶段 2（AccountEditCopy.rate），用户页仍是 UserEditCopy.rateText（最多 3 位，1 写“×1”，S3D1-21）。同一个分组的默认倍率在用户页写“×1”、分组页写“×1.0”，是否统一待用户定（S5-02） |
-| 分组“最早恢复”只算开着调度的限时成员 | S5-02 的 GroupRecovery.earliest 在 S5D2a-02 口径（每个成员最晚的进行中窗口、全组取最早）之上，只算当前处于限时状态且开着调度的成员；错误、停用和停了调度的限时账号即使有未来窗口也不计入（停调度的由“其中 s 个账号…已停止调度”说明）。规格 50 §2.3 字面是“三个窗口里仍在未来的最小值”，是否认可这个过滤待用户定 |
-| 成员写入新增文案待确认（S5-03） | “移出失败 · n 个账号没有改动”“成员调整失败 · n 个账号没有改动”“已加入 a 个、已移出 b 个，n 个失败”“已撤销 a 个账号的改动 · b 个没有撤销”“撤销没有成功 · b 个账号没有改动”“没有完成（错误码 X），账号没有改动”“结果未确认，可以重试”，规格里没有这些文案，现按方案默认值实现（需要用户拍板第 11 条） |
-| 成员退路改用 PATCH + If-Match（S5-03） | 0.4.4 退路按规格逐账号 PUT 只带 group_ids，会按读到的快照写回账号整行，并重置该账号在其他分组的优先级；有 accounts.patch 的站点改用 PATCH + If-Match 可以避免覆盖他人同时的修改，但与规格字面不同（dag.md 第 8 节第 6 条），待用户决定 |
+| 倍率的显示位数 | **已统一（2026-11-03 用户定）**：费率倍数全 App 用 DisplayFormat.multiplier / multiplierChange（U-02）：× 在前，三位小数四舍五入，去掉末尾的 0，至少一位小数（×0.125、×0.13、×1.0）；确认框两侧按三位相同而实际不同时写完整精度（×0.13 → ×0.1304），见 00 §6.2。GroupFormat.rateText、UserEditCopy.rateText 只转调它，同一分组的默认倍率在用户页、分组页都写“×1.0”。原记录：（补充已有行）分组一侧按 50 §0.6 定：GroupFormat.rateText 精确到 0.1 时写 1 位，否则最多 2 位（×0.8、×1.0、×1.25，DisplayFormat.decimal minFractionDigits 1 / maxFractionDigits 2）；账号一侧仍归阶段 2（AccountEditCopy.rate），用户页仍是 UserEditCopy.rateText（最多 3 位，1 写“×1”，S3D1-21）。同一个分组的默认倍率在用户页写“×1”、分组页写“×1.0”，是否统一待用户定（S5-02） |
+| 分组“最早恢复”只算开着调度的限时成员 | **2026-11-03 用户确认保持**：按代码的算法：只算开着调度、正处于限时状态的成员，各自取最晚的恢复时刻，再在全组取最早的；规格 50 §2.3 已随 U-29 改成这个算法。原记录：S5-02 的 GroupRecovery.earliest 在 S5D2a-02 口径（每个成员最晚的进行中窗口、全组取最早）之上，只算当前处于限时状态且开着调度的成员；错误、停用和停了调度的限时账号即使有未来窗口也不计入（停调度的由“其中 s 个账号…已停止调度”说明）。规格 50 §2.3 字面是“三个窗口里仍在未来的最小值”，是否认可这个过滤待用户定 |
+| 成员写入新增文案待确认（S5-03） | **2026-11-03 定去向：看截图后再定个别字句**：这几句先保留，本轮不改。原记录：“移出失败 · n 个账号没有改动”“成员调整失败 · n 个账号没有改动”“已加入 a 个、已移出 b 个，n 个失败”“已撤销 a 个账号的改动 · b 个没有撤销”“撤销没有成功 · b 个账号没有改动”“没有完成（错误码 X），账号没有改动”“结果未确认，可以重试”，规格里没有这些文案，现按方案默认值实现（需要用户拍板第 11 条） |
+| 成员退路改用 PATCH + If-Match（S5-03） | **2026-11-03 用户确认保持**：不改用 PATCH；退路提示补了半句“并会重置这些账号在其他分组里的排序”（U-14）。原记录：0.4.4 退路按规格逐账号 PUT 只带 group_ids，会按读到的快照写回账号整行，并重置该账号在其他分组的优先级；有 accounts.patch 的站点改用 PATCH + If-Match 可以避免覆盖他人同时的修改，但与规格字面不同（dag.md 第 8 节第 6 条），待用户决定 |
 | 线 A 提交 e7abfd5 待推送 | S5-03 完成时本机连不上 github.com:443，codex/native-line-a 没有推送到 origin；网络恢复后补推，或由集成者直接合入本地分支 |
 | 路由参数在旧页面上不生效 | 补充：.groups 的 segment 已由 S5-04 生效（首次出数后滚动定位到对应段）；只有首页“可用不足 N>1 个分组”会推 attention 段，而需处理段本来就在最前面，UI 测试用 -ui-group-segment off 验证了定位逻辑 |
 | 缺失值“—”的读屏 | 补充：分组列表行的“今日 —”读作“今日无数据”（S5-04，GroupRowSpeech） |
 | 跨 Tab 跳转撤不掉视图式推入的页面 | 补充：分组列表改为 NavigationLink(value: .group(id:))，旧列表的视图式推入已删除（S5-04）；旧详情里的“查看与管理分组账号 / 统计分析 / 请求记录”仍是视图式推入，由 S5-06 删除旧详情时处理 |
-| 分组 shortage 失败时的口径 | S5-04 按 50 §1.5 与 scope，在 status-summary 失败或 403 时退回本地 50% 判定（不像 usage 那样保留旧值）；短暂失败会让“可用偏低”在告警规则判定和本地判定之间跳动，是否也改为保留旧值待定 |
+| 分组 shortage 失败时的口径 | **已处理（2026-11-03 第一轮用户反馈，U-10）**：status-summary 刷新失败时保留上一次的“可用偏低”判定，在列表顶部“更新失败 · 重试”细条右侧标“可用状态”；从没读到过才用本地判定。原记录：S5-04 按 50 §1.5 与 scope，在 status-summary 失败或 403 时退回本地 50% 判定（不像 usage 那样保留旧值）；短暂失败会让“可用偏低”在告警规则判定和本地判定之间跳动，是否也改为保留旧值待定 |
 | 分组列表 usage-summary / status-summary 自身 429 的区块等待 | S5-04 审查修正后各区块独立读取，但 usage-summary 与 status-summary 收到 429 时还没有各自的 BlockRefresh 等待（00 §2.7.2“这期间不再发这个块的请求”），下拉或回前台仍会照常再发；轮询按列表的节奏走，不受影响。可以给这两个块各加一个 BlockRefresh，等待期间跳过。 |
-| 分组动作的“用同一编号重试”只在 4.2 秒回执里出现 | 回执错过后，列表已静默刷新、显示服务器真实状态。停用、启用、删除再操作一次（新编号）语义上无害；复制再点一次可能多出一个副本（可以删）。是否需要常驻的“待核对”入口，待用户决定 |
+| 分组动作的“用同一编号重试”只在 4.2 秒回执里出现 | **2026-11-03 用户确认保持**：不加常驻的“待核对”入口。原记录：回执错过后，列表已静默刷新、显示服务器真实状态。停用、启用、删除再操作一次（新编号）语义上无害；复制再点一次可能多出一个副本（可以删）。是否需要常驻的“待核对”入口，待用户决定 |
 | 从详情删除遇 KEY_CONFLICT 时“重试”无处弹确认 | 删除先出栈再发送；若服务器要求换编号，回执“重试”会重新走 requestDelete，但发起的详情页已经出栈，删除确认不会出现。S5-06 新详情接入后复核，可改为由列表宿主接管，或改为直接用新编号重发 |
 | 分组详情大分组的轮询请求量 | S5-06 每 60 秒按已读页数重读成员 1…n 页（每页 100、最多 20 页），再分批读成员今日，成员很多时请求量随页数线性增长。n > 3 时只重读第 1 页、保留其余页旧数据更省，但排序与计数会短暂不一致；目前默认全部重读，实测后再定。 |
-| 分组详情横幅与 Key“最近使用”的更早时间格式 | 规格 50 §2.3 / §6.3 写“更早写 MM-DD”，现在按 S5D2a-14 用 DisplayFormat.monthDayClock 写 MM/dd HH:mm（多了时刻）。如果坚持只写日期，要在 DisplayFormat+DateTime.swift 加一个月日函数（需要 C-30 归属裁定），S5-07 和 S5-12 两页一起换。 |
-| 分组详情区块刷新失败不提示 | 按 S5D2a-15，横幅、三栏金额、今日行、容量刷新失败时保留旧值、不加“更新失败”提示，贰标题没有挂区块状态附件；规格页面表格写的是“失败 → —”或“不显示横幅”。待用户拍板（批次 2a 第 3 条）。 |
-| 订阅限额 0 的语义 | 后端 normalizeLimit 保留 0，HasDailyLimit 又把 0 当不限；分组订阅页按 GroupFormat.limitText 写 $0、用量条不画填充（usageFraction 对 ≤ 0 的限额返回 nil），是否加提示待后端确认（需要用户拍板第 14 条，S5-12） |
+| 分组详情横幅与 Key“最近使用”的更早时间格式 | **2026-11-03 用户确认保持**：仍写 MM/dd HH:mm。原记录：规格 50 §2.3 / §6.3 写“更早写 MM-DD”，现在按 S5D2a-14 用 DisplayFormat.monthDayClock 写 MM/dd HH:mm（多了时刻）。如果坚持只写日期，要在 DisplayFormat+DateTime.swift 加一个月日函数（需要 C-30 归属裁定），S5-07 和 S5-12 两页一起换。 |
+| 分组详情区块刷新失败不提示 | **已处理（2026-11-03 第一轮用户反馈，U-11）**：用量与容量刷新失败保留旧值，在“贰 · 用量与容量”标题旁标“更新失败 · 重试”；告警横幅刷新失败保留横幅，下方加“告警更新失败 · 重试”；API 密钥 / 订阅行不在范围内，见本表“分组详情 API 密钥 / 订阅行刷新失败静默保留旧值”。原记录：按 S5D2a-15，横幅、三栏金额、今日行、容量刷新失败时保留旧值、不加“更新失败”提示，贰标题没有挂区块状态附件；规格页面表格写的是“失败 → —”或“不显示横幅”。待用户拍板（批次 2a 第 3 条）。 |
+| 订阅限额 0 的含义 | **已在 App 加提示（2026-11-03 第一轮用户反馈，U-13），等后端统一后删掉**：分组编辑页限额填 0（含服务器原值是 0）时，该行下写“服务器对 0 的处理还不一致，可能等于不限；要不限请留空”；已请后端统一 0 的含义（建议统一为“不限”），后端统一后按本表“删除订阅限额 0 的临时说明”删掉提示。本行合并了原阶段 5 的三行：“订阅限额 0 的语义”（S5-12：后端 normalizeLimit 保留 0，HasDailyLimit 又把 0 当不限；订阅页按 GroupFormat.limitText 写 $0，用量条不画填充）、“订阅限额 0 的含义待后端确认”（S5-10：App 照规格允许输入 0，确认框写“$0”）、“阶段 5 BACKLOG 重复行”。 |
 | 服务器日历整天数的多份同算法 | AccessTokens.daysLeft、ProxyExpiry.days、RedeemPresentation.daysUntil 三份；S5-12 的订阅剩余天数只转调 ProxyExpiry.days，建议在 S6-26 收口时统一到 ServerTimeZone 上的一个函数 |
-| 添加账号页超过 200 个候选不翻页 | 50 §4.2 只读第 1 页 200 个（S5-08）：同平台账号超过 200 时多出的不在列表里，也没有提示，只能靠搜索找到；需要时加“还有 N 个账号未列出，输入名称搜索”或翻页 |
+| 添加账号页超过 200 个候选不翻页 | 50 §4.2 只读第 1 页 200 个（S5-08）：同平台账号超过 200 时多出的不在列表里，也没有提示，只能靠搜索找到；需要时加“还有 N 个账号未列出，输入名称搜索”或翻页；S5-11 的 GroupAccountPicker（直接打开与编辑 sheet 内子页同一实现）同样只读第 1 页 200 个候选，更多候选只能靠搜索找到。本行合并了原“添加账号页超过 200 个候选的翻页”（S5-11，同一件事） |
 | 成员行状态动作后不就地替换行 | S5-08 的成员行恢复状态、启停调度完成后，靠重拉成员刷新该行；真实站点上回执先出、行稍后变化。要立即变化，需要给 S5-06 的 GroupMemberList 加替换入口 |
 | 逐项结果页的账号状态用提交时快照 | 50 §5.2 要求账号名与状态取 App 账号缓存，但 App 没有会话级账号缓存（AccountListModel 属于账号 Tab，AccountDemoStore 只在 -ui-testing）。S5-09 用 S5-03 GroupBatchAccount 的提交时快照，没有快照时画“停用”图形。以后若加会话级账号缓存，可改为显示实时状态。 |
 | 分组名的 Core 校验改为按字节 | Sub2Core 的 GroupWriteValidation.name 仍按 Character 计 1–100，编辑 sheet 已按 UTF-8 ≤ 100 字节先拦；Core 改按字节后，其他入口也不会送出 34 个以上汉字的名称（后端 ent MaxLen 按字节，超长返回无 reason 的 500）。要改 GroupManagement.swift，避开与 S5-12 同时改。 |
-| 新建分组平台下拉只列 App 已知平台 | meta.catalog 里 App 不认识的新平台暂不提供新建（Core 的 GroupCreateRequest.validate 只认 GroupPlatform.concrete），需在 Web 创建，或随 App 更新加入 GroupPlatform.values。 |
-| 订阅限额 0 的含义待后端确认 | 后端 normalizeLimit 保留 0（不允许用量），计费检查又把 0 当不限；App 照规格允许输入 0，确认框写“$0”。是否加提示句待用户与后端确认。 |
+| 新建分组平台下拉只列 App 已知平台 | **2026-11-03 用户确认保持**，现状不改。原记录：meta.catalog 里 App 不认识的新平台暂不提供新建（Core 的 GroupCreateRequest.validate 只认 GroupPlatform.concrete），需在 Web 创建，或随 App 更新加入 GroupPlatform.values。 |
 | 分组编辑 sheet 超过 2000 个成员 | 编辑 sheet 打开时按详情同一查询最多读 20 页（2000 个），超出的成员不显示，也不计入“保存后可用 x / n”和归零判断 |
-| 添加账号页超过 200 个候选的翻页 | GroupAccountPicker（直接打开与编辑 sheet 内子页同一实现）只读第 1 页 200 个候选，更多候选只能靠搜索找到 |
-| 编辑 sheet 结果不明后“稍后核对”丢弃成员改动 | 分组写结果不明时用户选“稍后核对”关闭 sheet，本次的成员加减不发送也不提示，需要到详情里重新调整；是否要在关闭确认里写明，待定 |
+| 编辑 sheet 结果不明后“稍后核对”丢弃成员改动 | **已处理（2026-11-03 第一轮用户反馈，U-13）**：有成员改动时，“稍后核对”的确认句末加“这次的成员调整还没有发送，关闭后需要到详情里重新调整。”；没有成员改动时确认句不变。原记录：分组写结果不明时用户选“稍后核对”关闭 sheet，本次的成员加减不发送也不提示，需要到详情里重新调整；是否要在关闭确认里写明，待定 |
 | 路由参数在旧页面上不生效 | （补充已有行）阶段 5 部分已处理：.groups 的 segment（S5-04）与 .groupBatch 的结果（S5-09）已生效；.group(id:) 由首页“可用不足 1 个分组”与告警范围区推入新详情，有 UI 用例（GroupDetailUITests.testHomeShortGroupRowOpensGroupDetail / testAlertScopeGroupRowOpensGroupDetail）；N>1 时推 .groups(segment: .attention)，由 AttentionItemsTests / HomeDestinationActionTests 证明 |
 | 跨 Tab 跳转撤不掉视图式推入的页面 | （补充已有行）阶段 5 部分已处理：grep Features/Groups，没有推入 Tab path 的 NavigationLink { 目的视图 } / NavigationLink(destination:)；唯一一处 navigationDestination(isPresented:) 在编辑 sheet 自带的 NavigationStack 里（内嵌添加账号页）；AccountsView 的 navigationDestination(item:) 与 init(initialGroupID:) 已由 S5-13 删除 |
 | 渠道行点进旧分组详情 | 已处理：S5-06 起 .group(id:) 落到新详情，新夹具 id 1–11 与渠道夹具一致，可关闭 |
 | AccountsView 手写 composite 过滤改用 GroupPlatform.concrete | 已处理：AccountsView.swift 已没有 values.filter / != "composite"（S2-04 重写时去掉），可关闭 |
 | 分组页旧夹具与账号夹具的分组 id 不一致 | 已处理：GroupsView 旧夹具随 S5-10 删除，-ui-account-group-transition（AccountFixture.groupTransition、joiningGroupTen）由 S5-13 删除，可关闭 |
 | status-summary 分组 shortage 的数值单位 | （补充已有行）分组页只用 is_short，不显示 threshold / current，阶段 5 部分不需要按来源格式化 |
-| 简易模式组合分组详情的整页文案 | 从告警、渠道或请求详情推入组合分组详情时，简易模式服务端回 400 SIMPLE_MODE_GROUP_NOT_BINDABLE，详情按读取失败页显示固定文案、可手动重试；是否给专门的整页文案待用户定 |
-| 简易模式详情与按钮行的默认取舍 | 贰只留“请求 · Tokens · 账号成本”，肆只留描述与 Web 行，停用分组按钮行只剩“编辑分组”且不提升为主按钮，新建脚注只写“平台创建后不能修改。”（S5D2a-13，需要用户拍板第 7 条） |
+| 简易模式组合分组详情的整页文案 | **已处理（2026-11-03 第一轮用户反馈，U-15）**：整页说明：标题“简易模式下不能打开组合分组”，说明“这个分组在简易模式下读不到，请到 Web 后台查看。”（说明句自拟，等看截图再定），不给重试和 ⋯，只能返回。本行合并了 U-15 加的“简易模式组合分组详情的整页文案（原第 651 行，已由 U-15 实现）”。原记录：从告警、渠道或请求详情推入组合分组详情时，简易模式服务端回 400 SIMPLE_MODE_GROUP_NOT_BINDABLE，详情按读取失败页显示固定文案、可手动重试；是否给专门的整页文案待用户定 |
+| 简易模式详情与按钮行的默认取舍 | **2026-11-03 用户确认保持**，现状不改。原记录：贰只留“请求 · Tokens · 账号成本”，肆只留描述与 Web 行，停用分组按钮行只剩“编辑分组”且不提升为主按钮，新建脚注只写“平台创建后不能修改。”（S5D2a-13，需要用户拍板第 7 条） |
 | 简易模式新建请求体仍带默认计费字段 | GroupCreateRequest 总会编码 rate_multiplier / is_exclusive / subscription_type / rpm_limit / 三档限额，后端 sanitizeCreateGroupRequestForSimpleMode 覆盖为同样的默认值；要严格只发名称、描述、平台，需另立条目给 GroupCreateRequest 加简易模式编码 |
 | 简易模式夹具没有组合分组 | 夹具 11 个分组都不是组合分组（X11），SIMPLE_MODE_GROUP_NOT_BINDABLE 用 -ui-group-simple-unbindable 在 Codex 专线上验证；组合分组在简易模式隐藏“添加账号”只有 GroupPermissionsTests 单测 |
-| vendor 视角的分组页没有 UI 夹具 | U01 首版拒绝 vendor 登录，GroupPermissions 的 vendor 分支（U37）只有单测；放开 vendor 登录时补夹具与 UI 用例 |
-| 成员批量写入不过 Face ID | S5-13 核查：GroupMemberWriter、GroupBatchResult*、GroupEdit* 都不调 BiometricGate，删除仍经 DeleteConfirmationSheet → BiometricGate.authorize(.delete)；如用户要求验证，三处一起加（需要用户拍板第 9 条） |
-| 阶段 5 BACKLOG 重复行 | “订阅限额 0 的语义”（S5-12）与“订阅限额 0 的含义待后端确认”（S5-10）是同一件事（需要用户拍板第 14 条）；“添加账号页超过 200 个候选不翻页”（S5-08）与“添加账号页超过 200 个候选的翻页”（S5-11）也重复；集成者可各合并为一行 |
-| 只读令牌下右滑列表行会触发返回 | 分组列表行在只读令牌下没有滑动操作（C-1），iOS 26 把行上的右滑当作导航返回手势，页面退回搜索目录；账号列表等其他不给滑动操作的列表同理。是否要拦截（例如给行加空的 leading swipeActions）待定 |
-| 简易模式且无 groups.member_batch 的站点，成员入口仍可编辑 | 这类站点上编辑 sheet 的成员区和详情页的加入 / 移出照常可点，但成员写入一定被拒（“服务器暂不支持批量调整成员。”）。S5-11 审查修正后，只改成员保存会留在 sheet 显示红字；是否在这类站点把成员入口置灰或隐藏，待定。 |
+| vendor 视角的分组页没有 UI 夹具 | **2026-11-03 定去向：列入“开放代运营登录前必做”**：首版不开放 vendor 登录，开放前补夹具与 UI 用例。原记录：U01 首版拒绝 vendor 登录，GroupPermissions 的 vendor 分支（U37）只有单测；放开 vendor 登录时补夹具与 UI 用例 |
+| 成员批量写入不过 Face ID | **2026-11-03 用户确认保持**：成员写入不加 Face ID，删除照旧经 DeleteConfirmationSheet。原记录：S5-13 核查：GroupMemberWriter、GroupBatchResult*、GroupEdit* 都不调 BiometricGate，删除仍经 DeleteConfirmationSheet → BiometricGate.authorize(.delete)；如用户要求验证，三处一起加（需要用户拍板第 9 条） |
+| 只读令牌下右滑列表行会触发返回 | **2026-11-03 用户确认保持**：不拦截。原记录：分组列表行在只读令牌下没有滑动操作（C-1），iOS 26 把行上的右滑当作导航返回手势，页面退回搜索目录；账号列表等其他不给滑动操作的列表同理。是否要拦截（例如给行加空的 leading swipeActions）待定 |
+| 简易模式且无 groups.member_batch 的站点，成员入口仍可编辑 | **已处理（2026-11-03 第一轮用户反馈，U-14）**：简易模式且没有 groups.member_batch（或本会话收到 500 GROUP_REPOSITORY_UNSUPPORTED）时，详情与编辑 sheet 的成员入口置灰，写“服务器暂不支持批量调整成员”（详情在成员分区脚注，编辑 sheet 在标题旁；版式待看截图，见本表“U-14 置灰原因的版式待看截图定”）。原记录：这类站点上编辑 sheet 的成员区和详情页的加入 / 移出照常可点，但成员写入一定被拒（“服务器暂不支持批量调整成员。”）。S5-11 审查修正后，只改成员保存会留在 sheet 显示红字；是否在这类站点把成员入口置灰或隐藏，待定。 |
 | GroupsUITests 启动后不等登录页 | 与 S5-10 审查修正 64f8318 根因相同：GroupsUITests.launchAndOpenGroups 在 launchQuietly() 后直接 reveal(login.name)，reveal（第 287 行）读 app.navigationBars.firstMatch.frame 前不判断导航栏在不在。Mac 负载高、启动后窗口还空时，读 frame 约 2 秒后就会在登录前失败。目前没观察到它这样失败，按 GroupEditUITests 的修法补：先等 login.name，读导航栏前先判断。 |
 | 分组列表“更新失败 · 重试”细条的写法 | U-10 在列表顶部另加一条细条，右侧小字“今日 / 可用状态 / 今日、可用状态”和时钟图标是自拟的；清单原话是“行旁加小字”，因列表行第三行已排满没有照做。等用户看截图再定；如要严格放在行内，需要先把列表行改成两行，另起条目 |
 | 分组列表的 F04 错误账号兜底不记 429 等待 | 没有 groups.account_buckets 时，列表每次刷新都会一起发 accounts?status=error 的兜底请求（GroupStore.readErrorCounts，用 try? 吞掉错误，保留上次的计数）。遇到 429 时不记 retry_after，等待期间下拉或轮询仍会再发，不符合 00 §2.7.2“等待期间不再发这个块的请求”。可以照 usage / shortage 的做法给它也配一个 BlockRefresh。U-10 审查修正（3b8f5c9）没有改这里，因为它不进“更新失败”细条。 |
@@ -669,100 +665,100 @@
 | 列表中区块头附件滚出屏幕后，429 等待结束可能不会自动重读（待核实） | BlockStatusAccessory 的自动重读挂在视图的 .task 上。List 卸载滚出屏幕的区块头时，这个任务会被取消；回到屏幕时如果等待已经结束，就不会再重读。分组详情“贰”、成员分区等处都可能受影响。 |
 | 删除订阅限额 0 的临时说明 | 后端统一订阅限额 0 的语义后（现在保存时当“不允许使用”、计费检查时当“不限”），删掉 GroupEditCopy.zeroLimitNote、GroupEditForm.limitRow 里的 zeroNote 行、GroupEditDraft.zeroLimitPeriods / hasZeroLimit，以及 zeroLimitDetection、testZeroLimitShowsNote 两个测试（U-13） |
 | 分组 API 密钥页 / 订阅页列表翻页不受 429 等待约束 | GroupRecordsPager.loadMore 不检查 refresh.allowsRequest：第 1 页下拉遇 429 后列表保留旧行，等待期间滚到底仍会发 GET 下一页；下一页本身遇 429 也只显示“加载失败 · 重试”，不进入等待、不倒计时。与 00 §2.7.2“这期间不再发这个块的请求”不一致，属 S5-12 既有行为，不在 U-12 范围内，待定是否按列表块统一拦截 |
-| 规格 50 §0.4.4 老服务器提示句同步 | App 已改为“服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。”（U-14），规格原文仍是旧句，请同步 FINAL-SPEC 与 spec/50 |
-| 规格 50 §0.7 简易模式不支持批量时成员入口置灰 | U-14 新增：简易模式且没有 groups.member_batch（或本会话收到 500 GROUP_REPOSITORY_UNSUPPORTED）时成员入口置灰，并写“服务器暂不支持批量调整成员”（详情放成员分区 footer，编辑 sheet 放成员区标题旁），规格未写，需补 |
+| 规格 50 §0.4.4 老服务器提示句同步 | **已处理（2026-11-03 第一轮用户反馈，U-29）**：50 §0.4.4 与 00 §5 的 groups.member_batch 一行已改为新句，FINAL-SPEC 随 U-30 同步。原记录：App 已改为“服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。”（U-14），规格原文仍是旧句，请同步 FINAL-SPEC 与 spec/50 |
+| 规格 50 §0.7 简易模式不支持批量时成员入口置灰 | **已处理（2026-11-03 第一轮用户反馈，U-29）**：50 §0.7 权限表“加减成员”一行已补，FINAL-SPEC 随 U-30 同步。原记录：U-14 新增：简易模式且没有 groups.member_batch（或本会话收到 500 GROUP_REPOSITORY_UNSUPPORTED）时成员入口置灰，并写“服务器暂不支持批量调整成员”（详情放成员分区 footer，编辑 sheet 放成员区标题旁），规格未写，需补 |
 | U-14 置灰原因的版式待看截图定 | 详情成员分区 footer 用 ink2 小字；编辑 sheet 成员区标题右侧并排小字（大字号时可能换行）；这两处位置与字色是自定的，请用户看截图后定 |
-| 简易模式组合分组详情的整页文案（原第 651 行，已由 U-15 实现） | 已改成整页说明：标题“简易模式下不能打开组合分组”，说明“这个分组在简易模式下读不到，请到 Web 后台查看。”（自拟），不给重试；说明句等用户看截图后再定。原第 651 行“是否给专门的整页文案待用户定”可改为这一行，或删除 |
 | 简易模式组合分组详情的导航标题 | 进入整页说明后，导航标题仍取列表行里的分组名，没有时写“分组”（真实简易模式的列表不含组合分组，所以一般显示“分组”）；是否要换成别的标题，看截图再定 |
+| 分组详情 API 密钥 / 订阅行刷新失败静默保留旧值 | 第一轮用户反馈的“保留旧值并标‘更新失败’”（阶段 5 高-3，U-10 / U-11 / U-12）不含分组详情“叁 · 记录与关联”里读 stats 的“API 密钥”“订阅”两行：现在刷新失败时静默保留上次的数（GroupRecordValues.keyCount），从没读到过写“—”；规格 50 §2.5 状态表“stats 失败或 403”一行写的是“—”，U-29 没改。本轮不改，以后统一“更新失败”标注时一起做（2026-11-03 记）。 |
 
 ### App 与设计 · 阶段 6
 
 | 事项 | 说明 |
 |---|---|
 | 让其他设备下线可能连本机一起下线 | 已由 S6-01 处理：登录设备页“让其他所有设备下线”后重载列表，本机是部署前签发、没有 sid 的旧会话时，重载收到 401 TOKEN_REVOKED 回到登录页；SessionsUITests.testRevokingAllWithLegacySessionSignsThisDeviceOut 覆盖。集成者可把原行改为已处理 |
-| 撤销登录设备时本机被下线的提示文案 | 60 §5.4 只写“按本机退出处理”，没给文案。S6-01 改为调 forgetActiveSession，登录页显示“本机已下线，请重新登录。”（新定）；本机行不给滑动（U50），这条路径实际很少出现。待用户确认文案，或改回 logout |
-| 00 §1.8 与 60 §5 的登录设备文案不一致 | 00 §1.8 写“设备名为空时显示 client_type”“其他设备会立即退出登录”，与 60 §5 的 UA 规则和确认框文案冲突，“立即”也与 00 §1.7.3 的 fail-open 矛盾。S6-01 按 60 §5 实现；建议规格维护时把 00 §1.8 改为引用 60 §5 |
-| 推送本机开关在设备停用时显示为关 | 60 §7.3 规定开关按“id 存在且 enabled”显示，所以设备被停用（unregistered / secret_undecryptable）时开关是关的，但状态行写“关掉再打开即可恢复”。S6-22 按字面实现（PushLocalState.isToggleOn 只有 .on），S6-24 实现页面时若觉得别扭，可改为停用时开关保持开、文案改为“重新打开即可恢复”。 |
+| 撤销登录设备时本机被下线的提示文案 | **2026-11-03 用户确认保持**：登录页提示“本机已下线，请重新登录。”不改。原记录：60 §5.4 只写“按本机退出处理”，没给文案。S6-01 改为调 forgetActiveSession，登录页显示“本机已下线，请重新登录。”（新定）；本机行不给滑动（U50），这条路径实际很少出现。待用户确认文案，或改回 logout |
+| 00 §1.8 与 60 §5 的登录设备文案不一致 | **已处理（2026-11-03 第一轮用户反馈，U-29）**：00 §1.8 改为引用 60 §5，删掉“立即”和“设备名为空时显示 client_type”。原记录：00 §1.8 写“设备名为空时显示 client_type”“其他设备会立即退出登录”，与 60 §5 的 UA 规则和确认框文案冲突，“立即”也与 00 §1.7.3 的 fail-open 矛盾。S6-01 按 60 §5 实现；建议规格维护时把 00 §1.8 改为引用 60 §5 |
+| 推送本机开关在设备停用时显示为关 | **已处理（2026-11-03 第一轮用户反馈，U-23）**：开关仍按“id 存在且 enabled”显示，停用时状态行改写“打开开关即可恢复”；重新打开能否恢复，待测试环境确认一次。原记录：60 §7.3 规定开关按“id 存在且 enabled”显示，所以设备被停用（unregistered / secret_undecryptable）时开关是关的，但状态行写“关掉再打开即可恢复”。S6-22 按字面实现（PushLocalState.isToggleOn 只有 .on），S6-24 实现页面时若觉得别扭，可改为停用时开关保持开、文案改为“重新打开即可恢复”。 |
 | 推送订阅整体 PUT 会丢掉 App 不认识的事件 | PushSubscription 解码时丢弃未知事件，整体 PUT 时，服务端以后新增的可订阅事件会被一并去掉。现在后端只有 4 个可订阅事件、未知事件 PUT 也会被拒，暂可接受；后端扩充事件时要同步扩 PushEvent。 |
 | 吊销本机令牌失败后的推送设备 | 吊销本机令牌时会先删除本站点推送设备，再发 DELETE。若 DELETE 失败，会话继续，但本机已登记的推送设备已被清空。S6-23 的重新登记要覆盖“会话进行中、登记记录被清空”这种情况，不能只在下次登录时补登。 |
 | “刷新失败 · 重试”横幅收口 | SessionsView 和 AccessTokensView 各自写了一份“刷新失败 · 重试 / 更新于 HH:mm”横幅（00 §4.6），文案常量也重复。S6-26 可以合并成一个共用组件。 |
 | 生成兑换码时订阅分组无效返回 500 无 reason | 后端 GenerateRedeemCodes 在 group_id 缺失、不存在或不是订阅类型时返回 500 且没有 reason，App 只能按结果不明保留待核对记录。App 只给可用订阅分组（isActiveSubscriptionGroup），建议后端改为 4xx 并带 reason |
 | GET /admin/redeem-codes/:id 不带 user / group | 单卡刷新、写后读回和定位都拿不到使用者与分组名，App 用 AdminRedeemCode.keepingRelations(of:) 沿用列表里的值；建议后端 GetByID 补上 WithUser / WithGroup |
-| 只读令牌的兑换码 ··· 菜单范围 | 规格 60 §8.3 写“只读令牌：只有 ··· 里的复制”，S6-03 理解为去掉写操作：保留复制、查看使用者、查看同一批这几个读操作，只去掉删除。若要严格只留复制，改 RedeemPresentation.menuItems 即可，请用户确认 |
+| 只读令牌的兑换码 ··· 菜单范围 | **2026-11-03 用户确认保持**：保留复制、查看使用者、查看同一批，只去掉删除。原记录：规格 60 §8.3 写“只读令牌：只有 ··· 里的复制”，S6-03 理解为去掉写操作：保留复制、查看使用者、查看同一批这几个读操作，只去掉删除。若要严格只留复制，改 RedeemPresentation.menuItems 即可，请用户确认 |
 | 公告删除对不存在的 id 回 200 | 后端 DELETE /admin/announcements/:id 是硬删除，id 不存在也回 200（repository/announcement_repo.go:104-108），不会出现规格 60 §16.4 说的 404 ANNOUNCEMENT_NOT_FOUND；App 仍把这个 404 视为已删除，以兼容以后的改动 |
 | ReasonCatalog 缺公告 400 reason 文案 | ANNOUNCEMENT_TITLE_INVALID / ANNOUNCEMENT_CONTENT_REQUIRED / ANNOUNCEMENT_INVALID_TARGET / ANNOUNCEMENT_TIME_RANGE_INVALID 现在落到 400 兜底文案；S6-15 本地预检抛的是带 reason、文案取自 60 §17.4 的 APIError，但服务端返回同名 reason 时仍要由 S6-18 的文案表或目录补齐 |
-| 无 capability 新建公告是否带 key：00 与 60 口径不一 | 00 §5 capability 表（第 618 行）写“不带 key”，60 §0.2 写“照常带 key（老服务端忽略）”；S6-15 按 60 §0.2 与 00 §2.5.1 带 key、只发一次，规格待统一 |
-| 公告详情已读比例取整还是一位小数 | 规格 60 §16.3 示例写“40%”，按 00 §6.2 实现为一位小数“39.6%”；如果要取整，只改 AnnouncementPresentation.detailReadLine 一处和对应断言 |
-| 公告列表已读统计失败会拖垮整页 | 带 include_read_stats 时后端对本页每条公告各跑一次全用户 COUNT，任一失败整页报错。首版照规格走通用失败态，不自动去掉参数重发；生产实测若慢或常失败，再改为失败后去掉 include_read_stats 重取一次（S6-16）。 |
-| 重新发布已过期的公告 | 已归档公告的 ends_at 已过时，重新发布后状态是“展示中”，但后端 IsActiveAt 判定用户看不到，回执“符合条件的用户能看到”不准。首版照规格（确认框里能看到已过的结束时间）；等用户决定是否在确认框末尾加“结束时间已过，发布后用户也看不到；请先编辑有效期”，或改写回执 |
-| 公告详情去掉 include_read_stats | 详情的已读行只用 read-summary，include_read_stats 在详情上不显示，却让后端多算一次统计，统计失败还会让整个详情请求失败。现在照规格在有能力时带上；建议以后去掉，只靠 read-summary |
+| 无 capability 新建公告是否带 key：00 与 60 口径不一 | **已处理（2026-11-03 第一轮用户反馈，U-29）**：00 §5 与 §2.5.1 统一为“照常带 key（老服务端会忽略），只发一次，结果不明按标题核对”，与 60 §0.2 一致。原记录：00 §5 capability 表（第 618 行）写“不带 key”，60 §0.2 写“照常带 key（老服务端忽略）”；S6-15 按 60 §0.2 与 00 §2.5.1 带 key、只发一次，规格待统一 |
+| 公告详情已读比例取整还是一位小数 | **2026-11-03 用户确认保持**：按 00 §6.2 写一位小数。原记录：规格 60 §16.3 示例写“40%”，按 00 §6.2 实现为一位小数“39.6%”；如果要取整，只改 AnnouncementPresentation.detailReadLine 一处和对应断言 |
+| 公告列表已读统计失败会拖垮整页 | **已处理（2026-11-03 第一轮用户反馈，U-20）**：带已读统计的第一页读失败时，自动去掉统计重读一次；重读成功后这个列表不再带统计、行上不显示已读数。原记录：带 include_read_stats 时后端对本页每条公告各跑一次全用户 COUNT，任一失败整页报错。首版照规格走通用失败态，不自动去掉参数重发；生产实测若慢或常失败，再改为失败后去掉 include_read_stats 重取一次（S6-16）。 |
+| 重新发布已过期的公告 | **已处理（2026-11-03 第一轮用户反馈，U-19）**：结束时间已过时，发布确认框加提醒，回执改为“已发布 · 结束时间已过，用户看不到”。原记录：已归档公告的 ends_at 已过时，重新发布后状态是“展示中”，但后端 IsActiveAt 判定用户看不到，回执“符合条件的用户能看到”不准。首版照规格（确认框里能看到已过的结束时间）；等用户决定是否在确认框末尾加“结束时间已过，发布后用户也看不到；请先编辑有效期”，或改写回执 |
+| 公告详情去掉 include_read_stats | **已处理（2026-11-03 第一轮用户反馈，U-19）**：详情读取一律不带 include_read_stats，“已读”一行只用 read-summary。原记录：详情的已读行只用 read-summary，include_read_stats 在详情上不显示，却让后端多算一次统计，统计失败还会让整个详情请求失败。现在照规格在有能力时带上；建议以后去掉，只靠 read-summary |
 | 后端删除不存在的公告返回 200 | announcement_repo.go 的 Delete 删 0 行也不报错，规格说的 404 ANNOUNCEMENT_NOT_FOUND 实际不会出现。App 已把 200、404、读回 404 都当已删除，后端以后改成 404 时 App 不用改 |
-| 公告 H07 核对窗口 | 没有 announcements.idempotent_create 时新建结果不明，按标题搜最近 5 条，取确认后 5 分钟内（容许 60 秒时钟误差）、标题去空白后精确相等的最新一条；规格“最近几分钟”没有数值，待产品确认（S6-18） |
-| 公告编辑 PUT 结果不明的读回 | 编辑保存结果不明时 GET :id 读回、逐键比对发出的值；不一致或读失败显示“结果未确认，请刷新核对后再操作”与“再次核对”，不重发；60 §17.4 未写，待确认（S6-18） |
+| 公告 H07 核对窗口 | **2026-11-03 用户确认保持**，现状不改。原记录：没有 announcements.idempotent_create 时新建结果不明，按标题搜最近 5 条，取确认后 5 分钟内（容许 60 秒时钟误差）、标题去空白后精确相等的最新一条；规格“最近几分钟”没有数值，待产品确认（S6-18） |
+| 公告编辑 PUT 结果不明的读回 | **2026-11-03 用户确认保持**，现状不改。原记录：编辑保存结果不明时 GET :id 读回、逐键比对发出的值；不一致或读失败显示“结果未确认，请刷新核对后再操作”与“再次核对”，不重发；60 §17.4 未写，待确认（S6-18） |
 | ANNOUNCEMENT_* 收进 ReasonCatalog | ANNOUNCEMENT_TITLE_INVALID / CONTENT_REQUIRED / INVALID_TARGET / TIME_RANGE_INVALID 目前只在 AnnouncementEditFailure 映射规格文案，其他入口仍落 400 兜底；以后由目录修改者收进 ReasonCatalog（S6-18） |
-| 公告手机编辑不支持 eq 与余额 ≤ 0 | 手机比较符只有 > ≥ < ≤，Web 建的“余额 = X”或金额 ≤ 0 的单条件在手机只读、编辑不发 targeting；要支持需在表单加 eq（S6-18） |
-| 兑换码横幅“等 N 批”的写法 | 60 §11.3 只写“标题后加‘等 N 批’”；S6-04 实现为“兑换码生成结果待核对等 2 批”，不加分隔。如果要改成“ · 等 2 批”或单独一行，只改 RedeemPendingBanner.make 和对应测试 |
+| 公告手机编辑不支持 eq 与余额 ≤ 0 | **2026-11-03 用户确认保持**，现状不改。原记录：手机比较符只有 > ≥ < ≤，Web 建的“余额 = X”或金额 ≤ 0 的单条件在手机只读、编辑不发 targeting；要支持需在表单加 eq（S6-18） |
+| 兑换码横幅“等 N 批”的写法 | **已处理（2026-11-03 第一轮用户反馈，U-16）**：多于一批时标题后写“ · 共 N 批”。原记录：60 §11.3 只写“标题后加‘等 N 批’”；S6-04 实现为“兑换码生成结果待核对等 2 批”，不加分隔。如果要改成“ · 等 2 批”或单独一行，只改 RedeemPendingBanner.make 和对应测试 |
 | 筛选胶囊样式重复 | S6-04 的 RedeemChipLabel（RedeemCodesView.swift，私有）与账号页的 AccountChipLabel（AccountsView.swift，私有）几乎一样，S6-26 可以抽成共用的胶囊标签组件 |
 | 兑换码列表入口的 UI 测试 | 概览待处理行（S1-10）与补偿回执“查看兑换码”（S6-09）合入后，把 RedeemCodesUITests 里靠 -ui-redeem-open / -ui-redeem-reconcile 进入的两条用例改为从真实入口进入，再决定是否删掉这两个夹具参数 |
-| 查看同一批时的搜索 | 规格没有写；S6-04 的做法是进入同一批时清空搜索，在同一批里输入搜索词会退出同一批、回到原筛选再加搜索词。需要的话可以改为同一批内搜索（后端 batch_id 与 search 可以同时传） |
-| 公告已读情况：不符合条件行的视觉 | 规格 60 §18.3 写“不符合条件变淡”，S6-19 按 S2-04 只把邮箱改 ink2，不降整行不透明度，以保证对比度；需要设计确认是否接受 |
+| 查看同一批时的搜索 | **2026-11-03 用户确认保持**，现状不改。原记录：规格没有写；S6-04 的做法是进入同一批时清空搜索，在同一批里输入搜索词会退出同一批、回到原筛选再加搜索词。需要的话可以改为同一批内搜索（后端 batch_id 与 search 可以同时传） |
+| 公告已读情况：不符合条件行的视觉 | **2026-11-03 用户确认保持**：只把邮箱改 ink2，不降整行不透明度。原记录：规格 60 §18.3 写“不符合条件变淡”，S6-19 按 S2-04 只把邮箱改 ink2，不降整行不透明度，以保证对比度；需要设计确认是否接受 |
 | 余额发送登记 MoneyWriteInFlight | S3-07 的余额重试与 S3-08 的余额首发没有登记 MoneyWriteInFlight，回前台余额核对仍可能与发送并发（只读、不改记录，风险低）；由 S6-26 复核时统一登记 |
 | 补偿记录可存 groupName | PendingCompensation（S0-06）没有分组名，回执与待核对页靠 GroupDirectory.name(for:) 现查，查不到写“分组 #id”；以后可以在不改请求字节的前提下给落盘记录加 groupName |
 | 资金写待核对的界面与回前台自动核对（补注） | 补偿的回前台自动核对已由 S6-08 完成（与余额同一单飞，同地址、跳过发送中、只认 issued）；补偿的待核对页与 sheet 归 S6-09 |
-| 补偿重试遇无 reason 的 400 | S6-08 对已发出过的补偿重试时，无 reason 的 400 保留待核对（方案原写“与首次相同，结案”），因为这次的 400 说明不了前一次是否已执行；若要改回结案，S6-09 实测后再定 |
+| 补偿重试遇无 reason 的 400 | **2026-11-03 用户确认保持**：保留待核对。原记录：S6-08 对已发出过的补偿重试时，无 reason 的 400 保留待核对（方案原写“与首次相同，结案”），因为这次的 400 说明不了前一次是否已执行；若要改回结案，S6-09 实测后再定 |
 | 公告列表与公告已读的 429 等待后重读也会取消自己 | AnnouncementsView.retryAfterWait（await list.invalidate()）和 AnnouncementReadsView.retryAfterWait（await reads.reload()）都在 .task(id: refresh.notBefore) 里 await 重读。第 1 页成功后 recordingSuccess() 清空 notBefore，task 被 SwiftUI 取消并重启，同一次重读里仍在途的 async let（公告计数 counted、已读页标题与汇总 header）随之被取消，计数或标题可能要等下次刷新才出现。修法同 S6-04 审查修正 2517eb3：等待结束后用独立 Task 发起重读。不属于 S6-04 范围，由公告条目的线处理。 |
-| 代理质量检测的客户端超时 | 00 §2.3 超时表里没有质量检测这一类；后端最坏约 80 秒，App 暂定 ProxyRequestTimeout.qualityCheck = 95 秒、不自动重试。之后要决定是否把这一行补进 00 §2.3 |
-| 巡检间隙“已到期 · 等待处理”的说明句与横幅 | active 但已过期、尚未被巡检置为 expired 的代理，按规格记为 soon，会进“即将到期”筛选和横幅，说明句读作“已到期 · 等待处理。到期后不回退…”，语气别扭。要改文案只需改 ProxyPresentation 一处，等用户看效果图后再定 |
-| proxies.fallback_accounts 缺失时的口径冲突 | 00 章 capability 表写“全量账号本地过滤，逐个 POST revert-proxy-fallback”，60 §0.2 / §13.4 写“不提供批量恢复页，说明句改写”。S6-10 按 60 章实现（expiryNote 带 supportsFallbackAccounts 参数），以后需在规格里统一 |
+| 代理质量检测的客户端超时 | **已处理（2026-11-03 第一轮用户反馈，U-29）**：00 §2.3 超时表补了一行：代理质量检测 95 秒，不自动重试。原记录：00 §2.3 超时表里没有质量检测这一类；后端最坏约 80 秒，App 暂定 ProxyRequestTimeout.qualityCheck = 95 秒、不自动重试。之后要决定是否把这一行补进 00 §2.3 |
+| 巡检间隙“已到期 · 等待处理”的说明句与横幅 | **已处理（2026-11-03 第一轮用户反馈，U-26）**：启用中已过到期日、巡检还没处理的代理按回退方式写说明句（后两句自拟，见本表“代理 · 两句自拟说明的定稿”）。原记录：active 但已过期、尚未被巡检置为 expired 的代理，按规格记为 soon，会进“即将到期”筛选和横幅，说明句读作“已到期 · 等待处理。到期后不回退…”，语气别扭。要改文案只需改 ProxyPresentation 一处，等用户看效果图后再定 |
+| proxies.fallback_accounts 缺失时的口径冲突 | **已处理（2026-11-03 第一轮用户反馈，U-29）**：00 §5 capability 表改为“不提供批量恢复页，说明句改为到账号详情里点‘恢复原代理’”，与 60 章一致。原记录：00 章 capability 表写“全量账号本地过滤，逐个 POST revert-proxy-fallback”，60 §0.2 / §13.4 写“不提供批量恢复页，说明句改写”。S6-10 按 60 章实现（expiryNote 带 supportsFallbackAccounts 参数），以后需在规格里统一 |
 | 代理列表的 429 等待 | ProxyStore 没有 BlockRefresh：被 429 时照常显示 FailureView 或“加载失败 · 重试”，不显示“请求过于频繁，N 秒后自动重试”，也不拦截等待期内的重读（其他列表已有这套处理）。需要时在 ProxyStore 加 refresh 状态，并让 ProxiesView 接 throttleMessage |
-| 代理地区短名 | AdminProxy.regionText 用 Locale(zh_CN) 的系统名，HK 显示“中国香港特别行政区”，与 60 §12.3 示例“中国香港”不同；UI 测试没有断言地区。要用短名的话只改 regionText 一处（S2-11） |
+| 代理地区短名 | **已处理（2026-11-03 第一轮用户反馈，U-26）**：HK、MO 写“中国香港 / 中国澳门”。原记录：AdminProxy.regionText 用 Locale(zh_CN) 的系统名，HK 显示“中国香港特别行政区”，与 60 §12.3 示例“中国香港”不同；UI 测试没有断言地区。要用短名的话只改 regionText 一处（S2-11） |
 | 代理夹具账号数与账号页不一致 | ProxyFixtures 里 hk-02 的账号数按规格示例写 3，AccountDemoStore 加上回退账号后是 4；目前没有跨页比较的 UI 测试。要统一时让 ProxyFixtures 的 account_count 从账号夹具派生 |
-| 兑换码 REDEEM_CODE_STATUS_INVALID 文案 | 60 §9.4 让它和 GROUP_ID_INVALID 共用“分组无效，请重新选择”，对状态值错误不贴切（App 正常不会触发）。现在按正文实现，建议改为“状态无效，请重新选择”，待用户确认。 |
-| 兑换码禁用 / 启用的撤销回执 | 60 §8.4 没写撤销成功或失败时的回执。现在的做法：撤销成功不出回执，徽章自己会变；失败沿用禁用 / 启用的错误表（409 刷新该卡，超时读回一次）。请用户确认。 |
+| 兑换码 REDEEM_CODE_STATUS_INVALID 文案 | **已处理（2026-11-03 第一轮用户反馈，U-16）**：单独写“状态无效，请重新选择”。原记录：60 §9.4 让它和 GROUP_ID_INVALID 共用“分组无效，请重新选择”，对状态值错误不贴切（App 正常不会触发）。现在按正文实现，建议改为“状态无效，请重新选择”，待用户确认。 |
+| 兑换码禁用 / 启用的撤销回执 | **2026-11-03 用户确认保持**，现状不改。原记录：60 §8.4 没写撤销成功或失败时的回执。现在的做法：撤销成功不出回执，徽章自己会变；失败沿用禁用 / 启用的错误表（409 刷新该卡，超时读回一次）。请用户确认。 |
 | 后端 GET /admin/redeem-codes/:id 不带 user / group | 写操作后单卡刷新拿不到使用者和分组对象，App 现在用 keepingRelations 保留旧卡的 user / group。建议后端 GetByID 加上 WithUser / WithGroup。 |
-| 兑换码编辑 sheet：当前分组已停用或不是订阅分组 | 当前分组不在可选项里时，仍作为已选胶囊显示并标“（已停用）”，不改选就不发 group_id。请用户确认这个显示方式。 |
-| 兑换码编辑：已过期且无过期时间的“保持”文案 | Web 端“使过期”只改 status，会留下 expires_at 为空的已过期码。规格 60 §9.3 写的是“有原过期时间时才有保持”，没有覆盖这种码。App 暂时给它“保持（已过期）”并设为初值，避免一打开就续期成永不过期。文案和做法请用户确认。 |
+| 兑换码编辑 sheet：当前分组已停用或不是订阅分组 | **已处理（2026-11-03 第一轮用户反馈，U-16）**：当前分组已停用标“（已停用）”，已不是订阅类型标“（非订阅分组）”（自拟），分组目录还没读到时只写名字；已删除的分组仍按“已停用”标，见本表“兑换码编辑 · 已删除分组的标注”。原记录：当前分组不在可选项里时，仍作为已选胶囊显示并标“（已停用）”，不改选就不发 group_id。请用户确认这个显示方式。 |
+| 兑换码编辑：已过期且无过期时间的“保持”文案 | **2026-11-03 用户确认保持**：给“保持（已过期）”并设为初值。原记录：Web 端“使过期”只改 status，会留下 expires_at 为空的已过期码。规格 60 §9.3 写的是“有原过期时间时才有保持”，没有覆盖这种码。App 暂时给它“保持（已过期）”并设为初值，避免一打开就续期成永不过期。文案和做法请用户确认。 |
 | 后端提供 redeem_codes.batches（按批次精确核对） | 没有 redeem_codes.stats 的老服务端只能按类型、面值、时间等启发式匹配批次，要管理员点“我已核对”；超过幂等保留期后同一编号可能再生成一批，所以 App 不给重试。后端提供批次能力后，可以改成精确核对并放开重试（U43） |
-| 老服务端“无法判断这一批是否已生成”的文案 | 60 §11.4 没写最近 100 条都在时间窗内、分不出这一批时怎么显示。现在是自拟的：“无法判断这一批是否已生成 / 最近生成的兑换码太多，分不出这一批。请到 Web 的兑换码列表核对。”，待设计确认 |
+| 老服务端“无法判断这一批是否已生成”的文案 | **已处理（2026-11-03 第一轮用户反馈，U-18）**：补上下一步：能重试时写完整两句，不能重试时只写前半句（自拟，见本表“U-18 自拟文字待确认”）。原记录：60 §11.4 没写最近 100 条都在时间窗内、分不出这一批时怎么显示。现在是自拟的：“无法判断这一批是否已生成 / 最近生成的兑换码太多，分不出这一批。请到 Web 的兑换码列表核对。”，待设计确认 |
 | 批次重发时间不跨重启保存 | RedeemBatchSendLog 只在内存里记本次运行的最近一次重发。App 重启后，老服务端退路的时间窗上界退回发起时刻 + 2 分钟，重启前那次重发生成的码可能落在窗外。需要时可以把最近重发时间写进待核对记录 |
-| 代理详情：停用后才到期的代理没有专门提示 | 这种代理（status=inactive 且 expires_at 已到，后端到期扫描不处理）现在 ··· 菜单给“续期…”（S6-12 审查修正 5193d28），但按钮行仍是“测试连接 / 编辑”，状态卡仍是“停用”，“壹 有效期”只写到期日，没有说明句。规格 60 §13.3 没有这种状态的文案，要不要像已过期一样把“续期”放进按钮行、加一句说明，待定。 |
+| 代理详情：停用后才到期的代理没有专门提示 | **已处理（2026-11-03 第一轮用户反馈，U-26）**：停用后到期写“MM/DD 已过到期日”，说明“启用前需要先续期”，按钮行以“续期”为主。原记录：这种代理（status=inactive 且 expires_at 已到，后端到期扫描不处理）现在 ··· 菜单给“续期…”（S6-12 审查修正 5193d28），但按钮行仍是“测试连接 / 编辑”，状态卡仍是“停用”，“壹 有效期”只写到期日，没有说明句。规格 60 §13.3 没有这种状态的文案，要不要像已过期一样把“续期”放进按钮行、加一句说明，待定。 |
 | 后端订阅分组错误码 | 订阅类缺 group_id 或分组不是订阅类型时，后端用 errors.New 返回 500 且没有 reason（service/admin_user.go:1710-1720），App 按结果不明转待核对。建议后端改为 400 GROUP_NOT_SUBSCRIPTION_TYPE（subscription_service.go:37 已有该错误）。App 只提供订阅类型且启用的分组，正常不会触发 |
-| 生成向导订阅分组读取中 / 读取失败的显示 | 现在分组目录未读完或读取失败时，第 2 步也显示“站点还没有订阅类型的分组”，下一步置灰；规格只定义了没有分组的情况。是否改成“正在读取分组”/“读取失败 · 重试”待定 |
-| 生成向导自定义过期天数非法时的收据 | 自定义天数为空或不在 1–3650 时，第 3 步隐藏收据、提交按钮置灰；是否改为保留收据、过期行显示“—”待定 |
-| 全部恢复是否要 Face ID | 60 §13.4 没写；S6-13 按 §3.4“批量操作”在全部恢复确认后验证，单个滑动只确认。若不需要，删掉 ProxyFallbackAccountsModel.revert 里 .all 的 authorize 分支和对应测试 |
-| 被改走账号逐项失败的文案 | failed 是 200 响应里的逐项结果，没有 HTTP 状态可以兜底；S6-13 按 code 给固定文案，空码写“服务器没能恢复这个账号”，重读后已不在列表的写“已不在被改走列表，可能已恢复，请到账号详情核对”。是否细化由用户定 |
+| 生成向导订阅分组读取中 / 读取失败的显示 | **已处理（2026-11-03 第一轮用户反馈，U-17）**：第 2 步读取中写“正在读取分组…”，失败写“读取失败 · 重试”，读到且为空才写“站点还没有订阅类型的分组”；三种都不能下一步。原记录：现在分组目录未读完或读取失败时，第 2 步也显示“站点还没有订阅类型的分组”，下一步置灰；规格只定义了没有分组的情况。是否改成“正在读取分组”/“读取失败 · 重试”待定 |
+| 生成向导自定义过期天数非法时的收据 | **已处理（2026-11-03 第一轮用户反馈，U-17）**：天数为空或不在 1–3650 时照常显示收据，过期行写“—”，天数框下提示“填 1–3650 天”。原记录：自定义天数为空或不在 1–3650 时，第 3 步隐藏收据、提交按钮置灰；是否改为保留收据、过期行显示“—”待定 |
+| 全部恢复是否要 Face ID | **2026-11-03 用户确认保持**，现状不改。原记录：60 §13.4 没写；S6-13 按 §3.4“批量操作”在全部恢复确认后验证，单个滑动只确认。若不需要，删掉 ProxyFallbackAccountsModel.revert 里 .all 的 authorize 分支和对应测试 |
+| 被改走账号逐项失败的文案 | **2026-11-03 用户确认保持**，现状不改。原记录：failed 是 200 响应里的逐项结果，没有 HTTP 状态可以兜底；S6-13 按 code 给固定文案，空码写“服务器没能恢复这个账号”，重读后已不在列表的写“已不在被改走列表，可能已恢复，请到账号详情核对”。是否细化由用户定 |
 | ProxiesUITests 拆文件 | ProxiesUITests.swift 已 659 行，S6-13 的用例放在 UITests/ProxiesUITests+Fallback.swift（extension）；S6-14 追加 UI 测试时宜同样新建扩展文件，items.json 的 files 需相应补上（S6-13 的 files 也应把 ProxiesUITests.swift 换成这个新文件） |
-| 补偿“被其他用户用了 / 无法确认”页面文案 | 60 §19.3 没有写这两种待核对页。S6-09 自拟了“这次没有发给 …”+“重新发放”和“无法确认这次发放”+“我已在 Web 核对”，需要用户确认文案和流程 |
-| 待核对页重试的 Face ID 覆盖层 | 补偿待核对页上点“用同一编号重试”时，系统 Face ID 照常弹出，但 sheet 不叠加“Face ID · 验证后发放”覆盖层（向导里的首次发放有）。可在 S6-26 统一 |
+| 补偿“被其他用户用了 / 无法确认”页面文案 | **2026-11-03 用户确认保持**，现状不改。原记录：60 §19.3 没有写这两种待核对页。S6-09 自拟了“这次没有发给 …”+“重新发放”和“无法确认这次发放”+“我已在 Web 核对”，需要用户确认文案和流程 |
+| 待核对页重试的 Face ID 覆盖层 | **已处理（2026-11-03 第一轮用户反馈，U-18）**：兑换码批次与补偿的“用同一编号重试”需要 Face ID 时，叠和第一次一样的覆盖层。原记录：补偿待核对页上点“用同一编号重试”时，系统 Face ID 照常弹出，但 sheet 不叠加“Face ID · 验证后发放”覆盖层（向导里的首次发放有）。可在 S6-26 统一 |
 | 合并下滑先确认的 UIKit 桥 | S6-14 的 ProxyEditSheet.swift 里又加了一份 fileprivate 的 ProxyDismissAttemptBridge（和 AnnouncementEditSheet、AccountSectionSheet 的写法相同）；S6-26 收口时并成 NativeApp/Views/DismissAttemptBridge.swift 并登记进 contracts.md（S6D1-16） |
 | 代理有效期日期改用 monthDayClock | ProxyEditDraft 的“保持 yyyy-MM-dd”用 ServerTimeZone.dayString，续期脚注里的“MM/DD”用 ProxyExpiry.monthDay；S6-26 收口时看是否改为转调 S3-04 的 DisplayFormat.monthDayClock（S3D1-28） |
 | 编辑超时读回缺 UI 用例 | 代理编辑超时后的读回（一致 / 不一致 / 读不到）只有 ProxyEditFlowTests 覆盖；要不要加夹具参数（如 -ui-proxy-update-timeout）补 UI 用例，以后再定 |
 | 代理编辑对象条地址的写法 | 续期对象条用 ProxyPresentation.addressLine（“SOCKS5H · host:port”），和详情副标题一致；规格示例里的地址是演示数据，夹具实际显示 198.51.100.30 |
 | 公告编辑 sheet 结果未确认时仍可关闭 | AnnouncementEditSheet（S6-18）处于 createUnconfirmed 或 updateUnconfirmed 时，只在 isBusy 或 hasChanges 时禁止下滑；取消弹的是“放弃修改？”，关闭后也不重读列表。S6-14 审查修正前的代理 sheet 是同一个问题（00 §2.5.4 第 1 条）。建议 S6-26 合并 DismissAttemptBridge 时，一并改成“结果未确认 / 稍后核对”。 |
-| 新建类写入结果未确认、关闭 sheet 后不拦截再次新建 | 00 §2.5.4 第 4 条要求核对完成前不发起同类写入。代理、公告、分组等新建类写入没有本机记录，sheet 关闭后编号也随之丢失。代理 sheet 目前只在关闭前提示，关闭后重读列表，不拦截再次添加。如果要拦截，需要给新建类写入加会话内的待核对记录，是否这样做由各模块决定。 |
-| 全局搜索 vendor 发送规则只有单测 | U01 首版拒绝 vendor 登录，S6-20 的 vendor 发送矩阵与底部说明“当前身份看不到用户与错误请求”只由 GlobalSearchTests 覆盖；放开 vendor 登录时需补夹具与 UI 用例 |
+| 新建类写入结果未确认、关闭 sheet 后不拦截再次新建 | **已处理（2026-11-03 第一轮用户反馈，U-21 / U-22）**：公告部分已处理：结果未确认选“稍后核对”后，这次的编号在本次使用期间保留，再次点新建先弹拦截框（继续核对 / 仍要新建 / 取消）；代理和分组保持现状。原记录：00 §2.5.4 第 4 条要求核对完成前不发起同类写入。代理、公告、分组等新建类写入没有本机记录，sheet 关闭后编号也随之丢失。代理 sheet 目前只在关闭前提示，关闭后重读列表，不拦截再次添加。如果要拦截，需要给新建类写入加会话内的待核对记录，是否这样做由各模块决定。 |
+| 全局搜索 vendor 发送规则只有单测 | **2026-11-03 定去向：列入“开放代运营登录前必做”**：首版不开放 vendor 登录，开放前补夹具与 UI 用例。原记录：U01 首版拒绝 vendor 登录，S6-20 的 vendor 发送矩阵与底部说明“当前身份看不到用户与错误请求”只由 GlobalSearchTests 覆盖；放开 vendor 登录时需补夹具与 UI 用例 |
 | AppNavigationUITests.testSearchDirectoryOpensErrorLogs 偶发卡死 | 2026-11-01 线 C 一次 check 中该用例超 10 分钟执行时限（没有断言失败，runner 重启后其余用例通过），单独重跑与再次整类 check 都通过；再现时考虑登记进 UI 测试基线或查错误日志页在夹具下的卡死 |
 | 推送真机验收（S6-23） | 需要用户提供付费 Apple Team 的签名（站点 p8 私钥必须来自同一 Team）、真机和站点 APNs 配置。生成脚本不保留 DEVELOPMENT_TEAM，真机构建要在 Xcode 里选 Team，或命令行传 DEVELOPMENT_TEAM；免费个人 Team 签不了带 aps-environment 的构建。验收清单：打开本机推送能拿到真实令牌并登记成功（Debug 请求体带 environment sandbox，Release / TestFlight 不带）；站点 ready 后能收到告警；P0 / P1 告警以时效通知送达；App 在前台时显示横幅，告警列表、账号列表随之刷新；冷启动点按和后台点按都跳到正确页面；跨站点点按先切站，凭据已清除时先进登录页、登录后再跳；退出后再登录自动恢复本机推送；打开添加接收方式 / APNs 配置 sheet 并填写后切到后台，App 切换器里看不到地址、Key、私钥（S6D2b-10） |
-| 推送点按的待跳转目标不过期 | 跨站点点按进入该站点登录页后，如果用户放弃登录，目标会一直挂在 PushCoordinator 里，以后登录该站点时才跳转。规格没写过期；如果觉得意外，可在 takeTarget 加约 10 分钟过期（S6-23 未做） |
+| 推送点按的待跳转目标不过期 | **已处理（2026-11-03 第一轮用户反馈，U-25）**：待跳转目标从点按起只保留 10 分钟，超时作废、不再跳转，也不提示。原记录：跨站点点按进入该站点登录页后，如果用户放弃登录，目标会一直挂在 PushCoordinator 里，以后登录该站点时才跳转。规格没写过期；如果觉得意外，可在 takeTarget 加约 10 分钟过期（S6-23 未做） |
 | 全局搜索回到前台补发需视图接线 | S6-20 审查修正 c8680b9 新增了 GlobalSearchSession.foregroundResumed()。持有会话的 SearchHomeView（S6-21，线 B 的 93131e5 尚未合入，也还没接）要加 `.onChange(of: model.foregroundRevision) { _, _ in search?.foregroundResumed() }`；不接的话，进后台时被截断的那几路会一直显示“搜索中…”，直到改输入。合入 S6-21 时或它的审查修正里补上。 |
 | 切站时上一站点在途的推送登记 | 切站会对上一站点的 client 调 cancelAll，正在发的 POST /admin/push/devices 结果不明，服务端可能已经建了设备行。下次连接该站点时会用同一令牌重新登记，拿回 id 后自愈；但在那之前删除该站点，收尾候选里没有这台设备，它会留在服务端。退出和删除当前站点已经改为先等在途登记（最多 10 秒，S6-23 审查修正）；超过 10 秒的登记仍会被取消。 |
 | 跨站点推送点按只等 AppRouter 的全局 sheet | S6-23 审查修正后，点按其他站点的通知时，要等当前站点的全局 sheet（router.presentedSheet）关闭才切站。RootView 层的登录页 sheet（添加站点）和安全验证窗口不在等待条件里：这时点按仍会立刻切站，正在进行的登录会被取消、表单关闭，等待二次验证的写也会被放弃（这些写还没发出）。 |
-| 推送页“可在 Web 删除”提示与事实不符 | 00 §7.6 与 PushPresentation.pendingDeletionNotice 写“有设备未能从站点移除，可在 Web 删除”，但 Web 没有推送界面（60 §7 开头）。S6-24 照规格原文显示；建议改为“有设备未能从站点移除，可在下方“其他接收方式”里删除”。用户同意后由 S6-26 统一改这条文案与站点删除回执，并同步改单测（S6D2b-12） |
-| 本机推送未开启时不显示推送内容 | 订阅挂在设备上，本机没有登记设备时推送页不显示“推送内容”分区（规格没写这种情况），打开开关后才出现，初值是后端默认的告警触发 + 账号出错、P1。如果要在开启前预设订阅，需要先登记再 PUT，待定 |
+| 推送页“可在 Web 删除”提示与事实不符 | **已处理（2026-11-03 第一轮用户反馈，U-23）**：待删横幅改为“有设备未能从站点移除，可在下方“其他接收方式”里删除”，删除站点回执说明这台手机可能还会收到推送；00 §7.6 随 U-29 同步。原记录：00 §7.6 与 PushPresentation.pendingDeletionNotice 写“有设备未能从站点移除，可在 Web 删除”，但 Web 没有推送界面（60 §7 开头）。S6-24 照规格原文显示；建议改为“有设备未能从站点移除，可在下方“其他接收方式”里删除”。用户同意后由 S6-26 统一改这条文案与站点删除回执，并同步改单测（S6D2b-12） |
+| 本机推送未开启时不显示推送内容 | **2026-11-03 用户确认保持**，现状不改。原记录：订阅挂在设备上，本机没有登记设备时推送页不显示“推送内容”分区（规格没写这种情况），打开开关后才出现，初值是后端默认的告警触发 + 账号出错、P1。如果要在开启前预设订阅，需要先登记再 PUT，待定 |
 | 推送两个 sheet 的下滑关闭确认 | PushTargetSheet / APNsConfigSheet 有输入时只禁用下滑关闭、不弹“放弃修改？”；等 S6-26 的共用 DismissAttemptBridge 合入后接上 |
 | 推送 sheet 的 App 切换器遮挡真机验收 | 打开添加接收方式 / 站点 APNs 配置 sheet 并填写后切到后台，App 切换器里看不到地址、Key、私钥（S6D2b-10，UI 测试查不了，并入 S6-23 真机验收清单） |
-| Bark 推送地址自动拆分与 ntfy 公开主题提示 | 粘贴 https://api.day.app/<Key>/… 时自动拆出服务器与设备 Key，以及 ntfy.sh 公开主题的安全提示；规格未列，暂不做 |
+| Bark 推送地址自动拆分与 ntfy 公开主题提示 | **已处理（2026-11-03 第一轮用户反馈，U-23）**：ntfy 公共主题提示已做（用 ntfy.sh 时主题下提示“谁知道名字谁就能订阅”）；Bark 地址自动拆分以后再做。原记录：粘贴 https://api.day.app/<Key>/… 时自动拆出服务器与设备 Key，以及 ntfy.sh 公开主题的安全提示；规格未列，暂不做 |
 | 让其他设备下线可能连本机一起下线（改原行） | 已由 S6-01 处理（SessionsUITests.testRevokingAllWithLegacySessionSignsThisDeviceOut），结案。 |
-| 登录设备名（改原行） | 阶段 6 没改，仍发 UIDevice.current.name。需要用户拍板：申请 user-assigned-device-name 权限，或改为“机型 + 用户自定义名称”。这不是实机验收项。 |
+| 登录设备名（改原行） | **2026-11-03 用户确认保持**：仍发 UIDevice.current.name，界面不改；上架时请一起向苹果申请读取用户自定义设备名的权限。原记录：阶段 6 没改，仍发 UIDevice.current.name。需要用户拍板：申请 user-assigned-device-name 权限，或改为“机型 + 用户自定义名称”。这不是实机验收项。 |
 | 推送登记要等待该站点的收尾结束（改原行） | 已由 S6-23 处理：SiteTeardownTracker 按规范化地址等待（PushCoordinatorTests.connectWaitsForTeardownOfSameAddress、teardownTrackerWaitsForSameAddressOnly）。S6-26 已核对，并补 registrationWaitsForTheTeardownOfAnotherSiteIDAtTheSameAddress。结案。 |
 | 待核对门控跨站点 id（改原行 :192 / :408 / :471） | 阶段 6 部分已处理（兑换码横幅与核对页、补偿 sheet 与打开前拦截），S6-26 已逐处复核，对照表与测试名见阶段 6 小结。站点列表和登录页根视图由 S6-26 补齐（81657e4）。本行结案，站点菜单另记一行。 |
 | 资金写待核对的界面与回前台自动核对（改原行 :189 / :288 / :473 / :547） | 全部完成。三类记录在概览、设置、用户详情和兑换码横幅都有入口；回到前台只核对余额和补偿，不核对批次（60 §11.6，CompensationForegroundUITests.testForegroundCheckCoversSameAddressOldLoginOnly）。结案。 |
 | 余额发送登记 MoneyWriteInFlight（改原行 :545） | 已由 S6-26 处理（S6D2a-06，32c0cee）：updateBalance 登记发送中，重试遇到 Busy 时说“这笔正在发送，请稍候”。 |
-| 读类 POST 的安全重发（改原行 :199 / :420 / :472） | 已收口。00 §2.4 的批量读和 reveal 显式为读；阶段 6 的代理测试与质量检测、推送测试、check-mixed-channel 显式为 unkeyedWrite（只发一次）。check-mixed-channel 语义是读，但 00 §2.4 的读列表里没有它，请规格维护时写明。 |
+| 读类 POST 的安全重发（改原行 :199 / :420 / :472） | **规格已补（2026-11-03 第一轮用户反馈，U-29）**：00 §2.4 写明 check-mixed-channel 按写处理、只发一次、失败不自动重试。原记录：已收口。00 §2.4 的批量读和 reveal 显式为读；阶段 6 的代理测试与质量检测、推送测试、check-mixed-channel 显式为 unkeyedWrite（只发一次）。check-mixed-channel 语义是读，但 00 §2.4 的读列表里没有它，请规格维护时写明。 |
 | 搜索 Tab 在实机上的样子（改原行 :201） | S6-26 没有实机，未实机验证，行保留。 |
 | 用户详情分区头 meta（改原行 :429） | 已由 S6-26 处理：换成 NumberedSectionHeader 的 meta 版（32c0cee）。 |
 | 有待核对记录的站点重新登录会多出一个同名站点（改原行 :475） | 阶段 6 部分已由 S6-26 处理：设置站点列表把这种行标为“旧登录”，点按改去同地址的站点（当前站点 ＞ 有凭据的 ＞ 能复用 id 的）；登录页根视图列出三类记录，记录所在地址有已保存站点的给“登录「X」后核对”，只有地址不在站点列表里才“打开原站点核对”。文案是自拟的，待用户看截图；站点菜单没改，见“站点菜单里的同地址旧登录”。 |
-| 站点菜单里的同地址旧登录（新增） | 概览和账号标题的站点菜单仍能选中凭据已清除的旧登录，打开它的登录页后会按 D17 再新建一个站点 id。需要用户拍板；建议在 AppModel.switchTo 里统一改去同地址的站点，站点菜单和设置页一起生效。 |
+| 站点菜单里的同地址旧登录（新增） | **已处理（2026-11-03 第一轮用户反馈，U-24）**：规则收进 AppModel.switchTo：站点菜单与设置页选中旧登录时改去同地址的站点，去向就是当前站点时只给回执；菜单里新旧两项仍同名，见本表“站点菜单里分不出旧登录”。原记录：概览和账号标题的站点菜单仍能选中凭据已清除的旧登录，打开它的登录页后会按 D17 再新建一个站点 id。需要用户拍板；建议在 AppModel.switchTo 里统一改去同地址的站点，站点菜单和设置页一起生效。 |
 | 请求详情日期格式归属（改原行 :494） | 已由 S6-26 处理：副标题和“已处理”小字改为转调 DisplayFormat，月日补零，跨年加年份。 |
 | 合并下滑先确认的 UIKit 桥（改原行 :573） | 已由 S6-26 处理（NativeApp/Views/DismissAttemptBridge.swift，contracts.md C-40，645089f）。 |
 | 代理有效期日期改用 monthDayClock（改原行 :574） | 结论：按 60 §12.3 / §13.3 / §14.3 的写法保留“MM/DD”和“yyyy-MM-dd”，不改。 |
@@ -770,10 +766,10 @@
 | 兑换码列表入口的 UI 测试（改原行 :542） | 已处理：补偿回执入口已由 RedeemGrantUITests.testBalanceGrantFromUserDetail 覆盖，概览待处理行入口补 RedeemReconcileUITests.testOverviewRowOpensTheCheckHighlighted。-ui-redeem-open / -ui-redeem-reconcile 两个参数保留，因为“定位不到 9999”“读取失败”“429”“横幅高亮”这四条状态用例只能靠它们进入。 |
 | 保留四行（:479 / :524 / :541 / :572） | 缺失值读屏（用户章其余位置）、“刷新失败 · 重试”横幅收口、筛选胶囊样式重复、待核对页重试的 Face ID 覆盖层，本条都不做。理由依次是：不在收口裁定里、纯重构、纯重构、交互变化要等用户。 |
 | 服务器日历整天数有三份实现（新增） | AccessTokens.daysLeft、ProxyExpiry.days、RedeemPresentation.daysUntil 算法相同，以后统一成 ServerTimeZone 上的一个函数（S5-12 方案的观察）。 |
-| 全局搜索的两处显示细节待确认（新增） | “查看全部 N 个”不带“›”；不足 2 个字符时提示“至少输入 2 个字符”（S6D2b-02）。默认如此，用户可以推翻。 |
-| 按 run_id 只读的测试结果 sheet（新增） | 默认不做，等用户决定。 |
-| 停用设备的恢复文案（新增） | 默认照抄规格，待定。 |
-| “可在 Web 删除”的提示（新增） | 默认照规格原文（S6D2b-12），用户同意前不改。 |
+| 全局搜索的两处显示细节待确认（新增） | **2026-11-03 用户确认保持**，现状不改。原记录：“查看全部 N 个”不带“›”；不足 2 个字符时提示“至少输入 2 个字符”（S6D2b-02）。默认如此，用户可以推翻。 |
+| 按 run_id 只读的测试结果 sheet（新增） | **2026-11-03 用户确认：暂不做**，等推送真机验收后看这类推送用得多不多再定（阶段 6 中-21）；现在点通知只进账号详情。原记录：默认不做，等用户决定。 |
+| 停用设备的恢复文案（新增） | **已处理（2026-11-03 第一轮用户反馈，U-23）**：改为“打开开关即可恢复”。原记录：默认照抄规格，待定。 |
+| “可在 Web 删除”的提示（新增） | **已处理（2026-11-03 第一轮用户反馈，U-23）**：改为指向 App 内的“其他接收方式”。原记录：默认照规格原文（S6D2b-12），用户同意前不改。 |
 | 推送真机验收（新增） | 以下几项都没有在真机上验收：真实 APNs 令牌的登记、冷启动和后台时点按通知、Release 不带 environment（代码核对过：APNS_SANDBOX 只在 Debug）、App 切换器里遮住敏感输入（S6D2b-10）。 |
 | UITests/AnalyticsUITests.swift 超过 800 行（新增） | 现在 830 行，阶段 4 的文件、不在 S6-26 范围。以后改它的条目按类末尾拆分出扩展文件。 |
 | ProxiesUITests.testDisableThenUndo 撤销前的等待 | 回执到点撤销之间用了两次 XCTest 内置等待（回执文字、徽标变成“停用”），满载时大约用掉 2.5–3 秒，离 4.2 秒的回执时长余量约 1.5 秒；目前还没失败过，所以暂时不改。以后如果在 gate 里不稳定，照 testAddProxyThenUndo 的办法改成 poll 加 receiptButton。 |

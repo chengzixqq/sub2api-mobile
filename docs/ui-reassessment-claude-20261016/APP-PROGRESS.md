@@ -392,7 +392,7 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
   - S0-05（账号详情 cv-N 不进缓存；account(id:) 返回 ETag 的变体与 PATCH If-Match）：已满足。带版本号的详情 S2-02，PATCH + If-Match S2-05；锁定用例 AccountReadBatchTests.versionedAccountReadsETagAndNeverSendsIfNoneMatch。
   - S0-07（ServerClock 的消费）：已满足。S2-03 的状态推导用站点时钟，节流与徽标用本机时钟；S2-23 核查确认账号页时间用 ServerClock。
   - S0-08（绝对时间按服务器时区）：S2-23 核查为已满足。例外有两处：简化模式用的 ListFieldPresentation.timestamp；过期时间按 U53 用本机时区。
-  - S0-08 / BACKLOG“倍率的显示位数”：账号一侧定为 DisplayFormat.decimal，最多 3 位小数（S2-10 的 AccountEditCopy.rate），BACKLOG 该行已由 S2-23 更新；App 不显示上游探测倍率；分组页归阶段 5。
+  - S0-08 / BACKLOG“倍率的显示位数”：账号一侧的 AccountEditCopy.rate 现转调 DisplayFormat.multiplier（U-02，2026-11-03 第一轮用户反馈全 App 统一）：× 在前，三位小数四舍五入，去掉末尾的 0，至少一位小数，见 00 §6.2；阶段 2 时原定 DisplayFormat.decimal、最多 3 位小数（S2-10），BACKLOG 该行已由 S2-23 与 U-30 更新；App 不显示上游探测倍率。
   - S0-17（AccountTokenStatus 的显示归阶段 2）：S2-16 的访问令牌行。
   - S0-02 留给页面的动作：412“已刷新”由 S2-05 / S2-10 的 412 比对与重新载入做；TOO_MANY_IDS 拆批由 S2-02 的 runtime/batch 再拆做。ACCOUNT_STATS_UNAVAILABLE 显示“—”、“服务器连不上 {平台}”填平台这两项，材料里没有单独记录。
   - S0-19 / S0-LOW-B / BACKLOG“UI 测试 6 并发下的快照停顿”（旧账号列表字段编辑用例、testSlowTodayStatsAllowsIndependentRuntimeRefresh）：已处理。S2-04 删除 AccountListCustomizationUITests（含 5 个基线不稳定用例），整体换成 AccountListUITests。
@@ -640,7 +640,7 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 - 只读令牌写按钮置灰（S0-13 备注）：用户章写入口都挂 S3-00 的 ReadOnlyGate 置灰，不隐藏。UI 用例：UserListUITests.testReadOnlyTokenShowsTodayDashAndGraysCreate、testReadOnlyTokenEmptyStateButtonHasCaption；UserDetailUITests.testReadOnlyTokenGraysWritesAndHidesToday；UserEditUITests.testReadOnlyTokenGraysSave；UserKeysUITests.testReadOnlyTokenShowsTodayDashAndGraysWrites、testReadOnlyTokenGreysKeyManagement；UserQuotaUITests.testReadOnlyTokenDisablesQuotaWrites；UserReplaceGroupUITests.testReadOnlyTokenDisablesReplace。
 - 绝对时间戳按服务器时区（S0-08 备注）：Features/Users 与用户 Core 文件里没有 TimeZone.current，也没有 DateFormatter。记录行用 `DisplayFormat.monthDayClock(_:timeZone:now:)`（S3D1-28），Key 重置时刻、有效期、平台限额重置时刻都按服务器时区。
 - 缺失值“—”的读屏：用户列表、详情、记录读“无数据”；其余位置见 (7)。
-- 倍率的显示位数：用户页统一用 `UserEditCopy.rateText`（DisplayFormat.decimal，最多 3 位小数，S3D1-21），与 S2-10 的 AccountEditCopy.rate 一致；分组页由阶段 5 定。
+- 倍率的显示位数：用户页的 `UserEditCopy.rateText` 现转调 DisplayFormat.multiplier（U-02，2026-11-03 第一轮用户反馈全 App 统一），与账号页、分组页同一写法：× 在前，三位小数四舍五入，去掉末尾的 0，至少一位小数（默认倍率 1 写“×1.0”），见 00 §6.2；阶段 3 时原为 DisplayFormat.decimal、最多 3 位小数、1 写“×1”（S3D1-21）。
 - 路由参数在旧页面上不生效、跨 Tab 跳转撤不掉视图式推入的页面（X39）：阶段 3 部分已处理。.user、.userLedger、.userNew、.userEdit(segment:)、.balanceKeypad 都由新页面接收；Features/Users 没有推入 Tab path 的视图式 NavigationLink，唯一一处在 Key 表单 sheet 自己的导航栈里。
 - Face ID 金额门槛 sheet 的键盘：S3-16 已换成 AmountKeypad，D36 不变（SettingsUITests.testDeniedRaiseKeepsTheOldThreshold）。
 - 通用删除确认：S3-00 的 DeleteConfirmationSheet，用户删除（S3-05 / S3-11）与 Key 删除（S3-13）已接入。
@@ -900,7 +900,7 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 - 更多图表：主题高亮按越过吸顶条下沿的可见行判定（LazyVStack 下 scrollPosition(id:) 不随滚动更新）；Token 配色按规格（缓存读横纹，与设计稿不同）；请求类型降级一类失败整卡失败（更早服务端的 cyber / live 回 400 也会让降级整卡失败），第 5 类 Live 的样式交 UI 审查（S4-17b）；没有“选中”行的图不接点选（S4-18、S4-19）；40 §2.3 六张图的磁贴行不做（S4-14、S4-18b）；错误趋势按页面范围的桶给柱，单天 3600 秒桶按小时，60 秒与 3600 秒桶的底注句式按 BACKLOG 建议（S4-18）。
 - 模型页：速度区在没有 ops.dashboard_model_filter 时，请求口径用 top_n=100 找同名行，上游 / 映射口径写 —（规格写 top_n=10，S4-19）；不显示平台名（U36）。
 - 使用记录：首屏读取放在 onAppear 的非结构化 Task 里（S4-05）；429 等待期间被挡住的读取显示倒计时失败行；再选同一时间预设不重读；时间与条件胶囊按设计稿用选中样式；LogRow 不画 chevron；用量段模型胶囊的第三种置灰（S4D2a-13）；分段计数取数中只写段名、≥ 10,000 写 12.3K；400 只在有生效条件时给“清除筛选”；首字与总耗时都缺只写一个“—”、自定义时段标题与空态、不在今年的节头带年份、30 天提示只给自定义范围、列表行不做业务限制灰（列表项没有 is_business_limited）（S4-04）。
-- 自动刷新（S4-06）：组合 LogListPolicy / LogPollSchedule，不建 LogRefreshCycle；加了 pendingTrim，只有轮询合并后超过 N 才裁尾或挂起到回到顶部；没有可续行时静默读第 1 页；用行的 onAppear / onDisappear 近似第一个可见行（List 不支持 onScrollTargetVisibilityChange）；间隔用设备时钟；上游错误不校准；自动刷新失败用列表末尾失败行并按 BlockRefresh 退避；加载更多或下拉刷新失败时暂停轮询，直到用户重试。
+- 自动刷新（S4-06）：组合 LogListPolicy / LogPollSchedule，不建 LogRefreshCycle；加了 pendingTrim，只有轮询合并后超过 N 才裁尾或挂起到回到顶部；没有可续行时静默读第 1 页；用行的 onAppear / onDisappear 近似第一个可见行（List 不支持 onScrollTargetVisibilityChange）；间隔用设备时钟；上游错误不校准；自动刷新失败用列表末尾失败行并按 BlockRefresh 退避；加载更多或下拉刷新失败而旧行还在时照常自动刷新（审查修正 d210f18）：第 1 页失败的下一拍（定时或回前台）静默重读第 1 页，加载更多失败时新行并到顶部、末尾的失败行保留，“重试”仍读失败的那一页。
 - 按对象筛选（S4-07）：搜索框不自动聚焦；某组 0 行整组隐藏；停用分组不标“停用”。
 - 请求详情：分区编号按设计稿，从“耗时”起编“壹”（S4D2a-14，待用户确认）；已恢复但查不到成功那次时写“失败，后续尝试未记录”；成功样子读链时不放占位、2 次及以上才显示、读链出错就隐藏；详情 OPS_DISABLED 时尝试区隐藏；详情 404 整页带“返回”；名称缺失的关联行即使有 id 也不可点；服务端请求 ID 为空不显示；从下级页返回不重读；logs.detail.cost 的语义变为“账号成本”（S4-08）。日期写“M/d HH:mm(:ss)”，月日不补零；退路耗时按 duration → at − started → 相邻 at 差（标“约”）→ — 的顺序取；除 OPS_DISABLED 外的 404 都走退路；没实现 pathSegment（编码交给 URLComponents，避免“%”编码两次）（S4-03）。
 - 规格勘误（S4-11）：40 §5.2“映射后的不同上游名”应为“映射到同一上游名的不同请求模型”。
@@ -1080,7 +1080,7 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
 
 #### (4) BACKLOG 与前序阶段备注里留给阶段 5 的事项
 
-- 倍率的显示位数（BACKLOG 阶段 0 行与阶段 2 补充行；阶段 3 小结写“分组页由阶段 5 定”）：S5-02 定为 GroupFormat.rateText，精确到 0.1 时写 1 位，否则最多 2 位（×0.8、×1.0、×1.25）。与用户页的 ×1 不统一，待用户定（拍板第 13 条）。
+- 倍率的显示位数（BACKLOG 阶段 0 行与阶段 2 补充行；阶段 3 小结写“分组页由阶段 5 定”）：GroupFormat.rateText 现转调 DisplayFormat.multiplier（U-02，2026-11-03 第一轮用户反馈全 App 统一）：× 在前，三位小数四舍五入，去掉末尾的 0，至少一位小数（×0.8、×1.0、×1.25、×0.125），与用户页一致，见 00 §6.2；S5-02 时原定精确到 0.1 写 1 位、否则最多 2 位，与用户页的 ×1 不统一（拍板第 13 条，已按用户裁定统一）。
 - 路由参数在旧页面上不生效（.groups 的 segment、.groupBatch 的 items）：已处理。.groups 的 segment 由 S5-04 接上，.groupBatch 由 S5-09 改为携带结果；.group(id:) 的首页与告警入口有 S5-13 的 UI 用例。
 - 跨 Tab 跳转撤不掉视图式推入的页面：分组部分已处理。
   - 分组列表改用 NavigationLink(value:)（S5-04）；
@@ -1142,7 +1142,7 @@ S1-18 未实测：未获授权访问测试环境（S1D1-27）。U54 维持默认
   10. 主按钮被隐藏后不改派（S5-02、S5-06）。
   11. 规格里没有的新增文案：S5-03 的成员写入回执七句、S5-11 的“<前缀> · 成员没有改动：<原因>”、S5-08 组合分组选择页的措辞。
   12. 分组名按 UTF-8 不超过 100 字节（S5-10）。Core 的 GroupWriteValidation.name 仍按字符计，已记 BACKLOG。
-  13. 倍率写 ×1.0 / ×1.25，与用户页的 ×1 并存（S5-02）。
+  13. 倍率写 ×1.0 / ×1.25，与用户页的 ×1 并存（S5-02）；2026-11-03 第一轮用户反馈已全 App 统一为 00 §6.2 的写法（U-02），不再并存。
   14. 订阅限额允许输入 0，显示 $0（S5-10、S5-12）。0 的语义待后端确认。
   15. 新建分组的平台下拉只列 App 已知的平台（S5-10）。
 - 接口与签名（与规格 §3.7、§9 的字面不同，按裁定实现）：

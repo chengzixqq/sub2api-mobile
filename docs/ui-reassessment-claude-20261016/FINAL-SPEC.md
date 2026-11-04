@@ -1,6 +1,6 @@
 # Sub2 原生 iOS 管理端 · 最终实现规格
 
-> 2026-10-22 合稿。SwiftUI，最低 iOS 26。后端基线：sub2 `main` `70116315d`。
+> 2026-10-22 合稿。SwiftUI，最低 iOS 26。后端基线：sub2 `main` `70116315d`。2026-11-04 按第一轮用户反馈（2026-11-03 用户裁定）随各章逐段同步。
 >
 > 本文件由 `spec/00-conventions.md` … `spec/60-search-modules.md` 七章合成：各章正文原样收录（标题统一降一级，章内引用的 `../` 路径改为相对本文件），各章末尾的“审查记录”不收入正文，其中没有照做的意见与跨章没有同步的事项整理在文末“审查未采纳的意见”。`spec/` 下的章节文件保留不动；章节正文与文末“跨章裁定”冲突时，以裁定为准。
 
@@ -143,7 +143,7 @@
 | 站点地址 | 只接受 `https://host[:port]`，不允许路径、userinfo、查询串和 fragment（沿用 `AppModel.validatedURL`、`ServerProfile.validatedURL`）。主机名转小写。 |
 | 添加站点 | ① `GET /api/v1/settings/public`：成功且带 `version` 才算 Sub2 站点，同时取 `site_name`（作为默认站点名）、`site_logo`、`server_timezone`、`captcha_provider`、`totp_enabled`、`backend_mode_enabled`。② 选登录方式（1.3）。③ 登录成功后调 `GET /api/v1/admin/me`（1.9），通过后才写入站点列表。添加失败不能替换当前已连接的站点（沿用 `AppModel.connect` 的 candidate 机制）。 |
 | 每站点独立保存 | 凭据（Keychain，service `com.chengzixqq.sub2mobile.credentials`，account = 站点 UUID）、设备标识 `deviceID`（1.2）、待核对写入（2.5.5）、推送设备 id（第 7 节）、ETag 缓存与增量游标（仅内存）、`/admin/me` 快照（仅内存）。 |
-| 切换 | 概览标题下拉菜单（DECISIONS 第 2 轮）与“设置 → 站点与凭据”。切换 = 取消当前站点所有请求和定时器 → 新 generation → 读该站点凭据 → `/admin/me` → 进入概览。凭据已清除时进入该站点的登录页。 |
+| 切换 | 概览标题下拉菜单（DECISIONS 第 2 轮）与“设置 → 站点与凭据”。切换 = 取消当前站点所有请求和定时器 → 新 generation → 读该站点凭据 → `/admin/me` → 进入概览。凭据已清除时：它是“旧登录”的，按 10 §0.7-5 的规则改去同地址的站点或只给回执；其余进入该站点的登录页。 |
 | 删除站点 | 先按“退出”顺序处理（1.7.5），再删除 Keychain 凭据与 `deviceID`；该站点还有待核对写入时，把站点信息留在 `profileArchive` 里（沿用现状），待核对列表仍能显示站点名。 |
 | 显示 | 站点行：名称 + 主机（等宽字体）+ 登录方式徽章（账号 / 管理访问令牌 / Admin Key）+ 身份（`/admin/me` 的 `user.email`）。Admin Key 站点加一行“以 <email> 身份操作（第一个管理员）”。 |
 
@@ -271,10 +271,10 @@
 
 #### 1.8 会话列表（A07）
 
-- 只有 JWT 登录时显示，放在“设置 → 站点与凭据 → <站点> → 登录设备”（页面布局由设置章节定）。
-- `GET /api/v1/auth/sessions` → `{items:[{id, device_name, client_type, user_agent, ip, created_at, last_seen_at, expires_at, current}]}`，按最后活跃倒序，最多 50 条。显示：设备名（为空时显示 `client_type` 或“未知设备”）、IP、“最后活跃 <相对时间>”、本机条目标“本机”。部署前就已存在的会话，第一次刷新令牌后才会出现，且没有 `client_type`。
-- 单个下线：`DELETE /api/v1/auth/sessions/:id` → `{message, current}`。`current=true` 时 App 立即退出该站点。404 `SESSION_NOT_FOUND`：从列表里移除这一条。
-- 踢掉其他设备：`POST /api/v1/auth/revoke-all-sessions {"keep_current":true}`，确认框写“其他设备会立即退出登录”。**必须带请求体**：不带请求体时服务端会撤销包括本机在内的全部会话，那种情况下 App 要随后本地退出。
+- 只有 JWT 登录时显示，放在“设置 → 站点与凭据 → <站点> → 登录设备”。页面布局、各字段的显示（含设备名为空时的写法）、确认框与回执的文案都以 60 §5 为准，本节只写协议要点。
+- `GET /api/v1/auth/sessions` → `{items:[{id, device_name, client_type, user_agent, ip, created_at, last_seen_at, expires_at, current}]}`，按最后活跃倒序，最多 50 条。部署前就已存在的会话，第一次刷新令牌后才会出现，且没有 `client_type`。
+- 单个下线：`DELETE /api/v1/auth/sessions/:id` → `{message, current}`。`current=true` 时 App 退出该站点。404 `SESSION_NOT_FOUND`：从列表里移除这一条。
+- 踢掉其他设备：`POST /api/v1/auth/revoke-all-sessions {"keep_current":true}`，确认框写法见 60 §5.4（不承诺“立即”，吊销不是绝对即时，1.7.3）。**必须带请求体**：不带请求体时服务端会撤销包括本机在内的全部会话，那种情况下 App 要随后本地退出。
 
 #### 1.9 启动探测：`GET /api/v1/admin/me`（A02）
 
@@ -362,6 +362,7 @@
 | `dashboard/stats` | 90 秒 | 沿用现状（大站冷缓存慢） |
 | 不带 key 的写 | 30 秒 | |
 | 带 key 的写 | 服务端执行上限 + 5 秒：资金写与普通编辑 35 秒，`bulk-update` 与单账号刷新 65 秒，`batch-refresh` 125 秒 | 带 key 的写在服务端脱离连接执行，客户端超时后用同一 key 重试即可拿回结果 |
+| 代理质量检测（`POST /api/v1/admin/proxies/:id/quality-check`） | 95 秒 | 不带 key 的写，不自动重试；后端最坏约 80 秒（基础探测加几个目标的检测） |
 | SSE（账号测试） | 建连 30 秒；整体资源 180 秒 | 沿用 `timeoutIntervalForResource = 180` |
 
 #### 2.4 重试规则
@@ -375,6 +376,7 @@
 | 刷新令牌 | 见 1.7.2 | 见 1.7.2 | 见 1.7.2 | — |
 
 - 所有自动重试都绑定在当前会话代号上，切站或退出即取消（沿用 `check(snapshot)`）。
+- 账号“检查混合渠道”（`POST /api/v1/admin/accounts/check-mixed-channel`）虽然只是查询，但不在上表“读”的名单里：按写处理，只发一次，失败不自动重试。它只是提交前的预检，失败了由管理员再点一次。
 - `STEP_UP_REQUIRED`、423 见 2.6、1.10。它们都在业务执行前返回，所以重发时沿用原来的 Idempotency-Key 和请求体。
 
 #### 2.5 Idempotency-Key
@@ -393,7 +395,7 @@
 | `PUT /api/v1/admin/accounts/:id`、`POST /api/v1/admin/accounts/:id/schedulable` | `admin.idempotent_writes` | 30 秒 | — | 同上 |
 | `POST /api/v1/admin/accounts/bulk-update`、`POST /api/v1/admin/accounts/:id/refresh` | `admin.idempotent_writes` | 60 秒 | — | 同上 |
 | `POST /api/v1/admin/accounts/batch-refresh` | `admin.idempotent_writes` | 120 秒（到时未完成的账号记为失败） | — | 同上 |
-| `POST /api/v1/admin/announcements` | `announcements.idempotent_create` | 30 秒 | — | 同上 |
+| `POST /api/v1/admin/announcements` | `announcements.idempotent_create` | 30 秒 | — | 一律带（老服务端会忽略）；没有 capability 时只发一次，结果不明按“未确认”处理，按标题搜最近几条核对（60 §17.4） |
 | `POST /api/v1/admin/accounts`、`POST /api/v1/admin/proxies`、`POST /api/v1/admin/users/:id/api-keys`、`POST /api/v1/admin/users/:id/replace-group` | 无（可选） | **无**：仍跟随连接，断开后记录可能停在“处理中” | 账号新建：混合渠道确认改了请求体，必须换新 key | 一律带；超时后按 2.5.4 处理，连续“处理中”超过 30 秒即转“待核对” |
 
 - **不接受 key 的写**（如 `PATCH /api/v1/admin/accounts/:id`、`recover-state`、`clear-error`、上表以外的 `DELETE`；`DELETE /api/v1/admin/groups/:id` 接受 key，见上表）：按“不带 key 的写”处理。`PATCH` 用 `If-Match` 防覆盖：首次已成功时，重发会因为版本号已变而得到 412 `ACCOUNT_VERSION_CONFLICT`，此时读回比对，不要当失败。
@@ -708,7 +710,7 @@ struct ErrorEnvelope: Decodable {
 | `accounts.apply_oauth_preserve_status` | C11 | 账号凭据区（两步授权） | `apply-oauth-credentials` 可带 `preserve_status:true`，停用账号授权后仍保持停用 | 不带该参数；停用账号的确认框写明“授权后账号会被重新启用” |
 | `accounts.clear_error_preserve_inactive` | C18 | 账号批量 / 单个清除错误 | `clear-error` / `batch-clear-error` 可带 `preserve_inactive:true`，响应有 `skipped_inactive_ids` | 发请求前在本地剔除 `status=inactive` 的账号，回执写“已跳过 N 个停用账号” |
 | `accounts.list_query` | C14 | 账号列表 | `status` 多值与派生值（overloaded / needs_attention / schedulable_now）、`sort_by=urgency`、`include_counts=1` | 拉全量 lite 列表，在本地分组、排序、计数 |
-| `accounts.mixed_channel_details` | C06 | 新建 / 编辑账号 | 409 `MIXED_CHANNEL_WARNING` 直接用 `details` 弹确认 | 提交前 `POST /api/v1/admin/accounts/check-mixed-channel` 预检 |
+| `accounts.mixed_channel_details` | C06 | 新建 / 编辑账号 | 409 `MIXED_CHANNEL_WARNING` 直接用 `details` 弹确认 | 提交前 `POST /api/v1/admin/accounts/check-mixed-channel` 预检（按写处理，只发一次，失败不自动重试，2.4） |
 | `accounts.oauth_error_reasons` | C12 | OAuth 第 3 步、重新授权 | 区分会话过期 / state 不符 / 授权码被拒 | 换码失败一律提示“授权失败，请重新生成授权链接” |
 | `accounts.patch` | C03 | 账号详情内联编辑 | `PATCH /api/v1/admin/accounts/:id`，按键合并 + `If-Match` | 先 GET 详情，再整份 PUT（非敏感键要带全，附录 A S31），没有并发保护 |
 | `accounts.reauthorize` | C11 | 凭据区“重新授权…” | `POST /api/v1/admin/accounts/:id/reauthorize` 一步完成 | `exchange-code` + `apply-oauth-credentials` 两步 |
@@ -723,7 +725,7 @@ struct ErrorEnvelope: Decodable {
 | `accounts.token_status` | C10 | 凭据区令牌剩余时间 | `token_status{expires_at, lifetime_seconds, refreshed_at, auto_refresh}` | 读 `credentials.expires_at`（兼容 Unix 秒与 RFC3339），只显示“到期 hh:mm”，不画剩余刻度 |
 | `admin.access_tokens` | A08 | 登录方式、站点与凭据 | `sat_` 登录；列出 / 吊销令牌 | 登录前无法预知，登录页照常提供该方式：旧站点会把 `sat_` 当成 Admin Key，返回 401 `INVALID_ADMIN_KEY`（1.6 的文案已包含“站点不支持”）。登录后没有这项能力时，“站点与凭据”不显示令牌列表 |
 | `admin.idempotent_writes` | G06 | 用户 / 分组 / 账号编辑与启停 | 这些写带 Idempotency-Key（2.5.1） | 不带 key；超时后不自动重发，读回逐字段比对 |
-| `announcements.idempotent_create` | H07 | 公告新建 | 带 key | 不带 key；超时后按标题搜最近几条核对 |
+| `announcements.idempotent_create` | H07 | 公告新建 | 带 key，结果不明时同 key 重发拿回结果 | 照常带 key（老服务端会忽略），只发一次；结果不明按“未确认”处理，按标题搜最近几条核对（60 §17.4） |
 | `announcements.read_stats` | H06 | 公告列表、详情、已读情况 | `read-summary`、`include_read_stats`、`read_state` / `eligible` 筛选 | 只提供“已读情况 ›”分页名单 |
 | `api_keys.current_concurrency` | E11 | Key 卡片“当前并发” | `current_concurrency` 有真实值（Redis 读失败时仍为 0） | 显示 `—` |
 | `api_keys.effective_status` | E06 | Key 摘要、卡片、分组密钥页 | 直接用 `effective_status` | App 自己映射：inactive / disabled → 已停用，已过期 → 已过期，额度用满 → 额度耗尽（附录 B L14） |
@@ -738,7 +740,7 @@ struct ErrorEnvelope: Decodable {
 | `dashboard.users_trend_filtered_metric` | B12 | 用户用量趋势（带筛选） | 带筛选时 `metric` 生效 | 带筛选时只提供 Tokens |
 | `groups.account_buckets` | F04 | 分组列表色格条、分组详情 | `error_account_count`、`idle_account_count` | 拉该分组的错误账号，在本地分桶 |
 | `groups.capacity_filter` | F05 | 分组详情容量 | `capacity-summary?group_id=` | 拉全部分组，在本地过滤（旧服务端会忽略参数返回全部，必须在本地过滤） |
-| `groups.member_batch` | F01 | 分组成员增删 | `POST /api/v1/admin/groups/:id/accounts/batch` | 逐个账号 GET + PUT `group_ids`，提示“可能覆盖他人同时的修改” |
+| `groups.member_batch` | F01 | 分组成员增删 | `POST /api/v1/admin/groups/:id/accounts/batch` | 逐个账号 GET + PUT `group_ids`，提示“服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。”（简易模式下不走逐个提交，成员入口置灰，50 §0.7） |
 | `lists.etag` | B09 | 用户、分组列表，`dashboard/stats` | 这几处返回 ETag | 无影响（照常带 `If-None-Match`，服务端忽略） |
 | `logs.since_id` | B09 | 使用记录、错误请求 | 4.3 | 4.3 第 7 步 |
 | `meta.catalog` | C13 | 新建账号表单、筛选、角色 | `GET /api/v1/admin/meta/catalog` | App 内置目录；未知值显示原始 id |
@@ -752,7 +754,7 @@ struct ErrorEnvelope: Decodable {
 | `ops.request_attempts` | D10 | 失败请求“上游尝试” | `GET /api/v1/admin/ops/requests/:request_id/attempts` | `request-errors/:id/upstream-errors` + `admin/usage?request_id=client:<client_request_id>` 自己拼 |
 | `ops.system_metrics_history` | D08 | 服务器区 CPU / 内存曲线 | `GET /api/v1/admin/ops/system-metrics/history` | 前台运行期间自己攒点 |
 | `ops.token_stats_custom_range` | B07 | Token 请求统计 | `openai-token-stats` 接受任意 `start_time` / `end_time` | 取能覆盖所选范围的最小 `time_range`，并写明实际范围 |
-| `proxies.fallback_accounts` | H03 | 代理详情 · 有效期、到期横幅 | `GET /api/v1/admin/proxies/:id/fallback-accounts`、`POST …/fallback-accounts/revert` | 全量账号本地过滤，逐个 `POST /api/v1/admin/accounts/:id/revert-proxy-fallback` |
+| `proxies.fallback_accounts` | H03 | 代理详情 · 有效期、到期横幅 | `GET /api/v1/admin/proxies/:id/fallback-accounts`、`POST …/fallback-accounts/revert` | 不提供批量恢复页（不拉全部账号在本地筛）；说明句改为到账号详情里点“恢复原代理”（60 §13.3） |
 | `push.notifications` | A11 | 推送设置 | 第 7 节 | 不显示推送设置；只做前台轮询 |
 | `redeem_codes.delete_guard` | G07 | 兑换码删除 | 已使用的码删除时返回 409 | 已使用的码不提供删除 |
 | `redeem_codes.stats` | G08 | 兑换码状态胶囊计数 | `GET /api/v1/admin/redeem-codes/stats` 是真实值 | 每个状态请求一次 `page_size=1` 读 total |
@@ -830,6 +832,7 @@ struct ErrorEnvelope: Decodable {
 | 倒计时 | `m:ss`，≥ 1 小时 `h:mm:ss`；每秒用“绝对时间戳 − 当前时间（含 6.3 的偏差）”重算，不累减 | `4:37` | `countdown(_:)` |
 | 剩余时长（限流恢复等） | 向上取整到分钟，至少 1 分钟；≥ 60 分钟写“X 小时 Y 分钟” | `12 分钟`、`1 小时 5 分钟` | `minutesLeft(_:)` |
 | 时刻 | `HH:MM`，时区按 6.3 | `10:04` | `clock(_:timeZone:)` |
+| 费率倍数 | 分组、账号计费倍率、用户专属倍率全 App 统一（2026-11-03 用户定）：× 在前；三位小数四舍五入，去掉末尾的 0，至少保留一位小数；确认框里修改前后两个值按三位写出来相同、但实际不同时，两边都写完整精度 | `×0.125`、`×0.13`、`×1.0`；确认框 `×0.13 → ×0.1304` | `DisplayFormat.multiplier(_:)`、`multiplierChange(from:to:)` |
 
 - **数字与单位之间不加空格**：`820ms`、`0.6s`、`182ms`、`240K`。大字读数（如代理详情的延迟大字）把单位用小一号的字排在数字后面，同样不插空格字符。中文量词照常加空格：`12 分钟`、`3 次`。
 - 现有 `DashboardPresentation.compactNumber`（2 位小数）、`money`（没有千分位）、`cost` / `duration`（缺失写“不可用”、耗时 2 位小数）都不符合本节，迁到 `DisplayFormat` 后删除；`DashboardPresentation` 只保留趋势日期解析等与格式无关的部分。
@@ -934,14 +937,15 @@ APNs 载荷：
 | `account.test_finished` | `account_id`、`run_id`、`status` | `account-test` | 账号详情，并打开测试结果 sheet（`GET /api/v1/admin/account-test-runs/:run_id`） |
 | `push.test` | — | `push-test` | 设置 → 推送 |
 
-- **路由**：用 `site` 匹配 `ServerProfile.id.uuidString`。匹配的是当前站点：直接 push 路由。匹配的是其他站点：先切换站点（1.1），成功后再 push。站点凭据已清除：进入该站点的登录页，登录后再跳转。匹配不到：只打开 App，停在概览。
+- **路由**：用 `site` 匹配 `ServerProfile.id.uuidString`。匹配的是当前站点：直接 push 路由。匹配的是其他站点：先切换站点（1.1），成功后再 push。站点凭据已清除：先按站点菜单的同一规则（10 §0.7-5）找同地址的站点，它是“旧登录”时只按那里的规则切换或给回执，这次推送的目标不再跳转；没有去向才进入该站点的登录页，登录后再跳转。待跳转的目标从点按起只保留 10 分钟，超时作废、不再跳转，也不提示（当前站点的目标同样适用）。匹配不到：只打开 App，停在概览。
 - 载荷里的数字 id 可能被解码成 `Int` 或 `NSNumber`，两种都要接受；未知的 `type` 只打开 App。
 - 推送内容里只有 id 和简短文案，不含账号名、用户数据。App 不在通知内容里补拉数据（不做 Notification Service Extension）。
 - 前台收到推送：`willPresent` 返回 `.banner, .sound`，同时触发对应区块立即刷新（告警列表、账号列表）。
 
 #### 7.6 退出、换号与多站点
 
-- 退出登录先 `DELETE /api/v1/admin/push/devices/:id`（1.7.5）。会话被吊销**不会**自动删除设备。删除失败时记录“待删除”（按站点保存），下次登录该站点时，先删除再按开关状态重新注册；在“设置 → 推送”里提示“有设备未能从站点移除，可在 Web 删除”。
+- 退出登录先 `DELETE /api/v1/admin/push/devices/:id`（1.7.5）。会话被吊销**不会**自动删除设备。删除失败时记录“待删除”（按站点保存），下次登录该站点时，先删除再按开关状态重新注册；在“设置 → 推送”里提示“有设备未能从站点移除，可在下方“其他接收方式”里删除”（Web 没有推送管理界面）。在“其他接收方式”里删掉这台设备（或测试推送、保存推送内容时得到 404）后，待删除记录随之清掉，提示消失。
+- 删除站点时设备没能删掉：站点已经不在 App 里，回执写“推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除”（60 §3.4）。
 - 同一台手机在同一站点换了另一个管理员登录：重新注册同一个令牌，设备转给新管理员，订阅和历史重置。
 - 多站点：每个站点独立注册、独立保存设备 id，`site_tag` 区分来源。
 
@@ -961,7 +965,7 @@ APNs 载荷：
 - **计费**：界面上不出现“营收”，一律叫“计费”（计费趋势、计费明细等）。**账号成本**：“成本”一律叫“账号成本”。**利润** = 实际扣费 − 账号成本，不叫“差额”“毛利”。“实际扣费”“账号成本”“标准”三个口径名保持不变。
 - **首页 6 格**：今日实际扣费、请求、错误率、利润、RPM、TPM（3 × 2，按此顺序）。标签只写名字，不写“近 5 分钟”；口径不变：前三类按 00:00 起，错误率、RPM、TPM 是近 5 分钟。**TPM 含缓存 Tokens**，数据源优先 `dashboard/rates?window=5m`（第 5 节 `dashboard.rates` 一行给出退路）。统计分析的“今天”仍是今日 SLA 口径，两处都写明窗口。
 - **状态词**：账号为 错误 / 过载中 / 限流中 / 临时不可调度 / 暂停 / 停用 / 正常；用户为 启用 / 禁用（不写“正常”）；“停用”也用于分组、代理、Key。不显示原始枚举。动作：启用调度 / 停止调度、恢复状态、测试连接、刷新令牌、更换 API Key…、重新授权…。告警只有“手动解决”和“静默…”，没有“确认”。
-- **状态胶囊**：带状态色的条目，左侧一律用浮动胶囊：宽 4、离左 6、离上下各 22、两端全圆角、颜色取语义色的 `tone`，内容左内边距 ≥ 16。只有 caution、critical、model 三种色调画胶囊，ok、neutral 的条目不画（8.2）。同一列表里紧挨着的几条，不论同色异色，都连成一根连续的状态轨：交界处不缩进、不圆角，颜色直接切换，只有整段的最上端和最下端是圆头。SwiftUI：`.overlay(alignment: .leading) { Capsule().fill(tone).frame(width: 4).padding(.vertical, 22).padding(.leading, 6) }`，相邻粘连由列表容器根据前后条目决定上下内边距与圆角。（2026-11-03 用户看真机与对比截图后由 10 改为 22。）行高不足时两端少缩，保证胶囊至少 16pt（2026-11-03 用户定）。
+- **状态胶囊**：带状态色的条目，左侧一律用浮动胶囊：宽 4、离左 6、离上下各 22、两端全圆角、颜色取语义色的 `tone`，内容左内边距 ≥ 16。只有 caution、critical、model 三种色调画胶囊，ok、neutral 的条目不画（8.2）。同一列表里紧挨着的几条，不论同色异色，都连成一根连续的状态轨：交界处不缩进、不圆角，颜色直接切换，只有整段的最上端和最下端是圆头。SwiftUI：用 `statusCapsule(tone:position:)`（`NativeApp/Views/StatusRail.swift`）画，形状是 `StatusCapsuleShape`；两端离上下多少由 `RailPosition.insets(height:)` 按行高算（端点 22，行矮时少缩，保证胶囊至少 16pt），不要写固定的上下内边距。列表容器用 `RailPosition.positions` 算每行在状态轨上的位置，行的上下 `listRowInsets` 设 0，内容自己留内边距，相邻胶囊就连成一根。（2026-11-03 用户看真机与对比截图后由 10 改为 22。）行高不足时两端少缩，保证胶囊至少 16pt（2026-11-03 用户定）。
 - **可逆操作**（调度开关等）直接执行，回执带“撤销”；**资金操作**必须二次确认，写明对象、站点、金额，不给默认金额；删除放在 ⋯ 菜单最后，需要输入对象名称或通过 Face ID。
 - 颜色只表达状态；品牌青只表示“可操作 / 已选中”（8.2）。
 
@@ -1205,6 +1209,7 @@ ETag 不看 capability，一律按 00 §4.2 处理：`APIClient` 层的 `Conditi
 #### 0.5 共享状态与区块状态
 
 - 新增会话级 `@MainActor @Observable final class LiveOpsStore`（随 `SessionContext` 创建、切站点即丢弃）：持有首页聚合、告警列表与计数、运维开关状态、账号状态汇总。概览、监控、告警详情读同一份，任何一处手动解决 / 静默后其余页面立即一致（设计稿 `ctx.alerts / resolveAlert / silenceAlert` 的同一份状态）。
+- 账号 Tab 可见时也会刷新这份共用的告警列表（组头告警牌用它）：每次读完列表或实时字段，随状态汇总、今日一起刷新一次 firing 告警，60 秒内已读过的直接复用（20 §1.2、§1.6）。
 - 每个区块用同一个状态枚举（建议放 `Sources/Sub2Core/BlockState.swift`）：
 
 ```swift
@@ -1263,7 +1268,10 @@ public enum BlockState<Value: Sendable>: Sendable {
 ```
 
    推送点按的落点按 00 §7.5；本章约定先 `selectedTab = .today`，再 push `.alert(id:)` / `.account(id:)`。
+
+   跳 Tab 时如果路由打开的编辑 sheet（新建账号、分组、代理、公告四个）里有未保存内容、且不在发送中，先不切换，由 sheet 用自己“取消”的问法问一句：分组、代理、公告在结果未确认时问“结果未确认”，否则问“放弃修改？”；新建账号只在还没创建、创建结果不是“未确认”时问“放弃新建账号？”（已创建等状态照旧直接关闭）。选放弃才关闭 sheet 并切 Tab，选留下则 sheet 和 Tab 都不动。实现：`AppRouter.sheetHasUnsavedInput` / `pendingSelect` / `confirmPendingSelect()` / `cancelPendingSelect()`，sheet 用 `guardsTabSwitch(hasUnsavedInput:ask:)`（`NativeApp/Views/TabSwitchGuard.swift`）登记。
 5. **站点菜单**：概览的大标题（当前站点名）就是站点切换菜单（DECISIONS 第 2 轮“标题下拉菜单”），SwiftUI 优先用 `.toolbarTitleMenu { … }`（大标题状态下能否点开须实机确认；不行就在 `ToolbarItem(placement: .principal)` 放一个以站点名为标签的 `Menu`）。菜单内容按设计稿 `shared/core.jsx:77-93` `SiteMenu`：站点列表（每项站点名 + 主机名小字，当前站点前打勾）→ 分隔线 →「添加站点…」（60 §0.1 sheet `.addSite`）→「站点与凭据」（push `.settings(focus: .sites)`，60 §3）。切换行为按 00 §1.1（取消请求、新 generation、`/admin/me`、回到概览），成功后回执“已切换到 {站点名}”（设计稿 `setSite`）。20 §1.1 账号 Tab 的标题菜单用同一个组件。
+   选中凭据已清除的站点时，按设置页站点列表的同一规则处理（统一在 `AppModel.switchTo`，判定见 `OldLoginPresentation.switchAction`）：“旧登录”指不是当前站点、凭据已清除、还有待核对的资金记录、且同地址另有已保存站点的那一个，它的去向是同地址的那个站点（再登录一次会生成新的站点编号，所以不打开它的登录页）。去向就是当前站点时不切换，只出回执“「{旧站点名}」是旧登录 · 记录在“设置 → 待核对”里核对”；去向是别的站点时切过去（只跟随一次，去向也没有凭据就打开去向的登录页）；不是旧登录、没有去向才打开它自己的登录页。推送点按切站同样走这条（00 §7.5）。
 6. **回执（toast）**：本章 §7.1、§7.2 用。底部玻璃条：图标 + 文字 + 最多一个按钮（「撤销」或一个自定义动作；两者都给时只显示自定义动作，BUILDER_GUIDE `showToast`）；显示 4.2 秒后消失（设计稿 `useAppModel` 的计时），新回执直接替换旧回执；出现时用 `AccessibilityNotification.Announcement(text).post()` 朗读，按钮读屏读按钮文字，点按区 ≥ 44pt。建议 `NativeApp/Views/Receipt.swift`：`Receipt{text, icon, tone, action: ReceiptAction?}` + 会话级 `ReceiptCenter.show(_:)`，由 `MainTabs` 在 Tab 栏上方叠加显示。
 7. **状态轨**：画法按 00 §8；由列表容器根据前后行决定每行胶囊的上下内边距与圆角（只有整段最上端和最下端是圆头）。建议 `NativeApp/Views/StatusRail.swift`：`.statusCapsule(tone:position:)`，`position ∈ {single, top, middle, bottom}` 由容器计算。
 8. **确认框**：本章只用普通确认框与动作表（`.alert` / `.confirmationDialog`），不涉及输入名称匹配或 Face ID 分支（那是删除确认，见 00 §8、20 §0.4）。
@@ -2076,7 +2084,7 @@ public enum BlockState<Value: Sendable>: Sendable {
 | `accounts.test_result` | 测试结束读服务端计时、上游状态码、测试后状态 | 本机计时并标“本机计时”；流结束后 `GET :id` 与测试前快照比对 |
 | `accounts.test_runs` | 测试中断后读结果、后台测试 | 中断即“不能判定是否成功”，给“重新测试” |
 | `accounts.reauthorize` / `accounts.oauth_error_reasons` | 一步重新授权、换码错误可识别 | `exchange-code` → `apply-oauth-credentials` 两步；超过 30 分钟或 500 时提示“授权链接可能已过期” |
-| `scheduled_tests.upstream_status` | 定时测试结果的状态码、分类 | 正则从 `error_message` 解析 `\((\d{3})\)\|returned (\d{3})` |
+| `scheduled_tests.upstream_status` | 定时测试结果的状态码、分类 | 正则从 `error_message` 解析，与后端 `accountTestUpstreamStatus`（`service/account_test_trace.go`）一致：取 `(?:returned\|返回\|HTTP)\s*(\d{3})\b\|\((\d{3})\)` 的第一处匹配，只认 100–599；`\d`、`\s`、`\b` 按 ASCII 理解（与 Go 一致） |
 | `meta.catalog` | 平台、认证方式、协议的运行时目录 | App 内置一份与 `frontend/src/constants/platformCatalog.builtin.json` 同步的清单；未知值显示原始 id |
 | `admin.idempotent_writes` | `PUT :id`、`:id/schedulable`、`bulk-update`、`:id/refresh`、`batch-refresh` 带 `Idempotency-Key`，生成、重试、超时与待核对一律按 00 §2.3–§2.5 | 按“不带 key 的写”处理（00 §2.4）：不自动重发，读回核对（各节“结果不明”行给读回方法） |
 | `web.accounts_edit_deep_link` | “在 Web 中编辑”直达编辑弹窗 | 打开 Web 账号列表并复制账号名 |
@@ -2246,14 +2254,14 @@ C01（新建时 `schedulable=false`）没有能力标记：以响应的 `data.sc
 #### 1.4 交互与写操作
 
 - 胶囊切换：立即用新 `status` 重新加载（保留旧列表直到新数据到达，显示进度）；平台菜单选中后胶囊行最前出现可移除的“平台：Anthropic ✕”，横向滚回开头。
-- 行右滑（可选，List `.swipeActions(edge: .trailing)`）：正常 / 限时且开关开 →“停止调度”；开关关 →“启用调度”。调 `POST /admin/accounts/:id/schedulable`（§5），回执带撤销。
+- 行右滑（可选，List `.swipeActions(edge: .trailing)`）：正常 / 限时且开关开 →“停止调度”；开关关 →“启用调度”。调 `POST /admin/accounts/:id/schedulable`（§5），回执带撤销。例外：开关关着的“错误”账号（含凭据类错误）给“恢复状态…”，点后弹 §5 的恢复确认框（含“恢复并启用调度”），只开开关不会清除错误；更换凭据仍走详情页。
 - 选择模式与操作坞见 §8。
 - **组头告警牌 → “告警”sheet**（本章定义，设计稿 `v-accounts.jsx` `useVaAlert`；告警牌是组头里独立的按钮，点它不收起分区）。sheet 标题“告警”，左“关闭”，内容自上而下：
   - 事件卡：标题（10 章 §6.3 `AlertPresentation` 的标题）+ 级别牌（“{severity}”/“{severity} 已静默”，`alertTone`）；下一行范围文案 + 规则文案（同 `AlertPresentation`，规则缺失时 `description` 原文）。
   - 两行键值：“维度”= `AlertPresentation` 的范围文案；“状态”=“告警中”或“告警中 · 已静默至 HH:MM”（`silence.until`）。
   - 说明：“告警只精确到分组或平台，不指向具体账号；先看本组需处理的账号。”
   - 按钮行：“手动解决”（主）、“静默…”（已静默时“改静默时长…”）。两者都调 10 章 §7.1 的 `AlertActions`（确认框文案、时长、请求、回执、撤销、错误 reason 全部照 §7.1，本章不另写）；成功后 `LiveOpsStore` 更新，组头告警牌随之消失或改为“已静默”，sheet 关闭。
-  - 两个链接行：“只看需处理的账号 ›”（关闭 sheet，胶囊切到“需处理”）；“告警详情 ›”（关闭 sheet，push `{kind:'alert', id}`，10 章 §3）。
+  - 两个链接行：“只看需处理的账号 ›”（关闭 sheet，胶囊切到“需处理”，同时筛到该平台并展开这个平台的分区，一次读取）；“告警详情 ›”（关闭 sheet，push `{kind:'alert', id}`，10 章 §3）。
   - 只读访问令牌：两个按钮按 00 §2.6.3 置灰并标“只读令牌”。
 - 下拉刷新：完整重载（列表 + 汇总 + 今日）。
 
@@ -2333,7 +2341,7 @@ C01（新建时 `schedulable=false`）没有能力标记：以响应的 `data.sc
 |---|---|---|---|
 | 正常 | 0.2 = 正常 | 安静卡：图标 + “正常 · 参与调度” | — |
 | 暂停 / 停用 | 0.2 = 暂停 / 停用 | “暂停 · 不参与调度”/“停用 · 不参与调度”；到期自动暂停写“暂停 · 已过期，自动暂停调度” | — |
-| 状态牌 + 原因 | 0.2 状态词 + 原因短句 | 大号状态牌 + 原因（如“上游 429”“上游 529 · 规则 #1”） | — |
+| 状态牌 + 原因 | 0.2 状态词 + 原因短句 | 大号状态牌 + 原因（如“上游 429”“上游 529 · 规则 #1”）；错误时写“上游 {error_status_code}”，没有状态码时写“上游返回错误” | — |
 | 大号倒计时（限时） | 该状态窗口结束时间 − now | `m:ss` / `h:mm:ss`，下方“后自动恢复 · 预计 HH:MM” | — |
 | 错误正文（错误） | `error_summary` | 多行 | 空时“上游返回异常” |
 | 最近上游错误行（错误） | 2.2 上游错误请求的 `items[0]`：时间 `created_at`；状态码按 40 章 §6.3 上游错误行的取法——`status_code ≥ 400` 直接用；`< 400`（已重试成功的恢复行，`status_code` 是客户端最终拿到的码，例如 200）从 `message` 解析 `Recovered upstream error (\d{3})`；解析不到且 `phase == account_auth` 写“鉴权”；都没有时不写状态码段 | 设计稿原文：“最近上游错误 HH:MM · N 分钟前 · 401 ›”（状态码等宽）；不写状态码段时为“最近上游错误 HH:MM · N 分钟前 ›”。点按 → 这一条的请求详情（`.error(id: items[0].id, kind: upstream)`，40 章 §7） | 运维关闭（`OPS_DISABLED`）、请求失败或 24 小时内没有记录：有 C02 且 `error_at` 非 null 时显示不可点（无 chevron）的“出错于 HH:MM · N 分钟前[ · {error_status_code}]”（设计稿之外的退路，见未决问题 8）；否则整行不显示 |
@@ -2460,7 +2468,7 @@ PATCH 请求体（`PatchAccountRequest`，`account_handler.go:194-215`）：顶�
 |---|---|---|---|
 | 并发数 | `concurrency` | 数字 | Stepper，最小 1 |
 | 优先级 | `priority`，副文案“越小越优先” | 数字 | Stepper，≥0 |
-| 账号计费倍率 | `rate_multiplier`，副文案“0 表示不计费，仅影响账号计费” | `×1.2` | 文本框（decimal），`^\d+(\.\d+)?$`，否则“账号计费倍率需要是不小于 0 的数字” |
+| 账号计费倍率 | `rate_multiplier`，副文案“0 表示不计费，仅影响账号计费” | `×1.2`（写法见 00 §6.2） | 文本框（decimal），`^\d+(\.\d+)?$`，否则“账号计费倍率需要是不小于 0 的数字” |
 | 负载因子 | `load_factor`，副文案“越大越常被选中” | 缺失或 0 写“默认” | 文本框（整数），1–10000；留空或 0 = 默认（发 0）；否则“负载因子为 1–10000 的整数；留空或 0 恢复默认” |
 | 分组 | `group_ids`（显示用 `groups[].name`） | 胶囊列表；空写“未分组” | push“分组”选择器（见下） |
 | 过期时间 | `expires_at`（Unix 秒，按服务器时区显示 `yyyy-MM-dd HH:mm`，0.6） | 空写“不过期”；`auto_pause_on_expired` 为真时副文案“到期自动暂停调度” | push“过期时间”：不过期 / 1 个月后 / 1 年后（以 ServerTime 的现在为起点，在服务器时区日历上加 N 个月，月底对齐）/ 自定义（日历 + 时间，`DatePicker` 加 `.environment(\.timeZone, 服务器时区)`，须晚于 ServerTime 的现在；手机时区与服务器不同时脚注“时间按服务器时区（UTC+8）显示”）；选“不过期”发 `expires_at: 0` |
@@ -2476,7 +2484,7 @@ PATCH 请求体（`PatchAccountRequest`，`account_handler.go:194-215`）：顶�
 | 密钥账号 | API Key | `credentials_status.has_api_key` | 🔒“已设置 · 不可查看”+ 行内“更换”；本次已更换时写“已更换 · HH:MM”；凭据类错误且未更换时行下红字“上游拒绝了这个密钥（{error_status_code}），需要更换”；已更换未测试时写“已更换：测试连接通过后自动清除错误（仍暂停调度）” |
 | 密钥账号 | Base URL | `credentials.base_url` | 等宽原样 + “修改”；空写“官方地址” |
 | 令牌账号 | 访问令牌 | `token_status.expires_at`（无 C10 时解析 `credentials.expires_at`） | 徽章：剩余 ≥1 小时“有效”（ok）/ >0“即将到期”（caution）/ ≤0“已过期”（critical）；正文“N 小时后（到期 HH:MM）”/“N 分钟后（…）”；`token_status.auto_refresh == false` 时副文案“不会自动刷新” |
-| 令牌账号 | 刷新令牌 | — | 动作行，标“立即生效” |
+| 令牌账号 | 刷新令牌 | `token_status.auto_refresh` | 动作行，标“立即生效”；`auto_refresh == false`（没有刷新令牌）时置灰，下方注“没有刷新令牌，只能重新授权”。没有 `token_status` 的旧服务端照旧可刷新；OpenAI 个人访问令牌（PAT）不置灰（后端对它的刷新是一次校验） |
 | 令牌账号 | 重新授权… | — | 动作行，标“立即生效” |
 | 节脚注 | — | — | 密钥：“已保存的密钥不可查看，只能更换。更换立即生效、不能撤销；站点不再保存旧密钥，但它在上游仍然有效，泄露时请到上游控制台吊销。”令牌：“令牌到期前自动刷新。刷新令牌、重新授权都立即生效，不能撤销；重新授权会同时清除错误、限流状态（停用的账号会被重新启用），调度开关不变。” |
 
@@ -2495,11 +2503,11 @@ PATCH 请求体（`PatchAccountRequest`，`account_handler.go:194-215`）：顶�
 
 | 元素 | 计算 | 显示 |
 |---|---|---|
-| 分区右上 | 映射条数 | “只调度这 N 个”/“未限制” |
+| 分区右上 | 映射条数 | “只调度这 N 个”/“未限制”；按平台默认模型调度的账号（见“空”）映射为空时写“平台默认” |
 | 行 | 每个键 `from`；值 `to` | `from`（等宽）→ `to`；`to == from` 写“原样转发”；该模型在 0.2 模型限流里时加徽章“限流 N 分钟” |
-| 空 | 无映射或键不存在 | “支持所有模型” |
+| 空 | 无映射或键不存在 | “支持所有模型”；后端对空映射只按平台默认模型调度的账号（Antigravity、Grok、DeepSeek、Gemini Google One、未开透传的 OpenAI OAuth，同后端 `resolveModelMapping`）写“按平台默认模型” |
 | 透传提示 | `extra.openai_passthrough == true` | “已开启自动透传，模型限制不生效” |
-| 编辑 sheet | 删除行（−）、“添加模型”（`:id/models` 多选，加入为 `{m: m}`）、“添加映射”（请求模型 → 实际模型，`*` 只能在末尾） | 脚注“列表为空时支持所有模型；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。” |
+| 编辑 sheet | 删除行（−）、“添加模型”（`:id/models` 多选，加入为 `{m: m}`）、“添加映射”（请求模型 → 实际模型，`*` 只能在末尾） | 脚注“列表为空时支持所有模型；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。”；按平台默认模型调度的账号换成“列表为空时按平台默认模型调度；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。” |
 
 保存：`credentials_patch: {"model_mapping": {…整张表…}}`；清空时 `{"model_mapping": null}`。
 
@@ -2518,7 +2526,7 @@ PATCH 请求体（`PatchAccountRequest`，`account_handler.go:194-215`）：顶�
 | OpenAI | 自动透传（仅替换认证） | `extra.openai_passthrough`，副文案“开启后模型限制不生效” | 开关 |
 | OpenAI `apikey` | Responses API 支持 | `extra.openai_responses_mode`：`auto` 自动 / `force_responses` 强制 Responses / `force_chat_completions` 强制 Chat Completions | 选项列表 |
 | `apikey` / `bedrock` | 池模式，副文案“上游是账号池时开启，错误不标记本账号” | `credentials.pool_mode` | 开关 |
-| `apikey` / `bedrock` | 自动探测上游声明倍率，副文案“只探测，不改账号计费倍率” | 读 `extra.upstream_billing_probe_enabled`，写顶层 `upstream_billing_probe_enabled` | 开关 |
+| `apikey` / `bedrock` | 自动探测上游声明倍率，副文案“只探测，不改账号计费倍率” | 读 `extra.upstream_billing_probe_enabled`，写顶层 `upstream_billing_probe_enabled` | 开关；已存的 `extra.upstream_billing_rate_sync_enabled` 为真（倍率同步开着）时，开关正下方加一行“关闭后倍率同步也会关闭”（服务端关探测会连同步一起关） |
 | 所有账号 | 在 Web 中编辑 | 副文案“自定义错误码、请求头覆写等其余设置” | 动作行（§3.4） |
 
 设计稿里 Anthropic 令牌账号的“客户端亲和调度”：**后端无此能力**（账号级没有对应键，Web 编辑弹窗也没有）→ App 不显示。改国产厂商的接入端点（`api_base_urls` 等）不在手机编辑，放“在 Web 中编辑”。
@@ -2592,7 +2600,7 @@ sheet 打开期间暂停页面定时刷新；保存成功后用响应替换；sh
 | 界面元素 | 来源 | 格式与文案 |
 |---|---|---|
 | 目标行 | 账号名 | 副文案“测试会向上游发送一次真实请求，可能产生少量费用” |
-| 输出区（等宽） | `→ 测试 {平台} · {name}`、`→ 模型 {model}`，之后 `content` / `status` 事件文本逐行追加 | 每行经脱敏（现有 `sanitizedTestOutput`：Bearer、`sk-…`、URL 替换为“[已隐藏]”），最多 500 行 |
+| 输出区（等宽） | `→ 测试 {平台} · {name}`、`→ 模型 {model}`，之后 `content` / `status` 事件文本逐行追加；另有两类附加行：`error` 事件（上游报错）脱敏后写成一行“✕ …”，收到 `image` / `audio` / `video` 时写“← 收到图片 / 音频 / 视频”（不显示地址） | 每行经脱敏（`AccountTestOutput`），换成“[已隐藏]”：PEM 私钥；密钥类键名后面的值（`x-api-key`、`api_key` / `api-key`、`x-goog-api-key`、`anthropic-api-key`、`x-amz-security-token`、`secret_access_key`、`access_token`、`refresh_token`、`id_token`、`session_token`、`client_secret`，可带蛇形前缀，如 `aws_session_token`；只换值，键名、分隔符和引号保留，上游错误里转义 JSON 的写法 `\"x-api-key\":\"…\"` 同样遮住）；JWT；AWS 访问密钥 ID（`AKIA` / `ASIA`）；Google API Key（`AIza`）；Bearer 令牌、`sk-…`、URL。内容分段到达时先拼成整行再脱敏；最多 500 行 |
 | 通过结果 | `test_result.data.success == true` | “测试通过 · 首字 {first_token_ms/1000}s · 总耗时 {total_ms/1000}s”；`first_token_ms` 为 null 不写首字；无 C07 时用本机计时并加“本机计时” |
 | 通过后的恢复说明 | `recovery.cleared_error` / `cleared_rate_limit` + `account.schedulable` | 清了且开关开：“已自动清除{错误/限流}，账号恢复调度”；清了且开关关：“已自动清除{…}，仍暂停调度”+ 右侧按钮“启用调度”；都没清不写 |
 | 失败结果 | `data.success == false` | “测试未通过 · {upstream_status}”（null 时不写码）；副文案：`marked.error` 或测试后 `account.status == error` 且属凭据类（`account.error_kind ∈ {auth, forbidden, token_refresh}` 或码 401/403）→ 令牌账号“令牌无效，账号保持错误。重新授权后再测试连接”、密钥账号“凭据无效，账号保持错误。更换 API Key 后再测试连接”；`marked.rate_limited` →“测试触发了上游限流，账号进入限流中”；`marked.temp_unschedulable` →“测试触发了临时不可调度”；否则“账号状态没有改变，可以稍后重试” |
@@ -2603,7 +2611,7 @@ sheet 打开期间暂停页面定时刷新；保存成功后用响应替换；sh
 - 打开即开始测试（与设计一致，无“开始”按钮）；结束后可点模型名换模型再测。
 - 结果里的“启用调度”→ `POST :id/schedulable {true}`（§5），回执带撤销，关闭 sheet。
 - 测试结束（收到 `test_result` 或流结束）后：用 `test_result.data.account` 更新详情的状态字段，并 `GET :id` 刷新全量与 ETag。
-- 进行中点“关闭”：**不取消**——测试作为 AppModel 持有的任务继续跑，sheet 关闭；完成后回执“「{name}」测试通过 / 未通过”+“查看”。App 进入后台时申请 `beginBackgroundTask`；流在收到 `test_result` 之前断开 → `GET test-runs/latest`（`started_at` 不早于本次开始时间；开始时间按 ServerTime 记，0.6）：`success` / `failed` 按结果回执；`interrupted` 或查不到 → 回执“测试被中断，不能判定是否成功”+“重新测试”。
+- 进行中点“关闭”：**不取消**——测试作为 AppModel 持有的任务继续跑，sheet 关闭；完成后回执“「{name}」测试通过 / 未通过”+“查看”。App 进入后台时申请 `beginBackgroundTask`；流在收到 `test_result` 之前断开 → `GET test-runs/latest`（`started_at` 不早于本次开始时间；开始时间按 ServerTime 记，0.6）：`success` / `failed` 按结果回执；`interrupted` 或查不到 → 回执“「{name}」测试被中断，不能判定是否成功”+“重新测试”。
 - “重新测试”（中断后、或用户从回执点）：有 `accounts.test_runs` 走 `POST test-runs`（离开也会跑完），前台每 3 秒轮询 `GET /admin/account-test-runs/:run_id` 直到非 `running`；无能力走 SSE。
 
 #### 4.5 状态
@@ -2831,7 +2839,7 @@ Antigravity 的“在 /v1/messages 中使用”= `extra.mixed_scheduling`；“�
 | 停调度失败 | “停止调度没有确认 · 结果待核对”，“账号 #{id} 已创建，可能正在参与调度。凭据还没验证，可能已经在接收请求。重试一次停止调度，成功后自动开始测试。”；按钮“重试停止调度”、“删除账号…” |
 | 测试输出 | 进行中展开流式；结束后折叠成一行（显示最后一行与行数） |
 
-原因映射（失败标题里的“{原因}”）：`account.error_kind`（或 `upstream_status`）→ `auth`/401：密钥“API Key 无效或已撤销”、令牌“令牌无效或已撤销”；`forbidden`/403：OAuth“授权的账号没有可用额度或权限”、Vertex“Service Account 没有 Vertex AI 权限”、Bedrock“AWS 凭据无效或没有 Bedrock 权限”；`quota`“上游额度不足”；`rate_limit`/429“上游限流”；其他“上游返回 {code}”；都没有时“上游拒绝了这次测试请求”。
+原因映射（失败标题里的“{原因}”）：`account.error_kind`（或 `upstream_status`）→ `auth`/401：密钥“API Key 无效或已撤销”、令牌“令牌无效或已撤销”、Bedrock / Vertex“凭据无效或已撤销”；`forbidden`/403：OAuth“授权的账号没有可用额度或权限”、Vertex“Service Account 没有 Vertex AI 权限”、Bedrock“AWS 凭据无效或没有 Bedrock 权限”；`quota`“上游额度不足”；`rate_limit`/429“上游限流”；其他“上游返回 {code}”；都没有时“上游拒绝了这次测试请求”。
 
 #### 7.4 交互与写操作
 
@@ -2895,6 +2903,7 @@ Antigravity 的“在 /v1/messages 中使用”= `extra.mixed_scheduling`；“�
 #### 8.4 交互与写操作
 
 - Face ID 打开时，任何批量动作先验证。
+- **停止调度超过 50 个先确认数量**：选中（去重后）超过 50 个账号时，点“停止调度”先弹确认框：标题“停止 N 个账号的调度？”，正文“将停止 N 个账号的调度，分 M 次发送。”（M 按每次 50 个计），按钮“停止调度”/“取消”；确认后才走 Face ID（打开时）与发送。不设硬上限；“启用调度”和撤销不确认。
 - **停止 / 启用调度**：可逆，直接执行。回执“已{停止/启用}调度 N 个账号[ · K 个失败]”+“撤销”（对 `success_ids` 按操作前的 `schedulable` 分两组各发一次 `bulk-update`，撤销是新的用户意图、用新 key）；有失败时附“查看”打开结果 sheet。执行后退出选择模式。
 - 所有批量写完成后列表完整刷新。
 
@@ -2945,8 +2954,8 @@ Antigravity 的“在 /v1/messages 中使用”= `extra.mixed_scheduling`；“�
 | 元素 | 来源 | 格式 | 空值 |
 |---|---|---|---|
 | 行右侧 | 第一个 `enabled` 计划 + 其最新结果 | “{cron 人话} · {model_id} · 上次{成功/失败}” | 无计划“没有计划 · 在 Web 中添加”；计划都停用“计划已停用” |
-| cron 人话 | `cron_expression` | `*/N * * * *` → “每 N 分钟”；`0 */N * * *` → “每 N 小时”；其余原样等宽 | — |
-| 结果行 | `started_at`（HH:MM）、`status`、`upstream_status_code`、`latency_ms`、`error_kind` / `error_message` | 成功：“成功 · 1.3s”；失败：状态码徽章（`codeTone`）+ 分类词（auth 凭据无效、forbidden 无权限、quota 额度不足、rate_limit 上游限流、其他写状态码）；不显示 `error_message` 原文 | 无 `upstream_status_code` 时按 0.1 正则从 `error_message` 解析，仍无写“—” |
+| cron 人话 | `cron_expression` | `*/N * * * *` → “每 N 分钟”；`0 */N * * *` → “每 N 小时”；N 为 1 时写“每分钟”“每小时”；其余原样等宽 | — |
+| 结果行 | `started_at`（HH:MM）、`status`、`upstream_status_code`、`latency_ms`、`error_kind` / `error_message` | 成功：“成功 · 1.3s”；失败：状态码徽章（`codeTone`）+ 分类词（auth 凭据无效、forbidden 无权限、quota 额度不足、rate_limit 上游限流）+ 耗时（“401 凭据无效 · 1.3s”）；其他分类时分类词就是“上游 {码}”，这时不再单独画码牌，“上游 529”放进带状态色的牌里、耗时跟在牌后，状态码整行只写一次；不显示 `error_message` 原文 | 无 `upstream_status_code` 时按 0.1 正则从 `error_message` 解析，仍无时码牌写“—”（分类词照 `error_kind`，没有时写“失败”）；没有耗时不写 |
 
 #### 9.4 交互与写操作
 
@@ -3654,7 +3663,7 @@ Antigravity 的“在 /v1/messages 中使用”= `extra.mixed_scheduling`；“�
 | 分区 / 行 | 字段 | 显示与编辑 |
 |---|---|---|
 | 权限 · 角色 | `role` | 分段“用户 / 供应商 / 管理员”；本人时只有“管理员”可选（其他置灰）。脚注按情况取一：本人“这是你当前登录的账号（<名>）：不能把自己降级，也不能禁用或删除。”；升为管理员“保存时需要输入二次验证码，验证后再确认一次。”；从管理员降级“降级后会失去后台权限。如果他是站点最后一个管理员，保存会失败。”；供应商“供应商只能访问账号、代理、分组和用量，看不到用户与资金。” |
-| 专属分组 | `allowed_groups` ∩ 专属标准启用分组、`group_rates` | 每行：分组名、行尾倍率“专属倍率 ×1.3”（有专属倍率）或“默认 ×1.0”（灰）；副行“<平台> · 绑定 N 个 Key”（新加的写“新添加 · 保存后生效”）。已移除未保存的行显示删除线 + “保存后移除 · N 个 Key 会无法调用”+“撤回”。“＋ 添加专属分组”。分区 meta“N 个”/改动时“已改 N 项”。脚注“倍率、添加、移除在“保存”后生效。”+ 订阅分组说明 |
+| 专属分组 | `allowed_groups` ∩ 专属标准启用分组、`group_rates` | 每行：分组名、行尾倍率“专属倍率 ×1.3”（有专属倍率）或“默认 ×1.0”（灰；倍率写法见 00 §6.2，本章各处同）；副行“<平台> · 绑定 N 个 Key”（新加的写“新添加 · 保存后生效”）。已移除未保存的行显示删除线 + “保存后移除 · N 个 Key 会无法调用”+“撤回”。“＋ 添加专属分组”。分区 meta“N 个”/改动时“已改 N 项”。脚注“倍率、添加、移除在“保存”后生效。”+ 订阅分组说明 |
 | 公开分组 | `restrict_public_groups`、`allowed_groups` ∩ 公开分组、`group_rates` | 开关同 §5.3；每行：分组名、副行“<平台>”（限制打开时加“ · 可以使用 / 不能使用”）、行尾倍率；点行打开分组 sheet。meta：限制打开“可用 3 / 5”，关闭“5 个”。脚注“点分组可以设专属倍率；留空用分组默认倍率。” |
 | 并发与 RPM · 并发数 | `concurrency` | 步进器；缺失显示“—”，按 ＋ 从 1 开始 |
 | 并发与 RPM · 调整备注 | `adjustment_notes` | 只在并发改动后出现，缩进；占位“可选 · 并发 2 → 4 的原因”；脚注追加“调整备注只写进这次的并发流水，不写进用户资料。” |
@@ -4181,13 +4190,13 @@ B01、B02、B03、D03（上游错误身份筛选）、D04（错误日志耗时�
 | 自选单天 | 当日 00:00 | 次日 00:00；今天为现在 | hour | 今天 / 昨天 / 10月14日 | 前一天（今天时取同期） | 比昨天同时 / 比前一天 |
 
 - 说明行（Button，带日历图标与 ›）：`10月16日 周五 · 00:00 至 09:41 · 按小时`；多天 `10月10日 – 16日（今天到 09:41）· 按天`，跨月写全 `9月17日 – 10月16日`；过去的单天 `10月15日 周四 · 按小时`。
-- 自定义 sheet（标题“自定义范围”，右上“应用”）：快捷胶囊 本月 / 近 14 天 / 上月；下面“开始 · 10月1日 周三 00:00”“结束 · 10月16日 周五 现在（09:41）/ 24:00”两行，点一行展开一个 `DatePicker(.graphical)`，一次只选一天，不画区间底色；改了起止后快捷胶囊取消选中，若正好等于某个快捷项则自动选中它；底部说明“共 N 天，按天统计（只选一天按小时）；按站点时区计算。”。可选日期：最早 366 天前，最晚今天；开始晚于结束时把另一端对齐。后端不提供站点开通日期，不写设计稿里“站点 X 月 X 日开通”那句。
+- 自定义 sheet（标题“自定义范围”，右上“应用”）：快捷胶囊 本月 / 近 14 天 / 上月；下面“开始 · 10月1日 周三 00:00”“结束 · 10月16日 周五 现在（09:41）/ 24:00”两行，点一行展开一个 `DatePicker(.graphical)`，一次只选一天，不画区间底色；改了起止后快捷胶囊取消选中，若正好等于某个快捷项则自动选中它；底部说明“共 N 天，按天统计（只选一天按小时）；按站点时区计算。”，起止是同一天时写“共 1 天，按小时统计；按站点时区计算。”。可选日期：最早 366 天前，最晚今天；开始晚于结束时把另一端对齐。后端不提供站点开通日期，不写设计稿里“站点 X 月 X 日开通”那句。
 - 范围改变：除 RPM / TPM 卡（自有滚动窗口）外，所有卡清空旧值重新加载。
 
 **筛选**：导航栏按钮打开 sheet；同一时间只有一个条件（分组或模型）。
 
 - sheet 标题“筛选”：`Segmented` 分组 / 模型；第一行“全部分组 / 全部模型”（单选圆点）。
-  - 分组：`GET /admin/groups/all?include_inactive=true`，按 `sort_order` 排；停用分组加“停用”标签，照样可选。右侧数字为当前范围内该组实际扣费占比（取当前范围 `dashboard/groups` 的结果，没有用量写 `0.0%`）。
+  - 分组：`GET /admin/groups/all?include_inactive=true`，按 `sort_order` 排；停用分组加“停用”标签，照样可选。右侧数字为当前范围内该组实际扣费占比（取当前范围 `dashboard/groups` 的结果，没有用量写 `0.0%`）。占比读取失败且没有旧值时，最后一个分组之后加一行“占比读取失败 · 重试”，重试只重读占比，分组行照常可选。
   - 模型：当前范围 `dashboard/models?model_source=requested` 的全部模型（等宽字体），按实际扣费降序，右侧占比同理。
   - 底部说明：分组——“筛选后趋势、合计、排行和运行类图表都只算这个分组。分组按请求时 Key 所属的分组算：用户排行只算各用户在这个分组 Key 上的用量，一个用户的 Key 分属几个分组时，会出现在几个分组里。”；模型——有 `ops.dashboard_model_filter` 时“运行类图表也只算这个模型。”，没有时“运行类图表（RPM / TPM、时长、错误）后端不支持按模型，仍显示全站。”
 - 选中后范围说明行右侧出现可移除胶囊“分组：高级组 ✕” / “模型：claude-opus-4 ✕”（模型名等宽），点胶囊即清除。
@@ -4315,6 +4324,7 @@ B01、B02、B03、D03（上游错误身份筛选）、D04（错误日志耗时�
 |---|---|---|
 | 首次加载 | 每张卡内 `ProgressView`，卡片保持高度 | — |
 | 单卡失败 / 超时 | 卡内“加载失败”或“统计较慢，加载超时”+“重试本项”；有旧数据时保留，并在大数下写“更新失败 · 显示的是 09:40 的数据” | 重试本项 |
+| 计费趋势卡合计与趋势同时失败 | 合计的“重试本项”会连趋势一起重读，所以两者都是可重试的失败（或合计是保留旧值的“更新失败”）时卡里只留一条失败行；任一边是 400 / 403 时两行都留 | 重试本项 |
 | 范围内无用量 | 柱图写“这个范围内没有用量”；合计 `$0.00`、请求 0 | — |
 | 400 | 卡内“请求参数无效”，记日志 | 不重试 |
 | 404 `OPS_DISABLED` | RPM / TPM 卡、运行类磁贴换成“运维监控未开启” | 见监控章节组件 |
@@ -4727,7 +4737,7 @@ B01、B02、B03、D03（上游错误身份筛选）、D04（错误日志耗时�
 | 元素 | 内容 | 动作 |
 |---|---|---|
 | 时间胶囊 | “近 24 小时 ⌄” | `Menu`：近 1 小时 / 近 24 小时 / 近 7 天 / 近 30 天 / 自定义…（开始、结束两个 DatePicker，最长 366 天） |
-| 条件胶囊 | “账号：Claude-官方-01 ✕”“分组：标准组 ✕”“用户：xm.wang@example.com ✕”“模型：claude-opus-4 ✕”（模型等宽） | 点按移除该条件并重新加载 |
+| 条件胶囊 | “账号：Claude-官方-01 ✕”“分组：标准组 ✕”“用户：xm.wang@example.com ✕”“模型：claude-opus-4 ✕”（模型等宽）；从用户详情进入时“用户：”也写该用户的邮箱（去首尾空白；邮箱为空时写“用户：#id”） | 点按移除该条件并重新加载 |
 | 不生效的胶囊 | 置灰 | 见 6.4 |
 | “+ 筛选” | — | 打开“按对象筛选” sheet |
 
@@ -4753,7 +4763,7 @@ B01、B02、B03、D03（上游错误身份筛选）、D04（错误日志耗时�
 - 不生效的条件：置灰胶囊不参与请求，胶囊下一行写原因：
   - `modelSource` 不是 requested 时，错误请求 / 上游错误的模型胶囊置灰：“错误记录只能按请求模型筛选，这里显示全部模型”。
   - 旧服务端（`/admin/me` 404，没有 D03）时，上游错误的用户、模型胶囊置灰：“上游错误不能按模型、用户筛选，这里显示全部”。
-- “按对象筛选” sheet：顶部搜索框（占位“账号名、邮箱或分组”），输入防抖 300ms；分三组：账号（行：状态图标、名称、`#id`、平台 · 分组）、分组（行：名称、平台）、用户（行：头像首字、邮箱；`deleted=true` 加“已删除”）。搜索框为空时账号、分组显示前几个，用户组不显示（`search-users` 空关键字返回 `[]`）。选中即设置该类条件（同类替换）并关闭 sheet。vendor 没有用户组。
+- “按对象筛选” sheet：顶部搜索框（占位“账号名、邮箱或分组”），输入防抖 300ms；分三组：账号（行：状态图标、名称、`#id`、平台 · 分组）、分组（行：名称、平台；停用分组（`status` 不是 active）加“停用”标签，照样可选）、用户（行：头像首字、邮箱；`deleted=true` 加“已删除”）。当前已设的对象行尾打勾（accent 色）；它不在显示出来的前几行里时看不到勾，不置顶。搜索框为空时账号、分组显示前几个，用户组不显示（`search-users` 空关键字返回 `[]`）。选中即设置该类条件（同类替换）并关闭 sheet。vendor 没有用户组。
 - 点行进入请求详情；返回时保留滚动位置。
 - 下拉刷新：第 1 页全量重载 + 计数重取。
 - 滚到底：加载下一页（`page + 1`，`page_size=100`），按 `id` 去重（新行插到顶部会让旧行往后挪，只会重复、不会漏）。
@@ -5058,7 +5068,7 @@ D02 的 `shortage` 有分组可用性告警规则时按规则判定（`source=al
 
 ##### 0.4.4 退路（没有 `groups.member_batch`）
 
-逐个账号串行：`GET /admin/accounts/:id` 取最新 `group_ids` → 本地加入或去掉本组 → `PUT /admin/accounts/:id` 只带 `group_ids`。每个账号一个结果，遇到 409 `MIXED_CHANNEL_WARNING` 记为该账号失败（reason 记 `MIXED_CHANNEL_RISK`，详情从 409 的 `details` 取）。这条路径有副作用（会按快照写回账号整行、重置该账号在其他分组的优先级），所以退路模式下 sheet 底部提示改为“服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改。”
+逐个账号串行：`GET /admin/accounts/:id` 取最新 `group_ids` → 本地加入或去掉本组 → `PUT /admin/accounts/:id` 只带 `group_ids`。每个账号一个结果，遇到 409 `MIXED_CHANNEL_WARNING` 记为该账号失败（reason 记 `MIXED_CHANNEL_RISK`，详情从 409 的 `details` 取）。这条路径有副作用（会按快照写回账号整行、重置该账号在其他分组的优先级），所以退路模式下 sheet 底部提示改为“服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。”简易模式不走这条退路：没有 `groups.member_batch`（或本次会话已收到 500 `GROUP_REPOSITORY_UNSUPPORTED`）时成员入口置灰（0.7）。
 
 #### 0.5 停用 / 启用 / 复制 / 删除（列表滑动、长按菜单、详情 ⋯ 共用）
 
@@ -5081,7 +5091,7 @@ D02 的 `shortage` 有分组可用性告警规则时按规则判定（`source=al
 
 | 内容 | 规则 | 例 |
 |---|---|---|
-| 费率倍数 | `×` + 数值；到 0.1 精度时一位小数，否则两位 | ×0.8、×1.0、×1.25 |
+| 费率倍数 | 写法见 00 §6.2（× 在前，三位小数四舍五入，去掉末尾 0，至少一位小数） | ×0.8、×1.0、×1.25、×0.125 |
 | 计费类型 | `standard` → 标准（余额）/ 短写“标准计费”；`subscription` → 订阅（配额）/“订阅计费” | |
 | 每用户 RPM | `rpm_limit` 0 → 不限 | 不限、600 |
 | 订阅限额 | `daily/weekly/monthly_limit_usd` null → 无限制；金额 0 位小数 | $20、无限制 |
@@ -5100,7 +5110,7 @@ D02 的 `shortage` 有分组可用性告警规则时按规则判定（`source=al
 | 列表 / 详情读取 | ✓ | ✓（只看已授权分组，计数按本工作区重算） | ✓（响应只有 id、name、description、platform、status、计数、sort_order） |
 | 新建 | ✓ | ✗（POST 被 vendor 白名单拒绝，403 FORBIDDEN）→ 隐藏 + | ✓，只提交名称、描述、平台 |
 | 编辑 | ✓ | `permissions.group_ops` 或 `group_billing` 任一才显示“编辑”；没有 `group_ops` 时名称、描述、状态、专属、RPM 只读；没有 `group_billing` 或分组 `billing_locked=true` 时倍率与限额只读并注“计费由站长管理”（后端会静默丢弃越权字段，`service/admin_group_field_scope.go`） | 只有名称、描述（状态等字段后端会丢弃，隐藏停用 / 启用） |
-| 加减成员 | ✓ | ✗（POST 403）→ 隐藏，见未决问题 1 | ✓（组合分组 400 `SIMPLE_MODE_GROUP_NOT_BINDABLE`） |
+| 加减成员 | ✓ | ✗（POST 403）→ 隐藏，见未决问题 1 | ✓（组合分组 400 `SIMPLE_MODE_GROUP_NOT_BINDABLE`）；没有 `groups.member_batch`（或本次会话已收到 500 `GROUP_REPOSITORY_UNSUPPORTED`）时，详情与编辑 sheet 的成员入口置灰（按钮行、⋯ / 长按菜单、“添加”行、移出与“−”），旁边写“服务器暂不支持批量调整成员”（详情在分区脚注、编辑 sheet 在标题旁），不走逐个提交（会解绑组合分组） |
 | 复制、用量汇总、容量、stats、API 密钥、订阅 | ✓ | 复制、stats、API 密钥、订阅 ✗（403）；用量、容量按本工作区 | 全部 403 `SIMPLE_MODE_OPERATION_UNSUPPORTED` → 隐藏对应行与菜单项 |
 | 删除 | ✓ | ✗ | ✓，但分组里还有账号时 409 `GROUP_NOT_EMPTY` |
 | 账号状态汇总（D02） | ✓ | ✗（403）→ 按 0.2 本地判定 | ✓ |
@@ -5115,6 +5125,7 @@ D02 的 `shortage` 有分组可用性告警规则时按规则判定（`source=al
 | 409 `GROUP_EXISTS` | 新建、改名 | 名称字段下红字“已有同名分组。”，sheet 不关闭 |
 | 409 `GROUP_NOT_EMPTY` | 简易模式删除 | “分组里还有账号，先移出成员再删除。” |
 | 400 `SIMPLE_MODE_GROUP_NOT_BINDABLE` | 简易模式给组合分组加账号 | “简易模式下不能给组合分组添加账号。” |
+| 400 `SIMPLE_MODE_GROUP_NOT_BINDABLE` | 简易模式下打开组合分组（详情 `GET /admin/groups/:id`） | 整页说明：标题“简易模式下不能打开组合分组”，正文“这个分组在简易模式下读不到，请到 Web 后台查看。”；不给重试和 ⋯，只能返回。按 reason 判断、不比对文案；停止本页读取，但不从列表和目录移除 |
 | 403 `SIMPLE_MODE_OPERATION_UNSUPPORTED` | 简易模式调高级接口 | 不应出现（已隐藏）；出现时“简易模式下不支持此操作。” |
 | 403 `FORBIDDEN` | vendor 调站长专属接口 | 不应出现（已隐藏）；出现时“你的工作区没有这个权限。” |
 | 400 `EMPTY_MEMBER_CHANGE`、`TOO_MANY_ACCOUNTS`、`ACCOUNT_IN_BOTH_LISTS`、`INVALID_ACCOUNT_ID`、`INVALID_GROUP_ID` | 成员写入参数 | App 侧已避免；出现时“提交的成员有误，请重试。”并记日志 |
@@ -5184,8 +5195,8 @@ D02 的 `shortage` 有分组可用性告警规则时按规则判定（`source=al
 | 空（站点没有分组） | 空态“还没有分组” + “新建分组”按钮（有权限时） |
 | 搜索无结果 | “没有匹配的分组” |
 | `groups` 失败 | 有缓存：保留旧数据，顶部细条“刷新失败 · 重试”；无缓存：错误态 + 重试 |
-| usage-summary 失败 | 各行“今日 —”，不报错 |
-| status-summary 失败 / 403 | 静默改用本地阈值判定 |
+| usage-summary 失败 | 有上次金额时各行保留，列表顶部现有“刷新失败 · 重试”细条下面再加一条“更新失败 · 重试”，右侧小字写哪几项是旧的（“今日”“可用状态”或“今日、可用状态”），行内不加字；点按全部重读；重读中细条保留并转圈，遇 429 倒计时、置灰。从没读到过才写“今日 —”，不报错 |
+| status-summary 失败 / 403 | 保留上一次成功读到的“可用偏低”判定，在同一细条标“可用状态”；从没读到过、没有 `accounts.status_summary` 或是 vendor 时才用本地阈值判定 |
 | 401 / 423 等全局错误 | 交给会话层（通用约定） |
 
 #### 1.6 刷新策略
@@ -5263,7 +5274,7 @@ D02 的 `shortage` 有分组可用性告警规则时按规则判定（`source=al
 | 色格条（大） | 四桶 | 见 0.3 | — |
 | 图例 | 四桶 | 见 0.3 | — |
 | 停调度说明 | 成员中处于限时状态且 `schedulable=false` 的个数 s | `其中 s 个账号限流中但已停止调度，计入暂停·停用`（s=0 不显示；“限流中”按最常见状态写，混合时写“受限”） | 成员未加载时不显示 |
-| 最早恢复 | 成员的 `rate_limit_reset_at`、`overload_until`、`temp_unschedulable_until` 中仍在未来的最小值 | `最早 04:37 后恢复 1 个 · Claude-官方-03`，每秒倒数 | 没有限时成员不显示 |
+| 最早恢复 | 开着调度、正处于限时状态的成员，各自先取 `rate_limit_reset_at`、`overload_until`、`temp_unschedulable_until` 中仍在未来的最晚值（这个成员真正恢复的时刻），再在全组取最早的；同一秒恢复的合并计数 | `最早 04:37 后恢复 1 个 · Claude-官方-03`；同一秒多个时写“最早 04:37 后恢复 2 个 · Claude-官方-03 等”（名字取成员顺序里的第一个），每秒倒数 | 没有限时成员不显示 |
 | none 警示 | `account_count>0` | `没有可用的账号，这个分组的新请求会失败。先让成员账号恢复或启用调度，或加入同平台的可用账号。` | — |
 | | `account_count=0` | `分组里还没有账号，新请求会失败。`；`total_api_keys=0` 时追加 `目前也没有 API 密钥使用它。` | — |
 
@@ -5337,9 +5348,11 @@ D02 的 `shortage` 有分组可用性告警规则时按规则判定（`source=al
 |---|---|
 | 首次加载 | 状态卡骨架；其余分区各自骨架 |
 | 分组 404 | 整页“这个分组已删除”，导航只留返回 |
+| 简易模式下打开组合分组（400 `SIMPLE_MODE_GROUP_NOT_BINDABLE`） | 整页“简易模式下不能打开组合分组”，正文“这个分组在简易模式下读不到，请到 Web 后台查看。”；不给重试和 ⋯，只能返回（0.8） |
 | 成员失败 | 成员分区“成员加载失败 · 重试”；状态卡仍按分组计数显示 |
 | 成员今日失败 | 各行今日 `—` |
-| 容量 / 用量 / dashboard/groups 失败 | 对应格 `—` |
+| 容量 / 用量 / dashboard/groups 失败 | 有上次值时保留，在“贰 · 用量与容量”标题旁标“更新失败 · 重试”（三块共用一个，不逐格加；点按重读整页；重读中显示“正在刷新”，遇 429 倒计时、置灰）；从没读到过才写对应格 `—` |
+| 告警横幅刷新失败 | 有横幅时保留，横幅下加一条“告警更新失败 · 重试”（点按只重读横幅）；从没读到过不显示横幅 |
 | stats 失败或 403 | 停用确认去掉数字；API 密钥 / 订阅行显示 `—`（vendor 隐藏） |
 | ops 关闭 | 不显示横幅；两条错误行写“运维监控未开启” |
 | 成员数为 0 | 见 2.3 |
@@ -5392,7 +5405,7 @@ D02 的 `shortage` 有分组可用性告警规则时按规则判定（`source=al
 
 | 控件 | 字段 | 规则 | 备注 |
 |---|---|---|---|
-| 名称 | `name` | 必填，去首尾空白后 1–100 字符；同名时下方红字“已有同名分组。” | vendor 无 `group_ops` 时只读 |
+| 名称 | `name` | 必填，去掉首尾空白后最多 100 字节，一个汉字算 3 个字节；超出时下方红字“名称太长：最多 100 个字节，一个汉字算 3 个”；同名时下方红字“已有同名分组。” | vendor 无 `group_ops` 时只读 |
 | 描述 | `description` | 可选 | 同上 |
 | 平台 | `platform` | 新建：菜单式 Picker；改平台时清空已选成员。编辑：只读文字 | 后端允许 PUT 改平台，App 与 Web 一样不提供 |
 | 状态 | `status` | 新建：只读“正常”；编辑：开关“正常 / 停用” | 简易模式隐藏 |
@@ -5414,7 +5427,7 @@ vendor 无 `group_billing` 或 `billing_locked=true` 时费率倍数与限额只
 
 | 控件 | 字段 | 规则 |
 |---|---|---|
-| 每日 / 每周 / 每月限额 | `daily_limit_usd` / `weekly_limit_usd` / `monthly_limit_usd` | 金额输入，留空 = 无限制（编辑时由有值改为空，发 JSON `null`，后端转为不限）；有值才显示“$”前缀 |
+| 每日 / 每周 / 每月限额 | `daily_limit_usd` / `weekly_limit_usd` / `monthly_limit_usd` | 金额输入，留空 = 无限制（编辑时由有值改为空，发 JSON `null`，后端转为不限）；有值才显示“$”前缀；填 0（含服务器原值是 0）时该行下写“服务器对 0 的处理还不一致，可能等于不限；要不限请留空”（caution 色，只在可编辑的行下），清空后消失，0 照常提交；后端统一 0 的含义后删除这句 |
 | 脚注 | — | `留空 = 无限制；超过限额的订阅请求会被拒绝。` |
 
 标准计费时这一区换成一行说明 `标准（余额）计费从用户余额扣除，没有订阅限额。`
@@ -5443,7 +5456,7 @@ vendor 无 `group_billing` 或 `billing_locked=true` 时费率倍数与限额只
 **编辑（“保存”）**
 
 1. 只提交改动过的字段（沿用现有 `GroupUpdateRequest` 的“nil = 不改”写法）；永不提交 `platform`、`subscription_type`。
-2. 需要确认的情况：倍率、RPM、专属、任一限额或停用有变化，或保存后可用将从 >0 变为 0。确认框：标题 `保存「新名称」的修改？`；正文逐行：`站点 <站点名> · 分组「原名称」`、各项变化（`名称 A → B`、`描述已修改`、`费率倍数 ×0.8 → ×0.9`、`每用户 RPM 不限 → 60`、`每日限额 无限制 → $20`、`公开 → 专属：之后只有分配了这个分组的用户能选它` / `专属 → 公开：之后所有用户新建 API 密钥时都能选它`、`停用分组（N 个 API 密钥会被拒绝）`）、成员行 `成员：加入 2 个 · 移出 1 个`、倍率变化时 `此后的请求按新倍率计费，已产生的记录不变。`、可用归零时 `保存后这个分组没有可用的账号，新请求会失败。`。按钮：可用归零时“仍然保存”（destructive），否则“保存修改”；取消。只改名称、描述、成员且不归零时直接执行。
+2. 需要确认的情况：倍率、RPM、专属、任一限额或停用有变化，或保存后可用将从 >0 变为 0。确认框：标题 `保存「新名称」的修改？`；正文逐行：`站点 <站点名> · 分组「原名称」`、各项变化（`名称 A → B`、`描述已修改`、`费率倍数 ×0.8 → ×0.9`（两边按三位写出来相同、实际不同时写完整精度，如 `×0.13 → ×0.1304`，00 §6.2）、`每用户 RPM 不限 → 60`、`每日限额 无限制 → $20`、`公开 → 专属：之后只有分配了这个分组的用户能选它` / `专属 → 公开：之后所有用户新建 API 密钥时都能选它`、`停用分组（N 个 API 密钥会被拒绝）`）、成员行 `成员：加入 2 个 · 移出 1 个`、倍率变化时 `此后的请求按新倍率计费，已产生的记录不变。`、可用归零时 `保存后这个分组没有可用的账号，新请求会失败。`。按钮：可用归零时“仍然保存”（destructive），否则“保存修改”；取消。只改名称、描述、成员且不归零时直接执行。
 3. 先 `PUT /admin/groups/:id`（有字段改动时；带 `Idempotency-Key`，scope `admin.groups.update`），成功后再发 0.4 成员写入（有成员改动时）。PUT 失败就停下，sheet 保持打开显示错误，不发成员写入。
 4. 回执：`已保存「名称」`，后缀成员文案；部分失败带“查看”。详情、列表、目录刷新。
 5. vendor：PUT 成功后用响应对比提交字段（现有 `GroupUpdateRequest.matches`），有字段被服务端丢弃时回执改为 `已保存「名称」 · 部分字段无权修改，未生效`。
@@ -5458,7 +5471,7 @@ vendor 无 `group_billing` 或 `billing_locked=true` 时费率倍数与限额只
 | 提交中 | 右上按钮换转圈，表单禁用 |
 | 409 `GROUP_EXISTS` | 名称下红字，保持打开 |
 | 其他明确失败（400 / 403 / 404 / 422） | 表单底部红字 message，可修改后重试（新的 key） |
-| 不确定（超时、5xx、断网） | 沿用现有“结果待确认”：不自动重发；“读取服务器状态核对”——编辑按字段比对，新建按名称精确搜 `GET /admin/groups?search=<名称>&platform=<平台>`；有 `admin.idempotent_writes` 时先用同一 key 重发一次拿回结果 |
+| 不确定（超时、5xx、断网） | 沿用现有“结果待确认”：不自动重发；“读取服务器状态核对”——编辑按字段比对，新建按名称精确搜 `GET /admin/groups?search=<名称>&platform=<平台>`；有 `admin.idempotent_writes` 时先用同一 key 重发一次拿回结果。有成员改动时，选“稍后核对”关闭的确认句末加“这次的成员调整还没有发送，关闭后需要到详情里重新调整。”（成员写入排在分组本身之后，3.4）；没有成员改动时确认句不变 |
 | 成员写入失败 | 不阻塞分组本身的成功回执，按 0.4.3 |
 
 #### 3.6 刷新策略
@@ -5606,7 +5619,7 @@ vendor 无 `group_billing` 或 `billing_locked=true` 时费率倍数与限额只
 | 第一行左 | `name` + 状态徽章 | `effective_status`：inactive → 已停用、quota_exhausted → 额度耗尽（caution）、expired → 已过期；active 不显示徽章 | 没有 E06 时用 `AdminAPIKeyStatus` 在本地推导（见 0.1） |
 | 第一行右 | `key_masked` | 等宽字体 | 缺失时本地拼掩码；**不显示、不缓存明文 `key`** |
 | 第二行左 | `user.username`（空时用 `user.email`）+ 用户禁用标记 + `last_used_at` | `Nova 工作室 · 09:38`；`user.status=disabled` 时名称后加 `（已禁用）`；今天写 HH:mm，更早写 MM-DD | 无 user 时 `用户 #<user_id>`；`last_used_at=null` → `从未使用` |
-| 第二行右 | `today_actual_cost` | `今日 $12.40` | 用量请求失败 `今日 —` |
+| 第二行右 | `today_actual_cost` | `今日 $12.40` | 读取失败且已有金额时写“今日 $3.20 · 更新失败”（caution 色）；从没读到过写 `今日 —` |
 | 第三行（仅 `quota > 0`） | `quota_used` / `quota` | `额度` + 金额容量条 | — |
 | 状态胶囊 | 额度耗尽 → caution | — | 其余不画 |
 | 已停用 / 已过期 | — | 整行变淡 | — |
@@ -5626,7 +5639,7 @@ vendor 无 `group_billing` 或 `billing_locked=true` 时费率倍数与限额只
 |---|---|
 | 首次加载 | 骨架行 |
 | 列表失败 | 错误态 + 重试；翻页失败在底部“加载失败 · 重试” |
-| 用量失败 | 今日 `—`，不报错 |
+| 用量失败 | 有金额的行保留并标“今日 $x · 更新失败”，列表上方加一条细条“今日金额更新失败 · 重试”（行是导航链接，重试不放在行内），点按只重读没有新金额的行；重读中细条保留并转圈，遇 429 倒计时，等待期间下拉、翻页、回到前台都不再读今日（这些行按读失败处理），等待结束由细条自动重读一次。没有金额的行写“今日 —” |
 | 400 `Invalid key_view, use full/masked` | 这是 App 自己的参数错误：只有 App 发了 full / masked 以外的值，新服务端才会这样回（`handler/admin/api_key_view.go:13-23`）。老服务端不认 `key_view`，会忽略它并回明文，这种情况按 0.1 的退路处理。遇到这个 400：写日志，界面按“列表失败”处理，不重试 |
 
 #### 6.6 刷新策略
@@ -5682,7 +5695,7 @@ vendor 无 `group_billing` 或 `billing_locked=true` 时费率倍数与限额只
 
 #### 7.5 状态
 
-同 6.5（没有用量子请求）。
+同 6.5（没有用量子请求）。另：生效数读取失败且已有值时，副标题保留旧值，限额区上方加一条细条“生效中计数更新失败 · 重试”（右侧“更新于 HH:mm”），点按只重读计数；重读中保留并转圈，遇 429 倒计时、等待期间不发请求。
 
 #### 7.6 刷新策略
 
@@ -6033,7 +6046,7 @@ vendor（`admin/me.workspace != null`）是否允许登录 App 由通用约定�
 - **Face ID 开关**：打开时先 `LAContext().canEvaluatePolicy(.deviceOwnerAuthentication)`，再 `evaluatePolicy` 验证一次，成功才写入 true；关闭时同样验证一次再写 false（未决问题 9）。验证失败或取消保持原值，不弹错误。
 - **金额门槛**：sheet 内大数字键盘（复用用户章节的 KeypadSheet 输入规则，整数美元 1–100000），保存写 `security.faceID.threshold`。
 - **切换站点**：点非当前站点 → `AppModel.switchTo(_:)`（现有），切换中行尾转圈，期间禁用其他站点行。
-- **删除站点**：站点行 ··· → “删除站点和凭据”（红），确认框沿用现有文案；该站点用管理访问令牌登录时，正文加一行“同时吊销这个管理访问令牌”（00 §1.7.5 第 3 条）。执行顺序按 00 §1.1“删除站点”与 §1.7.5，用该站点的凭据依次：① 本机登记过推送设备 → `DELETE /admin/push/devices/:id`（失败记“待删除”，不阻断）；② `sat_`：`GET /admin/access-tokens` 找 `current == true` 的那条 → `DELETE /admin/access-tokens/:id`（只读令牌也允许吊销自己；失败不阻断，回执加“令牌未能吊销，可用 API 吊销”）；JWT：`POST /auth/logout`（带 `refresh_token` 与 `Authorization`）；Admin Key：无；③ `AppModel.remove(_:)`（删除 Keychain 凭据与 `deviceID`）。
+- **删除站点**：站点行 ··· → “删除站点和凭据”（红），确认框沿用现有文案；该站点用管理访问令牌登录时，正文加一行“同时吊销这个管理访问令牌”（00 §1.7.5 第 3 条）。执行顺序按 00 §1.1“删除站点”与 §1.7.5，用该站点的凭据依次：① 本机登记过推送设备 → `DELETE /admin/push/devices/:id`（失败记“待删除”，不阻断；站点已经不在 App 里，回执加“推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除”）；② `sat_`：`GET /admin/access-tokens` 找 `current == true` 的那条 → `DELETE /admin/access-tokens/:id`（只读令牌也允许吊销自己；失败不阻断，回执加“令牌未能吊销，可用 API 吊销”）；JWT：`POST /auth/logout`（带 `refresh_token` 与 `Authorization`）；Admin Key：无；③ `AppModel.remove(_:)`（删除 Keychain 凭据与 `deviceID`）。
 - **退出并清除凭据**：确认框沿用现有文案；顺序按 00 §1.7.5（先删推送设备——会话吊销不会自动删除设备，A11 部署注意；JWT 再调 `auth/logout`；只是退出时**不**吊销 sat_）；最后 `AppModel.logout()` 本地擦除。
 - 本页无幂等写入。
 
@@ -6247,7 +6260,7 @@ vendor（`admin/me.workspace != null`）是否允许登录 App 由通用约定�
 
 - 设置 → 通知 → 推送通知（`push.notifications`；vendor 不可见）。标题“推送通知”。
 - 去向：其他接收方式的设备详情（同页 push：订阅编辑 + 测试 + 最后一行红字“删除接收方式…”）、“添加 Bark / ntfy / Webhook”（sheet）、“站点 APNs 配置 · 编辑”（sheet）、系统通知设置（`UIApplication.openNotificationSettingsURLString`）。
-- 推送点击后的跳转按 00 §7.5（`site` 匹配 `ServerProfile.id.uuidString`、跨站点先切换、凭据已清除先登录）：`push.test` 进入“设置 → 推送通知”（本页）；`site` 匹配不到本机站点时只打开 App、停在概览。
+- 推送点击后的跳转按 00 §7.5（`site` 匹配 `ServerProfile.id.uuidString`、跨站点先切换、凭据已清除时先按站点菜单的旧登录规则找同地址站点、没有去向才先登录；待跳转目标只保留 10 分钟）：`push.test` 进入“设置 → 推送通知”（本页）；`site` 匹配不到本机站点时只打开 App、停在概览。
 
 #### 7.2 数据来源
 
@@ -6269,7 +6282,7 @@ vendor（`admin/me.workspace != null`）是否允许登录 App 由通用约定�
 |---|---|---|---|
 | APNs 未就绪横幅 | `config.ready == false` | caution：“站点还没配好 APNs，本机收不到推送。可改用 Bark / ntfy / Webhook，或在下方配置 APNs。” | `ready == true` 不显示；GET config 失败不显示 |
 | 本机 · 在本机接收推送 | 本机 device id 存在且列表里该设备 `enabled` | 开关 | `config.ready == false` 时置灰、不发起注册（00 §7.1），副行“站点配好 APNs 后才能打开”；GET config 失败时照常可用 |
-| 本机 · 状态行 | `last_success_at` / `disabled_reason` / `last_error` | 正常：“已开启 · 上次送达 10/17 09:41”；`unregistered`“设备令牌已失效，关掉再打开即可恢复”；`bad_device_token`“设备令牌无效”；`topic_mismatch`“App 的包名与站点 APNs 配置不符”；`secret_undecryptable`“站点更换了加密密钥，关掉再打开即可恢复”；`last_error` 非空时追加“最近失败：<last_error>” | 从未送达：“已开启 · 还没有送达记录” |
+| 本机 · 状态行 | `last_success_at` / `disabled_reason` / `last_error` | 正常：“已开启 · 上次送达 10/17 09:41”；`unregistered`“设备令牌已失效，打开开关即可恢复”；`bad_device_token`“设备令牌无效”；`topic_mismatch`“App 的包名与站点 APNs 配置不符”；`secret_undecryptable`“站点更换了加密密钥，打开开关即可恢复”（停用时开关显示“关”）；`last_error` 非空时追加“最近失败：<last_error>” | 从未送达：“已开启 · 还没有送达记录” |
 | 系统权限 | `UNUserNotificationCenter` 授权状态 | 被拒：行内“系统设置里关闭了通知 · 去设置” | — |
 | 推送内容 · 事件 | `subscription.events` | 四个开关：告警触发（`ops_alert.fired`）、告警恢复（`ops_alert.resolved`）、账号出错（`account.error`）、账号测试完成（`account.test_finished`） | 全关 = `events: []`，副行“已暂停推送” |
 | · 告警级别 | `min_severity` | “P1 及以上”（P0–P3 菜单） | 默认 P1 |
@@ -6289,7 +6302,7 @@ vendor（`admin/me.workspace != null`）是否允许登录 App 由通用约定�
 - **自动重新登记**：系统回调新 token、或成功连接到一个本机开启过推送的站点时，重发一次 POST（同一令牌返回 200、id 不变、重新启用被停用的设备）。
 - **改订阅**：每次修改立即 `PUT …/subscription`（整对象），乐观更新；失败回滚并提示。`INVALID_PUSH_SUBSCRIPTION` 按 `metadata.field` 定位（App 正常不会触发）。
 - **测试**：`POST …/:id/test` → “已发送测试推送，请看通知”；`503 PUSH_NOT_CONFIGURED`“站点没有配好 APNs”；`502 PUSH_DELIVERY_FAILED`“推送服务没有接受：<metadata.provider_reason>（<metadata.provider_status>）”，随后重载列表（设备可能已被停用）；`404 PUSH_DEVICE_NOT_FOUND` → 清本地 id、重载。
-- **添加其他接收方式**（sheet）：平台分段 Bark / ntfy / Webhook；Bark：服务器（默认 `https://api.day.app`）、设备 Key；ntfy：服务器（默认 `https://ntfy.sh`）、主题（字母、数字、`-`、`_`）、访问令牌（可选）；Webhook：URL、签名密钥（可选，脚注“设置后请求带 `X-Sub2-Signature: sha256=HMAC(secret, 时间戳 + "." + 正文)`”）；名称。提交同一 POST。
+- **添加其他接收方式**（sheet）：平台分段 Bark / ntfy / Webhook；Bark：服务器（默认 `https://api.day.app`）、设备 Key；ntfy：服务器（默认 `https://ntfy.sh`）、主题（字母、数字、`-`、`_`）、访问令牌（可选）；服务器是公共的 ntfy.sh 时（主机比对，忽略大小写、空白、末尾斜杠和端口，http 也算；填了访问令牌也照样提示），主题行下加提示“公共服务器上的主题，谁知道名字谁就能订阅，告警内容会被别人看到。”，改成自建地址后消失；Webhook：URL、签名密钥（可选，脚注“设置后请求带 `X-Sub2-Signature: sha256=HMAC(secret, 时间戳 + "." + 正文)`”）；名称。提交同一 POST。
   - reason：`INVALID_PUSH_TARGET`“地址不被允许：默认只接受公网 https 地址（局域网或 http 需站长打开 push_targets 配置）”；`INVALID_PUSH_TOKEN`“设备 Key / 主题格式不对”；`PUSH_TARGET_IN_USE`“这个接收地址已由另一位管理员登记”；`PUSH_DEVICE_LIMIT_REACHED`“最多 20 个推送目标，先删除不用的”；`ACCESS_TOKEN_READ_ONLY`（只读 sat_）“只读令牌只能登记本机推送”。
 - **删除其他接收方式**：不放滑动操作。设备详情最后一行红字“删除接收方式…”→ 通用删除确认（0.4）：标题“删除接收方式「名称」？”（名称 = `device_name`，空时 `endpoint_host`），正文“站点 X · 删除后不能恢复。\n这个地址不再收到推送，要恢复需重新添加。”；Face ID 关时输入完整名称，开时“用 Face ID 删除”→ `DELETE /admin/push/devices/:id` → 返回本页并重载列表，toast “已删除接收方式「名称」”；`404 PUSH_DEVICE_NOT_FOUND` 视为已删除。（本机设备用“在本机接收推送”开关关闭，不走这条。）
 - **编辑站点 APNs 配置**（sheet，可用条件见 7.3）：启用开关、Team ID（10 位）、Key ID、私钥“导入 .p8 文件…”（`.fileImporter`，读成 PEM 文本）或粘贴、Topic、环境（production / sandbox）。只提交改过的字段；私钥不改时不传。保存前按 00 §2.6.1 主动判断：`step_up_enabled == true` 且未在授权期内 → 先弹 `StepUpView`；`step_up_enabled == false` 时直接保存（Admin Key / sat_ 也可以，`server/middleware/step_up.go:100`）。仍收到 `403 STEP_UP_REQUIRED` → `StepUpView` 后用户再点保存；`STEP_UP_ADMIN_API_KEY_FORBIDDEN`（站点刚打开二次验证）→ 重新取 `admin/me` 并把“编辑”置灰；`INVALID_APNS_CONFIG` 按 `metadata.field` 标红对应字段（如“启用需要 Team ID、Key ID 与私钥”）；`SECRET_ENCRYPTION_KEY_NOT_CONFIGURED`“站点没有配置固定的 TOTP_ENCRYPTION_KEY，私钥不能保存”。`encryption_key_configured == false` 时导入按钮置灰并写明原因。私钥文本提交后立即清空。
@@ -6420,7 +6433,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 只读行（`redeemed`） | 状态、订阅分组、过期时间 | 只读 | — |
 | 状态（未使用 / 已禁用） | `status` | 分段“未使用 / 已禁用”，脚注“禁用后不能再兑换，可以随时重新启用。” | — |
 | 状态（已过期且未兑换） | — | 只读“已过期”；选了新过期时间后显示“已过期 → **未使用**” | — |
-| 订阅分组 | `group_id` | 选项胶囊 | 只在订阅码且非 `redeemed` 时显示 |
+| 订阅分组 | `group_id` | 选项胶囊；当前分组不在可选项里时仍排在最前、作为已选显示（不改选就不发分组）：分组目录已读到时，已停用写“（已停用）”，仍启用但不是订阅类型写“（非订阅分组）”，目录里找不到也标“（已停用）”；目录还没读到或读取失败时只写名字 | 只在订阅码且非 `redeemed` 时显示 |
 | 过期时间 | `expires_at` | 选项：“保持 10/23 09:12”（或“…（已过期）”，有原过期时间时才有）/ 永不过期 / 1 天 / 3 天 / 7 天 / 30 天 / 自定义（`DatePicker` 日期 + 时间，下限为当前时间） | 已过期码分区标题“新的过期时间”，排在最前；脚注按设计稿：“选一个新的过期时间即可续期；保持原时间只改备注。” / “保存后 10/30 09:41 过期，状态改回“未使用”。” |
 | 备注 | `notes` | 多行输入，占位“例如：活动批次、工单号”，脚注“只有管理员看得到。” | — |
 
@@ -6432,7 +6445,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
   - 已过期且未兑换：选了新时间 → `expires_at` + `"status":"unused"`；保持 → 只 `notes`。
   - `fields` 为空时“保存”置灰（避免 `REDEEM_CODE_BATCH_UPDATE_EMPTY`）；自定义时间不晚于现在时置灰并在脚注写“过期时间要晚于现在。”
 - 成功：关 sheet；toast：续期“已续期 · 10/30 过期，改回未使用”（永不过期写“永不过期”）；只改备注“已保存备注”；其他“已保存兑换码”。刷新该卡与 stats。
-- reason：`REDEEM_CODE_USED`（409）→ sheet 不关，切成“只改备注”模式并提示“这个码已被兑换，只能改备注”；`REDEEM_CODE_EXPIRES_AT_INVALID`“过期时间要晚于现在”；`REDEEM_CODE_STATUS_INVALID`、`REDEEM_CODE_GROUP_ID_INVALID`“分组无效，请重新选择”；其余通用。
+- reason：`REDEEM_CODE_USED`（409）→ sheet 不关，切成“只改备注”模式并提示“这个码已被兑换，只能改备注”；`REDEEM_CODE_EXPIRES_AT_INVALID`“过期时间要晚于现在”；`REDEEM_CODE_GROUP_ID_INVALID`“分组无效，请重新选择”；`REDEEM_CODE_STATUS_INVALID`“状态无效，请重新选择”；其余通用。
 - 没有幂等键（绝对值写入，超时后重发结果相同）；超时提示“结果未确认”，用户可原样重试。
 
 #### 9.5 状态
@@ -6478,12 +6491,12 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 第 1 步 · 类型磁贴 | 固定 | 余额“余额金额（美元），兑换后计入用户余额。”；并发数“并发数增量，兑换后提高用户的并发上限。”；订阅“兑换后开通或延长所选订阅分组。”；邀请码“邀请码用于限制用户注册，使用后自动标记为已使用。”；点磁贴即进第 2 步；脚注“点一个类型进入下一步；生成前会再确认一次。” | — |
 | 第 2 步 · 余额 | 大数字键盘 | 大字“$10”；下方“每个兑换码的面值 · 合计 **$200.00**”；规则同 KeypadSheet：最多 2 位小数、不以 0 开头、最多 6 位数字 | 未输入时“$0”灰色，“下一步”置灰 |
 | 第 2 步 · 并发数 | 步进器 1–50 | “增加并发 +2” | — |
-| 第 2 步 · 订阅 | 分组胶囊 + 有效天数 | 天数选项 7 / 30（默认）/ 90 / 自定义（1–3650） | 没有订阅分组时“站点还没有订阅类型的分组”，“下一步”置灰 |
+| 第 2 步 · 订阅 | 分组胶囊 + 有效天数 | 天数选项 7 / 30（默认）/ 90 / 自定义（1–3650） | 分组目录读取中：一行“正在读取分组…”；读取失败：一行“读取失败 · 重试”（重试重读分组目录）；读到了且没有订阅分组才写“站点还没有订阅类型的分组”；三种情况“下一步”都置灰。读取被切后台取消的，回到前台补读 |
 | 第 2 步 · 邀请码 | — | 只显示说明 | — |
 | 第 2 步 · 数量 | 步进器 1–100 + 快捷 1 / 10 / 20 / 50 / 100 个 | 默认 1（同 Web） | — |
 | 第 3 步 · 兑换码过期 | 选项 | 永不过期（默认）/ 1 天 / 3 天 / 7 天 / 自定义天数（1–3650） | — |
 | 第 3 步 · 备注 | `notes` | 单行可展开输入，占位“活动批次、工单号（选填）”（G03 新增，设计稿当时后端没有，见未决问题 6） | — |
-| 第 3 步 · 收据 | 汇总 | 类型 / 每个“$10.00” / 数量“× 20” / 过期“7 天后过期（10/23）”或“永不过期” / 合计“$200.00”（只余额） | — |
+| 第 3 步 · 收据 | 汇总 | 类型 / 每个“$10.00” / 数量“× 20” / 过期“7 天后过期（10/23）”或“永不过期” / 合计“$200.00”（只余额） | 自定义天数为空或不在 1–3650 时照常显示收据，过期一行写“—”，天数框下提示“填 1–3650 天”，提交仍置灰 |
 | Face ID 提示 | 余额且 `faceID.enabled` 且合计 > 门槛 | “合计超过 $100，确认后验证 Face ID。” | — |
 | 提交按钮 | — | “生成 20 个兑换码”；校验不过时置灰 | — |
 | 确认框 | 汇总 | 余额：标题“生成 20 个余额兑换码，合计 $200.00？”，正文“站点 主站 · 每个 $10.00\n7 天后过期（10/23）”（+ Face ID 行），红色按钮“生成 $200.00”；其他类型：标题“生成 5 个并发数兑换码？”，普通按钮“生成 5 个” | — |
@@ -6546,18 +6559,19 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 
 | 界面元素 | 字段 / 计算 | 格式与文案 | 空值 / 不可用时 |
 |---|---|---|---|
-| 列表横幅 | 当前站点的记录（多条时取最早一条，标题后加“等 N 批”） | caution 横幅 + 图标；标题“兑换码生成结果待核对”；第二行“20 个 × $10.00 · 合计 $200.00”；第三行“5 分钟前发起，未确认是否已生成”；按钮“核对”（从概览进入时为主样式） | 非余额类不写合计 |
+| 列表横幅 | 当前站点的记录（多条时取最早一条，标题后加“ · 共 N 批”） | caution 横幅 + 图标；标题“兑换码生成结果待核对”（多批时如“兑换码生成结果待核对 · 共 2 批”）；第二行“20 个 × $10.00 · 合计 $200.00”；第三行“5 分钟前发起，未确认是否已生成”；按钮“核对”（从概览进入时为主样式） | 非余额类不写合计 |
 | 待核对页 · 头部 | — | 沙漏 + “请求可能已提交” + “没有收到服务器确认。不要重新生成，先核对。” | — |
 | 待核对页 · 收据 | 记录 | 内容“20 个 × $10.00”；合计“$200.00”；发起“主站 · 10/16 09:36”；幂等编号（完整 UUID，等宽，可选中） | — |
 | 待核对页 · 按钮 | — | “核对生成结果”（主）/“用同一编号重试” | — |
 | 待核对页 · 脚注 | 固定 | “编号已保存在本机。核对会按这个编号在服务器上找这一批；用同一编号重试时，服务器生成过就直接返回那一批，不会重复生成。关闭后，概览“待处理”和兑换码列表顶部会一直提醒，直到核对完成。” | — |
 | 没找到页 | 核对结果 `total == 0` | 放大镜 + “服务器上没有这一批” + “这次生成没有生效。用同一编号重试，或者放弃。”；按钮“用同一编号重试”（主）/“放弃这一批”；脚注“重试用的是本机保存的同一个编号，服务器最多生成一批。” | — |
 | 核对结果页 | 核对返回的码 | 同 10.3 结果页，头部“已核对：服务器已生成 20 个”，脚注“这一批是 10/16 09:36 发起时生成的，已在列表的“今天生成”里；导出 CSV 请在 Web 操作。” | — |
+| 无法判断页 | 老服务端退路（11.4）按最新一页分不出这一批 | 问号 + “无法判断这一批是否已生成” + “最近生成的兑换码太多，分不出这一批。请到 Web 的兑换码列表核对。核对后，已经生成的点“放弃这一批”结束提醒；确认没生成再用同一编号重试。”；不能重试时（别的管理员发起、超过编号保留期、只读令牌）只写到“…核对后，已经生成的点“放弃这一批”结束提醒。” | — |
 
 #### 11.4 交互与写操作
 
 - **核对**：`total == count` → 删除记录 → 核对结果页；`total == 0` → 没找到页；`0 < total < count`（整批一个事务，正常不会出现）→ 显示找到的码 + caution“数量与发起时不符，请到 Web 核对”，记录保留到用户点“我已核对”。
-- **用同一编号重试**：同 10.4 第 2 步的分支表；成功（含重放）→ 删除记录 → 结果页。
+- **用同一编号重试**：同 10.4 第 2 步的分支表；成功（含重放）→ 删除记录 → 结果页。“用同一编号重试”需要 Face ID 时（余额类、开关打开、合计超过门槛）叠与第一次生成相同的覆盖层“Face ID · 验证后生成兑换码”，验证通过才发送，取消则不发。
 - **放弃这一批**：删除记录，toast “已放弃这一批 · 不再提醒”。
 - 概览待处理、横幅、设置里的同一条记录共用，任何一处核对完成后其余立即消失。
 - **老服务端退路**（无 `redeem_codes.stats`、响应没有 `X-Redeem-Batch-ID`）：重试只能同 key 重放，重放里的码值是 `***`，按返回的 `id` 逐个 `GET /admin/redeem-codes/:id` 取真码；核对改为 `sort_by=created_at&sort_order=desc&page_size=100` 后按类型、面值、发起后 2 分钟内、数量启发式匹配，并提示“另一位管理员同时生成时可能分不清”（附录 G03 App 退路）。
@@ -6594,7 +6608,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 
 #### 12.3 字段 → 显示映射
 
-**到期计算 `proxyExpiry`**（按服务器时区的自然日差 `d = days(expires_at) − today`，设计稿 `shared/data.jsx:526-535`）：`status == expired` →“MM/DD 已过期”；`expires_at == null` →“永不过期”；`status != active` →“MM/DD 到期”；`d < 0` →“已到期 · 等待处理”（caution）；`d ≤ expiry_warn_days` →“今天到期”/“N 天后到期”（caution，记为 soon）；否则“剩余 N 天”。
+**到期计算 `proxyExpiry`**（按服务器时区的自然日差 `d = days(expires_at) − today`，设计稿 `shared/data.jsx:526-535`）：`status == expired` →“MM/DD 已过期”；`expires_at == null` →“永不过期”；`status != active` →“MM/DD 到期”，其中停用且已过到期时间（先停用、后到期，巡检只处理启用中的代理，所以它仍是“停用”）写“MM/DD 已过到期日”；`d < 0`（启用中但已过到期日，巡检还没处理）→“已到期 · 等待处理”（caution）；`d ≤ expiry_warn_days` →“今天到期”/“N 天后到期”（caution，记为 soon）；否则“剩余 N 天”。
 
 | 界面元素 | 字段 / 计算 | 格式与文案 | 空值 / 不可用时 |
 |---|---|---|---|
@@ -6606,7 +6620,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 行 · 标题 | `name` | 原样 | — |
 | 行 · 右侧 | 测试中 / 状态 / 延迟 | 测试中：“测试中”；非 active：状态徽章（正常 / 停用 / 已过期，已过期且无账号为 neutral）；active：`latency_status == success` → “182ms”，`failed` → critical 徽章“链接失败” | active 且未探测：“未测试”（灰） |
 | 行 · 地址 | `protocol`、`host`、`port` | 等宽“SOCKS5 · 203.0.113.24:1080”（HTTP / HTTPS / SOCKS5 / SOCKS5H） | — |
-| 行 · 底行 | `account_count`、地区、到期 | “3 个账号在用 · 中国香港”；已过期：“1 个账号仍在用 · 10/13 到期” / “没有账号在用 · 10/13 到期”；停用不写地区；soon 时右侧 caution 徽章“6 天后到期”；已过期 + 链接失败 + 有账号时再加“链接失败”徽章 | 地区 = `country_code` 用 `Locale(identifier:"zh_CN").localizedString(forRegionCode:)`，有 `city` 时追加“ · 城市”；都没有就不写 |
+| 行 · 底行 | `account_count`、地区、到期 | “3 个账号在用 · 中国香港”；已过期：“1 个账号仍在用 · 10/13 到期” / “没有账号在用 · 10/13 到期”；停用不写地区；soon 时右侧 caution 徽章“6 天后到期”；已过期 + 链接失败 + 有账号时再加“链接失败”徽章 | 地区 = `country_code` 用 `Locale(identifier:"zh_CN").localizedString(forRegionCode:)`（`HK`、`MO` 写短名“中国香港”“中国澳门”，系统名带“特别行政区”在行里放不下），有 `city` 时追加“ · 城市”；都没有就不写 |
 | 行 · 变淡 | 停用，或已过期且无账号 | idle | — |
 
 #### 12.4 交互与写操作
@@ -6664,7 +6678,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 状态卡 · 色调 | 链接失败且（active 或有账号） | critical 底 + 状态胶囊 | — |
 | 延迟块 | `latency_status`、`latency_ms`、`latency_message`、`latency_checked_at` | 成功：大字“182 ms” + 0–500ms 游标刻度（超过 500 指针停在最右，墨色无状态色）+ 小字“上次测试 10/16 09:12”（H01）；失败：“链接失败” + `latency_message`（等宽，错误底色） | 未探测：“— 还没测试过”；`latency_checked_at` 缺失时不写测试时间 |
 | 事实三格 | `ip_address`、地区、质量 | 出口 IP（等宽）；地区（同 12.3）；质量“A · 92”+ 标签旁日期（`quality_checked` 的 MM/DD）；检测中“检测中…” | 各自“—” |
-| 按钮行 | 状态 | 已过期：“续期”（主）+“测试连接”；其他：“测试连接”（主）+“编辑” | 只读身份 / vendor 无 `proxy_manage`：按钮不显示 |
+| 按钮行 | 状态 | 已过期，或停用且已过到期日（启用前要先续期，菜单里的“启用”此时也换成“续期…”）：“续期”（主）+“测试连接”；其他：“测试连接”（主）+“编辑” | 只读身份 / vendor 无 `proxy_manage`：按钮不显示 |
 | 壹 有效期 · 说明句 | 见下 | 见下 | 无说明时显示 KV 的“剩余”“到期回退” |
 | 壹 · 到期日 | `expires_at` | “2026-10-22” | “永不过期” |
 | 壹 · 到期提醒 | `expiry_warn_days` | “提前 7 天” | — |
@@ -6682,8 +6696,11 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 已过期，`fallback_account_count > 0` | neutral | “到期后已把 N 个账号改为直连 / 备用 sg‑01。续期并启用后，可以在“被改走的账号”里一键恢复。”（无 `proxies.fallback_accounts` 时后半句改为“要改回来，在账号详情里点“恢复原代理”。”） |
 | 已过期，其余 | neutral | “已过期，没有账号在用。” |
 | 正常，`fallback_account_count > 0`（续期后还没恢复） | caution | “N 个账号在本代理到期时被改走，还没恢复。” |
+| 正常，已过到期日、巡检还没处理（“已到期 · 等待处理”），回退“不回退” | caution | “已到期，等后台处理。处理时不回退，在用的 N 个账号会继续挂在这个过期代理上。”（无账号时写“已到期，等后台处理。处理时不回退。”） |
+| 正常，已过到期日、巡检还没处理，其他回退 | caution | “已到期，等后台处理。处理时把在用的账号改为直连 / 备用 sg‑01。” |
 | 正常，soon，回退“不回退” | caution | “6 天后到期。到期后不回退，在用的 N 个账号会继续挂在这个过期代理上。”（无账号时省略后半句） |
 | 正常，soon，其他回退 | caution | “6 天后到期。到期后把在用的账号改为直连 / 备用 sg‑01。” |
+| 停用且已过到期日 | neutral | “10/13 已过到期日。启用前需要先续期。” |
 
 （备用名里的连字符用不换行连字符，避免 `sg-01` 在连字符处折行。）
 
@@ -6819,6 +6836,7 @@ vendor 不可见。
 | 没有公告 | “还没有公告” + “新建公告” |
 | 分段为空 | “没有这类公告” |
 | 失败 | `FailureView` |
+| 带统计的第 1 页读取失败 | 带 `include_read_stats` 的第 1 页失败时，自动不带统计重读一次（取消、429、401 / 403、423 合规、续期暂缓、已走过安全提示的错误，以及会话 / 身份 / 二次验证 / 只读类错误除外）；重读成功就照常显示，行上不显示已读数，这个列表之后的翻页、刷新与切段也不再带统计；两次都失败才显示失败态，下次刷新仍先带统计。第 2 页起带统计失败不重读 |
 
 #### 15.6 刷新策略
 
@@ -6840,7 +6858,7 @@ vendor 不可见。
 
 #### 16.2 数据来源
 
-- `GET /admin/announcements/:id`（有 capability 时带 `include_read_stats=true`）。
+- `GET /admin/announcements/:id`，一律不带 `include_read_stats`（详情不用这份统计，“已读”一行只用下面的 read-summary；带上它统计失败时整个详情都会读不出来）。
 - `GET /admin/announcements/:id/read-summary`（有 `announcements.read_stats` 且非草稿）→ `{announcement_id, total_users, eligible_count, read_count, eligible_read_count, computed_at}`（`computed_at` 为 RFC3339 UTC；只统计未删除用户；eligible 按当前余额与当前有效订阅计算；`read_count` 含读后已不符合条件的人）。
 
 #### 16.3 字段 → 显示映射
@@ -6857,7 +6875,7 @@ vendor 不可见。
 
 #### 16.4 交互与写操作
 
-- **发布 / 重新发布**：确认框标题“发布「标题」？”，正文“<可见对象> · 用户打开时弹窗提示 / 静默出现在通知里\n有效期 <开始> – <结束>”，按钮“发布”/“取消” → `PUT /admin/announcements/:id`，`{"status":"active"}` → toast “已发布 · 符合条件的用户能看到”。
+- **发布 / 重新发布**：确认框标题“发布「标题」？”，正文“<可见对象> · 用户打开时弹窗提示 / 静默出现在通知里\n有效期 <开始> – <结束>”；结束时间已过（按服务器时钟 now ≥ `ends_at`，与后端 `IsActiveAt` 一致）时正文末尾另起一行“结束时间已过，发布后用户也看不到；请先编辑有效期”。按钮“发布”/“取消” → `PUT /admin/announcements/:id`，`{"status":"active"}` → toast “已发布 · 符合条件的用户能看到”；结束时间已过时改为“已发布 · 结束时间已过，用户看不到”（caution 色）。
 - **归档**：直接 `PUT …`，`{"status":"archived"}`；toast “已归档 · 用户不再看到”，撤销 = 写回原状态。
 - **··· 菜单**（标题为公告标题，说明“展示中 · 弹窗”）：编辑公告；归档（展示中）/ 发布 / 重新发布；已读情况（非草稿）；删除公告…（红，最后）。
 - **删除**：删除确认（输入完整标题 / Face ID）→ `DELETE /admin/announcements/:id` → 返回列表，toast “已删除公告「标题」”；`404 ANNOUNCEMENT_NOT_FOUND` 视为已删除。
@@ -6887,7 +6905,7 @@ vendor 不可见。
 #### 17.2 数据来源
 
 - 编辑预填来自详情。订阅分组选项：分组目录里 `subscription_type == "subscription"` 且 `status == "active"`。
-- 新建：`POST /admin/announcements`，请求 `{title, content, status, notify_mode, targeting, starts_at?, ends_at?}`（`starts_at` / `ends_at` 为 Unix 秒，缺省 = 立即 / 永久），有 `announcements.idempotent_create` 时带 `Idempotency-Key`（scope `admin.announcements.create`，带 key 时后端执行上限 30 秒）。
+- 新建：`POST /admin/announcements`，请求 `{title, content, status, notify_mode, targeting, starts_at?, ends_at?}`（`starts_at` / `ends_at` 为 Unix 秒，缺省 = 立即 / 永久），一律带 `Idempotency-Key`（scope `admin.announcements.create`，带 key 时后端执行上限 30 秒；没有 `announcements.idempotent_create` 的老服务端会忽略它，这时只发一次，见 17.4）。
 - 编辑：`PUT /admin/announcements/:id`，只放改过的键：`title`、`content`、`status`、`notify_mode`、`targeting`、`starts_at`、`ends_at`（`0` = 清空，即改回立即 / 永久）。
 
 #### 17.3 字段 → 显示映射
@@ -6912,6 +6930,8 @@ vendor 不可见。
 - **幂等（新建）**：sheet 打开时生成 key；失败后请求体不变就沿用，变了换新 key。`X-Idempotency-Replayed: true` 视为成功；`409 IDEMPOTENCY_KEY_CONFLICT`“该编号已用于另一份公告内容，请重新打开新建页”；`409 IDEMPOTENCY_IN_PROGRESS` / `IDEMPOTENCY_RETRY_BACKOFF` 按 `Retry-After` 同 key 重试；超时：有 capability 时同 key 重发一次，仍失败提示结果未确认；无 capability 时**不重发**，`GET /admin/announcements?search=<标题>&sort_by=created_at&sort_order=desc&page_size=5`，最近几分钟有同标题的就提示“上一次可能已经创建成功”，让用户决定（H07 App 退路）。
 - **reason**：`ANNOUNCEMENT_TITLE_INVALID`“标题不能为空，最多 200 字节”；`ANNOUNCEMENT_CONTENT_REQUIRED`“请填写正文”；`ANNOUNCEMENT_INVALID_TARGET`“可见对象条件无效，请重新设置”；`ANNOUNCEMENT_TIME_RANGE_INVALID`“结束时间要晚于开始时间”；`ANNOUNCEMENT_NOTIFY_MODE_INVALID` / `ANNOUNCEMENT_STATUS_INVALID`（App 不会发出）；带 key 时业务校验失败会进入 5 秒退避，改内容后必须换 key（已由上面的 key 规则覆盖）。
 - 有未保存修改时下滑关闭先确认“放弃修改？”。
+- **新建结果未确认时关闭**：确认框“结果未确认”，按钮“继续核对 / 稍后核对”；新建时正文“服务器可能已经创建了这条公告。关闭后这次的编号在本次使用期间保留，公告列表会重新读取；再次新建时会先提醒你核对，避免重复。”（编辑时仍是“服务器可能已经保存了这次修改。关闭后公告列表会重新读取，再次修改前先在详情里核对。”）。选“稍后核对”后，这次的编号与内容在本次使用期间保留（只在内存，切站、退出即清），公告列表重读；从确认起 24 小时后（00 §2.5.5 默认期限）不再用同一编号重发，改走 H07 按标题核对。
+- **再次新建前先提醒**：会话里还留着这样一条时，点新建（右上角与空态的“新建公告”）先弹“上一条公告的新建结果未确认”，正文“「标题」· 10/13 14:20 确认”（时间按 00 §6.3 的服务器时区与 `DisplayFormat.monthDayClock`：同年写 MM/dd HH:mm，跨年带年份）换行“服务器可能已经创建了它，先核对，避免用户看到重复的公告。”，按钮“继续核对 / 仍要新建 / 取消”：“继续核对”用保留的编号与草稿重新打开新建 sheet；“仍要新建”先清掉这条记录再打开空白新建页；“取消”什么都不做。只有用这条记录打开的 sheet 完成或点“查看”后才清掉记录，其他新建保存成功不动它。编辑入口、代理与分组的同类场景保持现状。
 
 #### 17.5 状态
 
@@ -7075,7 +7095,7 @@ vendor 不可见。
 | 情况 | 显示 |
 |---|---|
 | 发送中 | 提交按钮“正在发放…”，sheet 不能关闭 |
-| Face ID 中 | 覆盖层“Face ID · 验证后发放”；取消 = 不发请求、删掉刚写的记录 |
+| Face ID 中 | 覆盖层“Face ID · 验证后发放”；取消 = 不发请求、删掉刚写的记录。待核对页“用同一编号重试”需要 Face ID 时叠同一覆盖层，取消则不发 |
 | 等待服务器（409 进行中） | “正在等待服务器结果…”+ 已等待秒数 |
 | 待核对 | 结果待核对页；关闭 sheet 后在设置 → 待核对、概览待处理（10 章）保留提醒，直到核对或放弃 |
 | 核对 / 重试中 | 按钮“正在核对…”/“正在用同一编号重试…”，两个按钮都禁用 |
