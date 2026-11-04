@@ -77,6 +77,7 @@ struct ProxyEditDestination: View {
 struct ProxyEditSheet: View {
     let proxy: AdminProxy?
     @Environment(AppModel.self) private var model
+    @Environment(AppRouter.self) private var router
     @Environment(\.sessionContext) private var session
     @Environment(\.dismiss) private var dismiss
     /// Taken once when the sheet opens, so a catalog refresh behind it never resets what is typed.
@@ -106,13 +107,14 @@ struct ProxyEditSheet: View {
             .toolbar { toolbar }
             .interactiveDismissDisabled(isBusy || isUnconfirmed || draft.hasUnsavedChanges)
             .onDismissAttempt { if !isBusy { cancel() } }
+            .guardsTabSwitch(hasUnsavedInput: draft.hasUnsavedChanges && !isBusy) { cancel() }
             .alert(ProxyEditCopy.discardTitle, isPresented: $confirmingDiscard) {
-                Button(ProxyEditCopy.discardConfirm, role: .destructive) { dismiss() }
-                Button(ProxyEditCopy.keepEditing, role: .cancel) {}
+                Button(ProxyEditCopy.discardConfirm, role: .destructive) { leave() }
+                Button(ProxyEditCopy.keepEditing, role: .cancel) { router.cancelPendingSelect() }
             }
             .alert(ProxyEditCopy.unconfirmedCloseTitle, isPresented: $confirmingLater) {
                 Button(ProxyEditCopy.checkLater, role: .destructive) { checkLater() }
-                Button(ProxyEditCopy.keepChecking, role: .cancel) {}
+                Button(ProxyEditCopy.keepChecking, role: .cancel) { router.cancelPendingSelect() }
             } message: {
                 Text(ProxyEditCopy.unconfirmedCloseMessage(adding: proxy == nil))
             }
@@ -139,13 +141,18 @@ struct ProxyEditSheet: View {
         }
     }
 
+    /// Also a tab switch's question (S2-中-27): the same answers, 放弃 / 稍后核对 going on to that tab.
     private func cancel() {
-        if isUnconfirmed { confirmingLater = true } else if draft.hasUnsavedChanges { confirmingDiscard = true } else { dismiss() }
+        if isUnconfirmed { confirmingLater = true } else if draft.hasUnsavedChanges { confirmingDiscard = true } else { leave() }
     }
     /// 稍后核对 (00 §2.5.4): closes without the key; the catalog reads again.
     private func checkLater() {
         flow?.checkLater()
-        dismiss()
+        leave()
+    }
+    /// Closes the sheet, or with a tab switch waiting goes on to that tab, which closes it too.
+    private func leave() {
+        if !router.confirmPendingSelect() { dismiss() }
     }
     /// Not tied to the view: the sheet cannot be closed while the write runs, and it closes itself when done.
     private func submit() {
