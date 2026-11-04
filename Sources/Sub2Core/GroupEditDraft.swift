@@ -135,6 +135,11 @@ public struct GroupEditDraft: Sendable, Equatable {
         }
         return found
     }
+    /// The limits that read as 0, in order (U-13): the server's save takes 0 as nothing allowed, its billing check as no limit.
+    public func zeroLimitPeriods() -> [GroupLimitPeriod] {
+        GroupLimitPeriod.allCases.filter { (limit($0) ?? nil)?.isZero == true }
+    }
+    public var hasZeroLimit: Bool { !zeroLimitPeriods().isEmpty }
     /// No issue, and something to send: always for a new group, an edit only with a change it may make or a member change.
     public func isSubmittable(takenNames: Set<String>, editable: Set<GroupPermissions.Field>) -> Bool {
         guard issues(takenNames: takenNames).isEmpty else { return false }

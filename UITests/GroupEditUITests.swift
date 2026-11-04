@@ -252,7 +252,11 @@ final class GroupEditUITests: XCTestCase {
         reveal(name, towardBottom: false)
         XCTAssertFalse(name.isEnabled, app.debugDescription)
         app.buttons["group-edit.cancel"].tap()
-        XCTAssertTrue(app.alerts["结果未确认"].waitForExistence(timeout: 5), app.debugDescription)
+        let close = app.alerts["结果未确认"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5), app.debugDescription)
+        // U-13: no member change, so the message stays as it was.
+        XCTAssertTrue(alertText(close, containing: "服务器可能已经保存了这次修改。").exists, app.debugDescription)
+        XCTAssertFalse(alertText(close, containing: "这次的成员调整还没有发送").exists, app.debugDescription)
         confirmAlert("继续核对")
         let retry = app.buttons["group-edit.retry-same"]
         reveal(retry)
@@ -592,5 +596,50 @@ final class GroupEditUITests: XCTestCase {
         let action = app.buttons["receipt.action"]
         XCTAssertTrue(action.poll(NSPredicate(format: "label == %@", title), timeout: 3), app.debugDescription)
         action.tap()
+    }
+
+    // MARK: - 第一轮用户反馈（U-13）
+
+    /// A limit typed as 0 says the server does not read 0 one way yet; blank again, the line goes. A standard group has no limits.
+    @MainActor func testZeroLimitShowsNote() {
+        launchAndOpenGroups()
+        defer { diagnostics("group-edit-zero-limit-final") }
+        editRow(4)
+        let note = element("group-edit.limit.daily.zeroNote")
+        XCTAssertFalse(note.exists, app.debugDescription)
+        set("0", field: "group-edit.limit.daily")
+        XCTAssertTrue(note.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(note.label, "服务器对 0 的处理还不一致，可能等于不限；要不限请留空")
+        XCTAssertFalse(element("group-edit.limit.weekly.zeroNote").exists, app.debugDescription)
+        clear("group-edit.limit.daily")
+        XCTAssertTrue(note.waitForNonExistence(timeout: 5), app.debugDescription)
+        app.buttons["group-edit.cancel"].tap()
+        confirmAlert("放弃修改")
+        XCTAssertTrue(app.navigationBars["编辑分组"].waitForNonExistence(timeout: 10), app.debugDescription)
+        editRow(1)
+        let standard = element("group-edit.limits.standard")
+        reveal(standard)
+        XCTAssertFalse(element("group-edit.limit.daily").exists || note.exists, app.debugDescription)
+    }
+
+    /// The members follow the group's own write: closing its open result says they were not sent.
+    @MainActor func testCloseUnconfirmedWithMembersMentionsThem() {
+        launchAndOpenGroups(arguments: [Fixture.writeTimeout])
+        defer { diagnostics("group-edit-unconfirmed-members-final") }
+        editRow(1)
+        reveal(memberState(3))
+        removeMember(3)
+        set("高级组 A", field: "group-edit.name", towardBottom: false)
+        submit()
+        XCTAssertTrue(element("group-edit.unconfirmed").waitForExistence(timeout: 10), app.debugDescription)
+        let note = element("group-edit.check.note")
+        XCTAssertTrue(note.poll(NSPredicate(format: "label == %@", "服务器上的分组还不是这次的修改。"), timeout: 10), app.debugDescription)
+        app.buttons["group-edit.cancel"].tap()
+        let close = app.alerts["结果未确认"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(alertText(close, containing: "再次修改前先在详情里核对。这次的成员调整还没有发送，关闭后需要到详情里重新调整。").exists,
+                      app.debugDescription)
+        confirmAlert("稍后核对")
+        XCTAssertTrue(app.navigationBars["编辑分组"].waitForNonExistence(timeout: 10), app.debugDescription)
     }
 }

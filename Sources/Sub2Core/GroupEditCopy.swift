@@ -29,6 +29,8 @@ public enum GroupEditCopy {
     /// A vendor that may not change billing reads GroupPermissions.billingNote instead.
     public static func billingFootnote(managedNote: String?) -> String { managedNote ?? billingFootnote }
     public static let limitsFootnote = "留空 = 无限制；超过限额的订阅请求会被拒绝。"
+    /// Under a limit that reads as 0 (U-13). 后端统一 0 的语义后删除.
+    public static let zeroLimitNote = "服务器对 0 的处理还不一致，可能等于不限；要不限请留空"
     public static let standardBillingNote = "标准（余额）计费从用户余额扣除，没有订阅限额。"
     public static let webNote = "模型白名单、组合路由、图片计费、客户端限制在 Web 中编辑。"
 
@@ -60,9 +62,12 @@ public enum GroupEditCopy {
     public static func reconfirm(isNew: Bool) -> String { isNew ? "请求没有执行，请重新创建。" : "请求没有执行，请重新保存。" }
     public static let discardTitle = "放弃修改？", discardConfirm = "放弃修改", keepEditing = "继续编辑"
     public static let unconfirmedCloseTitle = "结果未确认", keepChecking = "继续核对", checkLater = "稍后核对"
-    /// 00 §2.5.4: closing with the result open lets go of the number; the list reads again.
-    public static func unconfirmedCloseMessage(isNew: Bool) -> String {
-        isNew ? "服务器可能已经创建了这个分组。关闭后不再保留这次的编号，分组列表会重新读取；再次新建前先在列表里核对，避免重复。"
+    /// 00 §2.5.4: closing with the result open lets go of the number; the list reads again. The members follow the group's own
+    /// write, so a member change has not gone out yet (U-13).
+    public static func unconfirmedCloseMessage(isNew: Bool, hasMemberChanges: Bool) -> String {
+        let message = isNew ? "服务器可能已经创建了这个分组。关闭后不再保留这次的编号，分组列表会重新读取；再次新建前先在列表里核对，避免重复。"
             : "服务器可能已经保存了这次修改。关闭后分组列表会重新读取，再次修改前先在详情里核对。"
+        return hasMemberChanges ? message + unsentMembers : message
     }
+    private static let unsentMembers = "这次的成员调整还没有发送，关闭后需要到详情里重新调整。"
 }

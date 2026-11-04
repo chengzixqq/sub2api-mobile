@@ -131,6 +131,8 @@ final class GroupEditFlow {
     var isUnconfirmed: Bool {
         if case .unconfirmed = phase { true } else { false }
     }
+    /// The last 创建 / 保存 has member changes that have not gone out: they follow the group's own write (U-13).
+    var hasMemberChangesPending: Bool { memberPlan != nil }
     /// The form waits while a write runs or its result is open, and for good once the group is gone.
     var locksForm: Bool {
         switch phase {
