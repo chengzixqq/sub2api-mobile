@@ -25,6 +25,7 @@ enum AnnouncementNextPage: Equatable, Sendable { case idle, loading, failed }
 /// 60 §15: one list page. Page 1 and the four counts are read together; a segment switch reads page 1 only. It reads on first
 /// appearance, when shown again after 60 seconds or after a write (`revision`), on pull, on returning to the foreground and after
 /// compliance while visible; nothing during a 429 wait (00 §2.7.2). Replies for an older segment, load or session are dropped.
+/// A page 1 refused with read_stats is read again without them (S6-中-15).
 @MainActor @Observable
 final class AnnouncementListModel {
     nonisolated static let staleInterval: TimeInterval = 60
@@ -40,6 +41,8 @@ final class AnnouncementListModel {
     private(set) var hasMore = false
     private(set) var nextPage = AnnouncementNextPage.idle
     private(set) var refresh = BlockRefresh()
+    /// Page 1 came back only without read_stats: this list's later pages, refreshes and segments no longer ask for them.
+    private(set) var droppedReadStats = false
 
     @ObservationIgnored private let source: AnnouncementListSource
     @ObservationIgnored private let isCurrent: @MainActor () -> Bool
@@ -124,7 +127,7 @@ final class AnnouncementListModel {
 
     // MARK: - Internals
 
-    private var query: AnnouncementListQuery { AnnouncementListQuery(status: status, includeReadStats: includeReadStats) }
+    private var query: AnnouncementListQuery { AnnouncementListQuery(status: status, includeReadStats: includeReadStats && !droppedReadStats) }
 
     private func loadFirstPage(withCounts: Bool) async {
         guard isCurrent(), refresh.allowsRequest(at: now()) else { return }
@@ -135,8 +138,20 @@ final class AnnouncementListModel {
         state = state.withLoading()
         let source = self.source, query = self.query
         async let counted = Self.counts(from: source, if: withCounts)
-        show(await Self.capture { try await source.page(1, query) }, ticket: ticket)
+        show(await firstPage(source, query: query, ticket: ticket), ticket: ticket)
         if case .success(let value)? = await counted, countsTicket == self.countsTicket, isCurrent() { counts = value }
+    }
+    /// S6-中-15: a page 1 refused with read_stats is read once more without them; only that second answer is shown or counted
+    /// as a failure.
+    private func firstPage(_ source: AnnouncementListSource, query: AnnouncementListQuery,
+                           ticket: UUID) async -> Result<Page<Announcement>, any Error> {
+        let first = await Self.capture { try await source.page(1, query) }
+        guard query.includeReadStats, case .failure(let error) = first, Self.canRetryWithoutStats(error),
+              ticket == self.ticket, isCurrent(), !Task.isCancelled else { return first }
+        let plain = AnnouncementListQuery(status: query.status, includeReadStats: false)
+        let second = await Self.capture { try await source.page(1, plain) }
+        if case .success = second { droppedReadStats = true }
+        return second
     }
     /// The rows arrive without waiting for the counts.
     private func show(_ first: Result<Page<Announcement>, any Error>, ticket: UUID) {
@@ -174,6 +189,17 @@ final class AnnouncementListModel {
             nextPage = error is CancellationError ? .idle : .failed
         }
     }
+    /// Not a cancellation, a 429, a deferred refresh, or a refusal of the session, the identity or a pending check: those would
+    /// refuse the read without statistics as well.
+    nonisolated static func canRetryWithoutStats(_ error: any Error) -> Bool {
+        if error is CancellationError { return false }
+        guard let api = error as? APIError else { return true }
+        guard api != .refreshDeferred, api.securityOutcome == nil, !sessionKinds.contains(api.kind) else { return false }
+        return api.statusCode.map { ![401, 403, 423, 429].contains($0) } ?? true
+    }
+    private nonisolated static let sessionKinds: Set<APIError.Kind> = [
+        .authentication, .sessionBinding, .permission, .compliance, .stepUp, .readOnly, .captcha, .twoFactor, .rateLimited
+    ]
     private nonisolated static func counts(from source: AnnouncementListSource, if wanted: Bool) async -> Result<AnnouncementCounts, any Error>? {
         wanted ? await capture(source.counts) : nil
     }
