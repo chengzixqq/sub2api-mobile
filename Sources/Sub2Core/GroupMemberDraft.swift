@@ -178,11 +178,11 @@ public enum GroupMemberDraftCopy {
     /// A refusal of the members after the group was saved: “<前缀> · 成员没有改动：<原因>”.
     public static func rejectedAfterSave(_ prefix: GroupMemberReceipt.Prefix, reason: String) -> String { joined(prefix, "成员没有改动：" + reason) }
     /// 50 §0.7, U37: hidden for a vendor (its POST is refused) and for simple mode's composite group; a new group follows the
-    /// identity; a read-only token greys it.
+    /// identity; a read-only token, or simple mode without the member batch (S5-中-12), greys it and keeps it shown.
     public static func membersEntry(_ permissions: GroupPermissions, group: AdminGroup?) -> GroupPermissions.Entry {
         if let group { return permissions.canEditMembers(group) }
         if permissions.isVendor { return .hidden }
-        return permissions.isReadOnlyToken ? .readOnly : .enabled
+        return permissions.isReadOnlyToken || permissions.membersBatchUnsupported ? .readOnly : .enabled
     }
 
     private static func joined(_ prefix: GroupMemberReceipt.Prefix, _ tail: String) -> String {

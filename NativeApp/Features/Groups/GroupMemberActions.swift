@@ -86,7 +86,7 @@ extension AppModel: GroupMemberWriteSource {
     var groupMemberWriteSession: GroupMemberWriteSession? {
         guard let session = sessionContext else { return nil }
         return GroupMemberWriteSession(generation: session.generation,
-                                       usesBatch: session.has(.groupsMemberBatch) && groupStore?.memberBatchUnsupported != true,
+                                       usesBatch: GroupStore.takesMemberBatch(session, store: groupStore),
                                        allowsLegacy: !session.site.me.isSimpleRunMode, isReadOnlyToken: session.isReadOnlyToken)
     }
     func sendGroupMemberBatch(groupID: Int, _ request: GroupMemberBatchRequest, generation: UUID) async throws -> GroupMemberBatchResult {
@@ -125,7 +125,7 @@ extension AppModel: GroupMemberWriteSource {
 extension View {
     /// 50 §2.4 the member row: 移出 (critical) outermost on the trailing swipe, the status action beside it; both in the long press
     /// too, which is how VoiceOver reaches them. A read-only token gets no swipe (C-1) and greyed menu items; without the right to
-    /// change members only the status action is left.
+    /// change members only the status action is left, and a greyed members entry (S5-中-12) greys 移出 in the long press.
     func groupMemberRowActions(_ account: UpstreamAccount, group: AdminGroup, actions: GroupMemberActions?, membersEntry: GroupPermissions.Entry,
                                isReadOnly: Bool, now: Date) -> some View {
         modifier(GroupMemberRowActions(account: account, group: group, actions: actions, membersEntry: membersEntry, isReadOnly: isReadOnly, now: now))
@@ -154,7 +154,7 @@ private struct GroupMemberRowActions: ViewModifier {
             .contextMenu {
                 if let actions {
                     if let status { statusButton(status, actions: actions).readOnlyGate(showsCaption: false) }
-                    if membersEntry.isShown { removeButton(actions).readOnlyGate(showsCaption: false) }
+                    if membersEntry.isShown { removeButton(actions).disabled(!membersEntry.isEnabled).readOnlyGate(showsCaption: false) }
                 }
             }
     }

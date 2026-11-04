@@ -154,6 +154,11 @@ final class GroupStore {
     // MARK: - 成员写入（S5-08）
 
     func noteMemberBatchUnsupported() { memberBatchUnsupported = true }
+    /// 50 §0.4.4: members go in one batch with `groups.member_batch`, until the batch met a 500 GROUP_REPOSITORY_UNSUPPORTED in
+    /// this session.
+    static func takesMemberBatch(_ session: SessionContext?, store: GroupStore?) -> Bool {
+        session?.has(.groupsMemberBatch) == true && store?.memberBatchUnsupported != true
+    }
     /// The reply's counts go on the row and its directory entry at once, without moving the revision (S5D2a-10); the detail
     /// reads `memberChanges` and the list reads its three requests again.
     func noteMemberChange(_ change: GroupMemberChange) {
@@ -212,7 +217,7 @@ final class GroupStore {
     }
     /// Not sent in simple mode (403 there, S5D2a-13), nor during its 429 wait.
     private func readUsage(_ session: SessionContext) async {
-        let permissions = GroupPermissions(me: session.site.me, isReadOnlyToken: session.isReadOnlyToken)
+        let permissions = GroupPermissions(session: session, store: self)
         guard permissions.showsUsageAndCapacity, usageRefresh.allowsRequest(at: Date()) else { return }
         usage = usage.withLoading()
         do {
@@ -271,5 +276,14 @@ final class GroupStore {
         let read = await app.metaCatalog()
         guard isLive else { return }
         catalog = read
+    }
+}
+
+extension GroupPermissions {
+    /// The group pages' permissions in `session`; simple mode greys the member entries while `store`'s session cannot take
+    /// members in one batch (S5-中-12).
+    @MainActor init(session: SessionContext?, store: GroupStore?) {
+        self.init(me: session?.site.me, isReadOnlyToken: session?.isReadOnlyToken ?? false,
+                  supportsMemberBatch: GroupStore.takesMemberBatch(session, store: store))
     }
 }

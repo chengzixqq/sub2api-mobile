@@ -45,8 +45,9 @@ public struct GroupButton: Sendable, Equatable, Identifiable {
 /// 50 §0.7 and 00 §2.6.3 for the group pages. Without `admin/me` the site administrator is assumed (as ProxyAccess); a vendor
 /// cannot sign in yet (U01), so its rules are kept for later and only unit tested.
 public struct GroupPermissions: Sendable, Equatable {
-    /// Show an entry when `isShown` and wrap its write in `.readOnlyGate()`, so a read-only token greys it instead of hiding it.
-    /// Never read an Entry as a Bool. Swipes come only from `leadingSwipe` / `trailingSwipe`, which already drop read-only ones.
+    /// Show an entry when `isShown` and wrap its write in `.readOnlyGate()`, so a read-only token greys it instead of hiding it;
+    /// a member entry may be `.readOnly` without one (S5-中-12), so those also disable unless `isEnabled`. Never read an Entry
+    /// as a Bool. Swipes come only from `leadingSwipe` / `trailingSwipe`, which already drop read-only ones.
     public enum Entry: Sendable, Equatable {
         case hidden, enabled, readOnly
         public var isShown: Bool { self != .hidden }
@@ -57,16 +58,21 @@ public struct GroupPermissions: Sendable, Equatable {
     public static let billingManagedNote = "计费由站长管理。"
     /// U37: a vendor changes memberships from the account detail.
     public static let vendorMembersFootnote = "调整成员请在账号详情里修改分组"
+    /// S5-中-12: beside the greyed members entries of `membersBatchUnsupported`.
+    public static let membersBatchUnsupportedNote = "服务器暂不支持批量调整成员"
 
     public let isVendor: Bool
     public let isSimpleMode: Bool
     public let isReadOnlyToken: Bool
     private let groupOps: Bool
     private let groupBilling: Bool
+    private let supportsMemberBatch: Bool
 
-    public init(me: AdminMe?, isReadOnlyToken: Bool) {
+    /// `supportsMemberBatch`: `groups.member_batch`, and no 500 GROUP_REPOSITORY_UNSUPPORTED yet in this session.
+    public init(me: AdminMe?, isReadOnlyToken: Bool, supportsMemberBatch: Bool = true) {
         isVendor = me?.workspace != nil; isSimpleMode = me?.isSimpleRunMode ?? false; self.isReadOnlyToken = isReadOnlyToken
         groupOps = me?.workspace?.permissions?.groupOps ?? false; groupBilling = me?.workspace?.permissions?.groupBilling ?? false
+        self.supportsMemberBatch = supportsMemberBatch
     }
 
     /// The vendor's POST is refused by its route list; simple mode creates with name, description and platform.
@@ -77,8 +83,14 @@ public struct GroupPermissions: Sendable, Equatable {
     public var canDuplicate: Entry { entry(!isVendor && !isSimpleMode) }
     /// Simple mode refuses a group that still has accounts (409 GROUP_NOT_EMPTY).
     public var canDelete: Entry { entry(!isVendor) }
-    /// Simple mode cannot bind accounts to a composite group (SIMPLE_MODE_GROUP_NOT_BINDABLE).
-    public func canEditMembers(_ group: AdminGroup) -> Entry { entry(!isVendor && !(isSimpleMode && group.platform == "composite")) }
+    /// Simple mode cannot bind accounts to a composite group (SIMPLE_MODE_GROUP_NOT_BINDABLE), and greys the members of the
+    /// others where they cannot go in one batch (S5-中-12): the one-by-one fallback would unbind its composite groups.
+    public func canEditMembers(_ group: AdminGroup) -> Entry {
+        let base = entry(!isVendor && !(isSimpleMode && group.platform == "composite"))
+        return base == .enabled && membersBatchUnsupported ? .readOnly : base
+    }
+    /// Simple mode without the batch; an older server in standard mode still goes one by one.
+    public var membersBatchUnsupported: Bool { isSimpleMode && !supportsMemberBatch }
     public var membersFootnote: String? { isVendor ? Self.vendorMembersFootnote : nil }
 
     /// `group` nil is a new group. The server silently drops fields this identity may not change, so they show read-only.

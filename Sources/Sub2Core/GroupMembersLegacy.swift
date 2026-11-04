@@ -6,7 +6,7 @@ import Foundation
 /// Simple mode must not use it: the detail leaves composite groups out, so the PUT would unbind them (S5-08's writer refuses).
 public struct GroupMembersLegacyExecutor: Sendable {
     /// Under the sheets (S5-08, S5-11) and the result page's buttons (S5-09).
-    public static let notice = "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改。"
+    public static let notice = "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。"
     /// 0.8: only a 500 GROUP_REPOSITORY_UNSUPPORTED from the batch endpoint switches to the fallback.
     public static func isFallbackTrigger(_ error: any Error) -> Bool {
         guard let error = error as? APIError else { return false }

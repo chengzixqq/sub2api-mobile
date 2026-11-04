@@ -17,7 +17,7 @@ struct GroupListView: View {
 
     init(segment: GroupListSegment? = nil) { self.segment = segment }
 
-    private var permissions: GroupPermissions { GroupPermissions(me: session?.site.me, isReadOnlyToken: session?.isReadOnlyToken ?? false) }
+    private var permissions: GroupPermissions { GroupPermissions(session: session, store: model.groupStore) }
     private var shouldPoll: Bool { visible && scenePhase == .active }
     /// Under `-ui-testing` a list opened without a segment takes `-ui-group-segment`'s.
     private var targetSegment: GroupListSegment? { segment ?? (model.isUITesting ? GroupFixtures.launchSegment() : nil) }
