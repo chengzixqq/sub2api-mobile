@@ -75,6 +75,9 @@ struct PushTargetSheet: View {
         if field == .endpoint, draft.usesInsecureHTTP {
             PushFieldNote(text: PushEditCopy.insecureHTTPNote, identifier: "push.add.httpNote")
         }
+        if field == .token, draft.usesPublicNtfy {
+            PushFieldNote(text: PushEditCopy.ntfyPublicTopicNote, identifier: "push.add.ntfyPublicNote")
+        }
         if field == .secret, draft.platform == .webhook {
             PushFieldNote(text: PushEditCopy.webhookSignatureNote + "\n" + PushEditCopy.webhookTimestampNote, identifier: "push.add.signatureNote")
         }

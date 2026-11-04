@@ -72,9 +72,31 @@ func defaultModelPrefersFirstSonnet(_ ids: [String], _ expected: String?) {
     ("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY----- tail", "[已隐藏] tail"),
     (#"{"private_key":"-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n"}"#, #"{"private_key":"[已隐藏]\n"}"#),
     ("-----BEGIN PRIVATE KEY-----\nMIIEvQ", "[已隐藏]"),
+    (#"{"code":"invalid_api_key","param":null}"#, #"{"code":"invalid_api_key","param":null}"#),
 ] as [(String, String)])
 func sanitizeHidesBearerKeysAndURLs(_ raw: String, _ expected: String) {
     #expect(AccountTestOutput.sanitize(raw) == expected)
+}
+
+/// Every secret name hides its value, behind a snake_case prefix too (`aws_session_token`, `ANTHROPIC_API_KEY`).
+@Test(arguments: [
+    "x-api-key", "api-key", "api_key", "x-goog-api-key", "anthropic-api-key", "x-amz-security-token", "aws_secret_access_key",
+    "secret_access_key", "access_token", "refresh_token", "id_token", "session_token", "client_secret",
+    "aws_session_token", "AWS_SESSION_TOKEN", "oauth_access_token", "x_api_key", "ANTHROPIC_API_KEY",
+])
+func sanitizeHidesTheValueOfEverySecretName(_ name: String) {
+    #expect(AccountTestOutput.sanitize("\(name)=IQoJb3JpZ2luX2Vj") == "\(name)=[已隐藏]")
+    #expect(AccountTestOutput.sanitize(#"{"\#(name)":"IQoJb3JpZ2luX2Vj"}"#) == #"{"\#(name)":"[已隐藏]"}"#)
+}
+
+/// An upstream error body that is one long run of “eyJ” is not tried as a JWT from every “eyJ” in it.
+@Test(arguments: ["eyJ", "-eyJ"])
+func sanitizeStaysFastOnARunOfJWTStarts(_ unit: String) {
+    let run = String(repeating: unit, count: 10_000)
+    var sanitized = ""
+    let elapsed = ContinuousClock().measure { sanitized = AccountTestOutput.sanitize(run) }
+    #expect(elapsed < .seconds(1), "\(elapsed)")
+    #expect(sanitized == String(run.prefix(AccountTestOutput.maxLineLength)))
 }
 
 @Test func sanitizeHidesEscapedJSONKeys() {

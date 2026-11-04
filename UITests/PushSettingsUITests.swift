@@ -79,7 +79,7 @@ final class PushSettingsUITests: XCTestCase {
         settingsEntry().tap()
         let status = element("push.local.status")
         XCTAssertTrue(status.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(status.label, "设备令牌已失效，关掉再打开即可恢复")
+        XCTAssertEqual(status.label, "设备令牌已失效，打开开关即可恢复")
         let toggle = localSwitch()
         XCTAssertEqual(toggle.value as? String, "0")
         XCTAssertTrue(app.buttons["push.local.test"].isEnabled, app.debugDescription)
@@ -303,7 +303,7 @@ final class PushSettingsUITests: XCTestCase {
         openPushSettings()
         let pending = element("push.pendingDeletion")
         XCTAssertTrue(pending.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(pending.label, "有设备未能从站点移除，可在 Web 删除")
+        XCTAssertEqual(pending.label, "有设备未能从站点移除，可在下方“其他接收方式”里删除")
         for id in ["push.local.retry", "push.targets.retry"] {
             let retry = app.buttons[id]
             reveal(retry)
@@ -418,6 +418,9 @@ final class PushSettingsUITests: XCTestCase {
         openAddTarget()
         app.segmentedControls["push.add.platform"].buttons["ntfy"].tap()
         XCTAssertTrue(waitUntil(element("push.add.endpoint"), "value == 'https://ntfy.sh'"), app.debugDescription)
+        let publicNote = element("push.add.ntfyPublicNote")
+        XCTAssertTrue(publicNote.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(publicNote.label, "公共服务器上的主题，谁知道名字谁就能订阅，告警内容会被别人看到。")
         typeInSheet("alerts.main", into: "push.add.token")
         app.buttons["push.add.submit"].tap()
         let error = element("push.add.error.token")
@@ -688,5 +691,19 @@ final class PushSettingsUITests: XCTestCase {
     @MainActor private func dragSheetDown(_ title: String) {
         app.navigationBars[title].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+    }
+
+    /// U-23: the public-topic note shows for ntfy.sh only and leaves once the server is the administrator's own.
+    @MainActor func testPublicNtfyNoteLeavesForASelfHostedServer() {
+        launchAndLogin()
+        defer { diagnostics("push-add-ntfy-public-final") }
+        openAddTarget()
+        let note = element("push.add.ntfyPublicNote")
+        XCTAssertFalse(note.exists, app.debugDescription)
+        app.segmentedControls["push.add.platform"].buttons["ntfy"].tap()
+        XCTAssertTrue(note.waitForExistence(timeout: 5), app.debugDescription)
+        retype("https://ntfy.example.com", replacing: "https://ntfy.sh", in: "push.add.endpoint")
+        XCTAssertTrue(note.waitForNonExistence(timeout: 5), app.debugDescription)
+        diagnostics("push-add-ntfy-self-hosted")
     }
 }

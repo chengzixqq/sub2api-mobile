@@ -115,8 +115,8 @@ private let adminKey = Credential.adminKey("fixture-key")
 @Test func removingASiteWithoutACredentialReportsWhatWasNotSent() {
     let report = SiteTeardown.unsentReport(mode: .removeSite, authentication: .accessToken, pushDeviceIDs: [12])
     #expect(report?.failedPushDeviceIDs == [12]); #expect(report?.accessTokenRevoked == false)
-    #expect(report?.notes == ["推送设备未能从站点移除，可在 Web 删除", "令牌未能吊销，可用 API 吊销"])
-    #expect(SiteTeardown.unsentReport(mode: .removeSite, authentication: .password, pushDeviceIDs: [12])?.notes == ["推送设备未能从站点移除，可在 Web 删除"])
+    #expect(report?.notes == ["推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除", "令牌未能吊销，可用 API 吊销"])
+    #expect(SiteTeardown.unsentReport(mode: .removeSite, authentication: .password, pushDeviceIDs: [12])?.notes == ["推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除"])
     #expect(SiteTeardown.unsentReport(mode: .removeSite, authentication: .adminKey, pushDeviceIDs: []) == nil)
     #expect(SiteTeardown.unsentReport(mode: .removeSite, authentication: .password, pushDeviceIDs: []) == nil)
     #expect(SiteTeardown.unsentReport(mode: .signOut, authentication: .accessToken, pushDeviceIDs: [12]) == nil)
@@ -133,10 +133,10 @@ private let adminKey = Credential.adminKey("fixture-key")
     #expect(await account.calls == [.deletePush(12), .logout])
 }
 
-@Test func removalPushFailureAddsTheWebHint() async {
+@Test func removalPushFailureSaysThePhoneMayStillGetPushes() async {
     let api = TeardownRecorder(pushErrors: [12: URLError(.timedOut)])
     let report = await SiteTeardown(credential: adminKey, mode: .removeSite, pushDeviceIDs: [12]).run(using: api)
-    #expect(report.notes == ["推送设备未能从站点移除，可在 Web 删除"])
+    #expect(report.notes == ["推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除"])
 }
 
 @Test func deadlineAbandonsTheRemainingSteps() async {
@@ -145,7 +145,7 @@ private let adminKey = Credential.adminKey("fixture-key")
     let report = await SiteTeardown(credential: accessToken, mode: .removeSite, pushDeviceIDs: [12, 30]).run(using: api, within: .milliseconds(200))
     #expect(ContinuousClock.now - started < .seconds(10))
     #expect(report.failedPushDeviceIDs == [12, 30])
-    #expect(report.notes == ["推送设备未能从站点移除，可在 Web 删除", "令牌未能吊销，可用 API 吊销"])
+    #expect(report.notes == ["推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除", "令牌未能吊销，可用 API 吊销"])
 }
 
 @Test func cancelledTeardownStillReturnsAReport() async {

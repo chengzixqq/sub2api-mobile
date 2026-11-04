@@ -56,6 +56,11 @@ public struct PushTargetDraft: Sendable, Equatable, CustomStringConvertible, Cus
     public var isComplete: Bool { issues.isEmpty }
     /// An http address is not refused here: the site's push_targets settings may allow it. A note says so instead.
     public var usesInsecureHTTP: Bool { URLComponents(string: endpoint.pushTrimmed)?.scheme?.lowercased() == "http" }
+    /// ntfy's public server, where anyone who knows a topic's name can subscribe to it: the topic gets a note (U-23).
+    public var usesPublicNtfy: Bool {
+        guard platform == .ntfy, let host = URLComponents(string: ntfyEndpoint.pushTrimmed)?.host?.lowercased() else { return false }
+        return host == URLComponents(string: PushDeviceRegistration.defaultNtfyEndpoint)?.host
+    }
     /// Something typed that 取消 would lose; the prefilled servers do not count.
     public var hasInput: Bool {
         [name, barkKey, ntfyTopic, ntfyAccessToken, webhookURL, webhookSecret].contains { !$0.pushTrimmed.isEmpty }

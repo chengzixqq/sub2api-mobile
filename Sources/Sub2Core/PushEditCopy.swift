@@ -13,6 +13,8 @@ public enum PushEditCopy {
     public static let adding = "正在添加"
     public static let platformPicker = "接收方式"
     public static let insecureHTTPNote = "http 地址需站长打开 push_targets 配置，否则会被站点拒绝"
+    /// Under the topic while the server is ntfy.sh (U-23).
+    public static let ntfyPublicTopicNote = "公共服务器上的主题，谁知道名字谁就能订阅，告警内容会被别人看到。"
     public static let secretClearedNote = "提交后已清空，请重新填写；不需要就点“不设置”"
     public static let dropSecret = "不设置"
     public static let targetUnconfirmed = "没有收到结果，已刷新列表，请确认是否已添加"
