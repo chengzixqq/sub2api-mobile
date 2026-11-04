@@ -109,6 +109,13 @@ final class PushCoordinator {
         forget(site.serverID)
     }
 
+    /// The push page deleted a target, or found it gone: a pending one no longer waits for the next login (U-23).
+    func resolvePendingDeletion(_ id: Int, serverID: UUID) {
+        guard records.pendingDeletions(serverID: serverID).contains(id) else { return }
+        records.resolvePendingDeletions([id], serverID: serverID)
+        revision += 1
+    }
+
     // MARK: - 会话（AppModel）
 
     /// After AppModel publishes a session: the address's teardowns, the pending deletions, then the device again when the
