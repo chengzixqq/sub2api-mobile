@@ -148,3 +148,34 @@ private func usage(_ id: Int, _ today: String) -> GroupUsageSummary {
     #expect(!GroupStoreRules.isStale(never))
     #expect(GroupListSections.rows([standard], shortages: never.value ?? [:]).first?.health == .ok)
 }
+
+// U-10 review: the list's strip stays through a retry still out, and a kept block's 429 wait counts down without a tap (00 §2.7.2).
+
+@Test func staleStaysThroughARetryUntilAReadWorks() {
+    let read = BlockState<[Int: GroupUsageSummary]>.loaded([7: usage(7, "18.40")], at: now)
+    let failed = BlockRefresh().recordingFailure(APIError.server(status: 502, reason: nil), at: now)
+    let kept = read.withLoading().withFailure(nil)
+    #expect(GroupStoreRules.isStale(kept, refresh: failed))
+    // The retry is out (a hanging aggregate takes a while), or was cancelled: the earlier amount stays marked.
+    #expect(GroupStoreRules.isStale(kept.withLoading(), refresh: failed))
+    #expect(GroupStoreRules.isStale(kept.withLoading().withCancelledLoad(), refresh: failed))
+    // A read that worked clears it; a refresh of a block that never failed marks nothing.
+    #expect(!GroupStoreRules.isStale(read, refresh: failed.recordingSuccess()))
+    #expect(!GroupStoreRules.isStale(read.withLoading(), refresh: BlockRefresh()))
+    // Never read (“今日 —”): nothing to mark.
+    let never = BlockState<[Int: GroupUsageSummary]>.idle.withLoading().withFailure(nil)
+    #expect(!GroupStoreRules.isStale(never, refresh: failed))
+}
+
+@Test func staleStatusHoldsTheTapWhileRetryingOrWaiting() {
+    let failed = BlockRefresh().recordingFailure(APIError.server(status: 502, reason: nil), at: now)
+    let waiting = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: 60), at: now)
+    let longer = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: 120), at: now)
+    #expect(GroupStoreRules.staleStatus(refreshing: false, waits: [failed], at: now) == .updateFailed)
+    #expect(GroupStoreRules.staleStatus(refreshing: true, waits: [failed], at: now) == .refreshing)
+    // A kept block's 429 wait: the strip counts down the wait that ends last, whatever the other block did.
+    #expect(GroupStoreRules.staleStatus(refreshing: false, waits: [failed, waiting], at: now) == .throttled("请求过于频繁，60 秒后自动重试"))
+    #expect(GroupStoreRules.staleStatus(refreshing: false, waits: [longer, waiting], at: now) == .throttled("请求过于频繁，120 秒后自动重试"))
+    // Once the wait is over the tap is back.
+    #expect(GroupStoreRules.staleStatus(refreshing: false, waits: [waiting], at: now.addingTimeInterval(60)) == .updateFailed)
+}

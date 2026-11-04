@@ -54,6 +54,18 @@ public enum GroupStoreRules {
     public static func isStale<Value>(_ state: BlockState<Value>) -> Bool {
         state.display.homePhase == .value(updateFailed: true)
     }
+    /// The list's blocks: an earlier success still shows and the last read that ended failed, also while the next one is out (a
+    /// hanging aggregate keeps its old amount marked); a read that works clears it.
+    public static func isStale<Value>(_ state: BlockState<Value>, refresh: BlockRefresh) -> Bool {
+        state.value != nil && refresh.consecutiveFailures > 0
+    }
+    /// The list's 更新失败 strip over its kept blocks, in BlockStatusPresentation.accessory's order: one read again now, then the
+    /// 429 wait that ends last (00 §2.7.2; the page's polling reads after it), then 更新失败. Only `.updateFailed` takes a tap.
+    public static func staleStatus(refreshing: Bool, waits: [BlockRefresh], at now: Date) -> BlockStatusPresentation.Accessory {
+        if refreshing { return .refreshing }
+        let last = waits.filter { !$0.allowsRequest(at: now) }.max { ($0.notBefore ?? now) < ($1.notBefore ?? now) }
+        return last?.throttleMessage(at: now).map { .throttled($0) } ?? .updateFailed
+    }
     /// The small text of the list's 更新失败 strip: what it shows from an earlier read, “今日”, “可用状态” or both; nil for neither.
     public static func staleItems(usageStale: Bool, shortagesStale: Bool) -> String? {
         let items = [(usageStale, "今日"), (shortagesStale, "可用状态")].filter(\.0).map(\.1)

@@ -30,6 +30,9 @@ final class GroupStore {
     /// D02's groups[].shortage; a failed refresh keeps the last success (S5-中-8). Idle without `accounts.status_summary` or for a
     /// vendor, and with no success yet `shortages` is nil: the local half rule.
     private(set) var shortageState: BlockState<[Int: AccountStatusGroupSummary.Shortage]> = .idle
+    /// Each block's 429 wait (00 §2.7.2) and whether its last read that ended failed (the 更新失败 strip).
+    private(set) var usageRefresh = BlockRefresh()
+    private(set) var shortageRefresh = BlockRefresh()
     /// The F04 fallback's error count per group; nil until read, and a failed read keeps the last (none read: 0 errors).
     private(set) var errorCounts: [Int: Int]?
     private(set) var revision = 0
@@ -62,10 +65,16 @@ final class GroupStore {
     var isLive: Bool { app?.sessionGeneration == generation }
     var groups: [AdminGroup] { list.value ?? [] }
     var shortages: [Int: AccountStatusGroupSummary.Shortage]? { shortageState.value }
-    /// S5-高-3: 今日 shows an earlier read because the last one failed.
-    var usageStale: Bool { GroupStoreRules.isStale(usage) }
-    /// S5-中-8: 可用偏低 is judged by an earlier read because the last one failed.
-    var shortagesAreStale: Bool { GroupStoreRules.isStale(shortageState) }
+    /// S5-高-3: 今日 shows an earlier read because the last one failed, until a read works.
+    var usageStale: Bool { GroupStoreRules.isStale(usage, refresh: usageRefresh) }
+    /// S5-中-8: 可用偏低 is judged by an earlier read because the last one failed, until a read works.
+    var shortagesAreStale: Bool { GroupStoreRules.isStale(shortageState, refresh: shortageRefresh) }
+    /// The 更新失败 strip: a kept block read again now, then a kept block's 429 wait, then 更新失败.
+    func staleStatus(at now: Date) -> BlockStatusPresentation.Accessory {
+        let refreshing = (usageStale && usage.isLoading) || (shortagesAreStale && shortageState.isLoading)
+        let waits = [usageStale ? usageRefresh : nil, shortagesAreStale ? shortageRefresh : nil].compactMap { $0 }
+        return GroupStoreRules.staleStatus(refreshing: refreshing, waits: waits, at: now)
+    }
     /// The list's rows: F04's buckets, or the fallback's error counts on a server without them, and D02's shortage.
     var rows: [GroupListRow] {
         let fallback = GroupStoreRules.needsErrorFallback(groups: list.value, hasAccountBuckets: hasAccountBuckets) ? errorCounts ?? [:] : [:]
@@ -201,10 +210,10 @@ final class GroupStore {
         }
         pendingEdits = []
     }
-    /// Not sent in simple mode (403 there, S5D2a-13).
+    /// Not sent in simple mode (403 there, S5D2a-13), nor during its 429 wait.
     private func readUsage(_ session: SessionContext) async {
         let permissions = GroupPermissions(me: session.site.me, isReadOnlyToken: session.isReadOnlyToken)
-        guard permissions.showsUsageAndCapacity else { return }
+        guard permissions.showsUsageAndCapacity, usageRefresh.allowsRequest(at: Date()) else { return }
         usage = usage.withLoading()
         do {
             let rows: [GroupUsageSummary]
@@ -217,15 +226,19 @@ final class GroupStore {
             }
             guard isLive else { return }
             usage = .loaded(GroupStoreRules.usageByGroup(rows), at: Date())
+            usageRefresh = usageRefresh.recordingSuccess()
         } catch {
             guard isLive else { return }
-            usage = error is CancellationError ? usage.withCancelledLoad() : usage.withFailure(nil)
+            guard !(error is CancellationError) else { usage = usage.withCancelledLoad(); return }
+            usage = usage.withFailure(nil)
+            usageRefresh = usageRefresh.recordingFailure(error, at: Date())
         }
     }
-    /// A vendor is refused (403), so it judges locally from the start.
+    /// A vendor is refused (403), so it judges locally from the start. Not sent during its 429 wait.
     private func readShortages(_ session: SessionContext) async {
         let isVendor = GroupPermissions(me: session.site.me, isReadOnlyToken: session.isReadOnlyToken).isVendor
-        guard let app, session.has(.accountsStatusSummary), !isVendor else { shortageState = .idle; return }
+        guard let app, session.has(.accountsStatusSummary), !isVendor else { shortageState = .idle; shortageRefresh = BlockRefresh(); return }
+        guard shortageRefresh.allowsRequest(at: Date()) else { return }
         shortageState = shortageState.withLoading()
         do {
             let found: [Int: AccountStatusGroupSummary.Shortage]
@@ -233,9 +246,12 @@ final class GroupStore {
             else { found = GroupStoreRules.shortages(in: try await app.accountStatusSummary()) }
             guard isLive else { return }
             shortageState = .loaded(found, at: Date())
+            shortageRefresh = shortageRefresh.recordingSuccess()
         } catch {
             guard isLive else { return }
-            shortageState = error is CancellationError ? shortageState.withCancelledLoad() : shortageState.withFailure(nil)
+            guard !(error is CancellationError) else { shortageState = shortageState.withCancelledLoad(); return }
+            shortageState = shortageState.withFailure(nil)
+            shortageRefresh = shortageRefresh.recordingFailure(error, at: Date())
         }
     }
     /// 50 §0.1 F04 fallback: without `groups.account_buckets` with the other blocks, with it after a list that lacks the counts.
