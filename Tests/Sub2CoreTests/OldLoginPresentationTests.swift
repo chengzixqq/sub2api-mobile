@@ -70,3 +70,18 @@ private func site(_ name: String, _ url: String, id: UUID = UUID()) -> ServerPro
     #expect(OldLoginPresentation.rootFootnote
             == "以下写入保留原操作编号，结果还没确认。登录同一地址的站点后在“设置 → 待核对”里核对；地址已不在站点列表里的，请在原站点 Web 后台核对，勿新建重复操作。")
 }
+
+// U-24: switching to a saved site without a credential (site menu, settings, push) follows its older-login lead.
+
+@Test func switchActionStaysSwitchesOrSignsIn() {
+    let current = site("设置站点", "https://settings.example.invalid"), other = site("设置站点", "https://settings.example.invalid")
+    #expect(OldLoginPresentation.switchAction(lead: current, activeID: current.id) == .stay)
+    #expect(OldLoginPresentation.switchAction(lead: other, activeID: current.id) == .switchTo(other))
+    #expect(OldLoginPresentation.switchAction(lead: other, activeID: nil) == .switchTo(other))
+    #expect(OldLoginPresentation.switchAction(lead: nil, activeID: current.id) == .signIn)
+    #expect(OldLoginPresentation.switchAction(lead: nil, activeID: nil) == .signIn)
+}
+
+@Test func stayReceiptNamesTheOlderLogin() {
+    #expect(OldLoginPresentation.stayReceipt(name: "设置站点") == "「设置站点」是旧登录 · 记录在“设置 → 待核对”里核对")
+}

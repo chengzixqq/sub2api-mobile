@@ -22,7 +22,8 @@ struct SiteMenuContent: View {
         Button("站点与凭据") { router.push(.settings(focus: .sites)) }
     }
 
-    /// 00 §1.1 through the same switch as the settings page; the new session's tabs start on 概览 with the receipt.
+    /// 00 §1.1 through the same switch as the settings page; the new session's tabs start on 概览 with the receipt. An older
+    /// login (OldLoginPresentation) goes where AppModel.switchTo leads it: its address's site, not its login page (U-24).
     private func switchTo(_ profile: ServerProfile) {
         guard profile.id != model.activeProfile?.id, !model.isConnecting else { return }
         Task { await model.switchTo(profile) }
