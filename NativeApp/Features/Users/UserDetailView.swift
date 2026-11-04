@@ -193,7 +193,7 @@ private struct UserDetailContent: View {
             Section {
                 UserBalanceHero(detail: detail, user: user, topUpIsSecondary: topUpHeldBack, onTopUp: { onBalance(.topup) }, onRefund: { onBalance(.refund) })
             }
-            UserKeySummarySection(detail: detail, displayName: user.displayName)
+            UserKeySummarySection(detail: detail, email: user.email)
             UserLedgerPeekSection(detail: detail, timeZone: timeZone, now: detail.serverNow)
             UserProfileSection(rows: UserDetailPresentation.profileRows(user, isSelf: detail.isSelf))
         }

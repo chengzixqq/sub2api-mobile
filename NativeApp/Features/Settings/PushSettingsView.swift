@@ -138,7 +138,7 @@ struct PushSettingsView: View {
         let source = await PushSettingsSources.make(model: model, context: session)
         let generation = session.generation
         guard generation == model.sessionGeneration else { return }
-        let next = PushSettingsModel(source: source, receipts: model.receipts, isCurrent: { [weak model] in model?.sessionGeneration == generation })
+        let next = PushSettingsSources.store(source: source, model: model, context: session)
         store = next; storeGeneration = generation
         requestedLocal = nil; localError = nil
         await coordinator.refreshAuthorization()
@@ -196,6 +196,13 @@ enum PushSettingsSources {
     @MainActor static func make(model: AppModel, context: SessionContext) async -> any PushSettingsSource {
         guard model.isUITesting else { return context.client }
         return await DemoData.pushSettingsSource(serverID: context.serverID, records: model.pushRecords)
+    }
+    /// The page's model for the session: a target the server no longer has leaves the pending deletions, so the banner that
+    /// sends the user to 其他接收方式 goes once they deleted it there (U-23).
+    @MainActor static func store(source: any PushSettingsSource, model: AppModel, context: SessionContext) -> PushSettingsModel {
+        let generation = context.generation, serverID = context.serverID
+        return PushSettingsModel(source: source, receipts: model.receipts, isCurrent: { [weak model] in model?.sessionGeneration == generation },
+                                 deviceGone: { [weak model] in model?.pushCoordinator.resolvePendingDeletion($0, serverID: serverID) })
     }
 }
 

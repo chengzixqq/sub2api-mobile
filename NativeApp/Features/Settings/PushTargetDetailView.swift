@@ -115,7 +115,7 @@ struct PushTargetDetailView: View {
         let source = await PushSettingsSources.make(model: model, context: session)
         let generation = session.generation
         guard generation == model.sessionGeneration else { return }
-        let next = PushSettingsModel(source: source, receipts: model.receipts, isCurrent: { [weak model] in model?.sessionGeneration == generation })
+        let next = PushSettingsSources.store(source: source, model: model, context: session)
         store = next; storeGeneration = generation
         await next.reloadDevices()
     }

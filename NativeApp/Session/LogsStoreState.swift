@@ -51,6 +51,10 @@ extension LogsRoute {
                       modelSource: modelSource)
     }
     private static func object(_ object: RouteObject) -> LogFilterObject { LogFilterObject(id: object.id, name: object.name) }
+    /// The user detail's 使用记录: the chip names the user by email, as a pick in 按对象筛选 does (40 §6.3); blank reads “#id”.
+    static func userUsage(id: Int, email: String?) -> LogsRoute {
+        LogsRoute(scope: .usage, user: RouteObject(id: id, name: email.flatMap(LogFilterPicker.objectName)))
+    }
 }
 
 /// The shown segment's failure row (40 §6.5): the page that failed, and BlockFailureRow's error and time.

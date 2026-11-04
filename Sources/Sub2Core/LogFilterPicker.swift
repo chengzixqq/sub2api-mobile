@@ -12,6 +12,8 @@ public enum LogFilterPicker {
     /// The capsule at the end of the chip row, after a plus.
     public static let addChipTitle = "筛选"
     public static let deletedUser = "已删除"
+    /// The tag after a group that is not `active`, as 40 §1.2's 筛选 marks it; the row can still be picked.
+    public static let inactiveGroup = "停用"
     public static let noMatches = "没有匹配的账号、分组或用户"
     public static let accountLimit = 6
     public static let groupLimit = 4
@@ -45,6 +47,7 @@ public enum LogFilterPicker {
     public static func groupPlatform(_ group: AdminGroup, catalog: MetaCatalog?) -> String {
         AccountNaming.platformName(group.platform, catalog: catalog)
     }
+    public static func isInactive(_ group: AdminGroup) -> Bool { group.status != "active" }
     /// The condition's name; blank is none, so the chip reads “#id”.
     public static func objectName(_ name: String) -> String? {
         let text = keyword(name)

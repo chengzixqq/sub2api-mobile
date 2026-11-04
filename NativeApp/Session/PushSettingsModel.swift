@@ -40,6 +40,8 @@ final class PushSettingsModel {
 
     @ObservationIgnored private let receipts: ReceiptCenter
     @ObservationIgnored private let isCurrent: @MainActor () -> Bool
+    /// A target the server no longer has: PushCoordinator stops waiting to delete it (U-23).
+    @ObservationIgnored private let deviceGone: @MainActor (Int) -> Void
     @ObservationIgnored private let now: @MainActor () -> Date
     @ObservationIgnored private var devicesTicket = UUID()
     @ObservationIgnored private var configTicket = UUID()
@@ -48,8 +50,8 @@ final class PushSettingsModel {
     private enum Edit { case replace(PushDevice), remove(Int) }
 
     init(source: any PushSettingsSource, receipts: ReceiptCenter, isCurrent: @escaping @MainActor () -> Bool,
-         now: @escaping @MainActor () -> Date = { Date() }) {
-        self.source = source; self.receipts = receipts; self.isCurrent = isCurrent; self.now = now
+         deviceGone: @escaping @MainActor (Int) -> Void = { _ in }, now: @escaping @MainActor () -> Date = { Date() }) {
+        self.source = source; self.receipts = receipts; self.isCurrent = isCurrent; self.deviceGone = deviceGone; self.now = now
     }
 
     // MARK: Reading
@@ -160,7 +162,7 @@ final class PushSettingsModel {
             showFailure(text)
             await reloadDevices()
         case .gone:
-            remove(id: id)
+            gone(id)
             await reloadDevices()
         case .failed(let text): showFailure(text)
         case .cancelled: break
@@ -187,7 +189,7 @@ final class PushSettingsModel {
             }
         }
         guard isCurrent() else { return .ignored }
-        remove(id: id)
+        gone(id)
         return .deleted
     }
 
@@ -197,7 +199,7 @@ final class PushSettingsModel {
         switch PushWriteFailure.classify(error) {
         case .cancelled: return
         case .gone:
-            remove(id: id)
+            gone(id)
             await reloadDevices()
         case .unconfirmed:
             showFailure(PushPresentation.subscriptionNotSaved(reason: PushPresentation.failureMessage(error)))
@@ -218,13 +220,17 @@ final class PushSettingsModel {
         }
         devicesTicket = UUID(); editsDuringLoad = []
         devices = .loaded(Self.ordered(list), at: now())
-        guard list.contains(where: { $0.id == id }) else { return .deleted }
+        guard list.contains(where: { $0.id == id }) else { deviceGone(id); return .deleted }
         showFailure(PushPresentation.deleteFailed(reason: PushPresentation.failureMessage(error)))
         return .failed
     }
 
     private func showFailure(_ text: String, tone: Tone = .critical) {
         receipts.show(Receipt(text: text, systemImage: "exclamationmark.triangle", tone: tone))
+    }
+    private func gone(_ id: Int) {
+        remove(id: id)
+        deviceGone(id)
     }
     private func apply(_ edit: Edit) {
         if devices.isLoading { editsDuringLoad.append(edit) }

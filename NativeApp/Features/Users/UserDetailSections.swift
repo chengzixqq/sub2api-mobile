@@ -81,12 +81,12 @@ struct UserBalanceHero: View {
 /// 壹 · API Key: one summary row into 编辑用户 · Key 与限额, then 使用记录, then the footnote.
 struct UserKeySummarySection: View {
     let detail: UserDetailModel
-    let displayName: String
+    let email: String
 
     var body: some View {
         Section {
             keys
-            NavigationLink(value: AppRoute.logs(LogsRoute(scope: .usage, user: RouteObject(id: detail.userID, name: displayName)))) {
+            NavigationLink(value: AppRoute.logs(.userUsage(id: detail.userID, email: email))) {
                 HStack(alignment: .firstTextBaseline) {
                     Label(UserDetailPresentation.logsTitle, systemImage: "list.bullet.rectangle").foregroundStyle(Palette.ink1)
                     Spacer(minLength: 8)
