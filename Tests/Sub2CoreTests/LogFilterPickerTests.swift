@@ -83,3 +83,11 @@ private func ids(_ groups: [AdminGroup]) -> [Int] { groups.map(\.id) }
     #expect(LogFilterPicker.accountLimit == 6 && LogFilterPicker.groupLimit == 4 && LogFilterPicker.userLimit == 3)
     #expect(LogFilterPicker.debounce == .milliseconds(300))
 }
+
+/// 40 §1.2's mark: a group that is not `active` reads 停用 and can still be picked.
+@Test func isInactiveFollowsStatus() {
+    #expect(LogFilterPicker.isInactive(AdminGroup(id: 6, name: "测试组", platform: "gemini", status: "inactive")))
+    #expect(LogFilterPicker.isInactive(AdminGroup(id: 12, name: "旧组", status: "disabled")))
+    #expect(!LogFilterPicker.isInactive(directory[0]))
+    #expect(LogFilterPicker.inactiveGroup == "停用")
+}

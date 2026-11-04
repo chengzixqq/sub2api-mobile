@@ -17,8 +17,10 @@ struct LogFilterAddChip: View {
 }
 
 extension View {
-    /// 40 §6.1: the bar's filter button (`logs.picker.open`) and the 按对象筛选 sheet; `onPick` gets the row chosen.
-    func logFilterPicker(isPresented: Binding<Bool>, onPick: @escaping @MainActor (LogFilterPick) -> Void) -> some View {
+    /// 40 §6.1: the bar's filter button (`logs.picker.open`) and the 按对象筛选 sheet, which ticks the objects in `conditions`;
+    /// `onPick` gets the row chosen.
+    func logFilterPicker(isPresented: Binding<Bool>, conditions: LogConditions,
+                         onPick: @escaping @MainActor (LogFilterPick) -> Void) -> some View {
         toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { isPresented.wrappedValue = true } label: {
@@ -27,21 +29,25 @@ extension View {
                 .accessibilityIdentifier("logs.picker.open")
             }
         }
-        .sheet(isPresented: isPresented) { LogFilterPickerSheet(onPick: onPick) }
+        .sheet(isPresented: isPresented) { LogFilterPickerSheet(conditions: conditions, onPick: onPick) }
     }
 }
 
 /// 40 §6.4 按对象筛选: a search field over three groups — accounts (state glyph, name, #id, platform · groups), groups (name,
-/// platform) and, once there is a keyword, users (initial, email, 已删除). Each group loads and fails on its own; a group read
-/// with no row is hidden. A row sets the condition of its kind and closes the sheet.
+/// platform, 停用) and, once there is a keyword, users (initial, email, 已删除). Each group loads and fails on its own; a group
+/// read with no row is hidden. The object a condition already holds ends in a tick. A row sets the condition of its kind and
+/// closes the sheet.
 struct LogFilterPickerSheet: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var model: LogFilterPickerModel?
     @State private var catalog = MetaCatalog.builtin
+    private let conditions: LogConditions
     private let onPick: @MainActor (LogFilterPick) -> Void
 
-    init(onPick: @escaping @MainActor (LogFilterPick) -> Void) { self.onPick = onPick }
+    init(conditions: LogConditions, onPick: @escaping @MainActor (LogFilterPick) -> Void) {
+        self.conditions = conditions; self.onPick = onPick
+    }
 
     var body: some View {
         NavigationStack {
@@ -60,7 +66,8 @@ struct LogFilterPickerSheet: View {
     @ViewBuilder private var content: some View {
         if let model {
             let directory = model.groups
-            LogFilterPickerList(model: model, catalog: catalog, now: app.serverNow(), groupName: { directory?.name(for: $0) }) { pick in
+            LogFilterPickerList(model: model, catalog: catalog, conditions: conditions, now: app.serverNow(),
+                                groupName: { directory?.name(for: $0) }) { pick in
                 onPick(pick)
                 dismiss()
             }
@@ -80,6 +87,7 @@ struct LogFilterPickerSheet: View {
 private struct LogFilterPickerList: View {
     let model: LogFilterPickerModel
     let catalog: MetaCatalog
+    let conditions: LogConditions
     let now: Date
     let groupName: (Int) -> String?
     let choose: @MainActor (LogFilterPick) -> Void
@@ -168,11 +176,14 @@ private struct LogFilterPickerList: View {
     }
     private func groupRow(_ group: AdminGroup) -> some View {
         let platform = LogFilterPicker.groupPlatform(group, catalog: catalog)
-        return pickButton(LogFilterPick(group: group), id: "logs.picker.group.\(group.id)", label: group.name + "，" + platform) {
+        let inactive = LogFilterPicker.isInactive(group)
+        let label = [group.name, platform] + (inactive ? [LogFilterPicker.inactiveGroup] : [])
+        return pickButton(LogFilterPick(group: group), id: "logs.picker.group.\(group.id)", label: label.joined(separator: "，")) {
             HStack(spacing: 10) {
                 Image(systemName: "square.stack.3d.up").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink3)
                     .frame(width: 22).accessibilityHidden(true)
                 Text(group.name).font(.body).foregroundStyle(Palette.ink1).lineLimit(1)
+                if inactive { LogFilterPickerTag(text: LogFilterPicker.inactiveGroup) }
                 Spacer(minLength: 8)
                 Text(platform).font(.subheadline).foregroundStyle(Palette.ink3).lineLimit(1)
             }
@@ -185,22 +196,39 @@ private struct LogFilterPickerList: View {
             HStack(spacing: 10) {
                 UserInitialAvatar(initial: UserPresentation.initial(user.email), size: 32)
                 Text(email).font(.body).foregroundStyle(Palette.ink1).lineLimit(1).truncationMode(.middle)
-                if user.deleted {
-                    Text(LogFilterPicker.deletedUser).font(.caption).foregroundStyle(Palette.ink2)
-                        .padding(.horizontal, 6).padding(.vertical, 2).background(Palette.sunken, in: Capsule())
-                }
+                if user.deleted { LogFilterPickerTag(text: LogFilterPicker.deletedUser) }
                 Spacer(minLength: 0)
             }
         }
     }
+    /// The row of the object its kind's condition already holds ends in a tick and reads as selected.
     private func pickButton<Content: View>(_ pick: LogFilterPick, id: String, label: String,
                                            @ViewBuilder content: () -> Content) -> some View {
-        Button { choose(pick) } label: {
-            content().frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+        let isOn = pick.isSameObject(in: conditions)
+        return Button { choose(pick) } label: {
+            HStack(spacing: 10) {
+                content()
+                if isOn {
+                    Image(systemName: "checkmark").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
         .accessibilityIdentifier(id)
+    }
+}
+
+/// 已删除 after a user, 停用 after a group.
+private struct LogFilterPickerTag: View {
+    let text: String
+
+    var body: some View {
+        Text(text).font(.caption).foregroundStyle(Palette.ink2)
+            .padding(.horizontal, 6).padding(.vertical, 2).background(Palette.sunken, in: Capsule())
     }
 }
 

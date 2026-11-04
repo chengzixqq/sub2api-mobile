@@ -748,3 +748,16 @@ private func plainCountRequests(_ window: LogTimeWindow) -> Set<LogCountRequest>
     harness.opsOff = true
     #expect(store.retentionNote == nil)
 }
+
+/// The user detail's 使用记录 names the user by email, as the picker does (40 §6.3); a blank one leaves “#id”.
+@Test func userUsageRouteUsesEmail() {
+    let route = LogsRoute.userUsage(id: 1, email: " alice@example.com ")
+    #expect(route == LogsRoute(scope: .usage, user: RouteObject(id: 1, name: "alice@example.com")))
+    #expect(route.conditions.user == LogFilterObject(id: 1, name: "alice@example.com"))
+    for email in [" \n", "", nil] as [String?] {
+        let unnamed = LogsRoute.userUsage(id: 1, email: email)
+        #expect(unnamed == LogsRoute(scope: .usage, user: RouteObject(id: 1)))
+        let chips = LogFilterChips(unnamed.conditions, kind: nil, legacyServer: false, supportsModelSource: true)
+        #expect(chips.chips.map(\.text) == ["用户：#1"])
+    }
+}

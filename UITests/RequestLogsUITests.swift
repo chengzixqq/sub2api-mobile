@@ -45,13 +45,13 @@ final class RequestLogsUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "logs.row.usage.1011").count, 1, app.debugDescription)
     }
 
-    /// X39: the user detail's route keeps its user in every segment.
+    /// X39: the user detail's route keeps its user in every segment; the chip names the user by email, as a pick does.
     @MainActor func testUserRouteConditionStaysAcrossSegments() {
         launchUserLogs(1)
         defer { diagnostics("logs-user-route") }
         let chip = element("logs.chip.user")
         XCTAssertTrue(chip.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(chip.label, "用户：Alice")
+        XCTAssertEqual(chip.label, "用户：alice@example.com")
         XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(row("usage", 1039).exists, app.debugDescription)
         segment("上游错误").tap()
@@ -313,7 +313,7 @@ final class RequestLogsUITests: XCTestCase {
         defer { diagnostics("logs-remove-chip") }
         let chip = app.buttons["logs.chip.user"]
         XCTAssertTrue(chip.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(chip.label.hasPrefix("用户：Alice"), chip.label)
+        XCTAssertTrue(chip.label.hasPrefix("用户：alice@example.com"), chip.label)
         XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(row("usage", 1039).exists, app.debugDescription)
         expectSegments(["用量明细 10", "错误请求 0", "上游错误 1"])
@@ -513,7 +513,7 @@ final class RequestLogsUITests: XCTestCase {
     }
 
     /// 40 §6.4: groups match by name in the directory's order, four at most; a pick replaces the condition of its kind and keeps
-    /// the others; a deleted user is marked; 关闭 changes nothing.
+    /// the others, and the sheet marks the one picked; a deleted user is marked; 关闭 changes nothing.
     @MainActor func testPickerReplacesSameKindForGroupAndUser() {
         launchLogs()
         defer { diagnostics("logs-picker-replace") }
@@ -524,6 +524,11 @@ final class RequestLogsUITests: XCTestCase {
         pick("group", 1)
         let group = app.buttons["logs.chip.group"]
         XCTAssertTrue(group.poll(NSPredicate(format: "label == %@", "分组：高级组"), timeout: 10), app.debugDescription)
+        search(openPicker("logs.picker.open"), "组")
+        XCTAssertTrue(pickerRow("group", 2).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(pickerRow("group", 1).isSelected, app.debugDescription)
+        XCTAssertFalse(pickerRow("group", 2).isSelected, app.debugDescription)
+        closePicker()
         search(openPicker("logs.picker.open"), "标准")
         XCTAssertTrue(pickerRow("account", 1).pollGone(timeout: 10), app.debugDescription)
         pick("group", 2)
@@ -533,6 +538,10 @@ final class RequestLogsUITests: XCTestCase {
         pick("user", 3)
         let user = app.buttons["logs.chip.user"]
         XCTAssertTrue(user.poll(NSPredicate(format: "label == %@", "用户：xm.wang@example.com"), timeout: 10), app.debugDescription)
+        search(openPicker("logs.picker.open"), "xm.wang")
+        XCTAssertTrue(pickerRow("user", 3).waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(pickerRow("user", 3).isSelected, app.debugDescription)
+        closePicker()
         search(openPicker("logs.picker.open"), "alice")
         pick("user", 1)
         XCTAssertTrue(user.poll(NSPredicate(format: "label == %@", "用户：alice@example.com"), timeout: 10), user.label)
@@ -565,6 +574,27 @@ final class RequestLogsUITests: XCTestCase {
         for id in [1, 2, 3] { XCTAssertTrue(pickerRow("account", id).waitForExistence(timeout: 10), "\(id)\n\(app.debugDescription)") }
         XCTAssertTrue(pickerRow("account", 8).pollGone(timeout: 10), app.debugDescription)
         XCTAssertTrue(element("logs.picker.groups.failure").exists, app.debugDescription)
+    }
+
+    /// 40 §1.2's mark in this sheet too: 测试组 (6) is inactive and tagged 停用, still a button; an active group is not, and with
+    /// no condition set no row is selected.
+    @MainActor func testInactiveGroupTagged() {
+        launchLogs()
+        defer { diagnostics("logs-picker-inactive") }
+        XCTAssertTrue(row("usage", 1040).waitForExistence(timeout: 10), app.debugDescription)
+        let field = openPicker("logs.picker.open")
+        let active = pickerRow("group", 1)
+        XCTAssertTrue(active.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(active.label.contains("停用"), active.label)
+        XCTAssertFalse(active.isSelected, app.debugDescription)
+        search(field, "测试")
+        let inactive = pickerRow("group", 6)
+        XCTAssertTrue(inactive.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(inactive.label, "测试组，Gemini，停用")
+        XCTAssertFalse(inactive.isSelected, app.debugDescription)
+        pick("group", 6)
+        XCTAssertTrue(app.buttons["logs.chip.group"].poll(NSPredicate(format: "label == %@", "分组：测试组"), timeout: 10),
+                      app.debugDescription)
     }
 
     /// The sheet's search field, found by its prompt.
