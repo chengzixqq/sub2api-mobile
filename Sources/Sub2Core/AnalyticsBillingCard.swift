@@ -63,6 +63,12 @@ public struct AnalyticsBillingCard: Equatable, Sendable {
         footTitle = Self.footTitle(range)
     }
 
+    /// 40 §1.6: the totals' 重试本项 reads the trend again too, so the trend's own line goes when it would offer the same retry under
+    /// a totals line that has one (a failure, or 更新失败 over kept totals). A refusal (400 / 403) on either side keeps both lines.
+    public static func showsTrendFailure(summaryFailed: Bool, summaryRetries: Bool, trendFailed: Bool, trendRetries: Bool) -> Bool {
+        !(summaryFailed && summaryRetries && trendFailed && trendRetries)
+    }
+
     /// “全部 10 小时” / “全部 7 天”, also 利润明细's foot (S4-13b).
     public static func footTitle(_ range: AnalyticsRange) -> String {
         "全部 \(range.buckets.count) " + (range.granularity == .hour ? "小时" : "天")

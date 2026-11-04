@@ -300,6 +300,7 @@ final class AnalyticsUITests: XCTestCase {
         let retry = element("analytics.billing.retry")
         XCTAssertEqual(retry.label, "重试本项")
         diagnostics("analytics-failed")
+        XCTAssertFalse(element("analytics.billing.trend.failure").exists, app.debugDescription)
         retry.tap()
         app.waitForValue(amount, equal: Expected.week)
         XCTAssertTrue(failure.pollGone(timeout: 5), app.debugDescription)

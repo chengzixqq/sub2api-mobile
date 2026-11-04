@@ -58,7 +58,10 @@ public struct AnalyticsCustomDraft: Equatable, Sendable {
     public var endLine: String {
         dayLine(to) + (to == bounds.latest ? " 现在（\(DisplayFormat.clock(now, timeZone: zone.timeZone))）" : " 24:00")
     }
-    public var footnote: String { "共 \(dayCount) 天，按天统计（只选一天按小时）；按站点时区计算。" }
+    /// A single day goes by the hour, so it says so instead of the general rule.
+    public var footnote: String {
+        from == to ? "共 1 天，按小时统计；按站点时区计算。" : "共 \(dayCount) 天，按天统计（只选一天按小时）；按站点时区计算。"
+    }
 
     private func dayLine(_ day: AnalyticsDay) -> String { AnalyticsLabel.date(day, today: bounds.latest) + " " + day.weekdayName }
 }
