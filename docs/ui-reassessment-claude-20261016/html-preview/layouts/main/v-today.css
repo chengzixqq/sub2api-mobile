@@ -1,0 +1,170 @@
+/* 首页（今日）变体：计费区位置、待处理粒度、平静态，以及首页下钻的分组账号与告警详情。所有选择器挂在 .lay-main 下，类名前缀 vt-。 */
+
+/* big condensed figures (same family as the instrument readouts). SwiftUI: .minimumScaleFactor(0.5).lineLimit(1) */
+.lay-main .vt-figure { font-family: "SF Pro Display", "Bahnschrift", sans-serif; font-stretch: 75%; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -.01em; line-height: 1.05; color: var(--ink1); white-space: nowrap; }
+
+/* calm mode is a home-screen what-if: hide the live error badge on the 账号 tab while it is shown */
+.lay-main:has(.vt-calm-flag) .tab-badge { display: none; }
+
+/* small inline buttons keep a 30px look but get a 44px hit area (SwiftUI: .frame(minHeight: 44) + .contentShape) */
+.lay-main .vt-hit .act-small { position: relative; }
+.lay-main .vt-hit .act-small::after { content: ''; position: absolute; left: -5px; right: -5px; top: -8px; bottom: -8px; } /* 28px padding box + 16 = 44 */
+
+/* ---------- chart ---------- */
+.lay-main .vt-plot { position: relative; }
+.lay-main .vt-chart { display: block; overflow: visible; }
+.lay-main .vt-chart-base { stroke: var(--rule-strong); stroke-width: 1; }
+.lay-main .vt-chart-line { fill: none; stroke: var(--chart-main); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.lay-main .vt-chart-area { fill: var(--ink1); opacity: .07; }
+.lay-main .vt-chart-yest { fill: none; stroke: var(--chart-compare); stroke-width: 1.3; stroke-dasharray: 1.5 3; stroke-linecap: round; }
+.lay-main .vt-chart-now { fill: var(--chart-main); stroke: var(--canvas); stroke-width: 2; }
+.lay-main .sec .vt-chart-now { stroke: var(--surface); }
+.lay-main .vt-chart-bar { fill: var(--chart-bar); }
+.lay-main .vt-chart-bar.is-now { fill: var(--chart-bar-now); }
+.lay-main .vt-plot-legend { position: absolute; left: 0; top: -4px; }
+.lay-main .vt-plot-end { position: absolute; right: 0; margin-top: 5px; font-size: 12px; line-height: 14px; color: var(--ink2); white-space: nowrap; }
+.lay-main .vt-axis { position: relative; height: 16px; margin-top: 5px; font-size: 12px; color: var(--ink3); }
+.lay-main .vt-axis span { position: absolute; top: 0; white-space: nowrap; line-height: 16px; }
+.lay-main .vt-axis .vt-axis-now { transform: translateX(-50%); color: var(--ink1); font-weight: 600; }
+.lay-main .vt-legend { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink2); white-space: nowrap; }
+.lay-main .vt-key { display: inline-block; width: 12px; height: 0; border-top: 2px solid var(--chart-main); margin-left: 6px; }
+.lay-main .vt-key:first-child { margin-left: 0; }
+.lay-main .vt-key.is-bar { width: 6px; height: 10px; border-top: 0; border-radius: 1px; background: var(--chart-bar-now); }
+.lay-main .vt-key.yest { border-top: 2px dotted var(--chart-compare); }
+
+/* cost bases row (账号成本 / 标准 / 利润): plain labels, no line markers */
+.lay-main .vt-bases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.lay-main .vt-bases span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lay-main .vt-bases small { font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+.lay-main .vt-bases b { font-family: "SF Pro Display", "Bahnschrift", sans-serif; font-stretch: 75%; font-size: 19px; font-weight: 500; color: var(--ink1); white-space: nowrap; }
+
+/* ---------- 顶部大数 + 图 ---------- */
+.lay-main .vt-hero { margin: 0 16px 22px; display: flex; flex-direction: column; }
+.lay-main .vt-hero-label { font-size: 12.5px; color: var(--ink2); }
+.lay-main .vt-hero-num { font-size: 60px; line-height: 1; margin-top: 4px; }
+.lay-main .vt-hero .strip-delta { margin-top: 4px; }
+.lay-main .vt-hero-chart { margin-top: 18px; }
+.lay-main .vt-hero-bases { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }
+.lay-main .vt-usage { display: grid; grid-template-columns: repeat(3, 1fr); padding: 12px 0; }
+.lay-main .vt-usage span { display: flex; flex-direction: column; gap: 2px; padding: 0 12px 0 14px; min-width: 0; }
+.lay-main .vt-usage span + span { border-left: 1px solid var(--hairline); }
+.lay-main .vt-usage small { font-size: 12.5px; color: var(--ink2); }
+.lay-main .vt-usage b { font-size: 24px; }
+
+/* ---------- B 式计费卡 ---------- */
+.lay-main .vt-rev { padding: 14px 16px 12px; }
+.lay-main .vt-rev-body { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.lay-main .vt-rev-figure { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lay-main .vt-rev-figure small { font-size: 12.5px; color: var(--ink2); }
+.lay-main .vt-rev-num { font-size: 46px; line-height: 1; margin: 2px 0 2px; }
+.lay-main .vt-rev-spark { width: 128px; flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding-bottom: 6px; }
+.lay-main .vt-rev-spark .vt-plot { width: 100%; }
+.lay-main .vt-rev-foot { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--hairline); }
+.lay-main .vt-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.lay-main .vt-tile { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--panel-radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lay-main .vt-tile small { font-size: 12.5px; color: var(--ink2); }
+.lay-main .vt-tile .vt-figure { font-size: 32px; }
+.lay-main .vt-tile > span { font-size: 13px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vt-tile > span b { color: var(--ink1); font-weight: 600; }
+
+/* ---------- calm status card ---------- */
+.lay-main .vt-calm { margin: 0 16px 22px; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: var(--panel-radius); background: var(--surface); border: 1px solid var(--hairline); }
+.lay-main .vt-calm-icon { color: var(--ok-ink); display: flex; flex: none; }
+.lay-main .vt-calm-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lay-main .vt-calm-text b { font-size: 16px; font-weight: 600; color: var(--ink1); }
+.lay-main .vt-calm-text span { font-size: 14px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- 按分组聚合 ---------- */
+.lay-main .vt-grp { flex-direction: column; align-items: stretch; gap: 0; padding: 0; }
+.lay-main .vt-grp-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px 4px; min-height: 52px; }
+.lay-main .vt-grp-head .row-lead { padding-top: 0; }
+.lay-main .vt-grp-head .row-chev { padding-top: 0; }
+.lay-main .vt-grp-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.lay-main .vt-grp-name b { font-size: 16.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vt-grp-name small { font-size: 13px; font-weight: 600; color: var(--tone-ink); }
+.lay-main .vt-grp-count { display: inline-flex; align-items: baseline; gap: 1px; font-size: 13.5px; color: var(--ink2); white-space: nowrap; }
+.lay-main .vt-grp-count .vt-figure { font-size: 30px; margin-right: 1px; }
+.lay-main .vt-grp-count.is-short .vt-figure { color: var(--tone-ink); }
+.lay-main .vt-grp-count .num { font-size: 15px; color: var(--ink1); margin-right: 4px; }
+.lay-main .vt-meter { display: flex; gap: 3px; margin: 6px 16px 0 48px; }
+.lay-main .vt-meter i { flex: 1 1 0; min-width: 4px; height: 8px; border-radius: 1px; background: var(--tone); }
+.lay-main .vt-meter i.tone-ok { opacity: .55; }
+.lay-main .vt-meter i.tone-neutral { background: var(--track); }
+.lay-main .vt-grp-alert { margin: 8px 0 0 48px; width: calc(100% - 48px); padding: 6px 16px 6px 0; min-height: 44px; display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.lay-main .vt-grp-alert:hover .vt-grp-alert-text b { text-decoration: underline; text-underline-offset: 3px; }
+.lay-main .vt-grp-alert .badge { margin-top: -1px; }
+.lay-main .vt-grp-alert .row-chev { padding-top: 2px; }
+.lay-main .vt-grp-alert-icon { color: var(--tone-ink); display: flex; flex: none; padding-top: 1px; }
+.lay-main .vt-grp-alert-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.lay-main .vt-grp-alert-text b { font-size: 14.5px; font-weight: 500; color: var(--ink1); }
+.lay-main .vt-grp-alert-text small { font-size: 13px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vt-grp-fold { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: calc(100% - 48px); margin: 8px 0 0 48px; padding: 0 16px 0 0; min-height: 46px; border-top: 1px solid var(--hairline); color: var(--ink2); font-size: 14px; }
+.lay-main .vt-grp-fold:hover { color: var(--ink1); }
+.lay-main .vt-grp-fold-text { color: var(--ink1); font-weight: 600; white-space: nowrap; }
+.lay-main .vt-tally { flex: 1; display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.lay-main .vt-tally > span { display: inline-flex; align-items: center; gap: 3px; color: var(--tone-ink); }
+.lay-main .vt-tally b { font-size: 14px; font-weight: 600; }
+.lay-main .vt-grp-fold-more { display: inline-flex; align-items: center; gap: 3px; font-size: 13.5px; color: var(--ink2); white-space: nowrap; }
+.lay-main .vt-grp-subs { margin-left: 48px; padding-bottom: 4px; }
+.lay-main .vt-grp-elsewhere { margin: 0 16px 0 48px; padding: 10px 0 12px; border-top: 1px solid var(--hairline); font-size: 13.5px; color: var(--ink2); }
+.lay-main .vt-grp-elsewhere.is-alone { margin-top: 8px; }
+.lay-main .vt-sub { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; column-gap: 10px; row-gap: 3px; align-items: center; padding: 10px 16px 10px 0; border-top: 1px solid var(--hairline); }
+.lay-main .vt-sub.tappable { cursor: pointer; }
+.lay-main .vt-sub.tappable:hover { background: var(--hover-row); }
+.lay-main .vt-sub .row-lead { padding-top: 0; grid-row: 1; }
+.lay-main .vt-sub-name { font-size: 15.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vt-sub-note { grid-column: 2 / 4; font-size: 13.5px; line-height: 1.4; color: var(--ink2); }
+.lay-main .vt-sub-note b { font-weight: 600; }
+.lay-main .vt-quiet .row-title { font-size: 15.5px; }
+.lay-main .vt-quiet-count { font-size: 13.5px; color: var(--ink2); }
+.lay-main .vt-quiet-count b { font-size: 15px; font-weight: 600; color: var(--ink1); }
+
+/* ---------- 专门的平静布局 ---------- */
+.lay-main .vt-stage-hero { padding: 2px 16px 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.lay-main .vt-stage-hero small { font-size: 12.5px; color: var(--ink2); margin-top: 12px; }
+.lay-main .vt-stage-flag { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 0 11px 0 9px; border-radius: 14px; background: var(--tone-wash); color: var(--tone-ink); font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.lay-main .vt-stage-flag span { font-weight: 500; color: var(--ink2); }
+.lay-main .vt-stage-num { font-size: 72px; line-height: .98; margin: 4px 0 4px; letter-spacing: -.02em; }
+.lay-main .vt-stage-chart { padding-top: 12px; }
+.lay-main .vt-stage-legend { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.lay-main .vt-stage-bases { margin: 12px 16px 0; padding: 10px 0 12px; border-top: 1px solid var(--hairline); }
+.lay-main .vt-rank { padding-top: 11px; padding-bottom: 11px; align-items: center; }
+.lay-main .vt-rank-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.lay-main .vt-rank .row-chev { padding-top: 0; }
+.lay-main .vt-rank-bar { height: 5px; border-radius: 1px; background: var(--track); overflow: hidden; }
+.lay-main .vt-rank-bar i { display: block; height: 100%; background: var(--ink2); border-radius: inherit; }
+.lay-main .sec .vt-rank + .vt-rank::before { left: 16px; }
+
+/* ---------- 告警详情 ---------- */
+.lay-main .vt-al-title { margin-top: 12px; font-size: 19px; font-weight: 600; line-height: 1.3; color: var(--ink1); }
+.lay-main .vt-al-metric { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; font-size: 14px; color: var(--ink2); }
+.lay-main .vt-al-metric .vt-figure { font-size: 44px; color: var(--tone-ink); }
+.lay-main .vt-al-metric b.num { color: var(--ink1); font-weight: 600; }
+.lay-main .vt-al-note { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: 14px; color: var(--ink2); }
+
+/* 更多统计 entry under the billing card */
+.lay-main .vt-more { margin-top: 10px; }
+.lay-main .vt-usage + .row::before { content: ''; position: absolute; top: 0; right: 0; left: 48px; height: 1px; background: var(--hairline); }
+.lay-main .vt-rank + .row:not(.vt-rank)::before { left: 48px; }
+
+/* 第 2 轮决定：顶部 6 格指标（C 的工作台指标格，用主模式的面板语言）。评审 2026-10-18：健康换 TPM，标签不再写窗口 */
+.lay-main .vt-ticker { margin: 2px 16px 18px; width: calc(100% - 32px); display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--panel-radius); text-align: left; overflow: hidden; }
+.lay-main .vt-tk-cell { position: relative; padding: 10px 12px 9px; display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); min-width: 0; }
+.lay-main .vt-tk-cell:nth-child(3n) { border-right: 0; }
+.lay-main .vt-tk-cell:nth-child(n + 4) { border-bottom: 0; }
+.lay-main .vt-tk-cell small { display: flex; align-items: baseline; gap: 5px; min-width: 0; font-size: 12px; color: var(--ink2); white-space: nowrap; }
+.lay-main .vt-tk-cell b { font-size: 21px; font-weight: 500; color: var(--ink1); font-family: "SF Pro Display", "Bahnschrift", -apple-system, sans-serif; font-stretch: 75%; white-space: nowrap; }
+.lay-main .vt-tk-val { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+/* the change against yesterday: 12.5px, at least the label size (labels ≥ 12px) */
+.lay-main .vt-tk-cell em { font-style: normal; font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+.lay-main .vt-tk-cell:first-child b { font-size: 22px; }
+.lay-main .vt-tk-cell:first-child .vt-tk-val { flex-direction: column; align-items: flex-start; gap: 1px; }
+/* each cell is its own button (RPM / TPM open the analytics RPM / TPM trend): row-style hover, focus ring kept inside the clipped panel */
+.lay-main .vt-tk-cell { text-align: left; cursor: pointer; }
+.lay-main .vt-tk-cell:hover { background: var(--hover-row); }
+.lay-main .vt-tk-cell:focus-visible { outline-offset: -2px; }
+
+/* round 4: clipped meta runs (row-meta is a flex row, so mixed text + marks sit in one inline run) and the ticker-mode usage line */
+.lay-main .vt-clip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lay-main .vt-stage-usage { margin: 0 16px; padding-left: 0; padding-right: 0; border-top: 1px solid var(--hairline); }
+.lay-main .vt-sched-line { margin-top: 1px; }

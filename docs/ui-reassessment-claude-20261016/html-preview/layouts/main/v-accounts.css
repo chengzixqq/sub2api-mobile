@@ -1,0 +1,107 @@
+/* 账号列表 · 第 2 轮变体（v-accounts）。所有选择器挂在 .lay-main 下，类名前缀 va-。 */
+
+/* ---------- 导航：标题固定在正中（SwiftUI .principal），不随左右按钮宽度偏移 ---------- */
+.lay-main .nav-row:has(.va-lead) { position: relative; }
+.lay-main .nav-row:has(.va-lead) .nav-title { position: absolute; left: 50%; transform: translateX(-50%); width: 190px; flex: none; }
+.lay-main .va-lead { display: inline-flex; flex: none; }
+.lay-main .va-menu-btn { position: relative; }
+.lay-main .va-menu-btn.is-on::after { content: ''; position: absolute; top: 9px; right: 9px; width: 7px; height: 7px; border-radius: 4px; background: var(--accent); box-shadow: 0 0 0 1.5px var(--glass-bg); }
+
+/* ---------- 可收起的组头（按平台 / 按分组）：整条是一个按钮，告警牌和全选是并列的独立按钮 ---------- */
+.lay-main .va-head { position: relative; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 10px 12px 6px 16px; background: var(--list-head-bg, var(--canvas)); user-select: none; }
+.lay-main .va-section + .va-section .va-head { box-shadow: inset 0 1px 0 var(--hairline); }
+.lay-main .va-head-hit { position: absolute; inset: 0; z-index: 0; width: 100%; background: transparent; border: 0; cursor: pointer; }
+.lay-main .va-head-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lay-main .va-head > button:not(.va-head-hit) { position: relative; z-index: 1; }
+.lay-main .va-head:hover .va-head-chev { color: var(--ink1); }
+.lay-main .va-head-part { display: contents; }
+.lay-main .va-gicon { width: 26px; height: 26px; border-radius: 7px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--surface); border: 1px solid var(--hairline); color: var(--ink2); }
+.lay-main .va-gicon.is-none { background: transparent; border-style: dashed; color: var(--ink3); }
+.lay-main .va-head-title { font-size: 15px; font-weight: 600; color: var(--ink1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lay-main .va-head-count { font-size: 13px; font-weight: 500; color: var(--ink3); white-space: nowrap; }
+.lay-main .va-head-spacer { flex: 1; min-width: 4px; }
+.lay-main .va-head .badge { flex: none; }
+.lay-main .va-flag { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: 3px; background: var(--tone-wash); color: var(--tone-ink); font-size: 12.5px; font-weight: 600; white-space: nowrap; flex: none; }
+.lay-main .va-head-chev { width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; color: var(--ink3); transition: transform .2s ease, color .15s; pointer-events: none; }
+.lay-main .va-head.is-collapsed .va-head-chev { transform: rotate(-90deg); }
+.lay-main .va-head.is-collapsed { padding-bottom: 10px; }
+.lay-main .va-selall { height: 44px; margin: -8px -4px -8px 0; padding: 0 8px; color: var(--accent); font-size: 14.5px; font-weight: 600; white-space: nowrap; flex: none; }
+.lay-main .va-picked { font-size: 13px; color: var(--accent); white-space: nowrap; flex: none; }
+.lay-main .va-picked b { font-weight: 600; }
+
+/* 告警牌按钮：视觉仍是牌子，热区 44pt 高 */
+.lay-main .va-alert-btn { display: inline-flex; align-items: center; height: 44px; min-width: 44px; margin: -11px 0; padding: 0 2px; flex: none; border-radius: 8px; }
+.lay-main .va-alert-btn .badge { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone-ink) 22%, transparent); }
+.lay-main .va-alert-btn:hover .badge { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone-ink) 45%, transparent); }
+
+/* 告警处置面板 */
+.lay-main .va-alert-card { position: relative; overflow: hidden; padding: 12px 14px 12px 17px; border-radius: 12px; background: var(--surface); border: 1px solid var(--hairline); display: flex; flex-direction: column; gap: 4px; }
+/* status capsule: .tone-rail (shared/base.css) */
+.lay-main .va-alert-title { font-size: 16.5px; font-weight: 600; color: var(--ink1); }
+.lay-main .va-alert-detail { font-size: 14px; color: var(--ink2); }
+.lay-main .va-alert-note { font-size: 13.5px; color: var(--ink2); line-height: 1.5; }
+.lay-main .va-alert-link { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 2px; font-size: 15.5px; font-weight: 600; color: var(--accent); }
+
+/* group availability: proportional state strip + 可用 x/y */
+.lay-main .va-avail { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink2); white-space: nowrap; flex: none; }
+.lay-main .va-avail b { color: var(--ink1); font-weight: 600; margin-left: 2px; }
+.lay-main .va-avail.tone-caution b, .lay-main .va-avail.tone-critical b { color: var(--tone-ink); }
+.lay-main .va-bar { display: inline-flex; gap: 1.5px; width: 48px; height: 6px; border-radius: 1px; overflow: hidden; background: var(--track); }
+.lay-main .va-bar i { display: block; height: 100%; flex-basis: 0; min-width: 3px; }
+.lay-main .va-bar-ok { background: var(--ok); }
+.lay-main .va-bar-caution { background: var(--caution); }
+.lay-main .va-bar-critical { background: var(--critical); }
+.lay-main .va-bar-neutral { background: var(--neutral); opacity: .6; }
+
+/* ---------- 不分组：右上“排序与筛选”菜单 ---------- */
+.lay-main .va-sort-menu { left: auto; right: 12px; top: 108px; width: 240px; transform: none; transform-origin: top right; animation: va-pop .18s ease-out; }
+@keyframes va-pop { from { opacity: 0; transform: scale(.94); } }
+.lay-main .va-menu-title { padding: 8px 12px 4px 38px; font-size: 12.5px; font-weight: 600; color: var(--ink2); }
+.lay-main .va-sort-menu .menu-item { padding-top: 9px; padding-bottom: 9px; min-height: 44px; }
+.lay-main .va-menu-sub .menu-label { flex: 1; }
+.lay-main .va-menu-sub > svg { color: var(--ink3); }
+.lay-main .va-menu-value { font-size: 14.5px; color: var(--ink2); white-space: nowrap; }
+.lay-main .va-menu-value.is-on { color: var(--accent); font-weight: 600; }
+.lay-main .va-menu-back { font-weight: 600; }
+.lay-main .va-sort-head span { color: var(--ink2); }
+
+/* ---------- 行样式 · 共用 ---------- */
+.lay-main .va-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lay-main .va-where { font-size: 14px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* 右侧固定列 */
+.lay-main .va-side { align-items: center; padding-top: 10px; padding-bottom: 10px; }
+.lay-main .va-side .row-lead, .lay-main .va-side .row-chev { padding-top: 0; align-self: center; }
+.lay-main .va-right { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 92px; }
+.lay-main .va-right .money { font-size: 16px; font-weight: 600; color: var(--ink1); }
+.lay-main .va-right-sub { display: flex; justify-content: flex-end; min-height: 17px; align-items: center; }
+.lay-main .va-right .cap { gap: 6px; }
+.lay-main .va-right .cap-track { width: 28px; }
+.lay-main .va-right .cap-read { font-size: 12.5px; color: var(--ink2); }
+.lay-main .va-right .cap-missing { font-size: 12.5px; }
+.lay-main .va-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.lay-main .va-state b { font-weight: 600; margin-left: 2px; }
+.lay-main .va-side.is-idle .money { color: var(--ink2); }
+
+/* 两行紧凑 */
+.lay-main .va-compact { align-items: center; padding-top: 6px; padding-bottom: 6px; }
+.lay-main .va-compact .row-lead, .lay-main .va-compact .row-chev { padding-top: 0; align-self: center; }
+.lay-main .va-compact .va-left { gap: 1px; }
+.lay-main .va-compact .row-top { min-height: 21px; }
+.lay-main .va-compact .row-title { font-size: 15.5px; line-height: 1.25; }
+.lay-main .va-compact .badge { height: 20px; font-size: 12px; }
+.lay-main .va-line { display: flex; align-items: baseline; gap: 3px; font-size: 14px; line-height: 1.3; color: var(--ink2); white-space: nowrap; min-width: 0; }
+.lay-main .va-line .va-where { flex: 0 1 auto; }
+.lay-main .va-figs { flex: none; display: inline-flex; align-items: baseline; gap: 3px; }
+.lay-main .va-figs b { color: var(--ink1); font-weight: 600; }
+.lay-main .va-dot { color: var(--ink3); }
+.lay-main .va-compact.is-idle .va-figs b { color: var(--ink2); }
+
+/* 平台 chip menu (SwiftUI: Menu { Picker }), dropped under the chip row; counts sit at the trailing edge */
+.lay-main .va-plat-menu { top: 150px; width: 220px; }
+.lay-main .va-plat-menu .menu-label { flex: 1; }
+.lay-main .va-alert-link + .va-alert-link { border-top: 1px solid var(--hairline); }
+
+/* round 4: header flag for blocked accounts that were also stopped by hand (neutral, never the alarm colours) */
+.lay-main .va-flag-sched svg { flex: none; }
+.lay-main .va-flag-sched + .va-flag { margin-left: -2px; }

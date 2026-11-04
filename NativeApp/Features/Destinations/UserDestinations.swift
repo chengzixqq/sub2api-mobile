@@ -1,0 +1,35 @@
+import SwiftUI
+import Sub2Core
+
+/// 30: user routes and sheets. Each case is its own line; a later item replaces only its case (X40).
+struct UserRouteDestination: View {
+    let route: AppRoute
+
+    var body: some View {
+        switch route {
+        // .user：S3-05
+        case .user(let id): UserDetailView(userID: id)
+        // .userLedger：S3-04
+        case .userLedger(let userID): UserLedgerView(userID: userID)
+        // .userNew：S3-10
+        case .userNew: UserEditView(mode: .create)
+        // .userEdit：S3-11
+        case .userEdit(let id, let segment): UserEditView(mode: .edit(userID: id), segment: segment)
+        // 其他区域：RouteDestination 不会分派到这里
+        default: ComingSoonView(title: route.placeholderTitle)
+        }
+    }
+}
+
+struct UserSheetDestination: View {
+    let sheet: AppSheet
+
+    var body: some View {
+        switch sheet {
+        // .balanceKeypad：S3-08
+        case .balanceKeypad(let userID, let mode): BalanceKeypadDestination(userID: userID, mode: mode)
+        // 其他区域：SheetDestination 不会分派到这里
+        default: ComingSoonSheet(title: sheet.placeholderTitle)
+        }
+    }
+}

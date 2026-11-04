@@ -1,0 +1,455 @@
+import Foundation
+import Testing
+import Sub2Core
+@testable import NativeSessionSupport
+
+/// Records every call and answers through closures; `call` counts from 1 per kind.
+private actor EditStub {
+    struct Create: Sendable { let request: AnnouncementCreateRequest; let key: UUID; let keyed: Bool }
+    typealias CreateHandler = @Sendable (_ call: Int, _ onEvent: KeyedWriteEventHandler?) async throws -> WriteOutcome<Announcement>
+    typealias UpdateHandler = @Sendable (_ call: Int, _ request: AnnouncementUpdateRequest) async throws -> Announcement
+    typealias LoadHandler = @Sendable (_ call: Int) async throws -> Announcement
+    typealias RecentHandler = @Sendable (_ call: Int) async throws -> [Announcement]
+    private let onCreate: CreateHandler, onUpdate: UpdateHandler, onLoad: LoadHandler, onRecent: RecentHandler
+    private(set) var creates: [Create] = []
+    private(set) var updates: [AnnouncementUpdateRequest] = []
+    private(set) var loads = 0
+    private(set) var recents: [String] = []
+
+    init(create: @escaping CreateHandler = { _, _ in WriteOutcome(value: saved(40)) },
+         update: @escaping UpdateHandler = { _, _ in saved(7) }, load: @escaping LoadHandler = { _ in saved(7) },
+         recent: @escaping RecentHandler = { _ in [] }) {
+        onCreate = create; onUpdate = update; onLoad = load; onRecent = recent
+    }
+    func create(_ request: AnnouncementCreateRequest, _ key: UUID, _ keyed: Bool, _ onEvent: KeyedWriteEventHandler?) async throws -> WriteOutcome<Announcement> {
+        creates.append(Create(request: request, key: key, keyed: keyed))
+        return try await onCreate(creates.count, onEvent)
+    }
+    func update(_ request: AnnouncementUpdateRequest) async throws -> Announcement {
+        updates.append(request)
+        return try await onUpdate(updates.count, request)
+    }
+    func load() async throws -> Announcement {
+        loads += 1
+        return try await onLoad(loads)
+    }
+    func recent(_ title: String) async throws -> [Announcement] {
+        recents.append(title)
+        return try await onRecent(recents.count)
+    }
+    nonisolated var source: AnnouncementEditSource {
+        AnnouncementEditSource(create: { try await self.create($0, $1, $2, $3) }, update: { _, request in try await self.update(request) },
+                               load: { _ in try await self.load() }, recent: { try await self.recent($0) })
+    }
+}
+
+@MainActor private final class Flag { var value = true }
+@MainActor private final class Counter {
+    private(set) var count = 0
+    func hit() { count += 1 }
+}
+@MainActor private final class DeviceClock {
+    var now: Date
+    init(_ now: Date) { self.now = now }
+}
+private actor PauseLog {
+    private(set) var seen: [Duration] = []
+    func add(_ pause: Duration) { seen.append(pause) }
+}
+@MainActor private final class PhaseProbe {
+    var flow: AnnouncementEditFlow?
+    private(set) var seen: [AnnouncementEditFlow.Phase] = []
+    func record() { if let phase = flow?.phase { seen.append(phase) } }
+}
+
+private let start = Date(timeIntervalSince1970: 1_792_201_280)
+private let lost = KeyedWriteFailure(disposition: .unconfirmed(.transport, retryNotBefore: nil), key: "k", actionID: nil, lastError: nil)
+private let conflict = KeyedWriteFailure(disposition: .needsNewKey(.keyConflict), key: "k", actionID: nil, lastError: nil)
+private let timedOut = APIError(kind: .transport, message: "连接超时")
+
+private func saved(_ id: Int, title: String = "维护通知", status: AnnouncementStatus = .draft, content: String = "正文") -> Announcement {
+    Announcement(id: id, title: title, content: content, status: status, createdAt: start.addingTimeInterval(5))
+}
+private func draft(_ change: (inout AnnouncementDraft) -> Void = { _ in }) -> AnnouncementDraft {
+    var value = AnnouncementDraft(now: start, timeZone: TimeZone(identifier: "Asia/Shanghai")!)
+    value.title = "维护通知"; value.content = "正文"
+    change(&value)
+    return value
+}
+
+@MainActor private struct Bench {
+    let flow: AnnouncementEditFlow
+    let receipts: ReceiptCenter
+    let changed: Counter
+    let current: Flag
+}
+
+/// The session's record of a new announcement left unconfirmed (AppModel.pendingAnnouncementCreate).
+@MainActor private final class PendingSlot {
+    var value: PendingAnnouncementCreate?
+    private(set) var writes = 0
+    func keep(_ pending: PendingAnnouncementCreate?) { value = pending; writes += 1 }
+}
+
+@MainActor private func makeBench(_ stub: EditStub, original: Announcement? = nil, keyed: Bool = true,
+                                  now: @escaping @MainActor () -> Date = { start },
+                                  deviceNow: @escaping @MainActor () -> Date = { start },
+                                  pause: @escaping @Sendable (Duration) async throws -> Void = { _ in },
+                                  slot: PendingSlot? = nil, restoring: PendingAnnouncementCreate? = nil) -> Bench {
+    let receipts = ReceiptCenter(sleep: { _ in try await Task.sleep(for: .seconds(3_600)) })
+    let changed = Counter(), current = Flag()
+    let flow = AnnouncementEditFlow(original: original, source: stub.source, keyedCreate: keyed, receipts: receipts,
+                                    isCurrent: { current.value }, onChanged: { changed.hit() }, now: now,
+                                    deviceNow: deviceNow, pause: pause, keepCreate: { slot?.keep($0) }, restoring: restoring)
+    return Bench(flow: flow, receipts: receipts, changed: changed, current: current)
+}
+
+@MainActor @Test func keyTimingAndKeyedOutcomes() async throws {
+    let stub = EditStub(create: { call, _ in
+        if call == 1 { throw lost }
+        return WriteOutcome(value: saved(40), replayed: true)
+    })
+    let bench = makeBench(stub)
+    #expect(bench.flow.role == .create && bench.flow.phase == .editing)
+    #expect(await stub.creates.isEmpty)
+    await bench.flow.saveTrailing(draft())
+    #expect(bench.flow.phase == .createUnconfirmed(retryNotBefore: nil) && bench.flow.locksForm && bench.flow.exit == nil)
+    await bench.flow.retrySameKey()
+    let creates = await stub.creates
+    #expect(creates.count == 2 && creates[0].key == creates[1].key && creates[0].request == creates[1].request)
+    #expect(creates[0].request.status == .draft && creates[0].keyed)
+    #expect(bench.flow.exit == .saved && bench.changed.count == 1 && bench.receipts.current?.text == "已存为草稿")
+
+    let publishing = makeBench(EditStub())
+    await publishing.flow.publish(draft { $0.notifyMode = .popup })
+    #expect(publishing.flow.exit == .saved && publishing.receipts.current?.text == "已发布公告" && publishing.changed.count == 1)
+
+    let conflicting = EditStub(create: { call, _ in
+        if call == 1 { throw conflict }
+        if call == 2 { throw APIError.server(status: 400, reason: "ANNOUNCEMENT_INVALID_TARGET") }
+        return WriteOutcome(value: saved(41))
+    })
+    let refused = makeBench(conflicting)
+    await refused.flow.saveTrailing(draft())
+    #expect(refused.flow.phase == .failed("该编号已用于另一份公告内容，请重新打开新建页") && !refused.flow.locksForm)
+    await refused.flow.saveTrailing(draft())
+    #expect(refused.flow.phase == .failed("可见对象条件无效，请重新设置"))
+    await refused.flow.saveTrailing(draft())
+    let keys = await conflicting.creates.map(\.key)
+    #expect(Set(keys).count == 3 && refused.flow.exit == .saved)
+
+    let probe = PhaseProbe()
+    let waiting = EditStub(create: { _, onEvent in
+        await onEvent?(.waitingForServer(elapsedSeconds: 3))
+        await probe.record()
+        return WriteOutcome(value: saved(42))
+    })
+    let watched = makeBench(waiting)
+    probe.flow = watched.flow
+    await watched.flow.saveTrailing(draft())
+    #expect(probe.seen == [.saving(.waitingForServer(elapsedSeconds: 3))])
+}
+
+/// STORE_UNAVAILABLE's cooldown comes from the device clock (RequestClock), so it is counted on that clock, not on the
+/// server-corrected `now`, and never for longer than the cooldown: a skewed or reset device clock neither skips nor stretches it.
+@MainActor @Test func storeUnavailableCooldownCountsOnTheDeviceClock() async throws {
+    // Device clock (seconds from `start`, the server's now) when the reply came and at 用同一编号重试; the wait expected.
+    let cases: [(failedAt: TimeInterval, retryAt: TimeInterval, wait: Int64?)] = [
+        (300, 300, 10),
+        (-60, -60, 10),
+        (0, -3_600, 10),
+        (0, 11, nil)
+    ]
+    for item in cases {
+        let device = DeviceClock(start.addingTimeInterval(item.failedAt)), pauses = PauseLog()
+        let notBefore = device.now.addingTimeInterval(IdempotencyPolicy.storeUnavailableCooldown)
+        let unavailable = KeyedWriteFailure(disposition: .unconfirmed(.storeUnavailable, retryNotBefore: notBefore), key: "k",
+                                            actionID: nil, lastError: nil)
+        let stub = EditStub(create: { call, _ in
+            if call == 1 { throw unavailable }
+            return WriteOutcome(value: saved(40))
+        })
+        let bench = makeBench(stub, deviceNow: { device.now }, pause: { await pauses.add($0) })
+        await bench.flow.saveTrailing(draft())
+        #expect(bench.flow.phase == .createUnconfirmed(retryNotBefore: notBefore))
+        device.now = start.addingTimeInterval(item.retryAt)
+        await bench.flow.retrySameKey()
+        let waits = await pauses.seen.map(\.components.seconds)
+        #expect(waits == (item.wait.map { [$0] } ?? []), "device \(item.failedAt) → \(item.retryAt)")
+        let keys = await stub.creates.map(\.key)
+        #expect(keys.count == 2 && keys[0] == keys[1] && bench.flow.exit == .saved)
+    }
+}
+
+@MainActor @Test func unkeyedCreateNeverResendsAndChecksTitle() async throws {
+    let stub = EditStub(create: { call, _ in
+        if call == 1 { throw lost }
+        return WriteOutcome(value: saved(43))
+    }, recent: { call in
+        switch call {
+        case 1: return []
+        case 2: throw timedOut
+        default: return [saved(40, title: "维护通知（二）"), saved(41)]
+        }
+    })
+    let bench = makeBench(stub, keyed: false)
+    await bench.flow.saveTrailing(draft { $0.title = " 维护通知 " })
+    #expect(bench.flow.phase == .notFoundYet && bench.flow.locksForm)
+    let firstCreates = await stub.creates, recents = await stub.recents
+    #expect(firstCreates.count == 1 && firstCreates.first?.keyed == false && recents == ["维护通知"])
+    await bench.flow.recheck()
+    #expect(bench.flow.phase == .notFoundYet)
+    await bench.flow.recheck()
+    #expect(bench.flow.phase == .maybeCreated(AnnouncementRecentMatch(id: 41, title: "维护通知", createdAt: start.addingTimeInterval(5), status: .draft)))
+    #expect(await stub.creates.count == 1)
+    bench.flow.viewExisting()
+    #expect(bench.flow.exit == .open(41) && bench.changed.count == 1)
+
+    let again = EditStub(create: { call, _ in
+        if call == 1 { throw lost }
+        return WriteOutcome(value: saved(44))
+    })
+    let retried = makeBench(again, keyed: false)
+    await retried.flow.saveTrailing(draft())
+    #expect(retried.flow.phase == .notFoundYet)
+    await retried.flow.createAnyway()
+    let creates = await again.creates
+    #expect(creates.count == 2 && creates[0].key != creates[1].key && creates[0].request == creates[1].request)
+    #expect(retried.flow.exit == .saved && retried.receipts.current?.text == "已存为草稿")
+}
+
+@MainActor @Test func updateReadBackRejectAndGuards() async throws {
+    let original = Announcement(id: 7, title: "维护通知", content: "正文", status: .active, notifyMode: .silent)
+    let stub = EditStub(update: { call, _ in
+        if call == 1 { throw timedOut }
+        return saved(7, status: .active, content: "新正文")
+    }, load: { call in
+        call == 1 ? saved(7, status: .active) : saved(7, status: .active, content: "新正文")
+    })
+    let bench = makeBench(stub, original: original)
+    let edited = AnnouncementDraft(announcement: original, now: start, timeZone: .current)
+    var changed = edited
+    changed.content = "新正文"
+    await bench.flow.saveTrailing(changed)
+    let sent = await stub.updates
+    #expect(bench.flow.phase == .updateUnconfirmed && sent == [AnnouncementUpdateRequest(content: "新正文")])
+    await bench.flow.recheck()
+    let sentAfterCheck = await stub.updates
+    #expect(bench.flow.exit == .saved && bench.receipts.current?.text == "已保存 · 用户看到的是新内容" && sentAfterCheck.count == 1)
+
+    let unchanged = makeBench(EditStub(), original: original)
+    await unchanged.flow.saveTrailing(edited)
+    #expect(unchanged.flow.exit == .saved && unchanged.changed.count == 0)
+
+    let gone = makeBench(EditStub(update: { _, _ in throw APIError.server(status: 404, reason: "ANNOUNCEMENT_NOT_FOUND") }), original: original)
+    await gone.flow.saveTrailing(changed)
+    #expect(gone.flow.phase == .gone && gone.changed.count == 1 && gone.flow.exit == nil)
+
+    let refusing = EditStub(update: { _, _ in throw APIError.server(status: 400, reason: "ANNOUNCEMENT_TIME_RANGE_INVALID") })
+    let refused = makeBench(refusing, original: original)
+    await refused.flow.saveTrailing(changed)
+    #expect(refused.flow.phase == .failed("结束时间要晚于开始时间") && !refused.flow.locksForm && refused.flow.exit == nil)
+
+    let slow = EditStub(update: { _, _ in
+        try await Task.sleep(for: .milliseconds(100))
+        return saved(7, status: .active, content: "新正文")
+    })
+    let busy = makeBench(slow, original: original), snapshot = changed
+    let first = Task { await busy.flow.saveTrailing(snapshot) }
+    let second = Task { await busy.flow.publish(snapshot) }
+    _ = await (first.value, second.value)
+    #expect(await slow.updates.count == 1)
+
+    let flag = Flag()
+    let leaving = EditStub(update: { _, _ in
+        await MainActor.run { flag.value = false }
+        return saved(7, status: .active, content: "新正文")
+    })
+    let left = makeBench(leaving, original: original)
+    let flow = AnnouncementEditFlow(original: original, source: leaving.source, keyedCreate: true, receipts: left.receipts,
+                                    isCurrent: { flag.value }, onChanged: { left.changed.hit() }, now: { start })
+    await flow.saveTrailing(changed)
+    #expect(flow.exit == nil && left.changed.count == 0 && left.receipts.current == nil)
+}
+
+// MARK: - 结果未确认时的关闭（S6-26，00 §2.5.4）
+
+/// The phases where the server may have saved: closing asks “结果未确认” first; the others do not.
+@MainActor @Test func unconfirmedPhasesAskBeforeClosing() async throws {
+    let keyed = makeBench(EditStub(create: { _, _ in throw lost }))
+    #expect(!keyed.flow.isUnconfirmed)
+    await keyed.flow.saveTrailing(draft())
+    #expect(keyed.flow.phase == .createUnconfirmed(retryNotBefore: nil) && keyed.flow.isUnconfirmed)
+
+    let notFound = makeBench(EditStub(create: { _, _ in throw lost }), keyed: false)
+    await notFound.flow.saveTrailing(draft())
+    #expect(notFound.flow.phase == .notFoundYet && notFound.flow.isUnconfirmed)
+    let found = makeBench(EditStub(create: { _, _ in throw lost }, recent: { _ in [saved(41)] }), keyed: false)
+    await found.flow.saveTrailing(draft())
+    #expect(found.flow.isUnconfirmed)
+    if case .maybeCreated = found.flow.phase {} else { Issue.record("expected maybeCreated, got \(found.flow.phase)") }
+
+    let original = Announcement(id: 7, title: "维护通知", content: "正文", status: .active, notifyMode: .silent)
+    var changed = AnnouncementDraft(announcement: original, now: start, timeZone: .current)
+    changed.content = "新正文"
+    let update = makeBench(EditStub(update: { _, _ in throw timedOut }, load: { _ in throw timedOut }), original: original)
+    await update.flow.saveTrailing(changed)
+    #expect(update.flow.phase == .updateUnconfirmed && update.flow.isUnconfirmed)
+
+    let refused = makeBench(EditStub(update: { _, _ in throw APIError.server(status: 400, reason: "ANNOUNCEMENT_TIME_RANGE_INVALID") }), original: original)
+    await refused.flow.saveTrailing(changed)
+    let gone = makeBench(EditStub(update: { _, _ in throw APIError.server(status: 404, reason: "ANNOUNCEMENT_NOT_FOUND") }), original: original)
+    await gone.flow.saveTrailing(changed)
+    #expect(!refused.flow.isUnconfirmed && !gone.flow.isUnconfirmed && !makeBench(EditStub()).flow.isUnconfirmed)
+}
+
+/// 稍后核对 tells the list and the detail to read again and keeps nothing in the sheet (the session's record:
+/// checkLaterKeepsNewCreate); anywhere else, or for an ended session, it does nothing.
+@MainActor @Test func checkLaterTellsTheListAndKeepsNothing() async throws {
+    let bench = makeBench(EditStub(create: { _, _ in throw lost }))
+    await bench.flow.saveTrailing(draft())
+    bench.flow.checkLater()
+    #expect(bench.changed.count == 1 && bench.flow.exit == nil)
+
+    let editing = makeBench(EditStub())
+    editing.flow.checkLater()
+    #expect(editing.changed.count == 0)
+
+    let ended = makeBench(EditStub(create: { _, _ in throw lost }))
+    await ended.flow.saveTrailing(draft())
+    ended.current.value = false
+    ended.flow.checkLater()
+    #expect(ended.changed.count == 0)
+}
+
+// MARK: - 稍后核对后会话里保留新建（U-21，S6-高-13）
+
+/// 稍后核对 of a new announcement hands the session its attempt (same key, same bytes), the form as sent and where the check
+/// stood; an edit's, or one for an ended session, hands nothing.
+@MainActor @Test func checkLaterKeepsNewCreate() async throws {
+    let slot = PendingSlot(), stub = EditStub(create: { _, _ in throw lost })
+    let bench = makeBench(stub, slot: slot)
+    let sent = draft { $0.notifyMode = .popup }
+    await bench.flow.publish(sent)
+    #expect(slot.writes == 0)
+    bench.flow.checkLater()
+    let kept = try #require(slot.value)
+    let creates = await stub.creates
+    let body = try creates[0].request.requestBody()
+    #expect(kept.attempt.key == creates[0].key && kept.attempt.request == creates[0].request && kept.attempt.body == body)
+    #expect(kept.attempt.confirmedAt == start && kept.draft == sent && kept.phase == .createUnconfirmed(retryNotBefore: nil))
+    #expect(bench.changed.count == 1 && bench.flow.exit == nil)
+
+    let unkeyedSlot = PendingSlot()
+    let unkeyed = makeBench(EditStub(create: { _, _ in throw lost }), keyed: false, slot: unkeyedSlot)
+    await unkeyed.flow.saveTrailing(draft())
+    unkeyed.flow.checkLater()
+    #expect(unkeyedSlot.value?.phase == .notFoundYet && unkeyedSlot.value?.attempt.request.status == .draft)
+
+    let original = Announcement(id: 7, title: "维护通知", content: "正文", status: .active, notifyMode: .silent)
+    var changed = AnnouncementDraft(announcement: original, now: start, timeZone: .current)
+    changed.content = "新正文"
+    let editSlot = PendingSlot()
+    let update = makeBench(EditStub(update: { _, _ in throw timedOut }, load: { _ in throw timedOut }), original: original, slot: editSlot)
+    await update.flow.saveTrailing(changed)
+    update.flow.checkLater()
+    #expect(update.flow.phase == .updateUnconfirmed && update.changed.count == 1 && editSlot.writes == 0)
+
+    let endedSlot = PendingSlot()
+    let ended = makeBench(EditStub(create: { _, _ in throw lost }), slot: endedSlot)
+    await ended.flow.saveTrailing(draft())
+    ended.current.value = false
+    ended.flow.checkLater()
+    #expect(endedSlot.writes == 0)
+}
+
+/// A sheet opened from the record resumes the same attempt: a confirmed result or 查看 clears the record, another 稍后核对 keeps
+/// where the check now stands, and a sheet that did not take it up leaves it alone.
+@MainActor @Test func finishClearsPending() async throws {
+    let slot = PendingSlot()
+    let first = makeBench(EditStub(create: { _, _ in throw lost }), slot: slot)
+    await first.flow.publish(draft())
+    first.flow.checkLater()
+    let kept = try #require(slot.value)
+    let stub = EditStub()
+    let resumed = makeBench(stub, slot: slot, restoring: kept)
+    #expect(resumed.flow.phase == kept.phase && resumed.flow.isUnconfirmed && resumed.flow.locksForm)
+    await resumed.flow.retrySameKey()
+    let creates = await stub.creates
+    #expect(creates.map(\.key) == [kept.attempt.key] && creates.first?.request == kept.attempt.request)
+    #expect(resumed.flow.exit == .saved && slot.value == nil && resumed.receipts.current?.text == "已发布公告")
+
+    let viewSlot = PendingSlot()
+    let notFound = makeBench(EditStub(create: { _, _ in throw lost }), keyed: false, slot: viewSlot)
+    await notFound.flow.saveTrailing(draft())
+    notFound.flow.checkLater()
+    let open = try #require(viewSlot.value)
+    let lookup = EditStub(recent: { _ in [saved(41)] })
+    let rechecked = makeBench(lookup, keyed: false, slot: viewSlot, restoring: open)
+    await rechecked.flow.recheck()
+    let lookups = await lookup.recents, resent = await lookup.creates
+    #expect(lookups == ["维护通知"] && resent.isEmpty)
+    let found = AnnouncementRecentMatch(id: 41, title: "维护通知", createdAt: start.addingTimeInterval(5), status: .draft)
+    #expect(rechecked.flow.phase == .maybeCreated(found))
+    rechecked.flow.checkLater()
+    #expect(viewSlot.value == PendingAnnouncementCreate(attempt: open.attempt, draft: open.draft, phase: .maybeCreated(found)))
+    let viewing = makeBench(EditStub(), keyed: false, slot: viewSlot, restoring: viewSlot.value)
+    viewing.flow.viewExisting()
+    #expect(viewing.flow.exit == .open(41) && viewSlot.value == nil)
+
+    let untouched = PendingSlot()
+    untouched.value = kept
+    let fresh = makeBench(EditStub(), slot: untouched)
+    await fresh.flow.saveTrailing(draft { $0.title = "另一条" })
+    #expect(fresh.flow.exit == .saved && untouched.value == kept && untouched.writes == 0)
+    let original = Announcement(id: 7, title: "维护通知", content: "正文", status: .active, notifyMode: .silent)
+    let editing = makeBench(EditStub(), original: original, slot: untouched, restoring: kept)
+    #expect(editing.flow.phase == .editing && !editing.flow.isUnconfirmed)
+}
+
+// MARK: - 同一编号的重放期限（U-21 审查修正，00 §2.5.5）
+
+/// A create has no business-level dedupe: from 24 hours after the confirmation the server may run the same key again, so
+/// 用同一编号重试 looks the title up instead (H07), without the cooldown, and a sheet restored from the session's record
+/// does so on opening; within the window the restored sheet keeps the same key.
+@MainActor @Test func sameKeyIsNotResentPastTheReplayWindow() async throws {
+    let clock = DeviceClock(start), pauses = PauseLog()
+    let unavailable = KeyedWriteFailure(disposition: .unconfirmed(.storeUnavailable, retryNotBefore: start.addingTimeInterval(10)),
+                                        key: "k", actionID: nil, lastError: nil)
+    let stub = EditStub(create: { call, _ in
+        if call == 1 { throw unavailable }
+        return WriteOutcome(value: saved(40))
+    }, recent: { _ in [saved(41)] })
+    let bench = makeBench(stub, now: { clock.now }, pause: { await pauses.add($0) })
+    await bench.flow.saveTrailing(draft())
+    #expect(bench.flow.phase == .createUnconfirmed(retryNotBefore: start.addingTimeInterval(10)))
+    clock.now = start.addingTimeInterval(IdempotencyPolicy.defaultExpiry)
+    await bench.flow.retrySameKey()
+    let creates = await stub.creates, recents = await stub.recents, waited = await pauses.seen
+    #expect(creates.count == 1 && recents == ["维护通知"] && waited.isEmpty)
+    let found = AnnouncementRecentMatch(id: 41, title: "维护通知", createdAt: start.addingTimeInterval(5), status: .draft)
+    #expect(bench.flow.phase == .maybeCreated(found) && bench.flow.exit == nil)
+
+    let slot = PendingSlot()
+    let first = makeBench(EditStub(create: { _, _ in throw lost }), slot: slot)
+    await first.flow.publish(draft())
+    first.flow.checkLater()
+    let kept = try #require(slot.value)
+    let later = EditStub()
+    let restored = makeBench(later, now: { start.addingTimeInterval(IdempotencyPolicy.defaultExpiry + 60) }, slot: slot, restoring: kept)
+    await restored.flow.resumeCheck()
+    await restored.flow.retrySameKey()
+    let resent = await later.creates, looked = await later.recents
+    #expect(restored.flow.phase == .notFoundYet && resent.isEmpty && looked == ["维护通知"])
+    restored.flow.checkLater()
+    #expect(slot.value == PendingAnnouncementCreate(attempt: kept.attempt, draft: kept.draft, phase: .notFoundYet))
+
+    let soon = EditStub()
+    let within = makeBench(soon, now: { start.addingTimeInterval(IdempotencyPolicy.defaultExpiry - 60) }, slot: PendingSlot(), restoring: kept)
+    await within.flow.resumeCheck()
+    let untouched = await soon.recents
+    #expect(within.flow.phase == kept.phase && untouched.isEmpty)
+    await within.flow.retrySameKey()
+    let sameKey = await soon.creates.map(\.key)
+    #expect(sameKey == [kept.attempt.key] && within.flow.exit == .saved)
+}

@@ -1,107 +1,90 @@
-<p align="center">
-  <img src="icons/ios/AppIcon.appiconset/icon-1024.png" alt="sub2api-mobile logo" width="96" />
-</p>
+# Sub2 Mobile
 
-# sub2api-mobile
+中文优先的 Sub2API 原生管理员客户端，采用 SwiftUI、Observation、Swift Concurrency、URLSession、Swift Charts 和 Keychain。最低 iOS 26，支持 iPhone、基本 iPad 布局、深浅色和动态字体。
 
-Mobile-first admin console for Sub2API operations, built with Expo + React Native + Expo Router.
+功能和接口说明见 [管理模块契约](docs/ADMIN_MODULES.md) 与 [API 兼容边界](docs/API_COMPATIBILITY.md)。各版本的实际测试、构建、IPA 校验和真机验收结果统一记录在 [验收记录](docs/ACCEPTANCE.md)；功能已实现与真机已验收分别记录。
 
-## Mobile Preview
+## 当前功能
 
-<img src="docs/mobile.jpg" alt="Mobile Preview" width="420" />
+| 模块 | 实现范围 |
+| --- | --- |
+| 站点和认证 | HTTPS 多站点；三种登录方式：账号和密码（含 TOTP 两步验证与验证码桥页）、管理访问令牌（粘贴 `sat_` 自动识别，区分只读与读写）、Admin Key；每个站点固定的设备 ID（`X-Device-ID`）；连接时读 `GET /admin/me`（旧服务端按 capability 降级）；全局合规确认与二次验证 sheet；Keychain、会话恢复、退出与删除站点 |
+| 概览 | 顶部 6 格（今日实际扣费、请求、错误率、利润、RPM、TPM）；待处理队列（告警、错误 / 过载 / 受限账号、可用不足分组、余额 / 兑换码批次 / 补偿三类待核对）；今日每小时实际扣费图与运行区（健康分、错误率、上游 429 / 529、渠道）；没有待处理时切换平静布局与按账号排行；登录无法自动续期时顶部横幅。一次 `dashboard/home` 聚合、前台 60 秒刷新，旧站点逐接口退路 |
+| 监控 | 概况（运行区，以及仅管理员可见的服务器区：CPU / 内存、并发与排队、QPS、SLA、任务心跳、日志采集与入口拒绝）、渠道（四档计数、18 格时间条、点按进分组）、告警（告警中 / 最近结束、加载更早、行内手动解决与静默）；告警详情；运维监控未开启时的说明与站长开启入口，··· 菜单里二次确认关闭 |
+| 上游账号 | 按平台分区的三行列表（状态胶囊与倒计时、组头需处理计数与告警牌）；需处理 / 全部 / 受限 / 暂停·停用胶囊与平台菜单；Tab 徽标显示错误账号数；前台每 60 秒轻刷新，最多加载 2,000 行；右滑启停调度；选择模式批量停止 / 启用调度（每批 50 个，Face ID、撤销与逐项结果）；新建账号（API Key、Bedrock、Vertex、对接上游与 OAuth 三步，创建后先停调度，测试通过再启用） |
+| 账号详情与操作 | 状态卡与按钮行（恢复状态、启停调度、启用账号）；容量 / 今日 / 记录（最近上游错误、定时测试只读）；基础、调度、凭据、代理、模型、高级六个分区内联编辑（PATCH + If-Match，旧站点用 PUT 退路）；测试连接（关闭后在后台继续）；更换 API Key / Base URL、刷新令牌、重新授权；恢复原代理、在 Web 中编辑、删除（输入名称或 Face ID） |
+| 用户 | 用户列表（搜索、滚动分页、余额低 / 待核对 / 禁用标记、今日消费、快捷充值头像条）；详情（余额、Key 摘要、充值与调整记录、启用 / 禁用、删除）；充值 / 退款大数字键盘与待核对核对；新建 / 编辑用户（分组授权与专属倍率、自定义属性、RPM 状态）；API Key（新建、编辑、换分组、停用 / 启用、显示完整 Key、删除）、平台限额与替换分组 |
+| 使用记录 | 用量明细 · 错误请求 · 上游错误三段与各段计数；时间胶囊（近 1 小时 / 24 小时 / 7 天 / 30 天 / 自定义 ≤ 366 天）与可移除、可置灰的账号 / 分组 / 用户 / 模型条件，按对象筛选 sheet；按站点时区的日期分节；前台每 60 秒增量刷新（since_id，停在顶部时才裁到 500 行，每 10 次校准，上游错误按时间窗读）；请求详情三种样子（成功 / 失败 / 恢复）、耗时、上游尝试与退路、标记已处理（可撤销）与复制标识 |
+| 统计分析 | 卡片流：范围（今天 / 7 天 / 30 天 / 自定义，按站点记住）与分组或模型二选一筛选；计费趋势、利润明细（可为负、分到分）、排行（模型 / 用户 / 分组与全部排行）、RPM / TPM 趋势（覆盖秒数口径）与性能明细；更多图表（计费、用量、运行三个主题共 12 张）、计费 / 利润单图页与模型页；运维监控关闭时运行类图表显示“运维监控未开启” |
+| 分组 | 列表（需处理 / 正常 / 停用三段，色格条与“可用 x / y”、分档说明、今日实际扣费，本地搜索；左滑编辑或停用、右滑添加账号、长按看全部操作）；详情（告警横幅、状态卡与最早恢复倒计时、按钮行与 ⋯、成员账号与成员今日、用量与容量、记录与关联、配置）；新建 / 编辑分组 sheet（确认框逐项列出变化，成员账号区与内嵌添加账号页）；添加账号、移出与逐项结果（重试、撤销、混合渠道确认）；停用 / 启用、复制、删除；分组 API 密钥页与订阅页；简易模式只有名称、描述、平台与计数，只读令牌下写入口置灰 |
+| 兑换码 | 行内展开列表（状态 / 类型胶囊、搜索、定位、查看同一批、复制）；编辑与续期、禁用 / 启用（可撤销）、删除；分步批量生成，结果不明记为待核对并可核对或用同一编号重试；从用户详情给用户发放补偿 |
+| 代理 | 列表（到期横幅、筛选、全部测试）；详情（延迟、质量检测、停用 / 启用、删除）；被改走的账号与恢复原代理；添加 / 编辑 / 续期 |
+| 公告 | 分段列表；详情（预览、最小 Markdown、发布 / 归档 / 删除）；编辑 / 新建（定向、定时、弹窗 / 静默）；已读情况 |
+| 推送通知 | 本机 APNs 开关与事件订阅、发送测试；Bark / ntfy / Webhook 接收方式；站点 APNs 配置；点按通知直达对应页面（未在真机验收） |
+| 全局搜索 | 搜索 Tab 输入后按账号、用户、分组、代理分区显示结果并可查看全部；请求 ID 直接查使用记录与错误请求 |
+| 应用结构 | 底部四个 Tab：概览 · 账号 · 用户 · 监控，外加搜索 Tab；使用记录、错误请求、告警事件、分组、统计分析、兑换码、代理、公告与设置从搜索目录进入；概览与账号标题是站点菜单，可切换或添加站点 |
+| 设置 | 分为“界面与模式”（外观、Face ID 与金额门槛，门槛用大数字键盘输入，通知入口）和“站点与凭据”（当前站点身份与认证方式、登录设备、管理访问令牌、站点列表、待核对的资金写、退出并清除凭据、关于） |
 
-## Highlights
+告警、账号 / 用户 / 分组详情与模型页可跳到带条件的使用记录。主模式的账号与用户列表没有“显示字段”；列表字段选择（`ListFieldSelection`、`AccountListField` / `UserListField`、`AccountFieldPresentation`、`ListFieldEditor`，偏好按登录身份保存）保留给以后的简化模式，目前没有页面使用。
 
-- Cross-platform app (iOS / Android / Web) for operational and admin workflows.
-- Server health and metrics monitoring views.
-- User, API key, account, and group management pages.
-- Multi-account admin server switching in settings.
+账号的自定义错误码、请求头覆写等高级设置（详情 ⋯“在 Web 中编辑”）、批量恢复状态 / 刷新令牌、分组高级路由/价格配置、完整上游 5h/7d 用量百分比、支付、插件和服务器维护仍使用当前站点 Web 后台。普通用户界面、后台常驻监控和离线写入尚未实现。
 
-## Tech Stack
+## 数据与操作口径
 
-- Expo SDK 54
-- React Native 0.81
-- React 19
-- Expo Router
-- TanStack Query
-- Valtio
+实际费用表示向用户扣费，上游成本表示账号成本；两者分别展示，缺失显示“—”，0 显示 0，不使用标准费用或零值补齐。金额使用 Decimal，显示舍入不改变原始值；数值格式统一由 `DisplayFormat` 输出（金额两位小数、Tokens 使用 K/M/B 一位小数）。概览、监控、统计分析、使用记录与阶段 0 起新写的页面按站点时区计算“今天”、桶边界、横轴与绝对时间，设备时区不同时范围说明与副标题加“（站点时间 UTC+8）”；尚未重写的页面仍可能按手机时区显示时间，随所属阶段重写时切换。发给服务端的时间一律是 UTC `Z`。统计分析的利润 = 实际扣费 − 账号成本，不含服务器等费用，亏损写 −$。
 
-## Prerequisites
+概览 6 格的 RPM / TPM 读 `dashboard/home` 的 `rates` 段（近 5 分钟，TPM 含缓存 Tokens）；运维监控关闭时 RPM 只计成功请求、错误率显示“—”，由 6 格下方的提示行说明。账号 `current_rpm` 仍为近 60 秒成功上游请求数，`scheduling_rpm` 为独立的自然分钟调度计数；统计分析的 RPM / TPM 卡读 `ops/dashboard/throughput-trend` 的时间桶，按桶覆盖的秒数计算，口径与 6 格不同。
 
-- Node.js 20+
-- npm 10+
+概览一次请求 `dashboard/home`，各段独立给出成功 / 未开启 / 失败 / 超时，失败只影响该段（保留旧值并标“更新失败”）。账号列表在前台可见时每 60 秒轻刷新（运行时、汇总、今日、告警），状态变化、写操作成功后与每 5 分钟做完整刷新，选择模式与打开 sheet 时暂停。需要统计的列表字段使用批量请求，不逐行加载。切站、切换身份或修改查询后，旧结果不能覆盖当前页面。
 
-## Getting Started
+读请求在网络错误、超时、502 / 504 以及没有业务 reason（或 reason 为 `SERVICE_UNAVAILABLE`）的 503 时自动重试最多 2 次，500 与带业务 reason 的 503 不重试；`TOKEN_EXPIRED` 对所有方法刷新后用同一请求重发一次。管理写操作均需确认站点和对象，不带 Idempotency-Key 的写不自动重试。余额调整在确认那一刻生成编号，先把记录落盘再带这个编号发送（落盘失败就不发送）；结果不明记为待核对，只能核对或用同一编号重试，回到前台时自动核对；站点有 `admin.idempotent_writes` 时新建与编辑用户也带 key。兑换码批次与补偿同样在确认时生成编号、先落盘再发送，结果不明记为待核对；回到前台自动核对余额与补偿，批次只在点“核对”时核对。其他写操作结果不明时，先读取或在 Web 核对，再决定后续操作。批量结果区分成功、失败、未执行和结果不明。账号的调度开关、启用 / 停用与内联编辑直接执行，回执带撤销；任何账号写成功或可能已生效后，概览下次可见时绕过服务端缓存刷新。账号测试以 `test_result` 为准（旧站点退回 `test_complete`），中断时查 `test-runs/latest`，查不到就判为不能确定；连接结束本身不代表成功。
 
-Install dependencies:
+## 工具链与构建
 
-```bash
-npm ci
+要求 **Xcode 27.2 正式版（`27B52`，App Store 发布）、自带 Swift 6.4 编译器、Swift 6 语言模式**。Bundle ID 为 `com.chengzixqq.sub2mobile`，最低 iOS 26。工具链守卫核对正式版构建号，拒绝其他版本及 Beta、RC、seed 标记，不自动降级。
+
+在已安装正式工具链和 iOS 模拟器 runtime 的 Mac 上，进入已同步到所需提交且工作区干净的原生源码目录：
+
+```sh
+python3 scripts/build.py all
 ```
 
-Run locally:
+命令依次核验工具链、运行 Swift Package 单元测试与 iPhone 模拟器 XCUITest、构建 `iphoneos` arm64 Release，并封装未签名 IPA。可用 `unit`、`simulator`、`package` 分阶段执行；每阶段都先核验工具链。
 
-```bash
-npm run start
+- 标准工程：`Sub2Mobile.xcodeproj`，共享 scheme：`Sub2Mobile`。
+- IPA：`build/artifacts/Sub2Mobile-unsigned.ipa`。
+- 校验和来源：`build/artifacts/SHA256SUMS`、`manifest.json`、`toolchain.json`。
+- 运行日志：`build/runs/<run>/`，保留独立 stdout、stderr、`commands.jsonl` 和 `UITests.xcresult`。
+- 新增 Swift 文件后运行 `python3 scripts/generate_project.py` 更新已提交工程，无需 XcodeGen 或 CocoaPods。
+
+manifest 记录 IPA 的构建提交和输入 Git 对象。后续文档提交可能与构建提交不同，应按 manifest 核对来源；实际测试数量、IPA 大小、SHA-256 和验收限制以 [验收记录](docs/ACCEPTANCE.md) 及对应运行证据为准。
+
+**未签名 IPA 需要用本地证书和匹配的 provisioning profile 重签后才能安装到 iPhone。** 重签时同时处理嵌套 Frameworks，证书和私钥留在本地。安装后应在测试站点核对登录、切站、分页和管理写入；模拟器通过和 IPA 构建成功分别记录，不替代真机验收。
+
+## 验证码桥接
+
+使用验证码的站点需部署配套的手机验证页：优先使用公开设置里的 `mobile_verify_path`，为空时仍尝试 `/mobile/verify` 并提示可能未部署；补丁和检查记录见 [`integration/`](integration/)。WKWebView 使用临时数据容器，仅接受 HTTPS 同源主框架、预期 provider 和一次性 UUID nonce 的 proof。已实现 Turnstile、腾讯和阿里云适配；实际服务联调状态见验收记录。密码、管理访问令牌、Admin Key 和 JWT 不经过消息桥。
+
+## 代码与兼容范围
+
+本项目已接入 CodeGraph，支持 Swift/Python 代码符号和调用关系查询。开发工具版本为 1.6.2，可用 `npm install -g @colbymchenry/codegraph@1.6.2` 安装。在每个源码 checkout 中分别运行：
+
+```sh
+codegraph init --yes
+codegraph status
+codegraph explore "DashboardStats"
 ```
 
-Common targets:
+源码变更后用 `codegraph sync` 更新索引；Codex 已配置 CodeGraph MCP 时也可直接调用 `codegraph_explore`，并指定当前 checkout 的绝对路径。索引位于本机 `.codegraph/`，不提交数据库；新 checkout 需要独立初始化。后续代理的使用约定见 [AGENTS.md](AGENTS.md)。
 
-```bash
-npm run android
-npm run ios
-npm run web
-```
+- `Sources/Sub2Core`：Sendable DTO、`APIClient` actor（请求头与设备 ID、续期重发、自动重试、ETag 条件请求、幂等写执行器、请求日志 `RequestLog`）、错误信封与 reason 总表（`ErrorEnvelope`、`ReasonCatalog`）、`AdminMe` 与 capability 常量、`ServerTime`、`DisplayFormat`、`IncrementalList`、资金写待核对规则与各模块的纯函数。
+- `NativeApp/Session`：MainActor 界面状态（`AppModel` 及其扩展）、`SiteSession`、Keychain 与设备 ID、登录流程 `LoginController`、路由 `AppRouter`、待核对记录 `PendingMoneyLedger`、本机设置与 Face ID 门控；除 `AppModel*.swift`、`DemoData.swift` 外都由 SwiftPM 在 macOS 上编译测试。
+- `NativeApp/Features`、`NativeApp/Views`、`NativeApp/Design`：SwiftUI 页面、通用组件与 `Palette` / `Tone` 视觉令牌。
+- `Tests/Sub2CoreTests`、`Tests/NativeSessionTests`：接口与会话回归测试；`Fixtures` 为脱敏样例。
+- `UITests`：使用隔离 defaults 和内存夹具；`-ui-testing` 不执行真实登录或服务器写入。夹具能模拟三种登录方式（账号和密码、`sat_` 管理访问令牌、Admin Key），启动参数 `-ui-readonly-token`、`-ui-compliance-required`、`-ui-step-up-required`、`-ui-switch-rejected` 等切换只读令牌、合规、二次验证与切站失败等场景。
 
-## Build & Release
+阶段 0 起按 sub2 `main` `70116315d` 之后的后端核对接口；更早的站点没有 `/admin/me` 与 capability，App 按 capability 降级（不发新参数、隐藏不支持的功能），不宣称兼容所有官方版本。模块依赖、权限与兼容边界见 [API 兼容说明](docs/API_COMPATIBILITY.md) 和 [管理模块契约](docs/ADMIN_MODULES.md)。
 
-EAS scripts:
+## 分支与许可
 
-```bash
-npm run eas:build:development
-npm run eas:build:preview
-npm run eas:build:production
-```
-
-OTA update scripts:
-
-```bash
-npm run eas:update:preview -- "your message"
-npm run eas:update:production -- "your message"
-```
-
-Additional release notes: [docs/EXPO_RELEASE.md](docs/EXPO_RELEASE.md)
-
-GitHub Actions Android build (downloadable):
-
-- Workflow: `.github/workflows/eas-build.yml`
-- Trigger: **Actions → EAS Build → Run workflow**
-- Inputs: `profile=preview`, `platform=android`
-- Requirement: repository secret `EXPO_TOKEN`
-- Download: after completion, open the run **Summary** and use the `ANDROID download` link.
-
-## Project Structure
-
-```txt
-app/                 Expo Router routes/screens
-src/components/      Reusable UI components
-src/services/        Admin API request layer
-src/store/           Global config/account state (Valtio)
-src/lib/             Utilities, query client, fetch helpers
-docs/                Operational and release documentation
-server/              Local Express proxy for admin APIs
-```
-
-## Security Notes
-
-- Web builds are intentionally configured to avoid persistent storage of `adminApiKey`.
-- Native platforms continue to use secure storage semantics.
-- For responsible disclosure, see [SECURITY.md](SECURITY.md).
-
-## Contributing
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+原生工程位于 `codex/native-ios-rebuild`；旧版引用 `legacy-expo-3177500` 指向 `3177500f74b005ed32512d3f79a7a24d05eac352`。保留 MIT 许可及原作者 ckken 的归属，现有图标来自旧版。原生版不接入旧版 Expo 更新服务，通过重新构建和签名 IPA 更新。

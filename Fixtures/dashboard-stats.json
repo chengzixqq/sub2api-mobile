@@ -1,0 +1,1 @@
+{"code":0,"message":"success","data":{"today_requests":12,"today_tokens":1234567,"total_tokens":9876543210,"today_cost":"99.99","today_actual_cost":"12.34","today_account_cost":"4.56","total_cost":"9999.99","total_actual_cost":"1234.56","total_account_cost":"456.78","total_users":8,"total_accounts":3,"error_accounts":1,"rpm":1234,"tpm":987654,"average_duration_ms":1250}}

@@ -1,0 +1,428 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sub2 Mobile · 第 3 轮 · 新页面</title>
+<style>
+*{box-sizing:border-box} body{margin:0;background:#E4E8EA;color:#14181B;font-family:-apple-system,"SF Pro Text","PingFang SC","Microsoft YaHei UI","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+body.dark{background:#050708;color:#E7EBED}
+.top{position:sticky;top:0;z-index:10;background:rgba(228,232,234,.92);backdrop-filter:blur(14px);border-bottom:1px solid #C5CCD0;padding:10px 40px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+body.dark .top{background:rgba(5,7,8,.9);border-color:#2B3237}
+.top h1{font-size:17px;margin:0;font-weight:650}
+.qnav{display:flex;gap:6px;flex-wrap:wrap} .qnav a{font-size:13px;color:inherit;text-decoration:none;padding:5px 9px;border-radius:7px;border:1px solid #C5CCD0;display:inline-flex;gap:5px;align-items:center}
+body.dark .qnav a{border-color:#2B3237} .qnav a b{color:#0B6E85} body.dark .qnav a b{color:#52CBE6}
+.qnav i{font-style:normal;font-weight:700;color:#fff;background:#0B6E85;border-radius:5px;padding:0 5px;font-size:12px} .qnav i:empty{display:none}
+.toggle{margin-left:auto;display:flex;border:1px solid #C5CCD0;border-radius:8px;padding:2px} body.dark .toggle{border-color:#2B3237}
+.toggle button{font:inherit;font-size:13px;border:0;background:none;color:inherit;padding:5px 12px;border-radius:6px;cursor:pointer} .toggle button.on{background:#14181B;color:#fff} body.dark .toggle button.on{background:#E7EBED;color:#050708}
+.intro{padding:28px 40px 4px;max-width:1100px} .intro p{margin:6px 0 0;line-height:1.7;font-size:15px;color:#2C3338} body.dark .intro p{color:#A8B1B7}
+.q{padding:30px 40px 10px} .q-head{display:flex;gap:14px;align-items:flex-start;margin-bottom:16px;max-width:1100px}
+.q-no{font-size:24px;font-weight:700;color:#0B6E85;line-height:1.2} body.dark .q-no{color:#52CBE6}
+.q h2{margin:0;font-size:22px;font-weight:650} .q p{margin:4px 0 0;font-size:14.5px;line-height:1.6;color:#4A545A} body.dark .q p{color:#A8B1B7}
+.opts{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+.opt{margin:0;width:316px;background:#fff;border:2px solid #D8DDE0;border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,box-shadow .2s}
+body.dark .opt{background:#15191C;border-color:#2B3237}
+.opt.picked{border-color:#0B6E85;box-shadow:0 0 0 4px rgba(11,110,133,.18)} body.dark .opt.picked{border-color:#52CBE6}
+.opt-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap} .opt-no{width:26px;height:26px;border-radius:7px;background:#14181B;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700}
+body.dark .opt-no{background:#E7EBED;color:#050708}
+.opt-head b{font-size:16px} .opt-from{font-size:12px;color:#4A545A;border:1px solid #D8DDE0;border-radius:5px;padding:1px 6px} body.dark .opt-from{color:#A8B1B7;border-color:#2B3237}
+.opt ul{margin:0;padding-left:18px;font-size:13px;line-height:1.6;color:#2C3338} body.dark .opt ul{color:#C6CED3}
+.phone{width:292px;height:625px;overflow:hidden;border-radius:12px;align-self:center}
+.phone iframe{width:409px;height:868px;border:0;transform:scale(.714);transform-origin:0 0;display:block;background:transparent}
+.opt-foot{display:flex;gap:10px;align-items:center} .pick{font:inherit;font-size:14px;font-weight:600;border:0;border-radius:9px;padding:8px 14px;background:#EBEEF0;color:#14181B;cursor:pointer}
+body.dark .pick{background:#1E2327;color:#E7EBED} .opt.picked .pick{background:#0B6E85;color:#fff}
+.opt-foot a{font-size:13px;color:#0B6E85} body.dark .opt-foot a{color:#52CBE6}
+.summary{margin:30px 40px 60px;padding:18px 20px;background:#fff;border:1px solid #C5CCD0;border-radius:14px;max-width:900px}
+body.dark .summary{background:#15191C;border-color:#2B3237}
+.summary h3{margin:0 0 8px;font-size:17px} .summary pre{margin:0;white-space:pre-wrap;font-size:14px;line-height:1.7;font-family:inherit}
+.summary button{margin-top:12px;font:inherit;font-size:14px;font-weight:600;border:0;border-radius:9px;padding:8px 14px;background:#14181B;color:#fff;cursor:pointer}
+</style></head><body>
+<div class="top"><h1>第 3 轮 · 新页面</h1><nav class="qnav"><a href="#q1"><b>Q1</b>统计分析页结构<i data-pick="q1"></i></a><a href="#q2"><b>Q2</b>更多图表组织<i data-pick="q2"></i></a><a href="#q3"><b>Q3</b>向导形式<i data-pick="q3"></i></a><a href="#q4"><b>Q4</b>OAuth 呈现<i data-pick="q4"></i></a><a href="#q5"><b>Q5</b>编辑页结构<i data-pick="q5"></i></a><a href="#q6"><b>Q6</b>凭据区呈现<i data-pick="q6"></i></a><a href="#q7"><b>Q7</b>分组列表<i data-pick="q7"></i></a><a href="#q8"><b>Q8</b>分组详情<i data-pick="q8"></i></a><a href="#q9"><b>Q9</b>管理模块模式<i data-pick="q9"></i></a><a href="#q10"><b>Q10</b>代理（跟随第 1 题）<i data-pick="q10"></i></a><a href="#q11"><b>Q11</b>公告（跟随第 1 题）<i data-pick="q11"></i></a><a href="#q12"><b>Q12</b>批量生成流程<i data-pick="q12"></i></a><a href="#q13"><b>Q13</b>用户编辑结构<i data-pick="q13"></i></a><a href="#q14"><b>Q14</b>Key 呈现<i data-pick="q14"></i></a><a href="#q15"><b>Q15</b>Key 新建 / 停用 / 删除<i data-pick="q15"></i></a></nav><div class="toggle"><button data-theme="light" class="on">浅色</button><button data-theme="dark">深色</button></div></div>
+<div class="intro"><p>这一轮比较第 2 轮之后才补上的页面：统计分析、新建账号、编辑账号、分组、兑换码 / 代理 / 公告、新建 / 编辑用户。每台手机都是可以点的，底下已套用你前两轮的选择（6 格指标首页、按平台分组的账号列表、用户页快捷列）。每题点「选这个」，或者直接在对话里说想法。</p></div>
+
+  <section class="q" id="q1">
+    <div class="q-head"><span class="q-no">Q1</span><div><h2>统计分析页用哪种结构？</h2><p>从概览“今日 · 更多统计”进来，默认显示今天。重点看三件事：第一屏能看到什么、怎么换时间范围、排行能看多深。可以点范围、点柱子、点日期说明行打开自定义日期，右上筛选里选“模型 · claude-opus-4”看看运行类图表的“显示全站”提示，再往下看排行和更多图表。从搜索目录进来时默认显示近 7 天。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q1" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>卡片流：B 式卡片，一路往下滚</b><span class="opt-from">B 的图标卡头、大数字和磁贴，配 A 的分段范围</span></div>
+        <ul><li>顶部是 今天 / 7 天 / 30 天 / 自定义 分段；下面的日期说明行可以点，点开是自定义日期（快捷项、开始 / 结束、月历）</li><li>营收卡用 B 式图标卡头，大数字下面是同期涨跌（今天比昨天同一时刻，7 天、30 天比前 7 天、前 30 天同期）；柱子是实际，点线是标准；再往下是账号成本、标准、差额</li><li>三个排行合成一张卡，卡内用小分段切 模型 / 用户 / 分组。每项一行：名次、名称、细占比条、金额。显示前 5 名，加“全部 9 个模型 / 查看前 50 位用户”</li><li>“更多图表”卡里放 4 个磁贴（Token、错误率、QPS、P50）和“全部图表”入口，整页约 2 屏</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="统计分析页用哪种结构？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q1" data-o="1" data-label="卡片流：B 式卡片，一路往下滚">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q1" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>分段：顶部五段切换</b><span class="opt-from">A 的分段控件，时间和指标收进菜单</span></div>
+        <ul><li>顶部五段：营收 | 模型 | 用户 | 分组 | 更多，整页只有这一个分段控件</li><li>时间收进“今天 ▾”菜单，选项是 今天 / 近 7 天 / 近 30 天 / 自定义…</li><li>营收段用“实际扣费 ▾”菜单切换到请求或 Tokens，涨跌和选中柱子的说明都跟着当前指标变；下面直接是逐小时或逐日表</li><li>排行段直接给完整列表和构成色带；排序和模型口径（请求 / 上游 / 映射）都收在列表头的“按实际扣费 ▾”菜单里</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="统计分析页用哪种结构？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%5D%2C%22v%22%3A%7B%22screen%3Aanalytics%22%3A%22tabs%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q1" data-o="2" data-label="分段：顶部五段切换">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%5D%2C%22v%22%3A%7B%22screen%3Aanalytics%22%3A%22tabs%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q1" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>报表式：日期步进 + 指标格 + 折叠区</b><span class="opt-from">C 工作台的对账习惯</span></div>
+        <ul><li>顶部是日期步进“‹ 10月16日 ›”，可以一段一段往前翻。月份按自然月走（从上月按 ‹ 到 8月1日–31日，标签写“8 月”），14 天按 14 天走（“上一个 14 天”）</li><li>6 格指标：实际扣费、账号成本、标准、差额、请求、Tokens；涨跌写成“比前 7 天同期”“比 8 月”这样的口径</li><li>下面全是折叠区：营收趋势、三个排行、更多图表。排行收起时只显示“谁居首 · 占比”，展开后是前 5 名小表</li><li>第一屏信息最密，适合对账或看某一个月</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="统计分析页用哪种结构？ · 选项 3" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%5D%2C%22v%22%3A%7B%22screen%3Aanalytics%22%3A%22report%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q1" data-o="3" data-label="报表式：日期步进 + 指标格 + 折叠区">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%5D%2C%22v%22%3A%7B%22screen%3Aanalytics%22%3A%22report%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q2">
+    <div class="q-head"><span class="q-no">Q2</span><div><h2>“更多图表”二级页怎么组织？</h2><p>共 11 张图：营收 1 张、用量 4 张、运行 6 张。从统计页的“全部图表”进来，比较三种方式下找图、翻图、扫数字的感觉。三种都有时间范围控件。可以在右上筛选里选一个模型，看运行类图表如何标明“不支持按模型筛选，显示全站”。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q2" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>按主题分组的长列表</b><span class="opt-from">A 的分组列表</span></div>
+        <ul><li>一页从头滚到尾。顶部的 营收 / 用量 / 运行 跳转胶囊和“今天 ▾”菜单吸顶，滚到哪一组就高亮哪一组</li><li>每张图一张卡；营收明细卡里带逐小时表，先显示 6 行，可以展开全部</li><li>从“用量”或某一张图进来会直接定位过去，时间范围和跳转胶囊仍留在顶部</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="“更多图表”二级页怎么组织？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%2C%7B%22kind%22%3A%22analyticsMore%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q2" data-o="1" data-label="按主题分组的长列表">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%2C%7B%22kind%22%3A%22analyticsMore%22%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q2" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>单图全屏 + 左右翻页</b><span class="opt-from">照片式翻页</span></div>
+        <ul><li>一屏一张图，左右滑或点 ‹ › 切换。导航标题就是图名，副标题写“2 / 11 · 用量”</li><li>头部有“今天 ▾”范围菜单和日期说明；右上 ☰ 打开全部图表目录</li><li>图下面直接接完整明细表。原生做成 TabView(.page)，柱子用轻点选取，不和翻页手势冲突</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="“更多图表”二级页怎么组织？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%2C%7B%22kind%22%3A%22analyticsMore%22%7D%5D%2C%22v%22%3A%7B%22screen%3AanalyticsMore%22%3A%22pager%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q2" data-o="2" data-label="单图全屏 + 左右翻页">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%2C%7B%22kind%22%3A%22analyticsMore%22%7D%5D%2C%22v%22%3A%7B%22screen%3AanalyticsMore%22%3A%22pager%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q2" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>图表目录网格</b><span class="opt-from">B 的磁贴墙</span></div>
+        <ul><li>两列磁贴，每块先给一个关键数字（96.4M Tokens、2.1% 错误率、3.5 QPS、P50 2.4s…）和一张缩略图</li><li>点磁贴进单图页，单图页带范围分段和完整明细表</li><li>按模型筛选时，运行类磁贴标“全站”；站点没开运维监控时，运行组换成一行“运维监控未开启”</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="“更多图表”二级页怎么组织？ · 选项 3" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%2C%7B%22kind%22%3A%22analyticsMore%22%7D%5D%2C%22v%22%3A%7B%22screen%3AanalyticsMore%22%3A%22catalog%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q2" data-o="3" data-label="图表目录网格">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22analytics%22%7D%2C%7B%22kind%22%3A%22analyticsMore%22%7D%5D%2C%22v%22%3A%7B%22screen%3AanalyticsMore%22%3A%22catalog%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q3">
+    <div class="q-head"><span class="q-no">Q3</span><div><h2>新建账号用哪种向导形式？</h2><p>从账号页右上的 + 进入。三种形式的字段、校验和测试流程都一样，比的只是容器和翻页方式。建议一路点到“创建并测试”，看看三种状态下各有什么出口：测试进行中（可以“后台继续”）、测试通过（完成 / 查看账号）、测试未通过（修改凭据后重试 / 保留，暂停调度 / 保存为停用 / 删除账号…）。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q3" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>① 分步全屏</b><span class="opt-from">layouts/main/v-account-new.jsx</span></div>
+        <ul><li>每步一页（NavigationStack push），顶部刻度条显示 5 步，到过的步骤可以点回去；开始创建以后刻度条只用来显示进度</li><li>平台、方式点一下就自动进入下一步。只有一种方式的平台（DeepSeek、Cline）跳过“方式”这一步，返回时同样跳过</li><li>OAuth 授权完成前不显示底部按钮，授权成功后才出现“下一步”</li><li>后端创建账号后会立即参与调度，所以创建后马上停止调度，测试通过再启用。进度里“创建账号”和“停止调度”分两行显示，停止调度失败时红色提示，可以重试</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="新建账号用哪种向导形式？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22base%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q3" data-o="1" data-label="① 分步全屏">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22base%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q3" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>② 单页长表单</b><span class="opt-from">layouts/main/v-account-new.jsx</span></div>
+        <ul><li>一个 Form 分区一次填完：平台用下拉菜单，认证方式是单选行，分组用胶囊按钮</li><li>底部玻璃坞随时提示“还差什么”，填齐后点“创建并测试”</li><li>测试结果在 sheet 里流式输出，进行中左上角是“后台继续”。没通过时关掉 sheet 回到表单改凭据，再点“保存并重新测试”，修改保存到账号 #21</li><li>所有字段在一页里，适合熟手；缺点是页面很长</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="新建账号用哪种向导形式？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22form%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q3" data-o="2" data-label="② 单页长表单">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22form%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q3" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>③ 卡片式分页 sheet</b><span class="opt-from">layouts/main/v-account-new.jsx</span></div>
+        <ul><li>在账号列表上弹出一个大 sheet，5 张编号卡片左右翻（可以滑动，也可以点“上一步 / 下一步”）</li><li>平台用 3 列磁贴，认证方式用大卡片</li><li>没完成的步骤在右侧边缘露出一把锁，翻不过去；完成的卡片在标题旁显示摘要</li><li>背后能看到账号列表，新账号一建好就出现在列表里</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="新建账号用哪种向导形式？ · 选项 3" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22cards%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q3" data-o="3" data-label="③ 卡片式分页 sheet">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22cards%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q4">
+    <div class="q-head"><span class="q-no">Q4</span><div><h2>OAuth 授权步骤怎么呈现？</h2><p>初始是 Claude。Claude 和 Gemini 授权后页面会显示授权码，要回到 App 粘贴。OpenAI、Antigravity、Grok 会跳到 localhost：App 打开浏览器时临时监听回调端口，授权完自动回来并兑换令牌，粘贴只作兜底（可以返回第 1 步换成 OpenAI 看看）。代理放在“完成授权”旁边，兑换令牌和之后的请求都走这个代理，换代理不会重置授权进度。</p></div></div>
+    <div class="opts n2">
+    <figure class="opt" data-q="q4" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>三步清单</b><span class="opt-from">layouts/main/v-account-new.jsx</span></div>
+        <ul><li>三个编号步骤一直显示：生成授权链接 → 在浏览器里授权 → 粘贴授权码（localhost 回调的平台叫“完成授权”），当前步骤展开按钮</li><li>完成的步骤打勾，并写明结果，比如剩余有效时间、“App 已接收回调”</li><li>失败时在出错的那一步给出原因和下一步：链接过期回到第 1 步“重新生成链接”；服务器连不上上游时停在第 3 步，已粘贴的授权码保留，按钮变成“换个代理再试”</li><li>一眼能看出还剩几步，信息多</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="OAuth 授权步骤怎么呈现？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%2C%22step%22%3A%22cred%22%2C%22draft%22%3A%7B%22platform%22%3A%22anthropic%22%2C%22type%22%3A%22claude_code%22%7D%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22base%22%2C%22anOauth%22%3A%22list%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q4" data-o="1" data-label="三步清单">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%2C%22step%22%3A%22cred%22%2C%22draft%22%3A%7B%22platform%22%3A%22anthropic%22%2C%22type%22%3A%22claude_code%22%7D%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22base%22%2C%22anOauth%22%3A%22list%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q4" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>单卡聚焦</b><span class="opt-from">layouts/main/v-account-new.jsx</span></div>
+        <ul><li>一次只给一个动作：同一张卡片随步骤变化，上方有一条细进度条</li><li>大图标、标题、一句说明加一个主按钮，最不容易点错</li><li>失败时卡片标题和按钮直接换成补救动作：重新生成链接、重新打开链接、换个代理再试</li><li>看不到后面的步骤，只能靠进度条知道还剩多少</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="OAuth 授权步骤怎么呈现？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%2C%22step%22%3A%22cred%22%2C%22draft%22%3A%7B%22platform%22%3A%22anthropic%22%2C%22type%22%3A%22claude_code%22%7D%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22base%22%2C%22anOauth%22%3A%22focus%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q4" data-o="2" data-label="单卡聚焦">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountNew%22%2C%22step%22%3A%22cred%22%2C%22draft%22%3A%7B%22platform%22%3A%22anthropic%22%2C%22type%22%3A%22claude_code%22%7D%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountNew%22%3A%22base%22%2C%22anOauth%22%3A%22focus%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q5">
+    <div class="q-head"><span class="q-no">Q5</span><div><h2>编辑账号用哪种结构？</h2><p>三台都是 Claude-官方-03（Anthropic OAuth，正在限流）。① ② 已带 3 项示范改动（并发数、加入同平台的“Claude 备用组”、代理换成 jp-01）。重点看三处：一是找到某个字段要滑多久，二是底部改动条（点开能看前后值，点某一项会跳到那一行，每项都能单独还原），三是“刷新令牌 / 重新授权”在编辑态里怎么标“立即生效”。① ② 是两种找分区的方式，字段和保存语义完全一样，都是先进入编辑态，最后统一保存一次。③ 是另一种编辑模型：没有单独的编辑页，详情页下面接可编辑的分区，每个分区单独保存。想看混合渠道警告：在 ① 或 ② 的“分组”里勾上“默认组”再保存。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q5" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>① 分组表单</b><span class="opt-from">现有 · 已按走查修改</span></div>
+        <ul><li>一页长表单，依次是 基础 / 调度 / 配额（只有 API Key 账号有）/ 凭据 / 代理 / 模型 / 高级；左上“取消”，右上“保存”。这个账号整页约 3 屏（实测 2135px）</li><li>导航栏下面有一条身份条：平台 · 类型、状态徽标、恢复倒计时，进编辑页也能看到账号当前状态</li><li>底部改动条：展开后能看每项的前后值；点某一项会滚到那一行并闪一下；每项都能单独“还原”。保存后回执带“撤销”（用旧值再提交一次）；更换密钥的保存不给撤销</li><li>保存规则：顶层字段只提交改过的；credentials 和 extra 以 GET 返回的整份对象（已脱敏）为底，合并改动后整份提交；API Key 只在更换时带上</li><li>刷新令牌和重新授权立即生效，行尾标“立即生效”；代理有未保存的改动时，“重新授权”置灰；放弃改动的确认框会写明“本次已刷新令牌，不会撤回”</li><li>改了分组、后端返回 409 时，弹 Web 同款“混合渠道警告”，确认后带 confirm_mixed_channel_risk=true 重新提交</li><li>SwiftUI：.sheet + NavigationStack + Form。有改动时设 .interactiveDismissDisabled；下滑时弹确认，要通过 UIKit 的 presentationControllerDidAttemptToDismiss 桥接</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="编辑账号用哪种结构？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A3%2C%22preset%22%3A%22dirty%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22base%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q5" data-o="1" data-label="① 分组表单">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A3%2C%22preset%22%3A%22dirty%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22base%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q5" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>② 分段编辑</b><span class="opt-from">新</span></div>
+        <ul><li>字段、改动条、保存语义和 ① 完全一样，只是找分区的方式不同：顶部分段切换 基础 | 调度 | 凭据 | 模型 | 高级，每段大约 1 屏，基本不用滑</li><li>有改动的分段右上角带一个点。分段控件是自绘的，因为原生 Picker(.segmented) 画不出这个点</li><li>点改动条里的某一项，会先切到那一段，再跳到那一行</li><li>身份条、“立即生效”标记、混合渠道警告都和 ① 一样</li><li>代价是看不到全貌：要逐段切换才能确认所有设置</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="编辑账号用哪种结构？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A3%2C%22preset%22%3A%22dirty%22%2C%22focus%22%3A%22sched%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22seg%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q5" data-o="2" data-label="② 分段编辑">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A3%2C%22preset%22%3A%22dirty%22%2C%22focus%22%3A%22sched%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22seg%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q5" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>③ 详情页内联编辑</b><span class="opt-from">新 · 已并入详情</span></div>
+        <ul><li>没有单独的编辑页：账号详情本身（状态卡 + 按钮行、容量、今日、记录）下面直接接 基础 / 调度 / 凭据 / 代理 / 模型 / 高级，取代原来的“档案”</li><li>整页约 3.3 屏（实测 2454px），比现在的账号详情（1166px）长一倍多</li><li>基础、调度、模型、高级分区右上有“编辑”，打开对应的小表单 sheet，各自保存，回执可撤销；选分组、日期等选择器在 sheet 内推进</li><li>凭据和代理立即生效：更换 API Key 的 sheet 本身就是确认（底部红色按钮），Base URL 也在这个 sheet 里；代理选中即保存</li><li>更换密钥后，卡片变成中性色的“已更换 · 账号仍为错误”，主按钮“测试连接”，次按钮“恢复状态”（看 OpenAI-备用-A）</li><li>⋯ 菜单里没有“编辑账号”，删除仍放在最后</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="编辑账号用哪种结构？ · 选项 3" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A3%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22inline%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q5" data-o="3" data-label="③ 详情页内联编辑">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A3%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22inline%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q6">
+    <div class="q-head"><span class="q-no">Q6</span><div><h2>（只在选了 ① 或 ② 时有效）凭据区怎么呈现？</h2><p>选 ③ 时本题不适用：③ 固定用状态卡，而且立即生效。三台都是 OpenAI-备用-A（API Key 账号，401 凭据已失效），已经滚到凭据区。注意：已保存的密钥后端不返回，三种呈现都只显示“已设置 · 不可查看”。点“更换”，再点“粘贴”，可以看新密钥的样子（只有刚粘贴的新密钥才显示 前缀••••末4位）。C 可以点进凭据页，保存后回到编辑页，看入口变成“已更换 · 待测试”。OAuth 账号的样子可以在第 1 题的手机里看。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q6" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>A 表单行</b><span class="opt-from">现有 · 已修</span></div>
+        <ul><li>凭据区顶部是错误提示条（错误原因 + 6 分钟前），下面是一行“API Key：🔒 已设置 + 更换”</li><li>点“更换”后原地出现新密钥输入框；粘贴后只显示 前缀••••末4位 和字符数；留空则保持当前密钥；保存时二次确认，开了 Face ID 还要验证</li><li>OAuth 账号显示一行“访问令牌：有效 · 7 小时后（到期时刻 16:53）”，下面是“刷新令牌”“重新授权”两行，都标“立即生效”</li><li>视觉分量最轻，和其他表单行一致</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="（只在选了 ① 或 ② 时有效）凭据区怎么呈现？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A7%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A7%2C%22focus%22%3A%22cred%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22base%22%2C%22aeCred%22%3A%22row%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q6" data-o="1" data-label="A 表单行">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A7%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A7%2C%22focus%22%3A%22cred%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22base%22%2C%22aeCred%22%3A%22row%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q6" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>B 状态卡</b><span class="opt-from">现有 · 已修</span></div>
+        <ul><li>卡片的主信息是凭据状态：大字“错误” + 错误原因 + 发生时间，右上“🔒 已设置 · 不可查看”；主按钮“更换 API Key”</li><li>粘贴新密钥后，卡片变成中性色的“新密钥待保存”，显示本地掩码，按钮换成“重新填写 / 撤销更换”</li><li>OAuth 账号是大号倒计时“7:12:12 后到期” + 到期时刻，按钮是“刷新令牌 / 重新授权”</li><li>视觉分量最重，最接近 B 的通行证卡</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="（只在选了 ① 或 ② 时有效）凭据区怎么呈现？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A7%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A7%2C%22focus%22%3A%22cred%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22base%22%2C%22aeCred%22%3A%22card%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q6" data-o="2" data-label="B 状态卡">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A7%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A7%2C%22focus%22%3A%22cred%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22base%22%2C%22aeCred%22%3A%22card%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q6" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>C 独立凭据页</b><span class="opt-from">现有 · 页内改为表单行</span></div>
+        <ul><li>编辑页里只有一行入口“API Key：错误 · 凭据已失效 ›”，点进去是独立的凭据页。页内用和 A 一样的表单行，所以和 A 只差“放在哪”这一点</li><li>凭据页单独保存（确认后立即更换）；返回编辑页时，其他没保存的改动都还在</li><li>更换后入口变成“已更换 · 待测试”，回执里带“测试”按钮</li><li>编辑页最短，但更换密钥要多进一层</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="（只在选了 ① 或 ② 时有效）凭据区怎么呈现？ · 选项 3" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A7%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A7%2C%22focus%22%3A%22cred%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22base%22%2C%22aeCred%22%3A%22page%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q6" data-o="3" data-label="C 独立凭据页">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A7%7D%2C%7B%22kind%22%3A%22accountEdit%22%2C%22id%22%3A7%2C%22focus%22%3A%22cred%22%7D%5D%2C%22v%22%3A%7B%22screen%3AaccountEdit%22%3A%22base%22%2C%22aeCred%22%3A%22page%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q7">
+    <div class="q-head"><span class="q-no">Q7</span><div><h2>分组列表用哪种布局？</h2><p>三个选项都从“搜索 → 分组”进入，点进去的详情统一用 A 样式，避免详情影响你对列表的判断。建议依次看：① 哪个最快让你看出“企业专线 0 个可用（红）”“标准组可用偏低（琥珀）”；② 右上角 + 新建分组，默认是“停用 + 专属”；③ 长按任一分组（桌面浏览器里用右键）会弹出和详情 ⋯ 一样的菜单；④ 网格可以点顶部计数格筛选，表格可以点表头排序；三种都能在搜索框输入“open”试试过滤。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q7" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>A · 三行列表</b><span class="opt-from">A 收件箱</span></div>
+        <ul><li>按“需处理 / 正常 / 停用”分段。需处理段里，无可用（红）排在可用偏低（琥珀）前面</li><li>每行三行：名称 + 平台 + 专属 / 状态徽章；可用 x/y + 每个账号一格的色格条 + “错误 1 · 受限 1”；费率倍数 · 计费方式 + 今日用量</li><li>色格、图例、计数用同一套口径：受限 = 限流 + 过载 + 临时不可调度（琥珀），错误（红），暂停·停用（灰框）</li><li>状态不只靠颜色表达：无可用、可用偏低、停用都有文字徽章，图标也不同（八角、仪表、减号）</li><li>一屏大约能看 5 个分组</li><li>SwiftUI：List + Section + .searchable。左滑：停用/启用、编辑分组；右滑：添加账号；长按 contextMenu 和 ⋯ 菜单一样；支持多选</li><li>适合日常处理：救火时先看“需处理”段</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="分组列表用哪种布局？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22base%22%2C%22screen%3Agroup%22%3A%22base%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q7" data-o="1" data-label="A · 三行列表">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22base%22%2C%22screen%3Agroup%22%3A%22base%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q7" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>B · 健康网格</b><span class="opt-from">B 卡片仪表盘</span></div>
+        <ul><li>顶部 4 个计数格（无可用 / 偏低 / 正常 / 停用），点一格只看这一类</li><li>两列卡片，每张卡一个分段可用环：一段代表一个账号，配色口径和 A 一样；环心写“无可用 / 偏低 / 可用 / 已停用”</li><li>卡片底部是费率倍数和今日用量，最后一张是“新建分组”虚线卡</li><li>三个里最好看，扫一眼就知道哪个组红了，但信息量最少</li><li>SwiftUI：LazyVGrid + Circle().trim（或 SectorMark）+ .searchable</li><li>不是 List，没有滑动操作和多选，用长按 contextMenu 代替（编辑 / 添加账号 / 停用 / 复制 / 删除）</li><li>适合早晚扫一眼</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="分组列表用哪种布局？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22grid%22%2C%22screen%3Agroup%22%3A%22base%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q7" data-o="2" data-label="B · 健康网格">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22grid%22%2C%22screen%3Agroup%22%3A%22base%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q7" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>C · 表格</b><span class="opt-from">C 表格工作台</span></div>
+        <ul><li>首列冻结、可横向滚动的表格，列为：可用、健康（文字）、受限、错误、暂停·停用、倍率、今日、昨日、累计、并发、计费、类型、启停，底部有合计行</li><li>点表头排序（表头高 44pt），按“健康”升序时无可用的分组排在最前</li><li>“状态”列改名为“启停”，另加“健康”列，0 个可用不会再显示成“正常”</li><li>信息密度最高，适合横向比较多个分组</li><li>SwiftUI：横向 ScrollView + Grid，用 onScrollGeometryChange 冻结首列；排序也可以收进导航栏的“排序”菜单</li><li>不是 List，没有滑动操作和多选，用长按 contextMenu 代替</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="分组列表用哪种布局？ · 选项 3" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22table%22%2C%22screen%3Agroup%22%3A%22base%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q7" data-o="3" data-label="C · 表格">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22table%22%2C%22screen%3Agroup%22%3A%22base%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q8">
+    <div class="q-head"><span class="q-no">Q8</span><div><h2>分组详情用哪种布局？</h2><p>三个选项打开的都是“标准组”（OpenAI，1/2 可用，告警中）。可以返回列表，再点企业专线（0 个可用）、测试组（已停用）、高级组（有限流倒计时）对比。可以试：“添加账号”（只列同平台账号）；“编辑分组”（改倍率、改专属/公开、移出账号都会弹确认，确认框写明站点；移出最后一个可用账号时是红色的“仍然保存”）；“记录与关联”里的错误请求、使用记录会进入按分组过滤的日志。三者下半部分（记录与关联、配置）相同，这道题只比上半部分和成员的呈现方式。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q8" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>A · 状态卡 + 成员列表</b><span class="opt-from">A 收件箱</span></div>
+        <ul><li>告警横幅整条可点，跳到“监控 · 告警”</li><li>状态卡：大号“1 / 2 个账号可用”+ 色格条 + 图例 + 最早恢复倒计时；没有可用账号时显示红色警告</li><li>按钮行：添加账号（需要处理时是主按钮）/ 编辑分组；分组停用时换成“启用分组”（直接生效，回执里可撤销）</li><li>分区依次是：成员账号（不可用的在前，点进账号详情）→ 用量与容量（今日 / 昨日 / 累计，并发、会话、调度 RPM）→ 记录与关联（错误请求、上游错误、使用记录、API 密钥、订阅）→ 配置 + 在 Web 中编辑</li><li>成员行写“账号今日”，下面注明这个数含该账号在其他分组的用量</li><li>SwiftUI：List + Section。成员行左滑：恢复状态 / 启用调度，以及红色的“移出分组”；⋯ 菜单最后一项是红色的“删除分组…”</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="分组详情用哪种布局？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%2C%7B%22kind%22%3A%22group%22%2C%22id%22%3A2%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22base%22%2C%22screen%3Agroup%22%3A%22base%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q8" data-o="1" data-label="A · 状态卡 + 成员列表">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%2C%7B%22kind%22%3A%22group%22%2C%22id%22%3A2%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22base%22%2C%22screen%3Agroup%22%3A%22base%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q8" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>B · 大环 + 磁贴</b><span class="opt-from">B 卡片仪表盘</span></div>
+        <ul><li>140pt 分段大环，右侧是大字健康词和竖排图例；配色和列表、色格同一口径</li><li>四块磁贴：今日（含昨日、累计）、费率倍数（点进编辑）、容量（并发 / 会话 / 调度 RPM 三条细条）、每用户 RPM 或订阅限额（点进编辑）。信息量和 A、C 一样</li><li>成员用两列卡片显示，最后是“添加账号”卡；分组停用时，大卡下方整行显示“启用分组 / 编辑分组”（常规 46pt 按钮）</li><li>三个里视觉最接近 B 的磁贴和圆环风格</li><li>SwiftUI：Circle().trim 或 SectorMark + LazyVGrid；成员卡片不能滑动，用长按 contextMenu</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="分组详情用哪种布局？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%2C%7B%22kind%22%3A%22group%22%2C%22id%22%3A2%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22base%22%2C%22screen%3Agroup%22%3A%22ring%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q8" data-o="2" data-label="B · 大环 + 磁贴">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%2C%7B%22kind%22%3A%22group%22%2C%22id%22%3A2%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22base%22%2C%22screen%3Agroup%22%3A%22ring%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q8" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>C · 状态条 + 成员表</b><span class="opt-from">C 表格工作台</span></div>
+        <ul><li>顶部是紧凑状态条：x/y 个账号可用 + 色格 + 图例 + 恢复倒计时</li><li>成员用首列冻结的表格：状态（带倒计时）、并发、账号今日、账号请求、优先级、类型</li><li>合计行只合计个数、可用数和并发。“账号今日”包含其他分组的用量，所以不和分组今日相加，表下有说明</li><li>表格下面依次是：按钮行、分组用量与容量汇总、记录与关联、配置</li><li>适合成员账号多的分组；SwiftUI：横向 ScrollView + Grid</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="分组详情用哪种布局？ · 选项 3" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%2C%7B%22kind%22%3A%22group%22%2C%22id%22%3A2%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22base%22%2C%22screen%3Agroup%22%3A%22table%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q8" data-o="3" data-label="C · 状态条 + 成员表">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22groups%22%7D%2C%7B%22kind%22%3A%22group%22%2C%22id%22%3A2%7D%5D%2C%22v%22%3A%7B%22screen%3Agroups%22%3A%22base%22%2C%22screen%3Agroup%22%3A%22table%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q9">
+    <div class="q-head"><span class="q-no">Q9</span><div><h2>兑换码、代理、公告这类低频管理页，用哪种通用模式？（先用兑换码看）</h2><p>两台手机都是兑换码页。两边的列表头、筛选胶囊（含“类型 ▾”菜单）、行内容、编辑和生成用的 sheet 完全一样，区别只在点开一行以后。左边进二级详情页：票券卡、大面额、码值遮罩加复制、使用与有效期、备注。右边在原地展开成卡片，不离开列表。注意两边信息量不同：详情页有票券卡，排版更舒展；展开卡片没有票券卡，更紧凑，适合连着处理好几条。所以这一题是在“层级清楚、内容丰富”和“少跳一层、精简”之间选。可以这样试：点一行，点眼睛显示码值，打开 ··· 菜单里的“删除兑换码…”（确认时要输入码的末 4 位）；再点一个“已使用”的码去编辑，会看到只能改备注。这一题选的模式会默认用到代理和公告上，第 2、3 题可以单独改。</p></div></div>
+    <div class="opts n2">
+    <figure class="opt" data-q="q9" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>列表 + 详情页 + 新建 sheet</b><span class="opt-from">现有 · 已按走查修改</span></div>
+        <ul><li>点一行进二级详情页（SwiftUI：List(.plain) + NavigationLink），层级清楚，滑动返回后停在原位置</li><li>详情页顶部是票券卡：大面额、撕口；码值分两行，第一行末尾保留连字符，可遮罩、显示、复制，VoiceOver 读完整码值</li><li>按钮行是 复制 / 禁用或启用 / 编辑；删除放在 ··· 最后，确认时输入兑换码末 4 位</li><li>已使用的码，按钮改成“备注”，编辑 sheet 里的状态、订阅分组、过期时间都只读；已过期的码选新的过期时间就能续期，状态同时改回“未使用”</li><li>新建（右上 +）和编辑都用 sheet（Form）；“类型 ▾”是一个 Menu</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="兑换码、代理、公告这类低频管理页，用哪种通用模式？（先用兑换码看） · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22redeem%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q9" data-o="1" data-label="列表 + 详情页 + 新建 sheet">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22redeem%22%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q9" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>列表行内展开 + 编辑 sheet</b><span class="opt-from">现有 · 已按走查修改</span></div>
+        <ul><li>点卡片头在原地展开，不进二级页，同一时间只展开一张</li><li>展开后有码值框（遮罩 / 显示 / 复制）、使用与有效期、备注，以及 禁用 / 编辑 / ··· 按钮</li><li>比详情页少跳一层，但没有票券卡，信息更紧凑；卡片头和展开区不重复显示同一个数字</li><li>SwiftUI 落地：每张卡片是一个 Section，加 .listSectionSpacing(.compact)；卡片里的按钮用 .buttonStyle(.borderless)，点按不会落到整行上；展开状态用 @State 存选中的 id；滑动操作只放在收起的卡片头上</li><li>编辑和生成用的 sheet 与左边完全相同</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="兑换码、代理、公告这类低频管理页，用哪种通用模式？（先用兑换码看） · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22redeem%22%2C%22open%22%3A2046%7D%5D%2C%22v%22%3A%7B%22screen%3Aredeem%22%3A%22inline%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q9" data-o="2" data-label="列表行内展开 + 编辑 sheet">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22redeem%22%2C%22open%22%3A2046%7D%5D%2C%22v%22%3A%7B%22screen%3Aredeem%22%3A%22inline%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q10">
+    <div class="q-head"><span class="q-no">Q10</span><div><h2>代理页用哪种？（默认跟第 1 题一样，可以单独改）</h2><p>两种模式换成代理再看一遍。演示数据和后端的真实行为一致：jp-tokyo-1 已过期，到期回退设的是“不回退”，所以账号还挂在上面，而且连接失败，这是需要人去处理的状态；us-east-2 也已过期，但回退设的是直连，账号已经被自动改走了；hk-02 再过 6 天到期。顶部横幅只统计还有账号在用的代理。可以这样试：点“测试连接”，结果直接显示在原地（只有这次会话里测过的才写“刚刚测试”，后端没有测试时间这个字段）；点 jp-tokyo-1 的“续期”，sheet 最上面就是有效期和状态，选好新有效期后状态会自动改回“正常”；在编辑里选“备用代理”，停用和已过期的代理是灰的，选不了。停用代理不弹确认，直接执行并提供撤销，因为已经在用的账号不受影响。</p></div></div>
+    <div class="opts n2">
+    <figure class="opt" data-q="q10" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>列表 + 详情页 + 编辑 sheet</b><span class="opt-from">现有 · 已按走查修改</span></div>
+        <ul><li>列表右侧：正常的代理显示延迟，已过期或停用的显示状态徽章（已过期是红色）；筛选胶囊：全部 / 已过期 / 即将到期 / 链接失败 / 停用</li><li>详情页顶部是延迟游标尺，下面是出口 IP、地区，以及带检测日期的质量评分</li><li>有效期区用一句话说清到期做了什么、要做什么，例如“已过期，1 个账号仍在用……”，或“到期后已把在用的账号改为直连，可在账号详情里‘恢复原代理’”</li><li>已过期的代理，主按钮是“续期”；编辑 sheet 打开时状态预设为停用（和 Web 一样）</li><li>在用账号逐行列出，点进去就是账号详情</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="代理页用哪种？（默认跟第 1 题一样，可以单独改） · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22proxies%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q10" data-o="1" data-label="列表 + 详情页 + 编辑 sheet">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22proxies%22%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q10" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>列表行内展开 + 编辑 sheet</b><span class="opt-from">现有 · 已按走查修改</span></div>
+        <ul><li>卡片收起时显示延迟或状态、地址、在用账号数和到期提示</li><li>卡片展开后，头部右侧换成状态徽章，大号延迟只在展开区出现一次，“测试连接”就在旁边</li><li>展开区同样有到期后果说明、质量、到期回退、认证信息，在用账号以胶囊列出，点胶囊进账号详情</li><li>按钮：续期（已过期时）或 编辑、停用 / 启用、···</li><li>SwiftUI 落地同第 1 题：每张卡片一个 Section，卡片里的按钮用 .borderless</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="代理页用哪种？（默认跟第 1 题一样，可以单独改） · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22proxies%22%2C%22open%22%3A3%7D%5D%2C%22v%22%3A%7B%22screen%3Aproxies%22%3A%22inline%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q10" data-o="2" data-label="列表行内展开 + 编辑 sheet">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22proxies%22%2C%22open%22%3A3%7D%5D%2C%22v%22%3A%7B%22screen%3Aproxies%22%3A%22inline%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q11">
+    <div class="q-head"><span class="q-no">Q11</span><div><h2>公告页用哪种？（默认跟第 1 题一样，可以单独改）</h2><p>已读部分按后端实际有的能力来做：公告列表接口里没有已读计数，所以列表行只显示可见对象和“通知方式 · 有效期”，不画已读进度条；详情页只留一行“已读情况 ›”，点进去是和 Web 一样的逐个用户名单，可以搜索，可以按邮箱 / 用户名 / 余额排序，分页加载，每行显示余额、“符合条件 / 不符合”和已读时间（没读就显示未读）。没有已读 / 未读筛选，也没有汇总。编辑 sheet：可见对象在手机上只能设一个条件（订阅套餐多选，或者余额比较），已经是多条件的公告在手机上只读，要去 Web 改；有效期是“开始：立即 | 指定时间”和“结束：永久 | 指定时间”两行，选“指定时间”就出日期和时间选择。如果想要“已读 N / 符合条件 M”这样的汇总，需要后端新增 read-summary 接口，不在这一轮比较的范围里。</p></div></div>
+    <div class="opts n2">
+    <figure class="opt" data-q="q11" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>列表 + 详情页 + 编辑 sheet</b><span class="opt-from">现有 · 已按走查修改</span></div>
+        <ul><li>列表行分三行：标题加状态（草稿 / 展示中 / 已归档）、可见对象、通知方式和有效期（例如“弹窗 · 10/16 08:00 – 10/18 06:00”）</li><li>详情页顶部是“用户看到的样子”预览：弹窗样式或通知列表样式</li><li>按钮：发布 / 归档 / 重新发布 + 编辑；删除在 ··· 菜单里</li><li>投放区下面有一行“已读情况 ›”，进去是逐个用户的分页名单（和 Web 的已读情况对话框一样）</li><li>编辑 sheet 分“编辑 / 预览”两页，有格式工具条（粗体、列表、小标题、链接），有效期用 DatePicker(.compact)</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="公告页用哪种？（默认跟第 1 题一样，可以单独改） · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22announcements%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q11" data-o="1" data-label="列表 + 详情页 + 编辑 sheet">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22announcements%22%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q11" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>列表行内展开 + 编辑 sheet</b><span class="opt-from">现有 · 已按走查修改</span></div>
+        <ul><li>卡片头和左边的列表行一样：标题、状态、可见对象、通知方式和有效期</li><li>展开后是完整的用户预览（弹窗样式也照样显示），不再截断正文</li><li>下面是“已读情况 ›”入口和 发布 / 归档 / 编辑 / ··· 按钮</li><li>卡片头和展开区不重复显示同一项信息</li><li>编辑 sheet 与左边完全相同</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="公告页用哪种？（默认跟第 1 题一样，可以单独改） · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22announcements%22%2C%22open%22%3A31%7D%5D%2C%22v%22%3A%7B%22screen%3Aannouncements%22%3A%22inline%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q11" data-o="2" data-label="列表行内展开 + 编辑 sheet">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22announcements%22%2C%22open%22%3A31%7D%5D%2C%22v%22%3A%7B%22screen%3Aannouncements%22%3A%22inline%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q12">
+    <div class="q-head"><span class="q-no">Q12</span><div><h2>批量生成兑换码：一页表单，还是分步向导？</h2><p>两种最后都进同一个确认框（写明站点、个数、每个的面额、合计），也是同一个结果页（逐行列出码值，可以全部复制）。演示里已经打开“高风险操作需要 Face ID”：余额合计超过 $100 时，确认之后还要过一次 Face ID。为了让你看到“结果待核对”这个状态，演示里第一次提交会故意模拟网络超时：页面会说明“请求可能已提交”，并给出幂等编号；点“用同一编号重试”才会看到正常的结果页。真机上服务器按编号幂等处理，不会重复生成。建议试试：面额填 10，数量填 20。</p></div></div>
+    <div class="opts n2">
+    <figure class="opt" data-q="q12" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>一页表单</b><span class="opt-from">现有 · 已按走查修改</span></div>
+        <ul><li>一屏填完：类型分段、面值、数量（默认 1，可以直接输入，也可以用步进器加减）、兑换码过期时间</li><li>底部双线下面实时显示合计（个数 × 面额 = 合计），改任何一项都会立刻更新</li><li>订阅类型：选订阅分组，有效天数可选 7 / 30 / 90 或自定义，默认 30</li><li>SwiftUI：一个 Form；数量行是 TextField(.numberPad) + Stepper，合计和按钮用 safeAreaInset 固定在底部</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="批量生成兑换码：一页表单，还是分步向导？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22redeem%22%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22redeemGenerate%22%2C%22sim%22%3A%22timeout%22%7D%2C%22v%22%3A%7B%22faceId%22%3Atrue%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q12" data-o="1" data-label="一页表单">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22redeem%22%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22redeemGenerate%22%2C%22sim%22%3A%22timeout%22%7D%2C%22v%22%3A%7B%22faceId%22%3Atrue%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q12" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>分步向导</b><span class="opt-from">现有 · 已按走查修改</span></div>
+        <ul><li>第 1 步：点一个类型卡片，直接进入下一步</li><li>第 2 步：余额类用大数字键盘输入面额（和充值同一套）；数量用常用胶囊 1 / 10 / 20 / 50 / 100，再配一个步进器</li><li>第 3 步：选过期时间，看一遍收据（双线下是合计），再点生成</li><li>比一页表单多点几下，但每一步只做一件事，金额更不容易输错</li><li>SwiftUI：sheet 里放一个 NavigationStack，一步一步 push</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="批量生成兑换码：一页表单，还是分步向导？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22redeem%22%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22redeemGenerate%22%2C%22sim%22%3A%22timeout%22%7D%2C%22v%22%3A%7B%22sheet%3AredeemGenerate%22%3A%22steps%22%2C%22faceId%22%3Atrue%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q12" data-o="2" data-label="分步向导">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22redeem%22%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22redeemGenerate%22%2C%22sim%22%3A%22timeout%22%7D%2C%22v%22%3A%7B%22sheet%3AredeemGenerate%22%3A%22steps%22%2C%22faceId%22%3Atrue%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q13">
+    <div class="q-head"><span class="q-no">Q13</span><div><h2>新建 / 编辑用户页用哪种结构？（新建和编辑共用同一结构）</h2><p>三台手机都是从「用户 → 王小明 → ⋯ → 编辑用户」进来的。可以这样试：1. 改一下邮箱，再给并发数点“+”，看页面上哪里标出了“已改”，然后点导航栏的“保存”看回执。2. 把角色切到“管理员”再保存，走一遍二次验证：任意 6 位数字都能通过，000000 会报错；验证后还要再确认一次。3. 点「高级组」→“移除这个专属分组”，看“2 个 Key 会无法调用”的提示。4. 看立即生效的操作（余额、Key、平台限额、替换分组）放在哪里：A 放在分隔标题“以下操作立即生效”下面，B 放在第三段「Key 与限额」，C 不在这一页。5. 返回两次回到用户列表，点右上角 + 看新建页。最后在顶部切到深色再看一遍。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q13" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>A 分组表单</b><span class="opt-from">原方案「分组表单」：把 Web 编辑弹窗的字段排成一个 iOS Form，补上通行证卡和“立即生效”分隔</span></div>
+        <ul><li>一个 Form 从上往下：通行证卡（姓名、余额大字、角色 / 状态徽章，随滚动离开）→ 账户（含公司、来源等自定义属性）→ 登录 → 权限 → 专属分组 → 公开分组 → 并发与 RPM</li><li>上半部是要保存的内容（约 2 屏）。分隔标题“以下操作立即生效”下面依次是余额、API Key、平台限额、替换分组（约 1.4 屏）。整页约 3.4 屏</li><li>改过的行左侧有琥珀色竖条，分区标题右侧写“已改 n 项”；校验出错的行是红色竖条，标题写“! n 项要修改”</li><li>新建也用这个 Form，导航栏按钮是“创建”；下半部换成“创建后再设置”的说明。初始余额可以不填，填了的话创建时会再确认一次金额</li><li>SwiftUI 实现：Form + Section，身份卡放在第一个 Section；立即生效区是后面几个带说明 header 的 Section</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="新建 / 编辑用户页用哪种结构？（新建和编辑共用同一结构） · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22base%22%2C%22screen%3AuserNew%22%3A%22base%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q13" data-o="1" data-label="A 分组表单">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22base%22%2C%22screen%3AuserNew%22%3A%22base%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q13" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>B 分段</b><span class="opt-from">原方案「分段」：Web 把编辑、分组配置、平台限额、API Key、余额拆成行菜单里 5 个独立弹窗，这里收成三段</span></div>
+        <ul><li>顶部固定身份条：姓名、邮箱、角色 / 状态徽章；右侧是余额大字和“充值 / 退款”按钮。余额不再放在“基础”段里</li><li>分三段：基础（账户、登录与状态）| 权限与并发（角色、分组、并发与 RPM）| Key 与限额（API Key、平台限额、替换分组）。前两段要保存；第三段顶部写明“这一段的操作立即生效”</li><li>分段上的标记形状不同：未保存是琥珀色圆点，有错误是红色“!”。分段下面还有一行文字，例如“基础 已改 1 项”，不只靠颜色区分</li><li>每段约 1 到 1.6 屏，切换分段时回到顶部；身份条加分段固定占约 280pt</li><li>新建时只有前两段，身份条压成一行，Tab 栏隐藏。底部是“下一步：权限与并发”，第二段换成“上一步 · 创建用户”；创建失败会跳到出错的那一段</li><li>SwiftUI 实现：分段要用自定义控件（HStack 按钮 + glassEffect + matchedGeometryEffect），原生 Picker(.segmented) 没法给单个分段加角标；底部按钮用 safeAreaInset</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="新建 / 编辑用户页用哪种结构？（新建和编辑共用同一结构） · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q13" data-o="2" data-label="B 分段">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q13" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>C 只放要保存的</b><span class="opt-from">新增 · 来自走查建议：编辑页只放“保存”会提交的字段，立即生效的操作留在用户详情页</span></div>
+        <ul><li>编辑页只有“保存”会提交的字段：账户、登录、权限、专属分组、公开分组、并发与 RPM，约 2 屏</li><li>顶部是一行紧凑的身份信息（头像、姓名、邮箱、徽章），不放余额</li><li>页尾的虚线卡说明余额、API Key、平台限额、替换分组和 RPM 状态都在用户详情页，并显示当前数量。这样“放弃更改”和已经生效的操作完全分开</li><li>移除绑定了 Key 的专属分组时，提示先到用户详情页用“替换分组”把 Key 迁走</li><li>代价：用户详情页要补上平台限额、Key 管理、替换分组三块（这属于用户详情那道题）；在编辑页里不能一边改并发一边充值</li><li>新建页同样只放要提交的字段，外加可选的初始余额</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="新建 / 编辑用户页用哪种结构？（新建和编辑共用同一结构） · 选项 3" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22lean%22%2C%22screen%3AuserNew%22%3A%22lean%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q13" data-o="3" data-label="C 只放要保存的">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22lean%22%2C%22screen%3AuserNew%22%3A%22lean%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q14">
+    <div class="q-head"><span class="q-no">Q14</span><div><h2>API Key 在页面里怎么呈现？（和上一题选哪种结构无关）</h2><p>两台手机都停在分段结构的「Key 与限额」段。左边点任意一个 Key，会打开详情 sheet；右边点卡片头可以展开或收起。两边都试一下：1. 换分组：选“企业专线”会同时把这个分组授予用户，回执里可以撤销。2. 重置速率限制：5 小时 / 1 天 / 7 天三个窗口一起清零。这道题选出的样式，在 A 结构里用在 API Key 区，在 B 结构里用在第三段，在 C 结构里用在用户详情页。</p></div></div>
+    <div class="opts n2">
+    <figure class="opt" data-q="q14" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>列表行 + 详情 sheet</b><span class="opt-from">原 A 的写法</span></div>
+        <ul><li>一个 Key 占一行：名称、状态徽章（只有非活跃时才显示）、掩码、分组 · 用量 · 最近使用时间</li><li>点开是详情 sheet：分组可以换，列表第一项是“不绑定分组”；倍率按用户实际生效值显示（专属 ×1.3 / 默认 ×1.5）。另有额度、有效期、当前并发、最近使用时间与 IP、IP 限制</li><li>速率限制用三格进度条（5 小时 / 1 天 / 7 天）展示，下面是“重置速率限制用量”</li><li>最省空间，细节都放在第二层。SwiftUI 实现：List 行 + .sheet</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="API Key 在页面里怎么呈现？（和上一题选哪种结构无关） · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%2C%22seg%22%3A%22keys%22%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%2C%22ueKeys%22%3A%22rows%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q14" data-o="1" data-label="列表行 + 详情 sheet">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%2C%22seg%22%3A%22keys%22%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%2C%22ueKeys%22%3A%22rows%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q14" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>可展开卡片</b><span class="opt-from">原 B 的写法</span></div>
+        <ul><li>每个 Key 一张卡：名称、掩码、额度进度、分组和生效倍率；第一张默认展开</li><li>展开后在同一张卡里显示有效期、当前并发、最近 IP、IP 限制，以及速率限制三格</li><li>操作按钮也在卡片里：“换分组”只弹出分组单选 sheet；旁边是“重置速率限制”</li><li>一屏能看到更多数字，但 Key 超过 3 个时页面会变长。SwiftUI 实现：DisclosureGroup 或自定义卡片</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="API Key 在页面里怎么呈现？（和上一题选哪种结构无关） · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%2C%22seg%22%3A%22keys%22%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%2C%22ueKeys%22%3A%22cards%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q14" data-o="2" data-label="可展开卡片">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%2C%22seg%22%3A%22keys%22%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%2C%22ueKeys%22%3A%22cards%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q15">
+    <div class="q-head"><span class="q-no">Q15</span><div><h2>要不要请后端加上“管理员替用户新建 / 停用 / 删除 Key”的功能？</h2><p>后端目前对用户的 Key 只支持三件事：查看、换分组、重置速率限制，没有新建、停用、删除。你之前要求手机端能做这三件事。两台手机都打开了 Key「默认」的详情：左边保留虚线占位并标着“需后端新增”，点了只会弹出说明，不会真的执行；右边去掉了占位，只做后端已经支持的操作。</p></div></div>
+    <div class="opts n2">
+    <figure class="opt" data-q="q15" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>要，先保留占位，等后端加上</b><span class="opt-from">需要后端新增</span></div>
+        <ul><li>Key 列表末尾的“新建 Key”，以及详情里的“停用 Key”“删除 Key”都画成虚线，并标“需后端新增”</li><li>点了会弹出“后端暂不支持”的说明，不会弹成功回执</li><li>后端加好之后：删除按已定规则放在 ··· 菜单最后并要确认；停用在回执里给“撤销”</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="要不要请后端加上“管理员替用户新建 / 停用 / 删除 Key”的功能？ · 选项 1" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%2C%22seg%22%3A%22keys%22%2C%22sheet%22%3A%7B%22kind%22%3A%22key%22%2C%22kid%22%3A101%7D%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%2C%22ueKeys%22%3A%22rows%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q15" data-o="1" data-label="要，先保留占位，等后端加上">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%2C%22seg%22%3A%22keys%22%2C%22sheet%22%3A%7B%22kind%22%3A%22key%22%2C%22kid%22%3A101%7D%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%2C%22ueKeys%22%3A%22rows%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q15" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>不要，手机端只做后端已有的</b><span class="opt-from">现有能力</span></div>
+        <ul><li>去掉三个占位，手机端对 Key 只能查看、换分组、重置速率限制</li><li>需要新建、停用、删除 Key 时到 Web 端操作</li><li>后端不需要改动</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="要不要请后端加上“管理员替用户新建 / 停用 / 删除 Key”的功能？ · 选项 2" data-src="main-r3.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%2C%22seg%22%3A%22keys%22%2C%22sheet%22%3A%7B%22kind%22%3A%22key%22%2C%22kid%22%3A101%7D%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%2C%22ueKeys%22%3A%22rows%22%2C%22ueKeyGap%22%3A%22hide%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q15" data-o="2" data-label="不要，手机端只做后端已有的">选这个</button><a target="_blank" data-href="main-r3.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%2C%7B%22kind%22%3A%22userEdit%22%2C%22id%22%3A1%2C%22seg%22%3A%22keys%22%2C%22sheet%22%3A%7B%22kind%22%3A%22key%22%2C%22kid%22%3A101%7D%7D%5D%2C%22v%22%3A%7B%22screen%3AuserEdit%22%3A%22tabs%22%2C%22screen%3AuserNew%22%3A%22tabs%22%2C%22ueKeys%22%3A%22rows%22%2C%22ueKeyGap%22%3A%22hide%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+<div class="summary"><h3>你的选择</h3><pre id="sum">还没选。每题点「选这个」，也可以不选、直接在对话里说想法。</pre><button id="copy">复制选择</button></div>
+<script>
+const KEY = 'sub2-deck-r3-new-screens';
+const picks = JSON.parse(localStorage.getItem(KEY) || '{}');
+const titles = {"q1":"统计分析页结构","q2":"更多图表组织","q3":"向导形式","q4":"OAuth 呈现","q5":"编辑页结构","q6":"凭据区呈现","q7":"分组列表","q8":"分组详情","q9":"管理模块模式","q10":"代理（跟随第 1 题）","q11":"公告（跟随第 1 题）","q12":"批量生成流程","q13":"用户编辑结构","q14":"Key 呈现","q15":"Key 新建 / 停用 / 删除"};
+function render() {
+  document.querySelectorAll('.opt').forEach(el => el.classList.toggle('picked', picks[el.dataset.q] && picks[el.dataset.q].o === el.dataset.o));
+  document.querySelectorAll('[data-pick]').forEach(el => { el.textContent = picks[el.dataset.pick] ? picks[el.dataset.pick].o : ''; });
+  const lines = Object.keys(titles).filter(k => picks[k]).map(k => titles[k] + '：选项 ' + picks[k].o + '（' + picks[k].label + '）');
+  document.getElementById('sum').textContent = lines.length ? lines.join('\n') : '还没选。每题点「选这个」，也可以不选、直接在对话里说想法。';
+}
+document.querySelectorAll('.pick').forEach(b => b.onclick = () => {
+  const cur = picks[b.dataset.q];
+  if (cur && cur.o === b.dataset.o) delete picks[b.dataset.q]; else picks[b.dataset.q] = { o: b.dataset.o, label: b.dataset.label };
+  localStorage.setItem(KEY, JSON.stringify(picks)); render();
+});
+document.getElementById('copy').onclick = () => navigator.clipboard && navigator.clipboard.writeText(document.getElementById('sum').textContent);
+function setTheme(t) {
+  document.body.classList.toggle('dark', t === 'dark');
+  document.querySelectorAll('.toggle button').forEach(b => b.classList.toggle('on', b.dataset.theme === t));
+  document.querySelectorAll('iframe').forEach(f => { f.src = f.dataset.src.replace('__THEME__', t); });
+  document.querySelectorAll('[data-href]').forEach(a => { a.href = a.dataset.href.replace('__THEME__', t); });
+}
+document.querySelectorAll('.toggle button').forEach(b => b.onclick = () => setTheme(b.dataset.theme));
+setTheme(new URLSearchParams(location.search).get('theme') || 'light');
+render();
+</script></body></html>

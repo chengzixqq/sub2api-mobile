@@ -1,0 +1,361 @@
+import Foundation
+import Testing
+@testable import Sub2Core
+
+// S5-07: 50 §2.2 告警横幅 and the 24-hour counts, §2.3 告警横幅 · 贰 · 叁 · 肆, §2.5 states, §2.6 refresh choices.
+
+private let shanghai = ServerTimeZone(identifier: "Asia/Shanghai", utcOffset: "+08:00")!
+private func time(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int, in zone: ServerTimeZone = shanghai) -> Date {
+    zone.calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute))!
+}
+private let now = time(2026, 10, 31, 9, 41)
+private let errorRule = AlertEventRule(id: 11, name: "标准组错误率", metricType: "error_rate", comparison: ">", threshold: 5, windowMinutes: 5)
+private func event(_ id: Int = 41, severity: String = "P1", status: String = "firing", rule: AlertEventRule? = errorRule,
+                   firedAt: Date? = time(2026, 10, 31, 9, 29)) -> AlertEvent {
+    AlertEvent(id: id, ruleID: 11, severity: severity, status: status, title: "P1: 标准组错误率", description: "error_rate 5.2 > 5", metricValue: 5.2,
+               thresholdValue: 5, groupID: 2, firedAt: firedAt, rule: rule, groupName: "标准组")
+}
+private func banner(_ event: AlertEvent?, now: Date = now, zone: ServerTimeZone = shanghai) -> GroupAlertBannerContent? {
+    GroupAlertBannerContent(event, now: now, timeZone: zone, latencyMetricsSupported: true)
+}
+private func group(_ id: Int = 1, status: String = "active", subscription: String = "standard", members: Int = 3, active: Int = 2,
+                   claudeCodeOnly: Bool? = false, fallback: Int? = nil, description: String? = "") -> AdminGroup {
+    AdminGroup(id: id, name: "分组 \(id)", description: description, platform: "anthropic", status: status, rateMultiplier: Decimal(string: "0.8"),
+               isExclusive: false, subscriptionType: subscription, dailyLimitUSD: 20, weeklyLimitUSD: 100, monthlyLimitUSD: nil, rpmLimit: 0,
+               accountCount: members, activeAccountCount: active, errorAccountCount: 0, idleAccountCount: members - active,
+               claudeCodeOnly: claudeCodeOnly, fallbackGroupID: fallback)
+}
+private func capacity(_ concurrency: (Int?, Int?), _ sessions: (Int?, Int?), _ rpm: (Int?, Int?)) -> GroupCapacitySummary {
+    GroupCapacitySummary(groupID: 1, concurrencyUsed: concurrency.0, concurrencyMax: concurrency.1, sessionsUsed: sessions.0, sessionsMax: sessions.1,
+                         rpmUsed: rpm.0, rpmMax: rpm.1)
+}
+private let stamp = Date(timeIntervalSince1970: 1_800_000_000)
+
+// MARK: 告警横幅
+
+@Test func bannerTitleJoinsSeverityStatusAndRuleTitle() throws {
+    let content = try #require(banner(event()))
+    #expect(content.title == "P1 告警中 · 标准组错误率 5.2%")
+    #expect(content.tone == .caution && content.eventID == 41)
+    #expect(banner(event(severity: ""))?.title == "告警中 · 标准组错误率 5.2%")
+    #expect(GroupAlertBannerContent.openTitle == "查看" && GroupAlertBannerContent.systemImage == "bell.fill")
+}
+
+@Test func bannerToneFollowsSeverityAndOnlyFiringShows() {
+    #expect(banner(event(severity: "P0"))?.tone == .critical)
+    #expect(banner(event(severity: "P2"))?.tone == .caution)
+    #expect(banner(event(severity: "P3"))?.tone == .neutral)
+    #expect(banner(event(status: "resolved")) == nil)
+    #expect(banner(event(status: AlertEvent.manualResolved)) == nil)
+    #expect(banner(nil) == nil)
+}
+
+@Test func bannerDetailWithRuleAndToday() {
+    #expect(banner(event())?.detail == "错误率 > 5.0%（5 分钟） · 09:29 起")
+}
+
+@Test func bannerDetailEarlierDayUsesMonthDayClock() {
+    #expect(banner(event(firedAt: time(2026, 10, 30, 21, 52)))?.detail == "错误率 > 5.0%（5 分钟） · 10/30 21:52 起")
+    #expect(banner(event(firedAt: time(2025, 12, 31, 23, 50)))?.detail == "错误率 > 5.0%（5 分钟） · 2025/12/31 23:50 起")
+    // 07:00 in Shanghai is the day before in UTC: the server's day decides.
+    let early = time(2026, 10, 31, 7, 0)
+    #expect(GroupAlertBannerContent.firedText(early, now: now, timeZone: shanghai) == "07:00 起")
+    let utc = ServerTimeZone(identifier: "UTC", utcOffset: "+00:00")!
+    #expect(GroupAlertBannerContent.firedText(early, now: now, timeZone: utc) == "10/30 23:00 起")
+    #expect(GroupAlertBannerContent.firedText(nil, now: now, timeZone: shanghai) == nil)
+}
+
+@Test func bannerDetailWithoutRuleIsTimeOnly() {
+    #expect(banner(event(rule: nil))?.detail == "09:29 起")
+    let noOperator = AlertEventRule(id: 11, name: "标准组错误率", metricType: "error_rate", comparison: " ", threshold: 5, windowMinutes: 5)
+    #expect(banner(event(rule: noOperator))?.detail == "09:29 起")
+    #expect(banner(event(rule: nil, firedAt: nil))?.detail == nil)
+}
+
+@Test func bannerKeepsLastEventOnFailedRefresh() {
+    let shown = event()
+    func shownEvent(_ state: BlockState<AlertEvent?>) -> AlertEvent? { GroupAlertBannerContent.shownEvent(state, opsKnownDisabled: false) }
+    #expect(shownEvent(.loaded(shown, at: stamp)) == shown)
+    #expect(shownEvent(.loaded(nil, at: stamp)) == nil)
+    #expect(shownEvent(.failed(reason: "x", previous: shown, at: stamp)) == shown)
+    #expect(shownEvent(.failed(reason: "x", previous: nil, at: nil)) == nil)
+    #expect(shownEvent(.loading(previous: shown, at: stamp)) == shown)
+    #expect(shownEvent(.idle) == nil)
+}
+
+/// 50 §2.5, S5D2a-15: once the session knows ops monitoring is off (another page turned it off, the 60-second refresh skips the
+/// read), the event read before leaves at once.
+@Test func bannerLeavesOnceOpsIsKnownOff() {
+    let shown = event()
+    for state: BlockState<AlertEvent?> in [.loaded(shown, at: stamp), .failed(reason: "x", previous: shown, at: stamp), .loading(previous: shown, at: stamp)] {
+        #expect(GroupAlertBannerContent.shownEvent(state, opsKnownDisabled: true) == nil)
+    }
+}
+
+// MARK: 2.6 刷新
+
+@Test func readsFollowTriggerPermissionsBackoffAndOps() {
+    let all: Set<GroupDetailBlock> = [.capacity, .usage, .todayUsage, .alert, .errorCounts]
+    func reads(_ trigger: GroupDetailTrigger, shows: Bool = true, opsOff: Bool = false, due: [GroupDetailBlock: Date] = [:],
+               unread: Set<GroupDetailBlock> = []) -> Set<GroupDetailBlock> {
+        GroupDetailSectionReads.reads(for: trigger, showsUsageAndCapacity: shows, opsKnownDisabled: opsOff, due: due, unread: unread, now: stamp)
+    }
+    #expect(GroupDetailSectionReads.blocks == all)
+    for trigger in [GroupDetailTrigger.enter, .pull, .foreground, .afterWrite] { #expect(reads(trigger) == all) }
+    #expect(reads(.poll) == [.capacity, .alert])
+    #expect(reads(.poll, opsOff: true) == [.capacity])
+    #expect(reads(.poll, due: [.capacity: stamp.addingTimeInterval(30)]) == [.alert])
+    #expect(reads(.poll, due: [.capacity: stamp.addingTimeInterval(-1)]) == [.capacity, .alert])
+    #expect(reads(.poll, unread: [.todayUsage, .stats]) == [.capacity, .alert, .todayUsage])
+    #expect(reads(.pull, opsOff: true, due: [.capacity: stamp.addingTimeInterval(30)]) == all)
+    #expect(reads(.enter, shows: false) == [.todayUsage, .alert, .errorCounts])
+    #expect(reads(.poll, shows: false) == [.alert])
+    #expect(reads(.membersWritten) == [.capacity])
+    #expect(reads(.alertReturn) == [.alert])
+    #expect(reads(.countdown).isEmpty)
+}
+
+@Test func listUsageIsReusedOnlyOnEnter() {
+    #expect(GroupDetailSectionReads.reusesListUsage(.enter))
+    for trigger in [GroupDetailTrigger.pull, .foreground, .afterWrite, .poll, .alertReturn, .membersWritten] {
+        #expect(!GroupDetailSectionReads.reusesListUsage(trigger))
+    }
+}
+
+// MARK: 贰 · 用量与容量
+
+@Test func usageFiguresFormatMoneyAndDash() {
+    let summary = GroupUsageSummary(groupID: 1, todayCost: Decimal(string: "933.3"), yesterdayCost: Decimal(string: "2985.6"),
+                                    totalCost: Decimal(string: "186420.55"))
+    let figures = GroupUsageFigures(summary)
+    #expect([figures.today, figures.yesterday, figures.total] == ["$933.30", "$2,985.60", "$186,420.55"])
+    #expect(figures.today == GroupFormat.todayValue(summary))
+    let missing = GroupUsageFigures(nil)
+    #expect([missing.today, missing.yesterday, missing.total] == ["—", "—", "—"])
+    let noTotal = GroupUsageFigures(GroupUsageSummary(groupID: 1, todayCost: 1, yesterdayCost: 2, totalCost: nil))
+    #expect([noTotal.today, noTotal.yesterday, noTotal.total] == ["$1.00", "$2.00", "—"])
+    #expect(GroupUsageFigures.title == "用量与容量" && GroupUsageFigures.ordinal == "贰" && GroupUsageFigures.meta == "按 Key 所属分组 · 00:00 切分")
+    #expect([GroupUsageFigures.todayTitle, GroupUsageFigures.yesterdayTitle, GroupUsageFigures.totalTitle] == ["今日", "昨日", "累计 · 全部时间"])
+}
+
+@Test func todayLineFormatsOrDashesTheWholeLine() {
+    let line = GroupTodayLine(GroupTodayUsage(requests: 10_194, totalTokens: 62_940_000, accountCost: Decimal(string: "370.27")))
+    #expect(line == .figures(requests: "10,194", tokens: "62.9M", accountCost: "$370.27"))
+    #expect(line.spoken == "请求 10,194，Tokens 62.9M，账号成本 $370.27")
+    #expect(GroupTodayLine(nil) == .missing && GroupTodayLine(nil).spoken == "无数据")
+    #expect(GroupTodayLine(GroupTodayUsage(requests: 1, totalTokens: 2, accountCost: nil)) == .figures(requests: "1", tokens: "2", accountCost: "—"))
+    #expect(GroupTodayLine(.zero) == .figures(requests: "0", tokens: "0", accountCost: "$0.00"))
+    #expect(GroupTodayLine.label == "今日用量")
+    #expect([GroupTodayLine.requestsTitle, GroupTodayLine.tokensTitle, GroupTodayLine.accountCostTitle] == ["请求", "Tokens", "账号成本"])
+}
+
+@Test func capacityRowsOnlyForPositiveMaxInSpecOrder() {
+    let full = GroupCapacityDisplay.rows(capacity((5, 8), (5, 6), (26, 120)))
+    #expect(full.map(\.id) == ["concurrency", "sessions", "rpm"])
+    #expect(full.map(\.title) == ["并发", "会话", "调度 RPM"])
+    #expect(full.map(\.readout) == ["5/8", "5/6", "26/120"])
+    #expect(GroupCapacityDisplay.rows(capacity((2, 8), (0, 0), (0, 0))).map(\.id) == ["concurrency"])
+    #expect(GroupCapacityDisplay.rows(capacity((nil, 8), (nil, nil), (nil, nil))).map(\.readout) == ["— / 8"])
+    #expect(GroupCapacityDisplay.rows(capacity((0, 0), (nil, nil), (3, 0))).isEmpty)
+    #expect(GroupCapacityDisplay.rows(nil).isEmpty)
+    #expect(GroupCapacityDisplay.title == "容量")
+}
+
+@Test func capacityEmptyNotesAndFailure() {
+    func make(_ state: BlockState<GroupCapacitySummary?>, _ group: AdminGroup) -> GroupCapacityDisplay {
+        GroupCapacityDisplay.make(state, group: group, buckets: GroupBuckets(group: group))
+    }
+    let zero = capacity((0, 0), (0, 0), (0, 0))
+    #expect(make(.loaded(nil, at: stamp), group(status: "inactive")) == .empty(note: "停用的分组不统计容量"))
+    #expect(make(.loaded(zero, at: stamp), group(members: 0, active: 0)) == .empty(note: "没有成员账号"))
+    #expect(make(.loaded(zero, at: stamp), group(members: 1, active: 0)) == .empty(note: "没有可调度的账号"))
+    #expect(make(.loaded(zero, at: stamp), group(members: 3, active: 2)) == .empty(note: "暂无容量数据"))
+    #expect(make(.failed(reason: "—", previous: nil, at: nil), group()) == .empty(note: nil))
+    #expect(make(.idle, group()) == .placeholder)
+    #expect(make(.loading(previous: nil, at: nil), group()) == .placeholder)
+    let kept = make(.failed(reason: "x", previous: capacity((5, 8), (0, 0), (0, 0)), at: stamp), group())
+    #expect(kept == .rows(GroupCapacityDisplay.rows(capacity((5, 8), (0, 0), (0, 0)))))
+}
+
+// MARK: 叁 · 记录与关联
+
+@Test func logCountTrailingCoversOpsAndFailure() {
+    func logCount(_ state: BlockState<GroupLogCount>) -> String? { GroupRecordValues.logCount(state, opsKnownDisabled: false) }
+    #expect(logCount(.loaded(.count(37), at: stamp)) == "近 24 小时 37 条")
+    #expect(logCount(.loaded(.count(1_234), at: stamp)) == "近 24 小时 1,234 条")
+    #expect(logCount(.loaded(.count(0), at: stamp)) == "近 24 小时 0 条")
+    #expect(logCount(.loaded(.opsDisabled, at: stamp)) == "运维监控未开启")
+    #expect(logCount(.failed(reason: "x", previous: nil, at: nil)) == "—")
+    #expect(logCount(.idle) == nil)
+    #expect(logCount(.loading(previous: nil, at: nil)) == nil)
+    #expect(logCount(.failed(reason: "x", previous: .count(37), at: stamp)) == "近 24 小时 37 条")
+}
+
+/// 50 §2.5: both rows say so while the session knows ops monitoring is off, whatever the last read counted.
+@Test func logCountSaysMonitoringOffOnceOpsIsKnownOff() {
+    for state: BlockState<GroupLogCount> in [.loaded(.count(37), at: stamp), .failed(reason: "x", previous: .count(9), at: stamp),
+                                             .failed(reason: "x", previous: nil, at: nil), .idle] {
+        #expect(GroupRecordValues.logCount(state, opsKnownDisabled: true) == "运维监控未开启")
+    }
+}
+
+@Test func opsDisabledIsOnly404WithReason() {
+    #expect(GroupLogCount.isOpsDisabled(APIError.server(status: 404, reason: "OPS_DISABLED")))
+    #expect(!GroupLogCount.isOpsDisabled(APIError.server(status: 404, reason: "GROUP_NOT_FOUND")))
+    #expect(!GroupLogCount.isOpsDisabled(APIError.server(status: 500, reason: nil)))
+    #expect(!GroupLogCount.isOpsDisabled(CancellationError()))
+}
+
+@Test func groupErrorCountQueryMatchesTheLogPage() throws {
+    for kind in ErrorLogKind.allCases {
+        let items = try AlertErrorCountQuery(kind: kind, groupID: 2).filter.queryItems(page: 1, errors: true, timeZone: shanghai)
+        let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        #expect(values["time_range"] == "24h" && values["group_id"] == "2" && values["page_size"] == "1" && values["view"] == "all")
+        #expect(values["start_time"] == nil && values["end_time"] == nil)
+    }
+}
+
+@Test func keysAndSubscriptionValues() {
+    let counts = GroupKeyCounts(totalAPIKeys: 38, activeAPIKeys: 36, subscriptionsTotal: 15, subscriptionsActive: 12)
+    #expect(GroupRecordValues.apiKeys(.loaded(counts, at: stamp)) == "38 个")
+    #expect(GroupRecordValues.apiKeys(.loaded(GroupKeyCounts(fallbackTotalAPIKeys: nil, activeSubscriptions: nil), at: stamp)) == "—")
+    #expect(GroupRecordValues.apiKeys(.failed(reason: "x", previous: nil, at: nil)) == "—")
+    #expect(GroupRecordValues.apiKeys(.loading(previous: nil, at: nil)) == nil)
+    #expect(GroupRecordValues.activeSubscriptions(.loaded(counts, at: stamp)) == "生效中 12 个")
+    #expect(GroupRecordValues.showsSubscriptions(group(subscription: "subscription")))
+    #expect(!GroupRecordValues.showsSubscriptions(group(subscription: "standard")))
+    #expect(GroupRecordValues.title == "记录与关联" && GroupRecordValues.ordinal == "叁")
+    #expect(GroupRecordRow.allCases.map(\.title) == ["错误请求", "上游错误", "使用记录", "API 密钥", "订阅"])
+}
+
+// MARK: 肆 · 配置
+
+@Test func configRowsKeepOnlyDescriptionInSimpleMode() {
+    let standard = GroupConfigDisplay.rows(group(), fallbackName: nil, showsBilling: true)
+    #expect(standard.map(\.kind) == [.rate, .billing, .rpm, .exclusive, .client, .fallback])
+    let subscription = GroupConfigDisplay.rows(group(subscription: "subscription"), fallbackName: nil, showsBilling: true)
+    #expect(subscription.suffix(3).map(\.kind) == [.dailyLimit, .weeklyLimit, .monthlyLimit])
+    #expect(GroupConfigDisplay.limitsSpoken(subscription) == "每日 $20，每周 $100，每月 无限制")
+    let claudeCode = GroupConfigDisplay.rows(group(claudeCodeOnly: true, fallback: 1), fallbackName: "高级组", showsBilling: true)
+    #expect(claudeCode.first { $0.kind == .fallback }?.value == "高级组")
+    #expect(claudeCode.first { $0.kind == .client }?.value == "仅限 Claude Code")
+    let rejecting = GroupConfigDisplay.rows(group(claudeCodeOnly: true), fallbackName: nil, showsBilling: true)
+    #expect(rejecting.first { $0.kind == .fallback }?.value == "直接拒绝")
+    #expect(standard.first { $0.kind == .fallback }?.value == "—")
+    #expect(GroupConfigDisplay.rows(group(description: "内部测试用"), fallbackName: nil, showsBilling: false).map(\.kind) == [.description])
+    #expect(GroupConfigDisplay.rows(group(), fallbackName: nil, showsBilling: false).isEmpty)
+    #expect(GroupConfigDisplay.title == "配置" && GroupConfigDisplay.ordinal == "肆" && GroupConfigDisplay.limitsTitle == "订阅限额 · 每个订阅")
+}
+
+@Test func webLinkOpensAdminGroups() {
+    #expect(GroupWebLink.url(siteRoot: URL(string: "https://sub2.example.com")!)?.absoluteString == "https://sub2.example.com/admin/groups")
+    #expect(GroupWebLink.url(siteRoot: URL(string: "https://sub2.example.com/")!)?.absoluteString == "https://sub2.example.com/admin/groups")
+    #expect(GroupWebLink.title == "模型白名单、组合路由、图片计费" && GroupWebLink.subtitle == "在 Web 中编辑")
+    #expect(GroupWebLink.openedReceipt == "已打开 Web 分组管理")
+}
+
+// MARK: U-11 刷新失败保留上次值（S5-高-3）
+
+private let failedRead = BlockRefresh().recordingFailure(APIError.server(status: 502, reason: nil), at: stamp)
+private let throttledRead = BlockRefresh().recordingFailure(APIError.server(status: 429, envelope: nil, retryAfter: 60), at: stamp)
+
+/// 贰 has one accessory for its three blocks: usage-summary, then dashboard/groups, then capacity. Only a value kept through a
+/// failed refresh counts; a first read that failed stays “—” and a refresh of a block that never failed shows nothing.
+@Test func staleBlockPicksFirstStale() {
+    let summary: GroupUsageSummary? = GroupUsageSummary(groupID: 1, todayCost: 1, yesterdayCost: 2, totalCost: 3)
+    let usageToday = GroupTodayUsage(requests: 1, totalTokens: 2, accountCost: 3)
+    let lines: GroupCapacitySummary? = capacity((5, 8), (0, 0), (0, 0))
+    let fresh = BlockRefresh()
+    func stale(usage: (BlockState<GroupUsageSummary?>, BlockRefresh) = (.idle, BlockRefresh()),
+               today: (BlockState<GroupTodayUsage>, BlockRefresh) = (.idle, BlockRefresh()),
+               capacity: (BlockState<GroupCapacitySummary?>, BlockRefresh) = (.idle, BlockRefresh())) -> GroupDetailBlock? {
+        GroupDetailSectionsPresentation.staleBlock(usage: usage, today: today, capacity: capacity)
+    }
+    #expect(stale() == nil)
+    #expect(stale(usage: (.failed(reason: "x", previous: summary, at: stamp), failedRead)) == .usage)
+    #expect(stale(usage: (.failed(reason: "x", previous: .some(nil), at: stamp), failedRead)) == .usage)
+    #expect(stale(usage: (.failed(reason: "x", previous: nil, at: nil), failedRead)) == nil)
+    #expect(stale(usage: (.loaded(summary, at: stamp), fresh)) == nil)
+    #expect(stale(usage: (.loading(previous: summary, at: stamp), fresh)) == nil)
+    #expect(stale(today: (.failed(reason: "x", previous: usageToday, at: stamp), failedRead)) == .todayUsage)
+    #expect(stale(today: (.failed(reason: "x", previous: nil, at: nil), failedRead)) == nil)
+    #expect(stale(today: (.loaded(usageToday, at: stamp), fresh)) == nil)
+    #expect(stale(capacity: (.failed(reason: "x", previous: lines, at: stamp), failedRead)) == .capacity)
+    #expect(stale(capacity: (.failed(reason: "x", previous: nil, at: nil), failedRead)) == nil)
+    #expect(stale(capacity: (.loaded(lines, at: stamp), fresh)) == nil)
+    #expect(stale(usage: (.failed(reason: "x", previous: summary, at: stamp), failedRead),
+                  capacity: (.failed(reason: "x", previous: lines, at: stamp), failedRead)) == .usage)
+    #expect(stale(today: (.failed(reason: "x", previous: usageToday, at: stamp), failedRead),
+                  capacity: (.failed(reason: "x", previous: lines, at: stamp), failedRead)) == .todayUsage)
+    #expect(stale(usage: (.failed(reason: "x", previous: nil, at: nil), failedRead), today: (.loaded(usageToday, at: stamp), fresh),
+                  capacity: (.failed(reason: "x", previous: lines, at: stamp), failedRead)) == .capacity)
+}
+
+/// U-11 review: 贰's accessory stays while its stale block is read again (正在刷新) and after a read the page cancelled (the
+/// state went back to the kept value); only a read that works clears it. During a 429 wait it counts down.
+@Test func staleUsageStaysThroughARetryUntilAReadWorks() {
+    let usageToday = GroupTodayUsage(requests: 1, totalTokens: 2, accountCost: 3)
+    let kept = BlockState<GroupTodayUsage>.loaded(usageToday, at: stamp).withLoading().withFailure("x")
+    func stale(_ today: BlockState<GroupTodayUsage>, _ refresh: BlockRefresh) -> GroupDetailBlock? {
+        GroupDetailSectionsPresentation.staleBlock(usage: (BlockState<GroupUsageSummary?>.idle, BlockRefresh()), today: (today, refresh),
+                                                   capacity: (BlockState<GroupCapacitySummary?>.idle, BlockRefresh()))
+    }
+    #expect(stale(kept, failedRead) == .todayUsage)
+    #expect(stale(kept.withLoading(), failedRead) == .todayUsage)
+    #expect(stale(kept.withLoading().withCancelledLoad(), failedRead) == .todayUsage)
+    #expect(stale(.loaded(usageToday, at: stamp), failedRead.recordingSuccess()) == nil)
+    func accessory(_ state: BlockState<GroupTodayUsage>, _ refresh: BlockRefresh) -> BlockStatusPresentation.Accessory {
+        BlockStatusPresentation.accessory(for: GroupDetailSectionsPresentation.accessoryState(state, refresh: refresh), refresh: refresh, at: stamp)
+    }
+    #expect(accessory(kept, failedRead) == .updateFailed)
+    #expect(accessory(kept.withLoading(), failedRead) == .refreshing)
+    #expect(accessory(kept.withLoading().withCancelledLoad(), failedRead) == .updateFailed)
+    #expect(accessory(kept, throttledRead) == .throttled("请求过于频繁，60 秒后自动重试"))
+    #expect(accessory(.loaded(usageToday, at: stamp), BlockRefresh()) == .none)
+}
+
+/// 00 §2.7.2 / S1D1-20: after a 429 a block the 60-second refresh reads waits for it; usage-summary and dashboard/groups, which it
+/// leaves out, read again by themselves.
+@Test func onlyBlocksLeftOutOfPollingResendAfterAWait() {
+    #expect(GroupDetailSectionsPresentation.resendsAfterWait(.usage))
+    #expect(GroupDetailSectionsPresentation.resendsAfterWait(.todayUsage))
+    #expect(!GroupDetailSectionsPresentation.resendsAfterWait(.capacity))
+    #expect(!GroupDetailSectionsPresentation.resendsAfterWait(.alert))
+}
+
+/// The strip under the banner: only for an event kept through a failed refresh, not for “no event” kept nor a refresh of a banner
+/// that never failed.
+@Test func alertStripOnlyForAKeptEvent() {
+    let shown = event()
+    func isStale(_ state: BlockState<AlertEvent?>, _ refresh: BlockRefresh = failedRead) -> Bool {
+        GroupDetailSectionsPresentation.alertIsStale(state, refresh: refresh)
+    }
+    #expect(isStale(.failed(reason: "x", previous: shown, at: stamp)))
+    #expect(!isStale(.failed(reason: "x", previous: .some(nil), at: stamp)))
+    #expect(!isStale(.failed(reason: "x", previous: nil, at: nil)))
+    #expect(!isStale(.loaded(shown, at: stamp), BlockRefresh()))
+    #expect(!isStale(.loading(previous: shown, at: stamp), BlockRefresh()))
+    #expect(!isStale(.idle))
+    #expect(GroupDetailSectionsPresentation.alertStaleTitle == "告警更新失败 · 重试")
+}
+
+/// U-11 review: the strip stays while the banner is read again (a spinner, no tap) and after a read the page cancelled; a 429
+/// wait counts down without a tap (00 §2.7.2) and the 60-second refresh reads after it.
+@Test func alertStripStaysThroughARetryAndCountsDownA429() {
+    let shown = event()
+    let kept = BlockState<AlertEvent?>.failed(reason: "x", previous: shown, at: stamp)
+    #expect(GroupDetailSectionsPresentation.alertIsStale(kept.withLoading(), refresh: failedRead))
+    #expect(GroupDetailSectionsPresentation.alertIsStale(kept.withLoading().withCancelledLoad(), refresh: failedRead))
+    #expect(!GroupDetailSectionsPresentation.alertIsStale(.loaded(shown, at: stamp), refresh: failedRead.recordingSuccess()))
+    func status(_ state: BlockState<AlertEvent?>, _ refresh: BlockRefresh, at time: Date = stamp) -> BlockStatusPresentation.Accessory {
+        GroupDetailSectionsPresentation.alertStripStatus(state, refresh: refresh, at: time)
+    }
+    #expect(status(kept, failedRead) == .updateFailed)
+    #expect(status(kept.withLoading(), failedRead) == .refreshing)
+    #expect(status(kept.withLoading().withCancelledLoad(), failedRead) == .updateFailed)
+    #expect(status(kept, throttledRead) == .throttled("请求过于频繁，60 秒后自动重试"))
+    #expect(status(kept, throttledRead, at: stamp.addingTimeInterval(60)) == .updateFailed)
+    #expect(GroupDetailSectionsPresentation.alertStripTitle(.throttled("请求过于频繁，60 秒后自动重试")) == "请求过于频繁，60 秒后自动重试")
+    #expect(GroupDetailSectionsPresentation.alertStripTitle(.refreshing) == "告警更新失败 · 重试")
+    #expect(GroupDetailSectionsPresentation.alertStripTitle(.updateFailed) == "告警更新失败 · 重试")
+}

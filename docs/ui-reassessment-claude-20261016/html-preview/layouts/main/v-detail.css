@@ -1,0 +1,118 @@
+/* 第 2 轮 · 账号详情变体（v-detail）：底部玻璃工具栏、卡内主按钮 + ⋯ 菜单、分段、折叠分区，以及三种摆法共用的新区块
+   （上游用量窗口、每小时扣费、最近请求、定时测试、可用模型）。全部挂在 .lay-main 下；文末是外观变体 vis-soft / vis-mid 的对应覆盖。 */
+
+.lay-main .vd { position: absolute; inset: 0; }
+
+/* status card extras */
+.lay-main .vd-hero-note { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 14px; color: var(--ink2); }
+.lay-main .vd-quiet { min-height: 60px; }
+.lay-main .vd-quiet-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* in-card primary action ("menu" mode) */
+.lay-main .vd-cta { position: relative; margin-top: 16px; width: 100%; height: 48px; border-radius: var(--btn-radius, 10px); background: var(--accent-fill); color: var(--on-accent); display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.lay-main .vd-cta:hover { filter: brightness(1.06); }
+.lay-main .vd-cta:active { filter: brightness(.94); }
+.lay-main .vd-cta-s { margin: 0 0 0 auto; width: auto; height: 38px; padding: 0 14px; font-size: 14.5px; flex: none; }
+.lay-main .vd-cta-s::after { content: ''; position: absolute; inset: -4px -2px; }
+.lay-main .vd-cta.is-plain { background: var(--btn-bg); color: var(--btn-ink); border: 1px solid var(--hairline); }
+.lay-main .vd-cta.is-plain svg { color: var(--accent); }
+
+/* nav ⋯ button + pull-down menu */
+.lay-main .vd-more.on { background: var(--accent-wash); color: var(--accent); border-color: transparent; }
+.lay-main .vd-menu-layer { z-index: 45; }
+.lay-main .vd-menu { position: absolute; top: 104px; right: 12px; width: 252px; border-radius: 24px; padding: 6px; transform-origin: top right; animation: vd-pop .2s cubic-bezier(.2, .9, .3, 1.1);
+  background: color-mix(in srgb, var(--surface) 90%, transparent); -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8); box-shadow: 0 14px 44px rgba(15, 25, 30, .22), 0 0 0 1px var(--hairline); border: 0; }
+.lay-main.dark .vd-menu { background: color-mix(in srgb, var(--sunken) 92%, transparent); box-shadow: 0 16px 48px rgba(0, 0, 0, .6), 0 0 0 1px var(--hairline); }
+@keyframes vd-pop { from { opacity: 0; transform: scale(.9); } }
+.lay-main .vd-mi { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-radius: 16px; font-size: 16px; color: var(--ink1); text-align: left; }
+.lay-main .vd-mi svg { color: var(--ink1); }
+.lay-main .vd-mi:hover { background: var(--hover); }
+.lay-main .vd-mi-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lay-main .vd-mi-label small { font-size: 12.5px; color: var(--ink2); }
+.lay-main .vd-menu-sep { height: 1px; margin: 5px 14px; background: var(--hairline); }
+
+/* bottom glass toolbar ("toolbar" mode): the tab bar steps aside on this screen. No dividers inside the group —
+   iOS 26 bottomBar groups draw none either. */
+.lay-main:has(.vd-hide-tabs) > .tabbar { display: none; }
+.lay-main .vd-edge { position: absolute; left: 0; right: 0; bottom: 0; height: 120px; z-index: 21; pointer-events: none; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--canvas) 88%, transparent) 70%); }
+.lay-main .vd-toolbar { position: absolute; left: 16px; right: 16px; bottom: 26px; z-index: 22; display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
+.lay-main .vd-tb-group { pointer-events: auto; height: 56px; border-radius: 28px; display: flex; align-items: center; padding: 0 5px; gap: 0; }
+.lay-main .vd-tb-btn { height: 46px; padding: 0 13px; border-radius: 23px; display: inline-flex; align-items: center; gap: 6px; font-size: 15.5px; font-weight: 600; color: var(--ink1); white-space: nowrap; }
+.lay-main .vd-tb-btn:hover { background: var(--hover); }
+.lay-main .vd-tb-prim { pointer-events: auto; height: 56px; padding: 0 22px; border-radius: 28px; background: var(--accent-fill); color: var(--on-accent); display: inline-flex; align-items: center; gap: 7px; font-size: 16px; font-weight: 600; white-space: nowrap; box-shadow: 0 6px 20px rgba(11, 110, 133, .28), inset 0 1px 0 rgba(255, 255, 255, .22); }
+.lay-main .vd-tb-prim:hover { filter: brightness(1.06); }
+.lay-main.dark .vd-tb-prim { box-shadow: 0 8px 24px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .14); }
+
+/* segmented groups ("seg" mode): the control pins under the nav; every tab keeps at least a screen of room
+   (100% = the scroll box minus its tab-bar padding) so switching while pinned does not jump. */
+.lay-main .vd-seg-anchor { height: 0; }
+.lay-main .vd-info-seg .detail-head { padding-bottom: 10px; }
+.lay-main .vd-segbar { position: sticky; top: 0; z-index: 3; padding: 6px 16px 12px; margin: 0 0 4px; background: var(--canvas); transition: box-shadow .2s; }
+.lay-main .vd-segbar.is-pinned { box-shadow: 0 1px 0 var(--hairline); }
+.lay-main .vd-segbar .seg-item { font-size: 14.5px; }
+.lay-main .vd-panel { min-height: calc(100% - 50px); animation: vd-fade .18s ease-out; }
+@keyframes vd-fade { from { opacity: 0; transform: translateY(4px); } }
+
+/* collapsible groups ("fold" mode) */
+.lay-main .vd-folds { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
+.lay-main .vd-fold { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--panel-radius); overflow: hidden; }
+.lay-main .vd-fold-head { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 9px 14px; text-align: left; }
+.lay-main .vd-fold-head:hover { background: var(--hover-row); }
+.lay-main .vd-fold-ico { width: 34px; height: 34px; border-radius: 9px; background: var(--sunken); color: var(--ink2); display: flex; align-items: center; justify-content: center; flex: none; }
+.lay-main .vd-fold.open .vd-fold-ico { background: var(--accent-wash); color: var(--accent); }
+.lay-main .vd-fold-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lay-main .vd-fold-title { font-size: 16px; font-weight: 600; color: var(--ink1); }
+.lay-main .vd-fold-sum { font-size: 13.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: inherit; }
+.lay-main .vd-fold-chev { color: var(--ink3); display: flex; transition: transform .2s ease; }
+.lay-main .vd-fold.open .vd-fold-chev { transform: rotate(90deg); }
+.lay-main .vd-fold-body { border-top: 1px solid var(--hairline); animation: vd-fade .18s ease-out; }
+.lay-main .vd-fold-block + .vd-fold-block { border-top: 1px solid var(--hairline); }
+.lay-main .vd-sub { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px 0; }
+.lay-main .vd-sub b { font-size: 13.5px; font-weight: 600; color: var(--ink2); }
+.lay-main .vd-sub span { margin-left: auto; font-size: 12.5px; color: var(--ink3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* shared blocks */
+.lay-main .vd-bars-wrap { padding: 12px 16px 8px; }
+.lay-main .vd-bars { display: block; }
+.lay-main .vd-bars .chart-axis { font-size: 12px; }
+.lay-main .vd-reset { min-width: 60px; text-align: right; font-size: 12px; }
+.lay-main .vd-empty { display: flex; flex-direction: column; gap: 2px; }
+.lay-main .vd-empty small { font-size: 12.5px; color: var(--ink3); }
+.lay-main .vd-test { display: flex; align-items: center; gap: 10px; min-height: 46px; font-size: 14.5px; }
+.lay-main .vd-test + .vd-test { border-top: 1px solid var(--hairline-soft, var(--hairline)); }
+.lay-main .vd-test-ico { color: var(--tone-ink); display: flex; }
+.lay-main .vd-test-t { width: 42px; flex: none; font-size: 13.5px; font-weight: 600; color: var(--ink1); }
+.lay-main .vd-test-msg { flex: 1; min-width: 0; color: var(--ink1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lay-main .vd-test-msg.mono { font-size: 13px; }
+.lay-main .vd-test-ms { flex: none; font-size: 13.5px; color: var(--ink2); }
+.lay-main .vd-models { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; padding-bottom: 12px; }
+.lay-main .vd-model { display: inline-flex; align-items: baseline; gap: 6px; padding: 6px 10px; border-radius: 8px; background: var(--sunken); font-size: 13.5px; color: var(--ink1); }
+.lay-main .vd-model.is-limited { background: var(--model-wash); color: var(--model-ink); }
+.lay-main .vd-model small { font-size: 12px; }
+
+/* ---------- appearance variants (v-vis): give the new parts the same radii / lift as the rest of the app ---------- */
+
+.lay-main.vis-soft .vd-cta { border-radius: 24px; box-shadow: var(--vs-primary, 0 6px 16px rgba(11, 110, 133, .24)); }
+.lay-main.vis-soft.dark .vd-cta { box-shadow: none; }
+.lay-main.vis-soft .vd-cta.is-plain { border: 0; background: var(--sunken); box-shadow: none; }
+.lay-main.vis-soft .vd-menu { border-radius: 26px; }
+.lay-main.vis-soft .vd-mi { border-radius: 18px; }
+.lay-main.vis-soft .vd-segbar { padding-top: 8px; }
+.lay-main.vis-soft .vd-folds { gap: 14px; }
+.lay-main.vis-soft .vd-fold { border: 0; border-radius: 22px; box-shadow: var(--vs-card, 0 1px 2px rgba(20, 24, 27, .05), 0 8px 22px rgba(20, 24, 27, .06)); }
+.lay-main.vis-soft.dark .vd-fold { box-shadow: var(--vs-card, inset 0 0 0 1px rgba(255, 255, 255, .065)); }
+.lay-main.vis-soft .vd-fold-head { min-height: 64px; padding: 10px 16px; }
+.lay-main.vis-soft .vd-fold-ico { border-radius: 10px; }
+.lay-main.vis-soft .vd-fold-body,
+.lay-main.vis-soft .vd-fold-block + .vd-fold-block { border-top-style: dashed; }
+.lay-main.vis-soft .vd-model { border-radius: 14px; padding: 6px 12px; }
+
+.lay-main.vis-mid .vd-cta { border-radius: 14px; }
+.lay-main.vis-mid .vd-cta.is-plain { border: 0; background: var(--sunken); }
+.lay-main.vis-mid .vd-menu { border-radius: 20px; }
+.lay-main.vis-mid .vd-mi { border-radius: 14px; }
+.lay-main.vis-mid .vd-fold { border: 0; border-radius: 18px; box-shadow: var(--vm-lift, 0 1px 2px rgba(20, 24, 27, .05), 0 1px 1px rgba(20, 24, 27, .03)); }
+.lay-main.vis-mid.dark .vd-fold { box-shadow: none; }
+.lay-main.vis-mid .vd-fold-body,
+.lay-main.vis-mid .vd-fold-block + .vd-fold-block { border-top-color: color-mix(in srgb, var(--hairline) 70%, transparent); }
+.lay-main.vis-mid .vd-model { border-radius: 11px; }

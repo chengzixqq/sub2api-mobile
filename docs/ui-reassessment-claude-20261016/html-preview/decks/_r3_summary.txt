@@ -1,0 +1,117 @@
+== v-analytics 统计分析 | questions: 2
+   Q 统计分析页结构 | 统计分析页用哪种结构？ | opts: ['卡片流：B 式卡片，一路往下滚', '分段：顶部五段切换', '报表式：日期步进 + 指标格 + 折叠区']
+      - 卡片流：B 式卡片，一路往下滚: {"tab": "today", "stack": [{"kind": "analytics"}]}
+      - 分段：顶部五段切换: {"tab": "today", "stack": [{"kind": "analytics"}], "v": {"screen:analytics": "tabs"}}
+      - 报表式：日期步进 + 指标格 + 折叠区: {"tab": "today", "stack": [{"kind": "analytics"}], "v": {"screen:analytics": "report"}}
+   Q 更多图表组织 | “更多图表”二级页怎么组织？ | opts: ['按主题分组的长列表', '单图全屏 + 左右翻页', '图表目录网格']
+      - 按主题分组的长列表: {"tab": "today", "stack": [{"kind": "analytics"}, {"kind": "analyticsMore"}]}
+      - 单图全屏 + 左右翻页: {"tab": "today", "stack": [{"kind": "analytics"}, {"kind": "analyticsMore"}], "v": {"screen:analyticsMore": "pager"}}
+      - 图表目录网格: {"tab": "today", "stack": [{"kind": "analytics"}, {"kind": "analyticsMore"}], "v": {"screen:analyticsMore": "catalog"}}
+   ISSUE 504 的颜色：走查要求 504 用红色，但共享的状态码徽章（shared/skin-base.jsx 的 BaseCode）把 429 和 504 都画成琥珀色。为了让同一行的徽章和柱子同色，错误分布里 504 仍是琥珀色，529 已改红。要统一，得由主线修改 BaseCode；core 的 logTone 还把 529 的日志行标成了琥珀色，也需要一起处理。
+   ISSUE 演示数据本身有矛盾：DEMO.server.qps = 3.5（约等于 RPM 212），而按营收推出的每小时请求只有约 1.3 QPS。现在已标成“当前 · 1 分钟 / 峰值 · 1 分钟”并加了说明，但数字差距还是很大。另外，后端在 24 小时以内的吞吐和错误趋势是 5 分钟一桶，原型画的是每小时。
+   ISSUE 第三类分类用的横纹，在 Swift Charts 里没有现成的图案填充，需要用 ImagePaint 或自己绘制；如果做不到，可以退回“描边 + 透明度”的区分方式。
+   ISSUE 自定义月历在 HTML 里画了开始到结束之间的区间底色，但 SwiftUI 的 DatePicker(.graphical) 一次只能选一天，也不显示区间。原生实现要么接受开始、结束各选一次，要么自己画日历。
+   ISSUE 模型页“这个模型的使用记录”用的是本文件里复制的一份 LogsScreen（screen:analyticsLogs），因为 00-core 不能改。合成时应该把 model 筛选并进 core 的 LogsScreen，删掉这份副本。
+   ISSUE 按分组筛选用户排行时，演示数据是按用户的 group 字段过滤后再归一化的；真实的 users-ranking?group_id= 是按 Key 所属分组统计，同一个用户可能出现在多个分组里。
+   ISSUE 范围不含今天时（过去的整段），“当前 QPS / TPS”显示“—”；后端 overview 对任意范围都会算一个“最近 1 分钟”，这里的口径要主线确认。
+   ISSUE “运维监控未开启”的提示写的是“在 Web 设置中开启”，Web 端的具体菜单路径没有核对。
+   ISSUE 演示的日序列只有 200 天，报表式往前翻最早到 4 月；更早的对比（例如“比 3 月”）会显示“—”。
+== v-account-new 新建账号向导 | questions: 2
+   Q 向导形式 | 新建账号用哪种向导形式？ | opts: ['① 分步全屏', '② 单页长表单', '③ 卡片式分页 sheet']
+      - ① 分步全屏: {"tab": "accounts", "stack": [{"kind": "accountNew"}], "v": {"screen:accountNew": "base"}}
+      - ② 单页长表单: {"tab": "accounts", "stack": [{"kind": "accountNew"}], "v": {"screen:accountNew": "form"}}
+      - ③ 卡片式分页 sheet: {"tab": "accounts", "stack": [{"kind": "accountNew"}], "v": {"screen:accountNew": "cards"}}
+   Q OAuth 呈现 | OAuth 授权步骤怎么呈现？ | opts: ['三步清单', '单卡聚焦']
+      - 三步清单: {"tab": "accounts", "stack": [{"kind": "accountNew", "step": "cred", "draft": {"platform": "anthropic", "type": "claude_code"}}], "v": {"screen:accountNew": "base", "anOauth": "list"}}
+      - 单卡聚焦: {"tab": "accounts", "stack": [{"kind": "accountNew", "step": "cred", "draft": {"platform": "anthropic", "type": "claude_code"}}], "v": {"screen:accountNew": "base", "anOauth": "focus"}}
+   ISSUE ③卡片式和①分步全屏仍是同样 5 步、线性推进，第 3–5 步的内容共用。走查提的“每张卡完成后收成摘要卡叠起来”没有做，③的区分度仍是中等。
+   ISSUE 测试结束后自动滚动到结果区时，长表单 sheet 和卡片里的“进度”标题仍会滚出可视区。现在只是加了顶部渐隐，不会再被切成半截。
+   ISSUE localhost 回调用 NWListener 自动接收是推荐方案，原型只是模拟。需要真机验证：SFSafariViewController 跳到 localhost 时 App 能不能收到回调（localhost 可能解析到 ::1，要同时监听 IPv4 和 IPv6），端口被占用时能不能正确退回“分享 → 拷贝 → 粘贴”。
+   ISSUE “后台继续”在原型里用定时器模拟结果通知。真实实现要由 App 级的 Task 持有 SSE 流；离开页面后测试没通过，账号会保持暂停调度，只能靠通知或在账号详情里处理。
+   ISSUE 删除账号沿用 core 的 confirmDelete。原型里不会真的删除，账号 #21 仍会留在列表里。
+   ISSUE 部分演示数据只做了最小集合：GET :id/models 的模型列表是虚拟数据；OpenCode、Command Code、Cline 的协议和端点预设只按后端常量列了 Chat Completions。Command Code 是否支持选具体协议、OpenCode 有没有 Anthropic 端点都没有核实。
+   ISSUE Antigravity 关掉“在 /v1/messages 中使用”时，会直接移除已选的 Anthropic / Gemini 分组，没有提示。
+   ISSUE 自选过期时间用 HTML 的 date / time 输入代替 SwiftUI DatePicker，外观和 iOS 不完全一致。
+   ISSUE v-account-new.jsx 现在有 1827 行，超过 800 行的建议上限。这次任务限定只改这一个文件，所以没有拆分。
+== v-account-edit 编辑账号（完整，含凭据） | questions: 2
+   Q 编辑页结构 | 编辑账号用哪种结构？ | opts: ['① 分组表单', '② 分段编辑', '③ 详情页内联编辑']
+      - ① 分组表单: {"tab": "accounts", "stack": [{"kind": "account", "id": 3}, {"kind": "accountEdit", "id": 3, "preset": "dirty"}], "v": {"screen:accountEdit": "base"}}
+      - ② 分段编辑: {"tab": "accounts", "stack": [{"kind": "account", "id": 3}, {"kind": "accountEdit", "id": 3, "preset": "dirty", "focus": "sched"}], "v": {"screen:accountEdit": "seg"}}
+      - ③ 详情页内联编辑: {"tab": "accounts", "stack": [{"kind": "accountEdit", "id": 3}], "v": {"screen:accountEdit": "inline"}}
+   Q 凭据区呈现 | （只在选了 ① 或 ② 时有效）凭据区怎么呈现？ | opts: ['A 表单行', 'B 状态卡', 'C 独立凭据页']
+      - A 表单行: {"tab": "accounts", "stack": [{"kind": "account", "id": 7}, {"kind": "accountEdit", "id": 7, "focus": "cred"}], "v": {"screen:accountEdit": "base", "aeCred": "row"}}
+      - B 状态卡: {"tab": "accounts", "stack": [{"kind": "account", "id": 7}, {"kind": "accountEdit", "id": 7, "focus": "cred"}], "v": {"screen:accountEdit": "base", "aeCred": "card"}}
+      - C 独立凭据页: {"tab": "accounts", "stack": [{"kind": "account", "id": 7}, {"kind": "accountEdit", "id": 7, "focus": "cred"}], "v": {"screen:accountEdit": "base", "aeCred": "page"}}
+   ISSUE 回执上的“测试”按钮是借用 core Toast 的“撤销”按钮，再用 CSS（.ae-toast-test）把文字换成“测试”，因为 core Toast 只支持撤销。读屏读到的仍是“撤销”。合进 main 后，最好让 core Toast 支持自定义动作。
+   ISSUE 原型同一时间只挂载栈顶页面，所以 C 凭据页和编辑页之间的草稿（未保存改动、已立即执行的操作、已更换标记、令牌到期时间）暂存在演示账号对象的 aeDraft / aeDid / aeKeyReplaced / aeTokenAt 字段上。真机用同一个 @Observable 编辑模型就行。
+   ISSUE 后端没有单独的“错误发生时间”字段。卡片上的“6 分钟前”按 updated_at 近似，但之后任何一次编辑也会刷新这个时间。实现时要定下数据源：继续用 updated_at，或者改查该账号最近一条上游错误日志的时间。
+   ISSUE “在 Web 中编辑”的项数（Claude OAuth 12、OpenAI Key 8、国产厂商 Key 6、其他 Key 5、其他 OAuth 3）是按 EditAccountModal.vue 的分区数出来的，Web 改版后可能对不上。实现时以 Web 为准，或者干脆不写数字。
+   ISSUE ①② 在原型里还是推进页加“取消 / 保存”，不是模态 sheet；下滑关闭时的确认只写在说明里，原型没有演示。
+   ISSUE 为了让演示数据（同一个分组里有多个平台的账号）说得通，把“标准组”“默认组”设成了 composite 组合分组；“默认组”另外被设定为含有 Antigravity 账号，用来触发 409。分组详情页如果有自己的演示数据，合并时要统一。
+   ISSUE 自定义过期时间的日历把 2026-10-16 当作“今天”，时区固定写 Asia/Shanghai（UTC+8），时间用文本框输入；真机用 DatePicker(.graphical) 和设备时区。刷新或重新授权后令牌“+8 小时到期”也只是演示值。
+   ISSUE v-account-edit.jsx 现在 1534 行，超过 800 行的建议上限。任务限定只能改这两个文件，所以没有拆分。
+== v-groups 分组（列表 + 详情 + 编辑） | questions: 2
+   Q 分组列表 | 分组列表用哪种布局？ | opts: ['A · 三行列表', 'B · 健康网格', 'C · 表格']
+      - A · 三行列表: {"tab": "search", "stack": [{"kind": "groups"}], "v": {"screen:groups": "base", "screen:group": "base"}}
+      - B · 健康网格: {"tab": "search", "stack": [{"kind": "groups"}], "v": {"screen:groups": "grid", "screen:group": "base"}}
+      - C · 表格: {"tab": "search", "stack": [{"kind": "groups"}], "v": {"screen:groups": "table", "screen:group": "base"}}
+   Q 分组详情 | 分组详情用哪种布局？ | opts: ['A · 状态卡 + 成员列表', 'B · 大环 + 磁贴', 'C · 状态条 + 成员表']
+      - A · 状态卡 + 成员列表: {"tab": "search", "stack": [{"kind": "groups"}, {"kind": "group", "id": 2}], "v": {"screen:groups": "base", "screen:group": "base"}}
+      - B · 大环 + 磁贴: {"tab": "search", "stack": [{"kind": "groups"}, {"kind": "group", "id": 2}], "v": {"screen:groups": "base", "screen:group": "ring"}}
+      - C · 状态条 + 成员表: {"tab": "search", "stack": [{"kind": "groups"}, {"kind": "group", "id": 2}], "v": {"screen:groups": "base", "screen:group": "table"}}
+   ISSUE 演示数据口径冲突：统计页 AX_GROUPS（v-analytics）的分组今日合计 1284.50，等于首页今日；但 DEMO 的 11 个账号今日合计只有 353.51，两者不可能同时满足“分组今日 ≤ 成员之和”。分组页改为按成员拆分（高级组 193.99、标准组 77.35、默认组 12.40、企业专线 0、Claude Code 组 52.75、测试组 0），所以从“分组排行”点进分组详情时，两边今日数字对不上。合成 main.html 时需要主线统一共享演示数据或统计页数字。
+   ISSUE 成员覆盖：GV_MEMBERSHIP 把 智谱 GLM / MiniMax / Kimi 账号移出了标准组、默认组（因为平台不符）。共享 DEMO 仍把 GLM 的 504 错误日志记在标准组，所以 core 的请求详情里那条日志仍显示“标准组”；分组记录按成员规则排除了它，于是标准组显示“错误请求 0 条、上游错误 1 条”，和告警“标准组错误率 5.2%”的叙事不完全对应。另外，这几个账号的账号详情要在本台手机打开过分组页之后才会显示“未分组”。
+   ISSUE core 的 LogsScreen 还不支持按分组过滤，所以按分组看日志是 v-groups 自带的 screen:groupLogs。合入主线时建议给 LogsScreen 加 route.group 的胶囊筛选，再改回 {kind:'logs', group}。
+   ISSUE API 密钥（groups/:id/api-keys）和订阅（groups/:id/subscriptions）的下钻页只是带标题的占位页，下一轮再出对比。
+   ISSUE 批量加入 / 移出在原型里总是全部成功：失败回执“已加入 n 个，m 个失败 ›”和逐项结果页只写在 gvBatchText 和注释里，没有演示。
+   ISSUE 滑动操作（A 列表左滑停用 / 编辑、右滑添加账号；A 详情成员行左滑恢复 / 移出）只写在选项说明里，HTML 原型没有实现。长按菜单用 contextmenu 事件模拟，桌面浏览器里要用右键。
+   ISSUE 共享演示数据里过载和临时不可调度的账号都不在任何分组里，所以“受限”分桶只能在高级组用限流账号演示；代码已经把过载归入受限（琥珀）。高级组的“添加账号”页为空（“Anthropic 账号都已在这个分组里”），因为演示只有 3 个 Anthropic 账号。
+   ISSUE 企业专线今日 $0：因为它唯一的成员 OpenAI-备用-A 在共享 DEMO 里今日为 0。可以理解为客户今天还没开始用、账号 6 分钟前才出错，所以近 24 小时没有错误记录。
+   ISSUE 新建分组默认“停用 + 专属”，和 Web 的默认（正常 + 公开）不同。这是为手机端选的安全默认，需要用户确认。
+   ISSUE 平台列表里的 Command Code、Cline 用了自拟的显示名（Web 语言包里还没有这两个平台的文案）；组合路由（Composite）分组只说明在 Web 中创建。
+   ISSUE 分组详情 C 下方的“分组用量与容量”是一行汇总，没有容量条，比 A、B 简略，但数值齐全。
+== v-modules 兑换码 / 代理 / 公告管理 | questions: 4
+   Q 管理模块模式 | 兑换码、代理、公告这类低频管理页，用哪种通用模式？（先用兑换码看） | opts: ['列表 + 详情页 + 新建 sheet', '列表行内展开 + 编辑 sheet']
+      - 列表 + 详情页 + 新建 sheet: {"tab": "search", "stack": [{"kind": "redeem"}]}
+      - 列表行内展开 + 编辑 sheet: {"tab": "search", "stack": [{"kind": "redeem", "open": 2046}], "v": {"screen:redeem": "inline"}}
+   Q 代理（跟随第 1 题） | 代理页用哪种？（默认跟第 1 题一样，可以单独改） | opts: ['列表 + 详情页 + 编辑 sheet', '列表行内展开 + 编辑 sheet']
+      - 列表 + 详情页 + 编辑 sheet: {"tab": "search", "stack": [{"kind": "proxies"}]}
+      - 列表行内展开 + 编辑 sheet: {"tab": "search", "stack": [{"kind": "proxies", "open": 3}], "v": {"screen:proxies": "inline"}}
+   Q 公告（跟随第 1 题） | 公告页用哪种？（默认跟第 1 题一样，可以单独改） | opts: ['列表 + 详情页 + 编辑 sheet', '列表行内展开 + 编辑 sheet']
+      - 列表 + 详情页 + 编辑 sheet: {"tab": "search", "stack": [{"kind": "announcements"}]}
+      - 列表行内展开 + 编辑 sheet: {"tab": "search", "stack": [{"kind": "announcements", "open": 31}], "v": {"screen:announcements": "inline"}}
+   Q 批量生成流程 | 批量生成兑换码：一页表单，还是分步向导？ | opts: ['一页表单', '分步向导']
+      - 一页表单: {"tab": "search", "stack": [{"kind": "redeem"}], "sheet": {"kind": "redeemGenerate", "sim": "timeout"}, "v": {"faceId": true}}
+      - 分步向导: {"tab": "search", "stack": [{"kind": "redeem"}], "sheet": {"kind": "redeemGenerate", "sim": "timeout"}, "v": {"sheet:redeemGenerate": "steps", "faceId": true}}
+   ISSUE 00-core.jsx:660 设置页的 Face ID 说明还是“删除、批量操作，以及超过门槛的充值 / 退款”，需要主线加上“生成余额兑换码”。本文件不能改 core，原型用 initial.v.faceId 演示这个开关；门槛 $100 是本文件里的常量，没有和设置页联动。
+   ISSUE 生成结果“待核对”时，应该在概览“待处理”里出现一条（同充值待核对），这部分属于 core 的 TodayScreen / deriveAttention，没有做。原型里只在生成 sheet 里展示，超时由 sheet.sim='timeout' 模拟，所以第 4 题的两台手机第一次提交都会进入待核对。
+   ISSUE create-and-redeem（指定码值，直接兑换给某个用户，用于客服补偿）还没有入口。建议后续在用户详情的 ··· 里加“发放兑换码（补偿）”，余额类走资金确认，这一轮不比较。
+   ISSUE 公告“已读 N / 符合条件 M”这样的汇总需要后端新增 read-summary 接口。名单页里“共 1,036 位用户”是演示用的分页 total，名单里只有 8 个演示用户。
+   ISSUE 代理列表接口没有延迟测试时间（ProxyLatencyInfo.UpdatedAt 没有对外）。如果要显示“上次测试 HH:MM”，需要后端或数据层加字段。
+   ISSUE research/02-backend-capability-map.md 第 3.10 节写着代理状态“只有 active / inactive”，已经过时：实际还有 ProxyExpiryService 写入的 expired。文档不在本次修改范围，没有改。
+   ISSUE core 的 Chips / Segmented 高 34px，可点区域不到 44，不归本文件管。兑换码列表的搜索框仍是静态占位，没有接搜索；公告已读名单的搜索可以用，但只在演示用户里搜。
+   ISSUE 公告有效期的日期和时间胶囊上面叠了一个透明的原生 input。在 Windows Chrome 里点开，弹出的是浏览器自带的日期面板，和 iOS 的 DatePicker 长得不一样。
+== v-user-edit 新建用户 / 编辑用户 | questions: 3
+   Q 用户编辑结构 | 新建 / 编辑用户页用哪种结构？（新建和编辑共用同一结构） | opts: ['A 分组表单', 'B 分段', 'C 只放要保存的']
+      - A 分组表单: {"tab": "users", "stack": [{"kind": "user", "id": 1}, {"kind": "userEdit", "id": 1}], "v": {"screen:userEdit": "base", "screen:userNew": "base"}}
+      - B 分段: {"tab": "users", "stack": [{"kind": "user", "id": 1}, {"kind": "userEdit", "id": 1}], "v": {"screen:userEdit": "tabs", "screen:userNew": "tabs"}}
+      - C 只放要保存的: {"tab": "users", "stack": [{"kind": "user", "id": 1}, {"kind": "userEdit", "id": 1}], "v": {"screen:userEdit": "lean", "screen:userNew": "lean"}}
+   Q Key 呈现 | API Key 在页面里怎么呈现？（和上一题选哪种结构无关） | opts: ['列表行 + 详情 sheet', '可展开卡片']
+      - 列表行 + 详情 sheet: {"tab": "users", "stack": [{"kind": "user", "id": 1}, {"kind": "userEdit", "id": 1, "seg": "keys"}], "v": {"screen:userEdit": "tabs", "screen:userNew": "tabs", "ueKeys": "rows"}}
+      - 可展开卡片: {"tab": "users", "stack": [{"kind": "user", "id": 1}, {"kind": "userEdit", "id": 1, "seg": "keys"}], "v": {"screen:userEdit": "tabs", "screen:userNew": "tabs", "ueKeys": "cards"}}
+   Q Key 新建 / 停用 / 删除 | 要不要请后端加上“管理员替用户新建 / 停用 / 删除 Key”的功能？ | opts: ['要，先保留占位，等后端加上', '不要，手机端只做后端已有的']
+      - 要，先保留占位，等后端加上: {"tab": "users", "stack": [{"kind": "user", "id": 1}, {"kind": "userEdit", "id": 1, "seg": "keys", "sheet": {"kind": "key", "kid": 101}}], "v": {"screen:userEdit": "tabs", "screen:userNew": "tabs", "u
+      - 不要，手机端只做后端已有的: {"tab": "users", "stack": [{"kind": "user", "id": 1}, {"kind": "userEdit", "id": 1, "seg": "keys", "sheet": {"kind": "key", "kid": 101}}], "v": {"screen:userEdit": "tabs", "screen:userNew": "tabs", "u
+   ISSUE DECISIONS.md 没有改：这次任务只允许改 v-user-edit.jsx/.css。走查要求加的待问“是否需要后端新增管理员替用户新建 / 停用 / 删除 Key 的接口”，放进了对比页第 3 题。主线需要把它补进 DECISIONS 的待问。
+   ISSUE 结构 C 把平台限额、Key 管理、替换分组、RPM 状态都交给用户详情页。但用户详情的槽位（base 和 v-users 的 hero / wallet / compact）现在还没有这几块。如果用户选 C，用户详情那道题要补上。
+   ISSUE C 实测约 2 屏，不是走查估计的 1.3 屏。原因是新补的字段占了空间：自定义属性、公开分组倍率行、并发调整备注。A 整页约 3.4 屏。
+   ISSUE 两个撤销都要发两次请求，后端没有对应的单次撤销接口：
+- “换分组并授予分组”的撤销：先 PUT api-keys 改回原分组，再 PUT users 收回授予的分组。
+- 替换分组的撤销：反向再调一次 replace-group，并把旧分组的专属倍率写回去。
+   ISSUE 降级最后一个管理员的报错（cannot demote the last admin user）只写在了页脚提示里。演示数据里没有能触发这个报错的流程。
+   ISSUE “当前登录的管理员”在演示里只是这个编辑器设定的：陈思远（ID 5）。其他页面不知道这一点。
+   ISSUE 自定义属性的定义（公司 / 来源）是演示数据，真实定义来自 admin/user-attributes。
+平台名有两处没用后端原样：“智谱 GLM”是后端 DisplayName “Zhipu GLM”的中文写法；“OpenCode”按 DisplayName 写，走查里写的是 OpenCode Go。
+   ISSUE 二次验证演示：任意 6 位数字都能通过，只有 000000 报错。没有演示验证码过期、被限流这些后端状态。
+   ISSUE 打开 sheet 时，回执会移到屏幕顶部，盖在变暗的导航栏上；这只是 HTML 里的近似效果。SwiftUI 里要做成 sheet 之上的 overlay。
+   ISSUE v-user-edit.jsx 有 1470 行，超过 800 行的建议上限（其他 v-* 文件也是这个量级）。原因是隔离构建要求一个变体只用一个文件，没有拆。

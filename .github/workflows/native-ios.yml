@@ -1,0 +1,54 @@
+name: Native iOS tests and unsigned IPA
+on:
+  push:
+    branches: [codex/native-ios-rebuild]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-ios-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core:
+    name: Swift 6.4 core contracts
+    runs-on: ubuntu-24.04
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check compiler
+        shell: bash
+        run: |
+          swift --version | tee compiler.txt
+          version=$(cat compiler.txt)
+          [[ "$version" =~ Swift\ version\ 6\.4(\.[0-9]+)?\  ]]
+          [[ "$version" == *-RELEASE* ]]
+          [[ ! "$version" =~ [Bb][Ee][Tt][Aa]|[Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt]|[Pp][Rr][Ee][Vv][Ii][Ee][Ww] ]]
+      - name: Test core contracts
+        run: swift test --parallel
+      - name: Parse native sources (Apple SDK semantic checks require Xcode)
+        shell: bash
+        run: |
+          shopt -s globstar
+          swiftc -frontend -parse NativeApp/**/*.swift UITests/*.swift
+  ios:
+    name: Release toolchain, simulator and device
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify
+        run: python3 scripts/build.py all
+      - name: Retain build evidence and unsigned IPA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sub2Mobile-build-evidence
+          if-no-files-found: warn
+          path: |
+            build/artifacts/
+            build/toolchain.json
+            build/runs/**/*.log
+            build/runs/**/*.json
+            build/runs/**/*.jsonl
+            build/runs/**/*.xcresult/

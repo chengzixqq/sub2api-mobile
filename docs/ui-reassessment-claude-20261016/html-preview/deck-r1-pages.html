@@ -1,0 +1,232 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sub2 Mobile · 第 1 轮 · 每个页面选一种</title>
+<style>
+*{box-sizing:border-box} body{margin:0;background:#E4E8EA;color:#14181B;font-family:-apple-system,"SF Pro Text","PingFang SC","Microsoft YaHei UI","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+body.dark{background:#050708;color:#E7EBED}
+.top{position:sticky;top:0;z-index:10;background:rgba(228,232,234,.92);backdrop-filter:blur(14px);border-bottom:1px solid #C5CCD0;padding:10px 40px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+body.dark .top{background:rgba(5,7,8,.9);border-color:#2B3237}
+.top h1{font-size:17px;margin:0;font-weight:650}
+.qnav{display:flex;gap:6px;flex-wrap:wrap} .qnav a{font-size:13px;color:inherit;text-decoration:none;padding:5px 9px;border-radius:7px;border:1px solid #C5CCD0;display:inline-flex;gap:5px;align-items:center}
+body.dark .qnav a{border-color:#2B3237} .qnav a b{color:#0B6E85} body.dark .qnav a b{color:#52CBE6}
+.qnav i{font-style:normal;font-weight:700;color:#fff;background:#0B6E85;border-radius:5px;padding:0 5px;font-size:12px} .qnav i:empty{display:none}
+.toggle{margin-left:auto;display:flex;border:1px solid #C5CCD0;border-radius:8px;padding:2px} body.dark .toggle{border-color:#2B3237}
+.toggle button{font:inherit;font-size:13px;border:0;background:none;color:inherit;padding:5px 12px;border-radius:6px;cursor:pointer} .toggle button.on{background:#14181B;color:#fff} body.dark .toggle button.on{background:#E7EBED;color:#050708}
+.intro{padding:28px 40px 4px;max-width:1100px} .intro p{margin:6px 0 0;line-height:1.7;font-size:15px;color:#2C3338} body.dark .intro p{color:#A8B1B7}
+.q{padding:30px 40px 10px} .q-head{display:flex;gap:14px;align-items:flex-start;margin-bottom:16px;max-width:1100px}
+.q-no{font-size:24px;font-weight:700;color:#0B6E85;line-height:1.2} body.dark .q-no{color:#52CBE6}
+.q h2{margin:0;font-size:22px;font-weight:650} .q p{margin:4px 0 0;font-size:14.5px;line-height:1.6;color:#4A545A} body.dark .q p{color:#A8B1B7}
+.opts{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+.opt{margin:0;width:316px;background:#fff;border:2px solid #D8DDE0;border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,box-shadow .2s}
+body.dark .opt{background:#15191C;border-color:#2B3237}
+.opt.picked{border-color:#0B6E85;box-shadow:0 0 0 4px rgba(11,110,133,.18)} body.dark .opt.picked{border-color:#52CBE6}
+.opt-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap} .opt-no{width:26px;height:26px;border-radius:7px;background:#14181B;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700}
+body.dark .opt-no{background:#E7EBED;color:#050708}
+.opt-head b{font-size:16px} .opt-from{font-size:12px;color:#4A545A;border:1px solid #D8DDE0;border-radius:5px;padding:1px 6px} body.dark .opt-from{color:#A8B1B7;border-color:#2B3237}
+.opt ul{margin:0;padding-left:18px;font-size:13px;line-height:1.6;color:#2C3338} body.dark .opt ul{color:#C6CED3}
+.phone{width:292px;height:625px;overflow:hidden;border-radius:12px;align-self:center}
+.phone iframe{width:409px;height:868px;border:0;transform:scale(.714);transform-origin:0 0;display:block;background:transparent}
+.opt-foot{display:flex;gap:10px;align-items:center} .pick{font:inherit;font-size:14px;font-weight:600;border:0;border-radius:9px;padding:8px 14px;background:#EBEEF0;color:#14181B;cursor:pointer}
+body.dark .pick{background:#1E2327;color:#E7EBED} .opt.picked .pick{background:#0B6E85;color:#fff}
+.opt-foot a{font-size:13px;color:#0B6E85} body.dark .opt-foot a{color:#52CBE6}
+.summary{margin:30px 40px 60px;padding:18px 20px;background:#fff;border:1px solid #C5CCD0;border-radius:14px;max-width:900px}
+body.dark .summary{background:#15191C;border-color:#2B3237}
+.summary h3{margin:0 0 8px;font-size:17px} .summary pre{margin:0;white-space:pre-wrap;font-size:14px;line-height:1.7;font-family:inherit}
+.summary button{margin-top:12px;font:inherit;font-size:14px;font-weight:600;border:0;border-radius:9px;padding:8px 14px;background:#14181B;color:#fff;cursor:pointer}
+</style></head><body>
+<div class="top"><h1>第 1 轮 · 每个页面选一种</h1><nav class="qnav"><a href="#q1"><b>Q1</b>首页<i data-pick="q1"></i></a><a href="#q2"><b>Q2</b>账号列表<i data-pick="q2"></i></a><a href="#q3"><b>Q3</b>账号详情<i data-pick="q3"></i></a><a href="#q4"><b>Q4</b>充值<i data-pick="q4"></i></a><a href="#q5"><b>Q5</b>日志<i data-pick="q5"></i></a><a href="#q6"><b>Q6</b>渠道监控<i data-pick="q6"></i></a></nav><div class="toggle"><button data-theme="light" class="on">浅色</button><button data-theme="dark">深色</button></div></div>
+<div class="intro"><p>大框架按你说的用 A（底部 4 个 Tab + 搜索，日志不占 Tab）。这一轮逐页挑：同一个页面，A / B / C 的实际做法并排放，都能点。可以每题选一个，也可以在对话里说“2 的卡片 + 1 的列表”这种混搭。颜色全部是游标黑白；右上角切深色。</p></div>
+
+  <section class="q" id="q1">
+    <div class="q-head"><span class="q-no">Q1</span><div><h2>首页（今日）长什么样？</h2><p>看三点：一打开能不能马上知道哪个账号坏了；营收和用量放在哪、多大；整体好不好看。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q1" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>待处理队列</b><span class="opt-from">A</span></div>
+        <ul><li>待处理逐条列出：账号、原因、倒计时，可直接测试</li><li>营收压成顶部一行</li><li>最快救火，样子偏工具</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="首页（今日）长什么样？ · 选项 1" data-src="a-inbox.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q1" data-o="1" data-label="待处理队列">选这个</button><a target="_blank" data-href="a-inbox.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22today%22%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q1" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>卡片墙</b><span class="opt-from">B</span></div>
+        <ul><li>需处理叠卡 + 营收卡 + 账号环 + 渠道格 + 快捷充值</li><li>点“编辑”能移除 / 添加卡片</li><li>最好看，救火要多点一下</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="首页（今日）长什么样？ · 选项 2" data-src="b-dashboard.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q1" data-o="2" data-label="卡片墙">选这个</button><a target="_blank" data-href="b-dashboard.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q1" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>视图列表</b><span class="opt-from">C</span></div>
+        <ul><li>6 格指标 + 一串带计数的视图</li><li>最密，没有图</li><li>适合当简化模式首页</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="首页（今日）长什么样？ · 选项 3" data-src="c-workbench.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q1" data-o="3" data-label="视图列表">选这个</button><a target="_blank" data-href="c-workbench.html?theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%5D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q2">
+    <div class="q-head"><span class="q-no">Q2</span><div><h2>账号列表怎么排？</h2><p>看一屏能看几个账号、异常是否一眼可见、找某个账号快不快。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q2" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>三行列表</b><span class="opt-from">A</span></div>
+        <ul><li>按“需处理 / 暂停 / 正常”分组</li><li>每行：名称 + 状态牌 / 平台分组 / 容量条 + 今日</li><li>顶部筛选胶囊</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="账号列表怎么排？ · 选项 1" data-src="a-inbox.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22acctFilter%22%3A%22all%22%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q2" data-o="1" data-label="三行列表">选这个</button><a target="_blank" data-href="a-inbox.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22acctFilter%22%3A%22all%22%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q2" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>磁贴 + 轮播</b><span class="opt-from">B</span></div>
+        <ul><li>四个状态块当筛选</li><li>需处理横向滑动大卡（带恢复按钮）</li><li>按平台分组的两列小卡</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="账号列表怎么排？ · 选项 2" data-src="b-dashboard.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accounts%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q2" data-o="2" data-label="磁贴 + 轮播">选这个</button><a target="_blank" data-href="b-dashboard.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accounts%22%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q2" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>表格</b><span class="opt-from">C</span></div>
+        <ul><li>名称列固定，左右滑看更多列</li><li>点表头排序，底部合计</li><li>一屏 11 行</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="账号列表怎么排？ · 选项 3" data-src="c-workbench.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22accounts%22%2C%22view%22%3A%22all%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q2" data-o="3" data-label="表格">选这个</button><a target="_blank" data-href="c-workbench.html?theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22accounts%22%2C%22view%22%3A%22all%22%7D%5D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q3">
+    <div class="q-head"><span class="q-no">Q3</span><div><h2>账号详情怎么排？（以限流账号为例）</h2><p>看能不能马上回答：现在怎么了、几点恢复、我能做什么；操作按钮好不好按。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q3" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>状态卡 + 按钮行</b><span class="opt-from">A</span></div>
+        <ul><li>大倒计时 + 模型限流列表</li><li>恢复 / 测试 / 停止调度一排按钮</li><li>下面容量、今日、记录、档案</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="账号详情怎么排？（以限流账号为例） · 选项 1" data-src="a-inbox.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q3" data-o="1" data-label="状态卡 + 按钮行">选这个</button><a target="_blank" data-href="a-inbox.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22accounts%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q3" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>通行证卡 + 控制磁贴</b><span class="opt-from">B</span></div>
+        <ul><li>像钱包里的一张卡</li><li>控制中心式四个方块：调度 / 恢复 / 测试 / 令牌</li><li>容量用圆环</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="账号详情怎么排？（以限流账号为例） · 选项 2" data-src="b-dashboard.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accounts%22%7D%2C%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q3" data-o="2" data-label="通行证卡 + 控制磁贴">选这个</button><a target="_blank" data-href="b-dashboard.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22accounts%22%7D%2C%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q3" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>检查器</b><span class="opt-from">C</span></div>
+        <ul><li>属性表，信息最全</li><li>右上角上一条 / 下一条，逐个处理</li><li>操作在底部工具栏</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="账号详情怎么排？（以限流账号为例） · 选项 3" data-src="c-workbench.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22accounts%22%2C%22view%22%3A%22all%22%7D%2C%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q3" data-o="3" data-label="检查器">选这个</button><a target="_blank" data-href="c-workbench.html?theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22accounts%22%2C%22view%22%3A%22all%22%7D%2C%7B%22kind%22%3A%22account%22%2C%22id%22%3A3%7D%5D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q4">
+    <div class="q-head"><span class="q-no">Q4</span><div><h2>充值 / 退款怎么输？</h2><p>看输金额顺不顺手、会不会输错、确认前能不能看清结果。三种都会再弹一次确认框，写明对象、站点、金额。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q4" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>输入框 + 快捷金额</b><span class="opt-from">A</span></div>
+        <ul><li>系统键盘输入</li><li>$10 / $20 / $50 / $100 快捷</li><li>下方显示充值后余额</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="充值 / 退款怎么输？ · 选项 1" data-src="a-inbox.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22topup%22%2C%22userId%22%3A1%2C%22mode%22%3A%22topup%22%2C%22amount%22%3A%2250%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q4" data-o="1" data-label="输入框 + 快捷金额">选这个</button><a target="_blank" data-href="a-inbox.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22users%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22topup%22%2C%22userId%22%3A1%2C%22mode%22%3A%22topup%22%2C%22amount%22%3A%2250%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q4" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>大数字键盘</b><span class="opt-from">B</span></div>
+        <ul><li>像 Apple Cash：大金额 + 自带键盘</li><li>首页“快捷充值”头像可直接打开</li><li>最直观</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="充值 / 退款怎么输？ · 选项 2" data-src="b-dashboard.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22keypad%22%2C%22userId%22%3A1%2C%22mode%22%3A%22topup%22%2C%22amount%22%3A%2250%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q4" data-o="2" data-label="大数字键盘">选这个</button><a target="_blank" data-href="b-dashboard.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22keypad%22%2C%22userId%22%3A1%2C%22mode%22%3A%22topup%22%2C%22amount%22%3A%2250%22%7D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q4" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>表单 + 算式</b><span class="opt-from">C</span></div>
+        <ul><li>金额 + 备注两行表单</li><li>当前余额 + 金额 = 调整后，像记账</li><li>备注写进流水</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="充值 / 退款怎么输？ · 选项 3" data-src="c-workbench.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22users%22%2C%22view%22%3A%22all%22%7D%2C%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22adjust%22%2C%22userId%22%3A1%2C%22mode%22%3A%22topup%22%2C%22amount%22%3A%2250%22%7D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q4" data-o="3" data-label="表单 + 算式">选这个</button><a target="_blank" data-href="c-workbench.html?theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22users%22%2C%22view%22%3A%22all%22%7D%2C%7B%22kind%22%3A%22user%22%2C%22id%22%3A1%7D%5D%2C%22sheet%22%3A%7B%22kind%22%3A%22adjust%22%2C%22userId%22%3A1%2C%22mode%22%3A%22topup%22%2C%22amount%22%3A%2250%22%7D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q5">
+    <div class="q-head"><span class="q-no">Q5</span><div><h2>使用记录（日志）页怎么排？</h2><p>看按账号 / 时间 / 类型筛选方不方便，一屏能看几条。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q5" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>分段 + 筛选胶囊</b><span class="opt-from">A</span></div>
+        <ul><li>顶部切用量明细 / 错误请求 / 上游错误</li><li>筛选是可删除的胶囊，点“+ 筛选”按名字选账号</li><li>两行一条</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="使用记录（日志）页怎么排？ · 选项 1" data-src="a-inbox.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22logs%22%2C%22scope%22%3A%22usage%22%2C%22account%22%3A%22Claude-%E5%AE%98%E6%96%B9-01%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q5" data-o="1" data-label="分段 + 筛选胶囊">选这个</button><a target="_blank" data-href="a-inbox.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22search%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22logs%22%2C%22scope%22%3A%22usage%22%2C%22account%22%3A%22Claude-%E5%AE%98%E6%96%B9-01%22%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q5" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>先图后表</b><span class="opt-from">B</span></div>
+        <ul><li>上面是请求柱状图，点柱子筛这个时段</li><li>下面是卡片里的列表</li><li>最直观，条数少</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="使用记录（日志）页怎么排？ · 选项 2" data-src="b-dashboard.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22browse%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22logs%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q5" data-o="2" data-label="先图后表">选这个</button><a target="_blank" data-href="b-dashboard.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22browse%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22logs%22%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q5" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>查询条件 + 表格</b><span class="opt-from">C</span></div>
+        <ul><li>“账号 = …”这种条件条</li><li>表格：时间 / 码 / 模型 / 费用 / 耗时…</li><li>带合计，一屏最多</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="使用记录（日志）页怎么排？ · 选项 3" data-src="c-workbench.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22logs%22%2C%22source%22%3A%22usage%22%2C%22account%22%3A%22Claude-%E5%AE%98%E6%96%B9-01%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q5" data-o="3" data-label="查询条件 + 表格">选这个</button><a target="_blank" data-href="c-workbench.html?theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22logs%22%2C%22source%22%3A%22usage%22%2C%22account%22%3A%22Claude-%E5%AE%98%E6%96%B9-01%22%7D%5D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+  <section class="q" id="q6">
+    <div class="q-head"><span class="q-no">Q6</span><div><h2>渠道监控怎么看？</h2><p>看哪个渠道出问题是否一眼可见，过去 90 分钟的走势看不看得清。</p></div></div>
+    <div class="opts n3">
+    <figure class="opt" data-q="q6" data-o="1">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">1</span><b>列表 + 时间条</b><span class="opt-from">A</span></div>
+        <ul><li>顶部四格计数</li><li>每个渠道一行 + 一条 18 格时间条</li><li>异常排最前</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="渠道监控怎么看？ · 选项 1" data-src="a-inbox.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22monitor%22%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q6" data-o="1" data-label="列表 + 时间条">选这个</button><a target="_blank" data-href="a-inbox.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22monitor%22%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q6" data-o="2">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">2</span><b>两列磁贴</b><span class="opt-from">B</span></div>
+        <ul><li>每个渠道一块，大字可用率</li><li>异常块顶部带颜色</li><li>最好看</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="渠道监控怎么看？ · 选项 2" data-src="b-dashboard.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22channels%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q6" data-o="2" data-label="两列磁贴">选这个</button><a target="_blank" data-href="b-dashboard.html?theme=__THEME__&amp;initial=%7B%22tab%22%3A%22summary%22%2C%22stack%22%3A%5B%7B%22kind%22%3A%22channels%22%7D%5D%7D">单独打开</a></div>
+    </figure>
+    <figure class="opt" data-q="q6" data-o="3">
+      <figcaption>
+        <div class="opt-head"><span class="opt-no">3</span><b>热力矩阵</b><span class="opt-from">C</span></div>
+        <ul><li>渠道 × 时间的格子表</li><li>走势一眼对比</li><li>最密</li></ul>
+      </figcaption>
+      <div class="phone"><iframe loading="lazy" title="渠道监控怎么看？ · 选项 3" data-src="c-workbench.html?bare=1&amp;theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22channels%22%7D%5D%7D"></iframe></div>
+      <div class="opt-foot"><button class="pick" data-q="q6" data-o="3" data-label="热力矩阵">选这个</button><a target="_blank" data-href="c-workbench.html?theme=__THEME__&amp;initial=%7B%22stack%22%3A%5B%7B%22kind%22%3A%22channels%22%7D%5D%7D">单独打开</a></div>
+    </figure></div>
+  </section>
+<div class="summary"><h3>你的选择</h3><pre id="sum">还没选。每题点「选这个」，也可以不选、直接在对话里说想法。</pre><button id="copy">复制选择</button></div>
+<script>
+const KEY = 'sub2-deck-r1-pages';
+const picks = JSON.parse(localStorage.getItem(KEY) || '{}');
+const titles = {"q1":"首页","q2":"账号列表","q3":"账号详情","q4":"充值","q5":"日志","q6":"渠道监控"};
+function render() {
+  document.querySelectorAll('.opt').forEach(el => el.classList.toggle('picked', picks[el.dataset.q] && picks[el.dataset.q].o === el.dataset.o));
+  document.querySelectorAll('[data-pick]').forEach(el => { el.textContent = picks[el.dataset.pick] ? picks[el.dataset.pick].o : ''; });
+  const lines = Object.keys(titles).filter(k => picks[k]).map(k => titles[k] + '：选项 ' + picks[k].o + '（' + picks[k].label + '）');
+  document.getElementById('sum').textContent = lines.length ? lines.join('\n') : '还没选。每题点「选这个」，也可以不选、直接在对话里说想法。';
+}
+document.querySelectorAll('.pick').forEach(b => b.onclick = () => {
+  const cur = picks[b.dataset.q];
+  if (cur && cur.o === b.dataset.o) delete picks[b.dataset.q]; else picks[b.dataset.q] = { o: b.dataset.o, label: b.dataset.label };
+  localStorage.setItem(KEY, JSON.stringify(picks)); render();
+});
+document.getElementById('copy').onclick = () => navigator.clipboard && navigator.clipboard.writeText(document.getElementById('sum').textContent);
+function setTheme(t) {
+  document.body.classList.toggle('dark', t === 'dark');
+  document.querySelectorAll('.toggle button').forEach(b => b.classList.toggle('on', b.dataset.theme === t));
+  document.querySelectorAll('iframe').forEach(f => { f.src = f.dataset.src.replace('__THEME__', t); });
+  document.querySelectorAll('[data-href]').forEach(a => { a.href = a.dataset.href.replace('__THEME__', t); });
+}
+document.querySelectorAll('.toggle button').forEach(b => b.onclick = () => setTheme(b.dataset.theme));
+setTheme(new URLSearchParams(location.search).get('theme') || 'light');
+render();
+</script></body></html>

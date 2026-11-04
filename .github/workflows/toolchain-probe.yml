@@ -1,0 +1,23 @@
+name: Native toolchain availability
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/native-ios-rebuild]
+    paths: [Toolchain.json, scripts/check_toolchain.py, .github/workflows/toolchain-probe.yml]
+permissions:
+  contents: read
+jobs:
+  toolchain:
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify release toolchain
+        run: python3 scripts/check_toolchain.py
+      - name: Retain toolchain evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toolchain-evidence
+          path: build/toolchain.json
+          if-no-files-found: warn

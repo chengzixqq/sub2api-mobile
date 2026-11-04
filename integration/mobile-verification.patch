@@ -1,0 +1,751 @@
+diff --git a/.gitignore b/.gitignore
+index 6ab23e2dc..b6001ba9e 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -141,6 +141,7 @@ docs/*
+ !docs/BATCH_IMAGE_MVP.md
+ !docs/COMPOSITE_GROUPS.md
+ !docs/PLUGIN_DEVELOPMENT.md
++!docs/mobile-verification.md
+ !docs/channel-monitor-v2-safe-defaults.md
+ !docs/channel-monitor-unified.md
+ !docs/channel-monitor-capacity.md
+diff --git a/docs/mobile-verification.md b/docs/mobile-verification.md
+new file mode 100644
+index 000000000..1a52bf9cd
+--- /dev/null
++++ b/docs/mobile-verification.md
+@@ -0,0 +1,26 @@
++# Native mobile captcha verification
++
++`GET /mobile/verify?nonce=<UUID>` is an unauthenticated frontend page, available even in backend-only mode. Deploy the rebuilt frontend with the existing SPA fallback. No new API or server-side authentication bypass is introduced. The native app must open the exact configured station origin over HTTPS in an ephemeral `WKWebView`.
++
++The direct entry mounts only the challenge page, excluding the Web application shell and its authenticated startup requests. The page fetches `/api/v1/settings/public` with `credentials: omit`, uses existing captcha components/provider configuration, and mounts a provider only after the user starts verification. Disabled or incomplete provider configuration, SDK errors, expiry, cancellation, and a two-minute challenge timeout are visible states. Failed/expired challenges unmount the provider before retry. A fresh App challenge/nonce is required after a completed message.
++
++Messages go exclusively to `window.webkit.messageHandlers.sub2Captcha.postMessage`:
++
++```json
++{"version":1,"nonce":"3a006827-701c-44e8-b153-cef42dc70234","provider":"turnstile","proof":{"turnstile_token":"<proof>"}}
++{"version":1,"nonce":"3a006827-701c-44e8-b153-cef42dc70234","provider":"tencent","proof":{"tencent_captcha_ticket":"<ticket>","tencent_captcha_randstr":"<randstr>"}}
++{"version":1,"nonce":"3a006827-701c-44e8-b153-cef42dc70234","provider":"aliyun","proof":{"turnstile_token":"<captchaVerifyParam>"}}
++{"version":1,"nonce":"3a006827-701c-44e8-b153-cef42dc70234","cancelled":true}
++```
++
++Aliyun intentionally reuses the backend login request's `turnstile_token` field. The bridge constructs allowlisted payloads and emits at most one proof or cancellation. It rejects invalid/duplicate nonce, additional query parameters, URL userinfo/fragments, non-HTTPS or insecure context, subframes, and missing native handlers. It revalidates context before each message. Passwords, access/refresh tokens, SDK objects and settings are never forwarded or placed in URLs.
++
++The native receiver must independently verify: main frame; exact expected scheme, host and effective port; expected UUID nonce; version 1; supported provider; provider-specific nonempty fields and no extra fields. A page-side check cannot authenticate a native receiver or protect against compromised same-origin scripts. Use an ephemeral data store, main-frame-only handler, restricted navigation and no native credentials injected into Web content. Discard proof after failed login, expiry or cancellation; do not treat challenge completion as successful login. Do not log proofs.
++
++Validation from `frontend/`:
++
++```sh
++pnpm exec vitest run src/utils/__tests__/mobileCaptchaBridge.spec.ts src/views/public/__tests__/MobileVerifyView.spec.ts src/__tests__/mobileVerificationBootstrap.spec.ts src/router/__tests__/mobile-verification-route.spec.ts
++pnpm run typecheck
++pnpm exec eslint src/main.ts src/router/index.ts src/utils/mobileCaptchaBridge.ts src/utils/__tests__/mobileCaptchaBridge.spec.ts src/views/public/MobileVerifyView.vue src/views/public/__tests__/MobileVerifyView.spec.ts src/__tests__/mobileVerificationBootstrap.spec.ts src/router/__tests__/mobile-verification-route.spec.ts
++```
+diff --git a/frontend/src/__tests__/mobileVerificationBootstrap.spec.ts b/frontend/src/__tests__/mobileVerificationBootstrap.spec.ts
+new file mode 100644
+index 000000000..a7966358d
+--- /dev/null
++++ b/frontend/src/__tests__/mobileVerificationBootstrap.spec.ts
+@@ -0,0 +1,39 @@
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { flushPromises } from '@vue/test-utils'
++
++const test = vi.hoisted(() => {
++  const mount = vi.fn()
++  const use = vi.fn()
++  const app = { use, mount }
++  use.mockReturnValue(app)
++  return {
++    app, createApp: vi.fn(() => app), createPinia: vi.fn(),
++    useAppStore: vi.fn(), isReady: vi.fn(), initI18n: vi.fn().mockResolvedValue(undefined),
++    view: { name: 'MobileVerifyView' }
++  }
++})
++
++vi.mock('vue', async (original) => ({ ...await original<typeof import('vue')>(), createApp: test.createApp }))
++vi.mock('pinia', () => ({ createPinia: test.createPinia }))
++vi.mock('@/App.vue', () => ({ default: { name: 'WebApp' } }))
++vi.mock('@/router', () => ({ default: { isReady: test.isReady } }))
++vi.mock('@/i18n', () => ({ default: { install: vi.fn() }, initI18n: test.initI18n }))
++vi.mock('@/stores/app', () => ({ useAppStore: test.useAppStore }))
++vi.mock('@/utils/branding', () => ({ updateFavicon: vi.fn() }))
++vi.mock('@/utils/device', () => ({ isIOSDevice: () => false }))
++vi.mock('@/views/public/MobileVerifyView.vue', () => ({ default: test.view }))
++
++describe('direct native verification bootstrap', () => {
++  afterEach(() => { window.history.replaceState({}, '', '/') })
++
++  it('mounts only the challenge without Pinia, Web auth/settings stores, or Web router', async () => {
++    window.history.replaceState({}, '', '/mobile/verify?nonce=3a006827-701c-44e8-b153-cef42dc70234')
++    await import('@/main')
++    await flushPromises()
++    expect(test.createApp).toHaveBeenCalledWith(test.view)
++    expect(test.app.mount).toHaveBeenCalledWith('#app')
++    expect(test.createPinia).not.toHaveBeenCalled()
++    expect(test.useAppStore).not.toHaveBeenCalled()
++    expect(test.isReady).not.toHaveBeenCalled()
++  })
++})
+diff --git a/frontend/src/main.ts b/frontend/src/main.ts
+index 8d29b4c66..bb90fca94 100644
+--- a/frontend/src/main.ts
++++ b/frontend/src/main.ts
+@@ -31,6 +31,16 @@ function initThemeClass() {
+ }
+ 
+ async function bootstrap() {
++  // Keep the native challenge outside the authenticated Web shell and its startup requests.
++  if (window.location.pathname === '/mobile/verify') {
++    document.documentElement.classList.toggle('dark', window.matchMedia('(prefers-color-scheme: dark)').matches)
++    document.title = '手机端安全验证'
++    await initI18n()
++    const { default: MobileVerifyView } = await import('@/views/public/MobileVerifyView.vue')
++    createApp(MobileVerifyView).use(i18n).mount('#app')
++    return
++  }
++
+   // Apply theme class globally before app mount to keep all routes consistent.
+   initThemeClass()
+   initIOSViewportZoomFix()
+diff --git a/frontend/src/router/__tests__/mobile-verification-route.spec.ts b/frontend/src/router/__tests__/mobile-verification-route.spec.ts
+new file mode 100644
+index 000000000..db7dded11
+--- /dev/null
++++ b/frontend/src/router/__tests__/mobile-verification-route.spec.ts
+@@ -0,0 +1,43 @@
++import type { RouteRecordRaw } from 'vue-router'
++import { describe, expect, it, vi } from 'vitest'
++
++type Guard = (to: { name: string; path: string }, from: object, next: ReturnType<typeof vi.fn>) => Promise<void>
++const test = vi.hoisted(() => ({
++  routes: [] as RouteRecordRaw[], guard: undefined as Guard | undefined,
++  auth: vi.fn(() => { throw new Error('Auth store must not be accessed') }),
++  app: vi.fn(() => { throw new Error('App settings store must not be accessed') })
++}))
++
++vi.mock('vue-router', () => ({
++  createWebHistory: () => ({}),
++  createRouter: (options: { routes: RouteRecordRaw[] }) => {
++    test.routes = options.routes
++    return {
++      beforeEach: (guard: Guard) => { test.guard = guard },
++      afterEach: vi.fn(), onError: vi.fn()
++    }
++  }
++}))
++vi.mock('@/stores/auth', () => ({ useAuthStore: test.auth }))
++vi.mock('@/stores/app', () => ({ useAppStore: test.app }))
++vi.mock('@/stores/adminSettings', () => ({ useAdminSettingsStore: vi.fn() }))
++vi.mock('@/stores/adminCompliance', () => ({ useAdminComplianceStore: vi.fn() }))
++vi.mock('@/composables/useNavigationLoading', () => ({
++  useNavigationLoadingState: () => ({ startNavigation: vi.fn(), endNavigation: vi.fn() })
++}))
++vi.mock('@/composables/useRoutePrefetch', () => ({ useRoutePrefetch: vi.fn() }))
++
++describe('public mobile verification route', () => {
++  it('allows the exact challenge route before authentication and backend-mode processing', async () => {
++    await import('@/router')
++    const route = test.routes.find((item) => item.path === '/mobile/verify')
++    expect(route?.name).toBe('MobileVerify')
++    expect(route?.meta?.requiresAuth).toBe(false)
++    const next = vi.fn()
++    await test.guard!({ name: 'MobileVerify', path: '/mobile/verify' }, {}, next)
++    expect(next).toHaveBeenCalledOnce()
++    expect(next).toHaveBeenCalledWith()
++    expect(test.auth).not.toHaveBeenCalled()
++    expect(test.app).not.toHaveBeenCalled()
++  })
++})
+diff --git a/frontend/src/router/index.ts b/frontend/src/router/index.ts
+index e0123bdd4..c5da56d79 100644
+--- a/frontend/src/router/index.ts
++++ b/frontend/src/router/index.ts
+@@ -31,6 +31,12 @@ const routes: RouteRecordRaw[] = [
+   },
+ 
+   // ==================== Public Routes ====================
++  {
++    path: '/mobile/verify',
++    name: 'MobileVerify',
++    component: () => import('@/views/public/MobileVerifyView.vue'),
++    meta: { requiresAuth: false, title: '手机端安全验证' }
++  },
+   {
+     path: '/home',
+     name: 'Home',
+@@ -839,6 +845,13 @@ router.beforeEach(async (to, _from, next) => {
+   // 开始导航加载状态
+   navigationLoading.startNavigation()
+ 
++  // The native captcha page must not restore a Web session or enter auth/backend-mode guards.
++  if (to.name === 'MobileVerify') {
++    document.title = '手机端安全验证'
++    next()
++    return
++  }
++
+   const authStore = useAuthStore()
+ 
+   // Restore auth state from localStorage on first navigation (page refresh)
+diff --git a/frontend/src/utils/__tests__/mobileCaptchaBridge.spec.ts b/frontend/src/utils/__tests__/mobileCaptchaBridge.spec.ts
+new file mode 100644
+index 000000000..eb3623fb0
+--- /dev/null
++++ b/frontend/src/utils/__tests__/mobileCaptchaBridge.spec.ts
+@@ -0,0 +1,105 @@
++import { describe, expect, it, vi } from 'vitest'
++import {
++  createMobileCaptchaBridge,
++  resolveMobileCaptchaProvider,
++  type MobileBridgeEnvironment,
++  type MobileCaptchaProvider,
++  type MobileCaptchaSettings
++} from '../mobileCaptchaBridge'
++
++const nonce = '3a006827-701c-44e8-b153-cef42dc70234'
++function environment(overrides: Partial<MobileBridgeEnvironment> = {}): MobileBridgeEnvironment {
++  return {
++    url: `https://station.example/mobile/verify?nonce=${nonce}`,
++    secureContext: true, mainFrame: true,
++    handler: { postMessage: vi.fn() }, ...overrides
++  }
++}
++
++describe('native captcha bridge', () => {
++  it.each([
++    ['turnstile', 'turnstile-proof', '', { turnstile_token: 'turnstile-proof' }],
++    ['aliyun', 'aliyun-verify-param', '', { turnstile_token: 'aliyun-verify-param' }],
++    ['tencent', 'ticket', 'randstr', { tencent_captcha_ticket: 'ticket', tencent_captcha_randstr: 'randstr' }]
++  ] as const)('emits only the %s login proof fields', (provider, token, randstr, proof) => {
++    const context = environment()
++    const bridge = createMobileCaptchaBridge(() => context)
++    expect(bridge.sendProof(provider, token, randstr)).toBe(true)
++    expect(context.handler?.postMessage).toHaveBeenCalledOnce()
++    expect(context.handler?.postMessage).toHaveBeenCalledWith({ version: 1, nonce, provider, proof })
++    expect(bridge.sendProof(provider, token, randstr)).toBe(false)
++    expect(bridge.cancel()).toBe(false)
++  })
++
++  it.each([
++    { secureContext: false }, { mainFrame: false }, { handler: undefined },
++    { url: `http://station.example/mobile/verify?nonce=${nonce}` },
++    { url: 'https://station.example/mobile/verify?nonce=invalid' },
++    { url: `https://station.example/mobile/verify?nonce=${nonce}&nonce=${nonce}` },
++    { url: `https://station.example/mobile/verify?nonce=${nonce}&password=secret` },
++    { url: `https://secret@station.example/mobile/verify?nonce=${nonce}` },
++    { url: `https://station.example/mobile/verify?nonce=${nonce}#token` },
++    { url: `https://station.example/login?nonce=${nonce}` }
++  ])('rejects invalid nonce or untrusted context %j without posting', (override) => {
++    const context = environment(override)
++    expect(() => createMobileCaptchaBridge(() => context)).toThrow()
++    if (context.handler) expect(context.handler.postMessage).not.toHaveBeenCalled()
++  })
++
++  it('rechecks nonce and origin immediately before posting', () => {
++    let current = environment()
++    const bridge = createMobileCaptchaBridge(() => current)
++    current = { ...current, url: `https://other.example/mobile/verify?nonce=${nonce}` }
++    expect(() => bridge.sendProof('turnstile', 'proof')).toThrow()
++    expect(current.handler?.postMessage).not.toHaveBeenCalled()
++  })
++
++  it('sends cancellation without a proof, provider, or secrets and completes once', () => {
++    const context = environment()
++    const bridge = createMobileCaptchaBridge(() => context)
++    expect(bridge.cancel()).toBe(true)
++    expect(context.handler?.postMessage).toHaveBeenCalledOnce()
++    expect(context.handler?.postMessage).toHaveBeenCalledWith({ version: 1, nonce, cancelled: true })
++    expect(bridge.sendProof('turnstile', 'old-proof')).toBe(false)
++  })
++
++  it.each([
++    ['turnstile', '', ''], ['aliyun', ' ', ''], ['tencent', 'ticket', ''],
++    ['unknown' as MobileCaptchaProvider, 'proof', '']
++  ])('rejects incomplete and unknown provider proof %s', (provider, token, randstr) => {
++    const context = environment()
++    const bridge = createMobileCaptchaBridge(() => context)
++    expect(() => bridge.sendProof(provider as MobileCaptchaProvider, token, randstr)).toThrow()
++    expect(context.handler?.postMessage).not.toHaveBeenCalled()
++  })
++
++  it('does not read credentials or include SDK fields in messages', () => {
++    localStorage.setItem('auth_token', 'private-access-token')
++    localStorage.setItem('refresh_token', 'private-refresh-token')
++    const context = environment()
++    const bridge = createMobileCaptchaBridge(() => context)
++    bridge.sendProof('turnstile', 'captcha-proof', 'ignored-extra')
++    expect(context.handler?.postMessage).toHaveBeenCalledWith({
++      version: 1, nonce, provider: 'turnstile', proof: { turnstile_token: 'captcha-proof' }
++    })
++    localStorage.clear()
++  })
++})
++
++describe('native captcha provider selection', () => {
++  const disabled: MobileCaptchaSettings = { turnstile_enabled: false, turnstile_site_key: '' }
++  it('reports disabled captcha without inventing a proof', () => {
++    expect(resolveMobileCaptchaProvider(disabled)).toBeNull()
++  })
++  it('preserves server provider precedence', () => {
++    expect(resolveMobileCaptchaProvider({ ...disabled, turnstile_enabled: true, turnstile_site_key: 'site', tencent_captcha_enabled: true, tencent_captcha_app_id: 'app' })).toBe('turnstile')
++    expect(resolveMobileCaptchaProvider({ ...disabled, tencent_captcha_enabled: true, tencent_captcha_app_id: 'app', aliyun_captcha_enabled: true, aliyun_captcha_scene_id: 'scene', aliyun_captcha_prefix: 'prefix' })).toBe('tencent')
++    expect(resolveMobileCaptchaProvider({ ...disabled, aliyun_captcha_enabled: true, aliyun_captcha_scene_id: 'scene', aliyun_captcha_prefix: 'prefix' })).toBe('aliyun')
++  })
++  it.each([
++    { turnstile_enabled: true }, { tencent_captcha_enabled: true },
++    { aliyun_captcha_enabled: true, aliyun_captcha_scene_id: 'scene' }
++  ])('fails closed for enabled but incomplete provider %j', (config) => {
++    expect(() => resolveMobileCaptchaProvider({ ...disabled, ...config })).toThrow()
++  })
++})
+diff --git a/frontend/src/utils/mobileCaptchaBridge.ts b/frontend/src/utils/mobileCaptchaBridge.ts
+new file mode 100644
+index 000000000..8e4c9cdf6
+--- /dev/null
++++ b/frontend/src/utils/mobileCaptchaBridge.ts
+@@ -0,0 +1,113 @@
++import type { PublicSettings } from '@/types'
++
++export type MobileCaptchaProvider = 'turnstile' | 'tencent' | 'aliyun'
++export type MobileCaptchaSettings = Pick<PublicSettings,
++  | 'turnstile_enabled' | 'turnstile_site_key'
++  | 'tencent_captcha_enabled' | 'tencent_captcha_app_id' | 'tencent_captcha_region'
++  | 'aliyun_captcha_enabled' | 'aliyun_captcha_scene_id' | 'aliyun_captcha_prefix'
++  | 'aliyun_captcha_region'>
++
++interface CaptchaProof {
++  turnstile_token?: string
++  tencent_captcha_ticket?: string
++  tencent_captcha_randstr?: string
++}
++
++export type MobileCaptchaEnvelope =
++  | { version: 1; nonce: string; provider: MobileCaptchaProvider; proof: CaptchaProof }
++  | { version: 1; nonce: string; cancelled: true }
++
++export interface MobileBridgeEnvironment {
++  url: string
++  secureContext: boolean
++  mainFrame: boolean
++  handler?: { postMessage: (message: MobileCaptchaEnvelope) => void }
++}
++
++const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
++
++function validateContext(environment: MobileBridgeEnvironment): string {
++  const url = new URL(environment.url)
++  if (url.protocol !== 'https:' || !environment.secureContext || !environment.mainFrame) {
++    throw new Error('请从 Sub2 Mobile 的安全验证窗口打开此页面。')
++  }
++  if (url.pathname !== '/mobile/verify' || url.username || url.password || url.hash) {
++    throw new Error('验证地址无效，请返回 App 重新开始。')
++  }
++  const nonce = url.searchParams.get('nonce') ?? ''
++  if (!UUID_PATTERN.test(nonce) || url.searchParams.getAll('nonce').length !== 1
++    || Array.from(url.searchParams.keys()).some((key) => key !== 'nonce')) {
++    throw new Error('验证请求标识无效，请返回 App 重新开始。')
++  }
++  if (typeof environment.handler?.postMessage !== 'function') {
++    throw new Error('未找到手机端验证通道，请在 Sub2 Mobile 内重试。')
++  }
++  return nonce
++}
++
++// Match the server and CaptchaChallenge priority; an enabled but incomplete provider fails closed.
++export function resolveMobileCaptchaProvider(settings: MobileCaptchaSettings): MobileCaptchaProvider | null {
++  if (settings.turnstile_enabled) {
++    if (!settings.turnstile_site_key?.trim()) throw new Error('站点验证码配置不完整，请联系管理员。')
++    return 'turnstile'
++  }
++  if (settings.tencent_captcha_enabled) {
++    if (!settings.tencent_captcha_app_id?.trim()) throw new Error('站点验证码配置不完整，请联系管理员。')
++    return 'tencent'
++  }
++  if (settings.aliyun_captcha_enabled) {
++    if (!settings.aliyun_captcha_scene_id?.trim() || !settings.aliyun_captcha_prefix?.trim()) {
++      throw new Error('站点验证码配置不完整，请联系管理员。')
++    }
++    return 'aliyun'
++  }
++  return null
++}
++
++// Construct a new allowlisted message instead of forwarding an SDK or settings object.
++export function createMobileCaptchaBridge(readEnvironment: () => MobileBridgeEnvironment) {
++  const initial = readEnvironment()
++  const nonce = validateContext(initial)
++  const origin = new URL(initial.url).origin
++  let completed = false
++
++  function post(message: MobileCaptchaEnvelope): boolean {
++    if (completed) return false
++    const current = readEnvironment()
++    if (validateContext(current) !== nonce || new URL(current.url).origin !== origin) {
++      throw new Error('验证上下文已改变，请返回 App 重新开始。')
++    }
++    current.handler!.postMessage(message)
++    completed = true
++    return true
++  }
++
++  return {
++    sendProof(provider: MobileCaptchaProvider, token: string, randstr = ''): boolean {
++      if (!['turnstile', 'tencent', 'aliyun'].includes(provider)
++        || typeof token !== 'string' || !token.trim()
++        || (provider === 'tencent' && (typeof randstr !== 'string' || !randstr.trim()))) {
++        throw new Error('验证码结果无效，请重新验证。')
++      }
++      const proof: CaptchaProof = provider === 'tencent'
++        ? { tencent_captcha_ticket: token, tencent_captcha_randstr: randstr }
++        : { turnstile_token: token }
++      return post({ version: 1, nonce, provider, proof })
++    },
++    cancel(): boolean {
++      return post({ version: 1, nonce, cancelled: true })
++    }
++  }
++}
++
++export function readMobileBridgeEnvironment(): MobileBridgeEnvironment {
++  const bridgeWindow = window as Window & {
++    webkit?: { messageHandlers?: { sub2Captcha?: MobileBridgeEnvironment['handler'] } }
++  }
++  return {
++    url: window.location.href,
++    secureContext: window.isSecureContext,
++    mainFrame: window.top === window.self,
++    handler: bridgeWindow.webkit?.messageHandlers?.sub2Captcha
++  }
++}
+diff --git a/frontend/src/views/public/MobileVerifyView.vue b/frontend/src/views/public/MobileVerifyView.vue
+new file mode 100644
+index 000000000..d2a22c613
+--- /dev/null
++++ b/frontend/src/views/public/MobileVerifyView.vue
+@@ -0,0 +1,175 @@
++<template>
++  <main class="flex min-h-screen items-center justify-center bg-gray-50 p-5 text-gray-900 dark:bg-dark-900 dark:text-gray-100">
++    <section class="w-full max-w-md space-y-5 rounded-2xl bg-white p-6 shadow-sm dark:bg-dark-800" aria-labelledby="verification-title">
++      <h1 id="verification-title" class="text-xl font-semibold">手机端安全验证</h1>
++      <p class="text-sm text-gray-600 dark:text-gray-300">完成站点验证后，将自动返回 Sub2 Mobile 登录。</p>
++      <p v-if="loading" role="status">正在读取站点验证设置…</p>
++      <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
++      <p v-if="finished" role="status">{{ cancelled ? '已取消，请返回 App。' : '验证结果已提交，请返回 App。' }}</p>
++      <CaptchaChallenge
++        v-if="challenging && settings && provider"
++        ref="captchaRef"
++        :turnstile-enabled="provider === 'turnstile'"
++        :turnstile-site-key="settings.turnstile_site_key || ''"
++        :tencent-enabled="provider === 'tencent'"
++        :tencent-app-id="settings.tencent_captcha_app_id || ''"
++        :tencent-region="settings.tencent_captcha_region"
++        :aliyun-enabled="provider === 'aliyun'"
++        :aliyun-scene-id="settings.aliyun_captcha_scene_id"
++        :aliyun-prefix="settings.aliyun_captcha_prefix"
++        :aliyun-region="settings.aliyun_captcha_region"
++        @verify="handleProof"
++        @expire="failChallenge('验证码已过期，请重新验证。')"
++        @error="failChallenge('验证码加载或验证失败，请检查网络后重试。')"
++      />
++      <div class="flex flex-col gap-3">
++        <button
++          v-if="!finished"
++          type="button"
++          class="btn btn-primary min-h-11 w-full"
++          :disabled="loading || challenging || !bridge || !provider"
++          @click="startChallenge"
++        >{{ challenging ? '请完成安全验证…' : '开始验证 / 重试' }}</button>
++        <button
++          v-if="!finished && bridge"
++          type="button"
++          class="btn btn-secondary min-h-11 w-full"
++          @click="cancel"
++        >取消并返回</button>
++        <button v-if="!loading && !settings && bridge" type="button" class="btn btn-secondary min-h-11" @click="loadSettings">
++          重新读取设置
++        </button>
++      </div>
++    </section>
++  </main>
++</template>
++
++<script setup lang="ts">
++import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
++import CaptchaChallenge from '@/components/CaptchaChallenge.vue'
++import {
++  createMobileCaptchaBridge,
++  readMobileBridgeEnvironment,
++  resolveMobileCaptchaProvider,
++  type MobileCaptchaProvider,
++  type MobileCaptchaSettings
++} from '@/utils/mobileCaptchaBridge'
++
++const bridge = shallowRef<ReturnType<typeof createMobileCaptchaBridge> | null>(null)
++const settings = shallowRef<MobileCaptchaSettings | null>(null)
++const provider = ref<MobileCaptchaProvider | null>(null)
++const captchaRef = ref<InstanceType<typeof CaptchaChallenge> | null>(null)
++const loading = ref(true)
++const challenging = ref(false)
++const finished = ref(false)
++const cancelled = ref(false)
++const error = ref('')
++let settingsRequest: AbortController | undefined
++let challengeTimer: ReturnType<typeof setTimeout> | undefined
++let generation = 0
++let disposed = false
++
++function stopChallenge() {
++  generation++
++  if (challengeTimer !== undefined) clearTimeout(challengeTimer)
++  challengeTimer = undefined
++  challenging.value = false
++}
++
++function failChallenge(message: string) {
++  if (finished.value) return
++  stopChallenge()
++  error.value = message
++}
++
++function handleProof(token: string, randstr: string) {
++  if (!challenging.value || finished.value || !provider.value) return
++  try {
++    if (bridge.value?.sendProof(provider.value, token, randstr)) {
++      finished.value = true
++      error.value = ''
++      stopChallenge()
++    }
++  } catch {
++    failChallenge('未能提交验证码，请返回 App 重新开始。')
++  }
++}
++
++async function startChallenge() {
++  if (!bridge.value || !provider.value || challenging.value || finished.value) return
++  error.value = ''
++  challenging.value = true
++  const current = ++generation
++  challengeTimer = setTimeout(() => failChallenge('验证等待超时，请重新验证。'), 120_000)
++  await nextTick()
++  if (current !== generation || !challenging.value) return
++  if (provider.value !== 'turnstile') {
++    const proof = await captchaRef.value?.verifyAction()
++    if (current !== generation || !challenging.value) return
++    if (proof) handleProof(proof.token, proof.randstr)
++    else failChallenge(error.value || '验证未完成，可点击重试。')
++  }
++}
++
++function cancel() {
++  try {
++    if (bridge.value?.cancel()) {
++      stopChallenge()
++      settingsRequest?.abort()
++      cancelled.value = true
++      finished.value = true
++      error.value = ''
++    }
++  } catch {
++    failChallenge('未能通知 App，请手动关闭验证窗口。')
++  }
++}
++
++async function loadSettings() {
++  settingsRequest?.abort()
++  const request = new AbortController()
++  settingsRequest = request
++  const timeout = setTimeout(() => request.abort(), 30_000)
++  loading.value = true
++  error.value = ''
++  try {
++    // Do not use the authenticated Axios client, cookies, localStorage or a configurable API origin.
++    const response = await fetch('/api/v1/settings/public', {
++      credentials: 'omit', cache: 'no-store', signal: request.signal,
++      headers: { Accept: 'application/json' }
++    })
++    if (!response.ok) throw new Error('settings')
++    const envelope = await response.json()
++    if (disposed || finished.value || settingsRequest !== request) return
++    if (envelope.code !== 0 || !envelope.data || typeof envelope.data !== 'object') throw new Error('settings')
++    const config = envelope.data as MobileCaptchaSettings
++    provider.value = resolveMobileCaptchaProvider(config)
++    settings.value = config
++    if (!provider.value) error.value = '站点未启用验证码，请返回 App 重新登录。'
++  } catch {
++    if (!disposed && !finished.value && settingsRequest === request) {
++      error.value = '无法读取站点验证码设置，请检查网络或联系管理员后重试。'
++    }
++  } finally {
++    clearTimeout(timeout)
++    if (settingsRequest === request) loading.value = false
++  }
++}
++
++onMounted(async () => {
++  try {
++    bridge.value = createMobileCaptchaBridge(readMobileBridgeEnvironment)
++  } catch (cause) {
++    error.value = cause instanceof Error ? cause.message : '无法启动安全验证。'
++    loading.value = false
++    return
++  }
++  await loadSettings()
++})
++
++onBeforeUnmount(() => {
++  disposed = true
++  stopChallenge()
++  settingsRequest?.abort()
++})
++</script>
+diff --git a/frontend/src/views/public/__tests__/MobileVerifyView.spec.ts b/frontend/src/views/public/__tests__/MobileVerifyView.spec.ts
+new file mode 100644
+index 000000000..fba03381c
+--- /dev/null
++++ b/frontend/src/views/public/__tests__/MobileVerifyView.spec.ts
+@@ -0,0 +1,144 @@
++import { defineComponent, h } from 'vue'
++import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import MobileVerifyView from '../MobileVerifyView.vue'
++import type { MobileCaptchaSettings } from '@/utils/mobileCaptchaBridge'
++
++const test = vi.hoisted(() => ({
++  postMessage: vi.fn(), verifyAction: vi.fn(), secureContext: true, mainFrame: true,
++  url: 'https://station.example/mobile/verify?nonce=3a006827-701c-44e8-b153-cef42dc70234'
++}))
++
++vi.mock('@/utils/mobileCaptchaBridge', async (original) => ({
++  ...await original<typeof import('@/utils/mobileCaptchaBridge')>(),
++  readMobileBridgeEnvironment: () => ({
++    url: test.url, secureContext: test.secureContext, mainFrame: test.mainFrame,
++    handler: { postMessage: test.postMessage }
++  })
++}))
++
++const CaptchaStub = defineComponent({
++  name: 'CaptchaChallenge', emits: ['verify', 'expire', 'error'],
++  setup(_, { expose }) {
++    expose({ verifyAction: test.verifyAction })
++    return () => h('div', { 'data-testid': 'challenge' })
++  }
++})
++
++let wrapper: VueWrapper | undefined
++let fetchMock: ReturnType<typeof vi.fn>
++const nonce = '3a006827-701c-44e8-b153-cef42dc70234'
++const turnstileSettings = { turnstile_enabled: true, turnstile_site_key: 'public-site-key' }
++
++async function openPage(settings: MobileCaptchaSettings = turnstileSettings) {
++  fetchMock.mockResolvedValue({ ok: true, json: async () => ({ code: 0, data: settings }) })
++  wrapper = mount(MobileVerifyView, { global: { stubs: { CaptchaChallenge: CaptchaStub } } })
++  await flushPromises()
++  return wrapper
++}
++
++async function startChallenge() {
++  const button = wrapper!.findAll('button').find((item) => item.text().includes('开始验证'))!
++  await button.trigger('click')
++  await flushPromises()
++}
++
++describe('MobileVerifyView', () => {
++  beforeEach(() => {
++    test.postMessage.mockReset()
++    test.verifyAction.mockReset()
++    test.secureContext = true
++    test.mainFrame = true
++    test.url = `https://station.example/mobile/verify?nonce=${nonce}`
++    fetchMock = vi.fn()
++    vi.stubGlobal('fetch', fetchMock)
++  })
++  afterEach(() => {
++    wrapper?.unmount()
++    wrapper = undefined
++    vi.unstubAllGlobals()
++    vi.useRealTimers()
++  })
++
++  it('uses an unauthenticated same-origin settings request and waits for user action', async () => {
++    await openPage()
++    expect(fetchMock).toHaveBeenCalledWith('/api/v1/settings/public', expect.objectContaining({ credentials: 'omit', cache: 'no-store', headers: { Accept: 'application/json' } }))
++    expect(wrapper!.find('[data-testid="challenge"]').exists()).toBe(false)
++    expect(test.postMessage).not.toHaveBeenCalled()
++    await startChallenge()
++    wrapper!.findComponent(CaptchaStub).vm.$emit('verify', 'captcha-proof', '')
++    await flushPromises()
++    expect(test.postMessage).toHaveBeenCalledOnce()
++    expect(test.postMessage).toHaveBeenCalledWith({ version: 1, nonce, provider: 'turnstile', proof: { turnstile_token: 'captcha-proof' } })
++    expect(wrapper!.text()).toContain('验证结果已提交')
++  })
++
++  it.each([
++    ['tencent', { turnstile_enabled: false, turnstile_site_key: '', tencent_captcha_enabled: true, tencent_captcha_app_id: 'app-id' }, { token: 'ticket', randstr: 'random' }, { tencent_captcha_ticket: 'ticket', tencent_captcha_randstr: 'random' }],
++    ['aliyun', { turnstile_enabled: false, turnstile_site_key: '', aliyun_captcha_enabled: true, aliyun_captcha_scene_id: 'scene', aliyun_captcha_prefix: 'prefix' }, { token: 'verify-param', randstr: '' }, { turnstile_token: 'verify-param' }]
++  ] as const)('returns the %s action proof through the native bridge', async (provider, settings, action, proof) => {
++    test.verifyAction.mockResolvedValue(action)
++    await openPage(settings)
++    await startChallenge()
++    expect(test.postMessage).toHaveBeenCalledOnce()
++    expect(test.postMessage).toHaveBeenCalledWith({ version: 1, nonce, provider, proof })
++  })
++
++  it.each(['expire', 'error'])('discards %s challenge state and allows a fresh retry', async (event) => {
++    await openPage()
++    await startChallenge()
++    wrapper!.findComponent(CaptchaStub).vm.$emit(event)
++    await flushPromises()
++    expect(wrapper!.find('[role="alert"]').exists()).toBe(true)
++    expect(wrapper!.find('[data-testid="challenge"]').exists()).toBe(false)
++    expect(test.postMessage).not.toHaveBeenCalled()
++    await startChallenge()
++    expect(wrapper!.find('[data-testid="challenge"]').exists()).toBe(true)
++  })
++
++  it('times out a challenge that never returns and permits a fresh one', async () => {
++    await openPage()
++    vi.useFakeTimers()
++    await startChallenge()
++    await vi.advanceTimersByTimeAsync(120_000)
++    expect(wrapper!.text()).toContain('验证等待超时')
++    expect(wrapper!.find('[data-testid="challenge"]').exists()).toBe(false)
++    expect(test.postMessage).not.toHaveBeenCalled()
++    await startChallenge()
++    expect(wrapper!.find('[data-testid="challenge"]').exists()).toBe(true)
++  })
++
++  it('does not forward an action result that arrives after cancellation', async () => {
++    let resolve!: (value: { token: string; randstr: string }) => void
++    test.verifyAction.mockReturnValue(new Promise((done) => { resolve = done }))
++    await openPage({ turnstile_enabled: false, turnstile_site_key: '', tencent_captcha_enabled: true, tencent_captcha_app_id: 'app-id' })
++    await startChallenge()
++    await wrapper!.findAll('button').find((button) => button.text() === '取消并返回')!.trigger('click')
++    resolve({ token: 'late-ticket', randstr: 'late-random' })
++    await flushPromises()
++    expect(test.postMessage).toHaveBeenCalledOnce()
++    expect(test.postMessage).toHaveBeenCalledWith({ version: 1, nonce, cancelled: true })
++  })
++
++  it('reports provider-disabled and network failures without emitting fake proofs', async () => {
++    await openPage({ turnstile_enabled: false, turnstile_site_key: '' })
++    expect(wrapper!.text()).toContain('站点未启用验证码')
++    expect(test.postMessage).not.toHaveBeenCalled()
++    wrapper!.unmount()
++    fetchMock.mockRejectedValue(new Error('private-server-error'))
++    wrapper = mount(MobileVerifyView, { global: { stubs: { CaptchaChallenge: CaptchaStub } } })
++    await flushPromises()
++    expect(wrapper.text()).toContain('无法读取站点验证码设置')
++    expect(wrapper.text()).not.toContain('private-server-error')
++    expect(test.postMessage).not.toHaveBeenCalled()
++  })
++
++  it.each(['nonce', 'context'])('rejects invalid %s before fetching settings or rendering providers', async (invalid) => {
++    if (invalid === 'nonce') test.url = 'https://station.example/mobile/verify?nonce=invalid'
++    else test.mainFrame = false
++    await openPage()
++    expect(fetchMock).not.toHaveBeenCalled()
++    expect(wrapper!.find('[role="alert"]').exists()).toBe(true)
++    expect(test.postMessage).not.toHaveBeenCalled()
++  })
++})

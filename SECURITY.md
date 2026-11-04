@@ -2,11 +2,14 @@
 
 ## Supported Versions
 
-This project is currently maintained on the `main` branch only.
+The native rewrite is developed on `codex/native-ios-rebuild`. It is not yet a verified production release. `main` and `legacy-expo-3177500` preserve the previous Expo implementation.
 
 | Version | Supported |
 | ------- | --------- |
-| main    | ✅        |
+| codex/native-ios-rebuild | Development only; release and device checks pending |
+| legacy-expo-3177500 | Preserved reference |
+
+Native credentials belong in the device Keychain. Never commit passwords, Admin Keys, JWTs, certificates, private keys or provisioning profiles. Reports must redact full API keys and user data. The verification WebView must remain proof-only, same-origin, main-frame and nonce-bound. Management writes require explicit target confirmation; unknown balance outcomes must retain their original idempotency key and body.
 
 ## Reporting a Vulnerability
 
