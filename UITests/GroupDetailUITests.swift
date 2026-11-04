@@ -553,7 +553,7 @@ final class GroupDetailUITests: XCTestCase {
         add.tap()
         let notice = element("group.pick.legacy")
         XCTAssertTrue(notice.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(notice.label, "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改。")
+        XCTAssertEqual(notice.label, "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。")
     }
 
     /// 50 §9: the detail's 今日 is the list's, and the members' today in the group's terms adds up to no more than it (a rate-limited

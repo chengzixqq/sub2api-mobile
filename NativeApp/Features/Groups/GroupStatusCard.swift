@@ -144,7 +144,8 @@ struct GroupStatusCardSkeleton: View {
 }
 
 /// 50 §2.3 按钮行 (design GvActions) from `GroupPermissions.buttonRow(for:health:)`: equal capsules, the primary filled with the
-/// accent; a hidden primary is not handed on. Each is greyed for a read-only token, with one “只读令牌” line under the row.
+/// accent; a hidden primary is not handed on. Each is greyed for a read-only token, with one “只读令牌” line under the row, and a
+/// `.readOnly` 添加账号 without one (S5-中-12) is greyed too.
 struct GroupDetailButtonRowView: View {
     let buttons: [GroupButton]
     /// The group's action is running: the row waits and 启用分组 spins.
@@ -157,6 +158,7 @@ struct GroupDetailButtonRowView: View {
             HStack(spacing: 10) {
                 ForEach(buttons) { button in
                     GroupDetailButton(button: button, isRunning: isRunning && button.action == .enable) { perform(button.action) }
+                        .disabled(!button.entry.isEnabled)
                         .readOnlyGate(showsCaption: false)
                 }
             }

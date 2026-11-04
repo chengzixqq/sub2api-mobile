@@ -36,12 +36,17 @@ final class GroupEditMembersLoad {
 /// 50 §3.3 成员账号 N (design GvEditSheet): each member with “−”, its state glyph and name, and on the right 新加入 / 可调度 / its
 /// badge counting down; 将移出：A、B; “添加 <平台> 账号…” to the picker inside the sheet; the footnote, and 0.4.4's notice on a
 /// server that takes members one by one. An edit waits for its members (a spinner, or 成员加载失败 · 重试) and adds nothing until then.
+/// A greyed members entry greys “添加” and “−”; S5-中-12's reason sits beside the title.
 struct GroupEditMembersSection: View {
     @Binding var draft: GroupEditDraft
     /// The edit's read; nil for a new group.
     let load: LoadState<GroupMemberList>?
     let catalog: MetaCatalog?
     let showsLegacyNote: Bool
+    /// GroupMemberDraftCopy.membersEntry is `.enabled`.
+    let isEditable: Bool
+    /// GroupPermissions.membersBatchUnsupportedNote when simple mode cannot take members in one batch.
+    let batchUnsupportedNote: String?
     let onAdd: @MainActor () -> Void
     let onRetry: @MainActor () -> Void
     @Environment(\.sessionContext) private var session
@@ -52,7 +57,7 @@ struct GroupEditMembersSection: View {
         Section {
             if members.isLoaded {
                 ForEach(members.rows) { row in
-                    GroupEditMemberRow(row: row) { draft.members = draft.members.removing(row.id) }
+                    GroupEditMemberRow(row: row, isEditable: isEditable) { draft.members = draft.members.removing(row.id) }
                 }
                 if let line = GroupMemberDraftCopy.removedLine(members.removedNames) {
                     Text(line).font(.footnote).foregroundStyle(Palette.ink2)
@@ -64,8 +69,15 @@ struct GroupEditMembersSection: View {
             }
             addRow
         } header: {
-            Text(GroupMemberDraftCopy.sectionTitle(count: members.isLoaded ? members.count : draft.original?.accountCount ?? 0))
-                .accessibilityIdentifier("group-edit.members.header")
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(GroupMemberDraftCopy.sectionTitle(count: members.isLoaded ? members.count : draft.original?.accountCount ?? 0))
+                    .accessibilityIdentifier("group-edit.members.header")
+                if let batchUnsupportedNote {
+                    Spacer(minLength: 8)
+                    Text(batchUnsupportedNote).foregroundStyle(Palette.ink2).multilineTextAlignment(.trailing)
+                        .accessibilityIdentifier("group-edit.members.note.batch")
+                }
+            }
         } footer: {
             footer
         }
@@ -90,8 +102,8 @@ struct GroupEditMembersSection: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!members.isLoaded)
-        .opacity(members.isLoaded ? 1 : 0.4)
+        .disabled(!members.isLoaded || !isEditable)
+        .opacity(members.isLoaded && isEditable ? 1 : 0.4)
         .accessibilityIdentifier("group-edit.members.add")
         .readOnlyGate()
     }
@@ -114,6 +126,7 @@ struct GroupEditMembersSection: View {
 /// One member: “−” (44pt) takes it out, then the glyph, the name and what it is on the right; a window redraws every second.
 private struct GroupEditMemberRow: View {
     let row: GroupMemberDraft.Row
+    let isEditable: Bool
     let onRemove: @MainActor () -> Void
     @Environment(\.sessionContext) private var session
 
@@ -124,6 +137,8 @@ private struct GroupEditMemberRow: View {
                     .frame(width: 44, height: 44).contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
+            .disabled(!isEditable)
+            .opacity(isEditable ? 1 : 0.4)
             .accessibilityLabel(GroupMemberDraftCopy.removeLabel(name: row.account.name))
             .accessibilityIdentifier("group-edit.member.\(row.id).remove")
             .readOnlyGate(showsCaption: false)

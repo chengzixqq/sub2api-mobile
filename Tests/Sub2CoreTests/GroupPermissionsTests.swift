@@ -155,3 +155,22 @@ private func writes(_ p: GroupPermissions) -> [GroupPermissions.Entry] { [p.canC
     #expect(permissions.editableFields(in: group()) == [.name, .description, .status, .exclusive, .rateMultiplier, .rpmLimit, .limits])
     #expect(GroupPermissions.vendorMembersFootnote == "调整成员请在账号详情里修改分组")
 }
+
+@Test func memberBatchSupportGatesSimpleMode() {
+    let unsupported = GroupPermissions(me: simple, isReadOnlyToken: false, supportsMemberBatch: false)
+    #expect(unsupported.canEditMembers(group()) == .readOnly && unsupported.canEditMembers(group()).isShown && unsupported.membersBatchUnsupported)
+    #expect(unsupported.canEditMembers(group(platform: "composite")) == .hidden)
+    let menu = unsupported.menu(for: group())
+    #expect(menu.map(\.action) == [.edit, .addAccounts, .delete] && menu.map(\.entry) == [.enabled, .readOnly, .enabled])
+    #expect(unsupported.leadingSwipe(for: group()).isEmpty && unsupported.trailingSwipe(for: group()) == [.edit])
+    #expect(unsupported.buttonRow(for: group(), health: .low).map(\.entry) == [.readOnly, .enabled])
+    #expect(unsupported.canCreate == .enabled && unsupported.canEdit == .enabled && unsupported.canDelete == .enabled)
+    let readOnly = GroupPermissions(me: simple, isReadOnlyToken: true, supportsMemberBatch: false)
+    #expect(readOnly.canEditMembers(group()) == .readOnly && readOnly.membersBatchUnsupported)
+    let supported = GroupPermissions(me: simple, isReadOnlyToken: false, supportsMemberBatch: true)
+    #expect(supported.canEditMembers(group()) == .enabled && !supported.membersBatchUnsupported)
+    #expect(supported == GroupPermissions(me: simple, isReadOnlyToken: false) && unsupported != supported)
+    let legacy = GroupPermissions(me: admin, isReadOnlyToken: false, supportsMemberBatch: false)
+    #expect(legacy.canEditMembers(group()) == .enabled && !legacy.membersBatchUnsupported && legacy.leadingSwipe(for: group()) == [.addAccounts])
+    #expect(GroupPermissions.membersBatchUnsupportedNote == "服务器暂不支持批量调整成员")
+}

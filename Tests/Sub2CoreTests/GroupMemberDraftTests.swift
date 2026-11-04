@@ -154,6 +154,16 @@ private func loaded(_ members: [UpstreamAccount]) -> GroupMemberDraft { GroupMem
     #expect(GroupMemberDraftCopy.membersEntry(readOnly, group: nil) == .readOnly && GroupMemberDraftCopy.membersEntry(readOnly, group: premium) == .readOnly)
 }
 
+@Test func membersEntryStaysGreyedWithoutMemberBatchInSimpleMode() {
+    let unsupported = GroupPermissions(me: simple, isReadOnlyToken: false, supportsMemberBatch: false)
+    #expect(GroupMemberDraftCopy.membersEntry(unsupported, group: premium) == .readOnly)
+    #expect(GroupMemberDraftCopy.membersEntry(unsupported, group: nil) == .readOnly)
+    let legacy = GroupPermissions(me: admin, isReadOnlyToken: false, supportsMemberBatch: false)
+    #expect(GroupMemberDraftCopy.membersEntry(legacy, group: premium) == .enabled && GroupMemberDraftCopy.membersEntry(legacy, group: nil) == .enabled)
+    let agency = GroupPermissions(me: vendor, isReadOnlyToken: false, supportsMemberBatch: false)
+    #expect(GroupMemberDraftCopy.membersEntry(agency, group: nil) == .hidden)
+}
+
 @Test func editDiffFromDraftAsksBeforeEmptyingTheGroup() throws {
     var draft = GroupEditDraft(editing: premium)
     draft.membersLoaded([one, two, three])

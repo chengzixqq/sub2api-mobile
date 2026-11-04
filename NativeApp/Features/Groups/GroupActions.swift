@@ -14,7 +14,7 @@ import Sub2Core
 
     var groupWriteSession: GroupWriteSession? {
         guard let model, let session = model.sessionContext else { return nil }
-        let permissions = GroupPermissions(me: session.site.me, isReadOnlyToken: session.isReadOnlyToken)
+        let permissions = GroupPermissions(session: session, store: model.groupStore)
         return GroupWriteSession(generation: session.generation, serverID: session.serverID, siteName: model.activeProfile?.name ?? "",
                                  idempotentWrites: session.has(.adminIdempotentWrites), isReadOnlyToken: session.isReadOnlyToken,
                                  readsStats: permissions.showsStats, isSimpleMode: permissions.isSimpleMode)
@@ -140,7 +140,7 @@ struct GroupActionMenuItems: View {
             Button(role: item.action.isDestructive ? .destructive : nil) { perform(item.action) } label: {
                 Label(item.action.menuTitle, systemImage: item.action.systemImage)
             }
-            .disabled(actions.isRunning(group.id))
+            .disabled(actions.isRunning(group.id) || !item.entry.isEnabled)
             .readOnlyGate(showsCaption: false)
             .accessibilityIdentifier("group.menu.\(item.action.rawValue)")
         }

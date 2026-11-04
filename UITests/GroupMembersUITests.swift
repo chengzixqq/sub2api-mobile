@@ -161,7 +161,7 @@ final class GroupMembersUITests: XCTestCase {
         openPickerFromMembers(title: "添加 OpenAI 账号")
         let notice = element("group.pick.legacy")
         XCTAssertTrue(notice.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertEqual(notice.label, "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改。")
+        XCTAssertEqual(notice.label, "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。")
         pickRow(4).tap()
         submitPicks(titled: "加入 1 个账号")
         waitForReceipt("已加入 1 个账号")

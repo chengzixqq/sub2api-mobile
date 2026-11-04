@@ -10,6 +10,7 @@ final class GroupSimpleModeUITests: XCTestCase {
     private enum Fixture {
         static let simpleMode = "-ui-simple-mode"
         static let unbindable = "-ui-group-simple-unbindable"
+        static let withoutCapabilities = "-ui-without-capabilities"
     }
 
     /// 1.3 / 1.4: no third line, 编辑 alone on the left swipe, no 停用 / 启用 / 复制 in the long press.
@@ -142,6 +143,27 @@ final class GroupSimpleModeUITests: XCTestCase {
         app.scrollUntilExists(add)
         XCTAssertFalse(app.buttons["group.member.4"].exists, app.debugDescription)
         XCTAssertEqual(element("group.detail.card.badge").label, "没有账号")
+    }
+
+    /// S5-中-12: without `groups.member_batch` the button row's 添加账号, ⋯'s and the section's 添加 row stay but are greyed, and
+    /// the section says why.
+    @MainActor func testMembersGreyedWithoutMemberBatch() {
+        openGroup(1, arguments: [Fixture.withoutCapabilities, "groups.member_batch"])
+        defer { diagnostics("group-simple-no-batch-final") }
+        let button = app.buttons["group.action.addAccounts"]
+        XCTAssertTrue(button.exists, app.debugDescription)
+        XCTAssertFalse(button.isEnabled, app.debugDescription)
+        let add = element("group.members.add")
+        app.scrollUntilExists(add)
+        XCTAssertFalse(add.isEnabled, app.debugDescription)
+        let note = element("group.members.note.batch")
+        app.scrollUntilExists(note)
+        XCTAssertEqual(note.label, "服务器暂不支持批量调整成员")
+        app.buttons["group.more"].tap()
+        let item = menuItem("添加账号")
+        XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(item.isEnabled, app.debugDescription)
+        XCTAssertTrue(menuItem("编辑分组").isEnabled, app.debugDescription)
     }
 
     // MARK: - Helpers

@@ -102,7 +102,7 @@ struct GroupEditSheet: View {
     }
 
     private var store: GroupStore? { model.groupStore.flatMap { $0.generation == session?.generation ? $0 : nil } }
-    private var permissions: GroupPermissions { GroupPermissions(me: session?.site.me, isReadOnlyToken: session?.isReadOnlyToken ?? false) }
+    private var permissions: GroupPermissions { GroupPermissions(session: session, store: store) }
     private var editable: Set<GroupPermissions.Field> { permissions.editableFields(in: original) }
     private var takenNames: Set<String> {
         GroupEditDraft.takenNames(in: store?.groups ?? [], excluding: original?.id).union(flow?.rejectedNames ?? [])
@@ -202,6 +202,8 @@ struct GroupEditSheet: View {
     @ViewBuilder private var membersSection: some View {
         if membersEntry.isShown {
             GroupEditMembersSection(draft: $draft, load: membersLoad?.state, catalog: catalog, showsLegacyNote: showsLegacyNote,
+                                    isEditable: membersEntry.isEnabled,
+                                    batchUnsupportedNote: permissions.membersBatchUnsupported ? GroupPermissions.membersBatchUnsupportedNote : nil,
                                     onAdd: { addingAccounts = true }, onRetry: { Task { await loadMembers() } })
         }
     }

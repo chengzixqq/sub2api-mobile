@@ -191,7 +191,7 @@ private struct GroupDetailContent: View {
 
     // MARK: - Words
 
-    private var permissions: GroupPermissions { GroupPermissions(me: session?.site.me, isReadOnlyToken: session?.isReadOnlyToken ?? false) }
+    private var permissions: GroupPermissions { GroupPermissions(session: session, store: model.groupStore) }
     private func title(_ page: GroupDetailPageState) -> String {
         if case .deleted = page { return GroupDetailCopy.deletedTitle }
         return detail.group?.name ?? GroupDetailCopy.deletedTitle

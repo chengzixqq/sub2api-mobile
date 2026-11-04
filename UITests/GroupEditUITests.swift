@@ -525,7 +525,7 @@ final class GroupEditUITests: XCTestCase {
         editRow(1)
         let notice = element("group-edit.members.legacy")
         reveal(notice)
-        XCTAssertEqual(notice.label, "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改。")
+        XCTAssertEqual(notice.label, "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。")
         reveal(memberState(3), towardBottom: false)
         removeMember(3)
         submit()
@@ -551,6 +551,24 @@ final class GroupEditUITests: XCTestCase {
         reveal(removed, towardBottom: false)
         XCTAssertEqual(removed.label, "将移出：Claude-官方-03")
         XCTAssertTrue(app.buttons["group-edit.submit"].isEnabled, app.debugDescription)
+    }
+
+    /// S5-中-12: simple mode without `groups.member_batch` keeps the members, greys 添加 and “−” and says why beside the title;
+    /// no one-by-one notice there.
+    @MainActor func testEditMembersGreyedWithoutMemberBatch() {
+        launchAndOpenGroups(arguments: [MemberFixture.simpleMode, MemberFixture.withoutCapabilities, "groups.member_batch"])
+        defer { diagnostics("group-edit-members-no-batch-final") }
+        editRow(1)
+        let note = element("group-edit.members.note.batch")
+        reveal(note)
+        XCTAssertEqual(note.label, "服务器暂不支持批量调整成员")
+        let remove = app.buttons["group-edit.member.1.remove"]
+        reveal(remove)
+        XCTAssertFalse(remove.isEnabled, app.debugDescription)
+        let add = element("group-edit.members.add")
+        reveal(add)
+        XCTAssertFalse(add.isEnabled, app.debugDescription)
+        XCTAssertFalse(element("group-edit.members.legacy").exists, app.debugDescription)
     }
 
     private enum MemberFixture {

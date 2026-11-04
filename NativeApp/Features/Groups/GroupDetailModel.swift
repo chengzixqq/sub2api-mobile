@@ -279,7 +279,7 @@ final class GroupDetailModel {
         return []
     }
     private func permissions(_ session: SessionContext) -> GroupPermissions {
-        GroupPermissions(me: session.site.me, isReadOnlyToken: session.isReadOnlyToken)
+        GroupPermissions(session: session, store: app?.groupStore)
     }
     private func apply(_ read: AdminGroup) {
         group = read

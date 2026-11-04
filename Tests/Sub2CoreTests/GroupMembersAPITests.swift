@@ -466,5 +466,5 @@ func memberBatchResendThatSaysNothingKeepsFirstError(first: ScriptStep, resend: 
     let error = try #require(await thrownAPIError { _ = try await memberClient(transport).groupMemberBatch(groupID: 3, request) })
     #expect(GroupMembersLegacyExecutor.isFallbackTrigger(error))
     #expect(await transport.requests.count == 1)
-    #expect(GroupMembersLegacyExecutor.notice == "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改。")
+    #expect(GroupMembersLegacyExecutor.notice == "服务器版本较旧：成员逐个提交，可能覆盖他人同时对这些账号的修改，并会重置这些账号在其他分组里的排序。")
 }

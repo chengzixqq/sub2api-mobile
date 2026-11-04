@@ -6,7 +6,7 @@ import Sub2Core
 /// “成员加载失败 · 重试” while the status card keeps the group's counts (2.5); a failed refresh keeps the rows under the header's
 /// 更新失败. Rows end in a tail that reads the next page. S5-08: each row's swipe and long press (2.4), a row swiped out stays
 /// hidden while its removal is out, “添加 <平台> 账号” ends the section where members may be changed (4.1), and a vendor reads
-/// U37's footnote.
+/// U37's footnote. S5-中-12: simple mode without the member batch greys 添加 and 移出 and says why under the section.
 struct GroupMembersSection: View {
     let group: AdminGroup
     let members: LoadState<GroupMemberList>
@@ -60,9 +60,10 @@ struct GroupMembersSection: View {
                     .onAppear { if index == rows.count - 1, list.hasMore { onLoadMore() } }
             }
             tail
-            if permissions.canEditMembers(group).isShown { addRow }
+            if membersEntry.isShown { addRow }
         }
     }
+    private var membersEntry: GroupPermissions.Entry { permissions.canEditMembers(group) }
     /// 4.1 直接打开: “添加 Anthropic 账号”, or “添加账号” for a composite group (design GvAddRow).
     private var addRow: some View {
         Button(action: onAddAccounts) {
@@ -72,6 +73,8 @@ struct GroupMembersSection: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!membersEntry.isEnabled)
+        .opacity(membersEntry.isEnabled ? 1 : 0.4)
         .accessibilityIdentifier("group.members.add")
         .readOnlyGate()
         .listRowBackground(Palette.surface)
@@ -83,7 +86,7 @@ struct GroupMembersSection: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("group.member.\(account.id)")
-        .groupMemberRowActions(account, group: group, actions: memberActions, membersEntry: permissions.canEditMembers(group),
+        .groupMemberRowActions(account, group: group, actions: memberActions, membersEntry: membersEntry,
                                isReadOnly: permissions.isReadOnlyToken, now: now)
         .listRowInsets(EdgeInsets())
         .listRowBackground(Palette.surface)
@@ -104,9 +107,12 @@ struct GroupMembersSection: View {
     /// U38: once today-stats has answered, and only when some row shows 今日 (design GvMemberNote); U37: a vendor changes
     /// memberships in the account detail.
     @ViewBuilder private var footnote: some View {
-        let todayNote = todayFootnote, vendorNote = permissions.membersFootnote
-        if todayNote != nil || vendorNote != nil {
+        let todayNote = todayFootnote, vendorNote = permissions.membersFootnote, batchNote = batchUnsupportedNote
+        if todayNote != nil || vendorNote != nil || batchNote != nil {
             VStack(alignment: .leading, spacing: 6) {
+                if let batchNote {
+                    Text(batchNote).font(.footnote).foregroundStyle(Palette.ink2).accessibilityIdentifier("group.members.note.batch")
+                }
                 if let todayNote {
                     Text(todayNote).font(.footnote).foregroundStyle(Palette.ink3).accessibilityIdentifier("group.members.footnote")
                 }
@@ -115,6 +121,9 @@ struct GroupMembersSection: View {
                 }
             }
         }
+    }
+    private var batchUnsupportedNote: String? {
+        permissions.membersBatchUnsupported && membersEntry.isShown ? GroupPermissions.membersBatchUnsupportedNote : nil
     }
     private var todayFootnote: String? {
         guard let list = members.value, !list.rows.isEmpty, summary.showsTodayFootnote, let scope = today.value?.scope else { return nil }
