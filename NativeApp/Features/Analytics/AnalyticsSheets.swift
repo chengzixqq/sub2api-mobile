@@ -156,8 +156,9 @@ struct AnalyticsFilterSheet: View {
     @ViewBuilder private var groupRows: some View {
         if let directory = session.groups {
             if directory.state.value != nil {
-                let usage = session.state(.filterGroupShares, as: [AnalyticsBreakdown].self)?.value
-                ForEach(AnalyticsFilterOptions.groupRows(directory: directory.groups, usage: usage)) { choice($0) }
+                let shares = session.state(.filterGroupShares, as: [AnalyticsBreakdown].self)
+                ForEach(AnalyticsFilterOptions.groupRows(directory: directory.groups, usage: shares?.value)) { choice($0) }
+                if let shares, shares.value == nil, shares.error != nil { sharesFailure(shares) }
             } else if directory.state.failureReason != nil {
                 BlockFailureRow(state: directory.state, refresh: directory.refreshState, id: "analytics.filter.groups") {
                     Task { await directory.refresh() }
@@ -176,6 +177,14 @@ struct AnalyticsFilterSheet: View {
             BlockFailureRow(models, id: "analytics.filter.models") { Task { await loadModels(refresh: true) } }
         } else {
             loadingRow
+        }
+    }
+
+    /// The groups stay as they are; 重试 reads the shares alone.
+    private func sharesFailure(_ shares: LoadState<[AnalyticsBreakdown]>) -> some View {
+        BlockFailureRow(title: AnalyticsFilterOptions.sharesFailed, error: shares.lastError, occurredAt: shares.lastErrorAt,
+                        refresh: shares.refresh, id: "analytics.filter.groupShares") {
+            Task { await loadGroupShares(refresh: true) }
         }
     }
 
@@ -224,13 +233,13 @@ struct AnalyticsFilterSheet: View {
         switch kind {
         case .group:
             await session.groups?.ensureLoaded()
-            await loadGroupShares()
+            await loadGroupShares(refresh: false)
         case .model:
             await loadModels(refresh: false)
         }
     }
-    private func loadGroupShares() async {
-        await session.load(.filterGroupShares, fixture: { _ in try AnalyticsFixtures.groupShares() }) { client, session in
+    private func loadGroupShares(refresh: Bool) async {
+        await session.load(.filterGroupShares, refresh: refresh, fixture: { _ in try AnalyticsFixtures.groupShares() }) { client, session in
             try await client.usageAnalysisGroups(session.query(filtered: false))
         }
     }

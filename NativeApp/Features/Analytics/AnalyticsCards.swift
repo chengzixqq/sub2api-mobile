@@ -139,7 +139,7 @@ struct AnalyticsCardStatusRow<Value: Sendable>: View {
 
 /// A card's content over one read: the placeholder until its first answer (`minHeight`, close to the loaded height), then the
 /// failure line, or the content with the stale line above it (`showsStaleLine` false where a big number already carries the
-/// card's status row).
+/// card's status row; `showsFailure` false where another line of the card already offers the same retry: nothing then).
 struct AnalyticsCardBody<Value: Sendable, Content: View>: View {
     private let load: LoadState<Value>?
     private let id: String
@@ -147,13 +147,15 @@ struct AnalyticsCardBody<Value: Sendable, Content: View>: View {
     private let timeZone: TimeZone
     private let resendsAfterWait: Bool
     private let showsStaleLine: Bool
+    private let showsFailure: Bool
     private let retry: @MainActor () -> Void
     private let content: (Value) -> Content
 
     init(_ load: LoadState<Value>?, id: String, minHeight: CGFloat, timeZone: TimeZone, resendsAfterWait: Bool = true,
-         showsStaleLine: Bool = true, retry: @escaping @MainActor () -> Void, @ViewBuilder content: @escaping (Value) -> Content) {
+         showsStaleLine: Bool = true, showsFailure: Bool = true, retry: @escaping @MainActor () -> Void,
+         @ViewBuilder content: @escaping (Value) -> Content) {
         self.load = load; self.id = id; self.minHeight = minHeight; self.timeZone = timeZone; self.resendsAfterWait = resendsAfterWait
-        self.showsStaleLine = showsStaleLine; self.retry = retry; self.content = content
+        self.showsStaleLine = showsStaleLine; self.showsFailure = showsFailure; self.retry = retry; self.content = content
     }
 
     var body: some View {
@@ -163,7 +165,7 @@ struct AnalyticsCardBody<Value: Sendable, Content: View>: View {
                 content(value)
             }
         } else if let load, load.error != nil {
-            statusRow(load)
+            if showsFailure { statusRow(load) }
         } else {
             AnalyticsCardPlaceholder(height: minHeight, id: id)
         }
@@ -313,7 +315,7 @@ struct BillingTrendCard: View {
             } else {
                 headline(card, summary: summary)
                 AnalyticsCardBody(trend, id: "analytics.billing.trend", minHeight: Self.chartHeight, timeZone: zone, showsStaleLine: false,
-                                  retry: retry) { _ in
+                                  showsFailure: Self.showsTrendFailure(summary: summary, trend: trend), retry: retry) { _ in
                     AnalyticsBarChart(series: card.bars, selection: $selection, id: "analytics.billing.chart", chartTitle: "计费趋势",
                                       height: Self.chartHeight)
                 }
@@ -332,6 +334,14 @@ struct BillingTrendCard: View {
         async let comparison: Void = session.loadBillingComparison(refresh: refresh)
         async let trend: Void = session.loadBillingTrend(refresh: refresh)
         _ = await (summary, comparison, trend)
+    }
+
+    /// One failure line where the totals' would offer the same 重试本项; totals kept under 更新失败 always retry.
+    private static func showsTrendFailure(summary: LoadState<AnalyticsSummary>?, trend: LoadState<DashboardTrendReply>?) -> Bool {
+        AnalyticsBillingCard.showsTrendFailure(
+            summaryFailed: summary?.error != nil,
+            summaryRetries: summary?.value != nil || AnalyticsCardFailure(error: summary?.lastError).allowsRetry,
+            trendFailed: trend?.error != nil, trendRetries: AnalyticsCardFailure(error: trend?.lastError).allowsRetry)
     }
 
     private var zone: TimeZone { session.timeZone.timeZone }

@@ -396,4 +396,33 @@ final class AnalyticsRankUITests: XCTestCase {
         app.scrollUntilExists(app.analyticsElement("analytics.model.logs"))
         XCTAssertTrue(app.analyticsElement("analytics.model.user.10").exists, app.debugDescription)
     }
+
+    // MARK: 筛选面板的分组占比（40 §1.2）
+
+    private static let sharesFailOnce = "-ui-analytics-filter-shares-fail-once"
+
+    /// The shares failing leaves the groups listed and selectable, with 占比读取失败 · 重试 under them; 重试 reads the shares alone.
+    @MainActor func testGroupSharesFailureOffersRetry() {
+        launch([Self.sharesFailOnce])
+        defer { diagnostics("filter-shares-failure-final") }
+        app.navigationBars.buttons["analytics.filter.button"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["筛选"].waitForExistence(timeout: 5), app.debugDescription)
+        let group = app.analyticsElement("analytics.filter.row.group.1")
+        XCTAssertTrue(group.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(group.label.contains("%"), group.label)
+        // Under the last group, past the bottom of the sheet with the fixture's nine.
+        let failure = app.analyticsElement("analytics.filter.groupShares.failure")
+        for _ in 0..<6 where !failure.exists { app.swipeUp() }
+        XCTAssertTrue(failure.waitForExistence(timeout: 5), app.debugDescription)
+        let text = failure.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "占比读取失败")).firstMatch
+        XCTAssertTrue(text.exists, app.debugDescription)
+        let retry = app.analyticsElement("analytics.filter.groupShares.retry")
+        XCTAssertEqual(retry.label, "重试")
+        diagnostics("filter-shares-failure")
+        retry.waitUntilSettled()
+        retry.tap()
+        XCTAssertTrue(failure.pollGone(timeout: 5), app.debugDescription)
+        app.scrollUntilExists(group, towardBottom: false)
+        app.waitForLabel(group, containing: "%")
+    }
 }

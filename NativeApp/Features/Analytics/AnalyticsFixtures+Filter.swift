@@ -4,8 +4,16 @@ import Sub2Core
 /// The filter sheet's shares under `-ui-testing` (40 §1.2): the range's actual cost by group and by requested model. Group ids are
 /// DemoData's account groups, the App's only group fixture (X05); 0 is usage without a group, 测试组 (6, inactive) has none.
 extension AnalyticsFixtures {
-    static func groupShares() throws -> [AnalyticsBreakdown] {
-        try filterRows("""
+    /// `-ui-analytics-filter-shares-fail-once`: the first read of the group shares answers 500.
+    static let filterSharesFailOnce = "-ui-analytics-filter-shares-fail-once"
+    @MainActor private static var groupSharesAnswered = 0
+
+    @MainActor static func groupShares() throws -> [AnalyticsBreakdown] {
+        groupSharesAnswered += 1
+        if groupSharesAnswered == 1, ProcessInfo.processInfo.arguments.contains(filterSharesFailOnce) {
+            throw APIError.server(status: 500, reason: nil)
+        }
+        return try filterRows("""
         [{"group_id":1,"group_name":"高级组","requests":1820,"total_tokens":48200000,"actual_cost":"182.40","account_cost":"96.10"},
          {"group_id":2,"group_name":"标准组","requests":960,"total_tokens":21400000,"actual_cost":"96.10","account_cost":"51.20"},
          {"group_id":3,"group_name":"默认组","requests":410,"total_tokens":9800000,"actual_cost":"40.00","account_cost":"22.30"},

@@ -245,6 +245,9 @@ final class AnalyticsSessionState {
 /// 40 §1.2 筛选 sheet rows: groups in directory order (inactive ones marked and still selectable), models by actual cost. A share
 /// is of the current range's whole actual cost, unassigned usage included; 0.0% without usage, nil while the usage is unknown.
 enum AnalyticsFilterOptions {
+    /// Under the group rows when their shares could not be read; the groups stay listed and selectable.
+    static let sharesFailed = "占比读取失败"
+
     struct Row: Identifiable, Equatable, Sendable {
         let filter: AnalyticsFilter
         let title: String
