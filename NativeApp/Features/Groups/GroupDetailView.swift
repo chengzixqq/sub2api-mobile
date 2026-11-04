@@ -77,6 +77,7 @@ private struct GroupDetailContent: View {
     @ViewBuilder private func content(_ page: GroupDetailPageState) -> some View {
         switch page {
         case .deleted: GroupDeletedPage()
+        case .unsupportedSimpleModeComposite: GroupSimpleModeCompositePage()
         case .failure(let message): GroupDetailFailurePage(message: message) { Task { await detail.refresh(.pull) } }
         case .skeleton, .content: list(page)
         }
@@ -228,6 +229,19 @@ private struct GroupDeletedPage: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Palette.canvas)
             .accessibilityIdentifier("group.detail.deleted")
+    }
+}
+
+/// S5-中-10: simple mode cannot read a composite group (400 SIMPLE_MODE_GROUP_NOT_BINDABLE). The whole page, without 重试;
+/// the navigation keeps only 返回.
+private struct GroupSimpleModeCompositePage: View {
+    var body: some View {
+        ContentUnavailableView(GroupDetailCopy.simpleModeCompositeTitle, systemImage: "square.stack.3d.up.slash",
+                               description: Text(GroupDetailCopy.simpleModeCompositeBody))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Palette.canvas)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("group.detail.simple-composite")
     }
 }
 

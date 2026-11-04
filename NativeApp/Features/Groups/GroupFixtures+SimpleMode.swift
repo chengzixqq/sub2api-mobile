@@ -6,8 +6,9 @@ import Sub2Core
 /// SIMPLE_MODE_OPERATION_UNSUPPORTED for copies and the advanced reads, 409 GROUP_NOT_EMPTY for deleting a group that still has
 /// accounts (DeleteGroupIfEmpty), 400 SIMPLE_MODE_GROUP_NOT_BINDABLE for a composite group, and writes sanitised to the name and the
 /// description (a new group also its platform). The fixtures have no composite group, so `simpleUnbindableArgument` makes every
-/// member batch answer that 400. GroupStore, the action and edit sources and AppModel's member writes call these under
-/// `site.me.isSimpleRunMode`; subscriptions are not refused (the backend's ListByGroup does not check run_mode).
+/// member batch answer that 400 and `simpleCompositeArgument` every group's own read (U-15). GroupStore, the action and edit
+/// sources and AppModel's member writes call these under `site.me.isSimpleRunMode`; subscriptions are not refused (the backend's
+/// ListByGroup does not check run_mode).
 extension GroupFixtures {
     enum SimpleModeCall: Sendable, Equatable {
         case stats, usageSummary, capacity, duplicate, apiKeys
@@ -17,6 +18,8 @@ extension GroupFixtures {
     }
     /// Simple mode only: every member batch answers 400 SIMPLE_MODE_GROUP_NOT_BINDABLE, as for a composite group.
     nonisolated static let simpleUnbindableArgument = "-ui-group-simple-unbindable"
+    /// Simple mode only: every `GET admin/groups/:id` answers 400 SIMPLE_MODE_GROUP_NOT_BINDABLE, as for a composite group.
+    nonisolated static let simpleCompositeArgument = "-ui-group-simple-composite"
     private nonisolated static let compositePlatform = "composite"
 
     /// The reply's keys only: the billing fields are gone and account / active / rate-limited counts of 0 are left out (omitempty).
@@ -34,7 +37,7 @@ extension GroupFixtures {
         case .stats, .usageSummary, .capacity, .duplicate, .apiKeys:
             return APIError.server(status: 403, reason: "SIMPLE_MODE_OPERATION_UNSUPPORTED")
         case .read(let platform):
-            return platform == compositePlatform ? notBindable : nil
+            return platform == compositePlatform || arguments.contains(simpleCompositeArgument) ? notBindable : nil
         case .delete(let accountCount, let platform):
             if platform == compositePlatform { return notBindable }
             return accountCount > 0 ? APIError.server(status: 409, reason: "GROUP_NOT_EMPTY") : nil

@@ -3,13 +3,15 @@ import XCTest
 /// 50 §0.7 (S5-13): the group pages on a simple-mode site (`-ui-simple-mode`, DemoData.adminMe's run_mode). The fixture server
 /// answers as the backend does there (GroupFixtures+SimpleMode): replies without billing fields, 403 for copies and the advanced
 /// reads, 409 GROUP_NOT_EMPTY for a group that still has accounts, and with `-ui-group-simple-unbindable` 400
-/// SIMPLE_MODE_GROUP_NOT_BINDABLE for member writes (the fixtures have no composite group). Menu items are tapped by title.
+/// SIMPLE_MODE_GROUP_NOT_BINDABLE for member writes (the fixtures have no composite group), with `-ui-group-simple-composite` the
+/// same 400 for every group's own read. Menu items are tapped by title.
 final class GroupSimpleModeUITests: XCTestCase {
     @MainActor private var app: XCUIApplication!
 
     private enum Fixture {
         static let simpleMode = "-ui-simple-mode"
         static let unbindable = "-ui-group-simple-unbindable"
+        static let composite = "-ui-group-simple-composite"
     }
 
     /// 1.3 / 1.4: no third line, 编辑 alone on the left swipe, no 停用 / 启用 / 复制 in the long press.
@@ -144,10 +146,41 @@ final class GroupSimpleModeUITests: XCTestCase {
         XCTAssertEqual(element("group.detail.card.badge").label, "没有账号")
     }
 
+    /// U-15 (S5-中-10): a composite group's read (here every group's) answers 400 SIMPLE_MODE_GROUP_NOT_BINDABLE. Opened from the
+    /// alert's scope row, the whole page explains it without 重试 or ⋯, and 返回 leads back to the alert.
+    @MainActor func testCompositeGroupExplainsWithoutRetry() {
+        signIn(arguments: [Fixture.composite])
+        defer { diagnostics("group-simple-composite-final") }
+        let alertRow = element("home.attention.alert-41")
+        XCTAssertTrue(alertRow.waitForExistence(timeout: 15), app.debugDescription)
+        reveal(alertRow)
+        alertRow.tap()
+        let scope = element("alert.detail.scope.group")
+        XCTAssertTrue(scope.waitForExistence(timeout: 10), app.debugDescription)
+        reveal(scope)
+        scope.tap()
+        XCTAssertTrue(element("group.detail.simple-composite").waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["简易模式下不能打开组合分组"].exists, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["这个分组在简易模式下读不到，请到 Web 后台查看。"].exists, app.debugDescription)
+        for absent in ["group.detail.retry", "group.detail.failure", "group.detail.card", "group.more"] {
+            XCTAssertFalse(element(absent).exists, "\(absent)\n\(app.debugDescription)")
+        }
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(back.isHittable, app.debugDescription)
+        back.tap()
+        XCTAssertTrue(element("alert.detail.status").waitForExistence(timeout: 10), app.debugDescription)
+    }
+
     // MARK: - Helpers
 
     /// Password sign-in on the simple-mode site, then 搜索 → 资源 · 分组.
     @MainActor private func launchAndOpenGroups(arguments: [String] = []) {
+        signIn(arguments: arguments)
+        app.openSearchItem("search.item.groups")
+        XCTAssertTrue(row(4).waitForExistence(timeout: 10), app.debugDescription)
+    }
+    /// Password sign-in on the simple-mode site, up to the overview.
+    @MainActor private func signIn(arguments: [String] = []) {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-ui-accounts-long-windows", Fixture.simpleMode] + arguments
@@ -158,8 +191,6 @@ final class GroupSimpleModeUITests: XCTestCase {
         enter("admin@example.com", in: "login.email")
         enter("fixture-password", in: "login.password")
         let submit = app.buttons["login.submit"]; reveal(submit); submit.tap()
-        app.openSearchItem("search.item.groups")
-        XCTAssertTrue(row(4).waitForExistence(timeout: 10), app.debugDescription)
     }
     /// The list's row, then the detail once its card shows.
     @MainActor private func openGroup(_ id: Int, arguments: [String] = []) {
