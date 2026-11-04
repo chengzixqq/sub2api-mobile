@@ -579,3 +579,57 @@ private func body(_ request: URLRequest?) throws -> [String: Any] {
     #expect(coordinator.pendingDeletions(serverID: serverID) == [9])
     #expect(coordinator.revision == before + 1)
 }
+
+// MARK: - 待跳转目标过期（U-25）
+
+private let expirySiteA = pushProfile("a"), expirySiteB = pushProfile("b")
+private let expiryAlert = PushTap(type: "ops_alert.fired", siteTag: expirySiteA.id.uuidString, target: .alert(id: 41))
+private let expiryOtherSite = PushTap(type: "account.error", siteTag: expirySiteB.id.uuidString, target: .account(id: 7))
+
+/// A tapped target lives 10 minutes by the coordinator's clock: a sheet kept open past it lands nowhere once closed.
+@MainActor @Test func pendingTargetExpires() async {
+    let store = PushTestDefaults(); defer { store.clear() }
+    let clock = PushTestClock()
+    let coordinator = makePushCoordinator(store.records, now: { clock.date })
+    let navigator = PushStubNavigator(active: expirySiteA.id, profiles: [expirySiteA, expirySiteB])
+    #expect(PushCoordinator.pendingTargetLifetime == 600)
+    await coordinator.openTap(expiryAlert, navigator: navigator)
+    clock.date += 599
+    #expect(coordinator.takeTarget(for: expirySiteA.id) == .alert(id: 41))
+    await coordinator.openTap(expiryAlert, navigator: navigator)
+    clock.date += 601
+    #expect(coordinator.takeTarget(for: expirySiteA.id) == nil)
+    #expect(coordinator.pendingTarget == nil)
+
+    await coordinator.openTap(expiryAlert, navigator: navigator)
+    let router = AppRouter()
+    router.present(.balanceKeypad(userID: 1, mode: .topup))
+    #expect(!coordinator.deliverPending(to: router, activeServerID: expirySiteA.id, showsTestResult: { _ in false }))
+    clock.date += 601
+    router.presentedSheet = nil
+    #expect(!coordinator.deliverPending(to: router, activeServerID: expirySiteA.id, showsTestResult: { _ in false }))
+    #expect(coordinator.pendingTarget == nil)
+    #expect(router.path(for: .today).isEmpty)
+}
+
+/// S6-中-24: another site's expired target is not switched to, and a login to it put off past the lifetime opens nothing.
+@MainActor @Test func otherSitePendingTargetExpires() async {
+    let store = PushTestDefaults(); defer { store.clear() }
+    let clock = PushTestClock()
+    let coordinator = makePushCoordinator(store.records, now: { clock.date })
+    let navigator = PushStubNavigator(active: expirySiteA.id, profiles: [expirySiteA, expirySiteB], opening: .loginPage)
+    await coordinator.openTap(expiryOtherSite, navigator: navigator)
+    clock.date += 601
+    await coordinator.openPendingSite(from: AppRouter(), navigator: navigator)
+    #expect(navigator.opened.isEmpty)
+    #expect(coordinator.pendingTarget == nil)
+
+    await coordinator.openTap(expiryOtherSite, navigator: navigator)
+    clock.date += 599
+    await coordinator.openPendingSite(from: AppRouter(), navigator: navigator)
+    #expect(navigator.opened == [expirySiteB.id])
+    #expect(coordinator.pendingTarget?.serverID == expirySiteB.id)
+    clock.date += 2
+    #expect(!coordinator.deliverPending(to: AppRouter(), activeServerID: expirySiteB.id, showsTestResult: { _ in false }))
+    #expect(coordinator.pendingTarget == nil)
+}
