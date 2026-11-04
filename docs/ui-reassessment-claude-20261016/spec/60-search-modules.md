@@ -270,7 +270,7 @@ vendor（`admin/me.workspace != null`）是否允许登录 App 由通用约定�
 - **Face ID 开关**：打开时先 `LAContext().canEvaluatePolicy(.deviceOwnerAuthentication)`，再 `evaluatePolicy` 验证一次，成功才写入 true；关闭时同样验证一次再写 false（未决问题 9）。验证失败或取消保持原值，不弹错误。
 - **金额门槛**：sheet 内大数字键盘（复用用户章节的 KeypadSheet 输入规则，整数美元 1–100000），保存写 `security.faceID.threshold`。
 - **切换站点**：点非当前站点 → `AppModel.switchTo(_:)`（现有），切换中行尾转圈，期间禁用其他站点行。
-- **删除站点**：站点行 ··· → “删除站点和凭据”（红），确认框沿用现有文案；该站点用管理访问令牌登录时，正文加一行“同时吊销这个管理访问令牌”（00 §1.7.5 第 3 条）。执行顺序按 00 §1.1“删除站点”与 §1.7.5，用该站点的凭据依次：① 本机登记过推送设备 → `DELETE /admin/push/devices/:id`（失败记“待删除”，不阻断）；② `sat_`：`GET /admin/access-tokens` 找 `current == true` 的那条 → `DELETE /admin/access-tokens/:id`（只读令牌也允许吊销自己；失败不阻断，回执加“令牌未能吊销，可用 API 吊销”）；JWT：`POST /auth/logout`（带 `refresh_token` 与 `Authorization`）；Admin Key：无；③ `AppModel.remove(_:)`（删除 Keychain 凭据与 `deviceID`）。
+- **删除站点**：站点行 ··· → “删除站点和凭据”（红），确认框沿用现有文案；该站点用管理访问令牌登录时，正文加一行“同时吊销这个管理访问令牌”（00 §1.7.5 第 3 条）。执行顺序按 00 §1.1“删除站点”与 §1.7.5，用该站点的凭据依次：① 本机登记过推送设备 → `DELETE /admin/push/devices/:id`（失败记“待删除”，不阻断；站点已经不在 App 里，回执加“推送设备未能从站点移除，这台手机可能还会收到该站点的推送；重新添加站点后可在“推送通知”里删除”）；② `sat_`：`GET /admin/access-tokens` 找 `current == true` 的那条 → `DELETE /admin/access-tokens/:id`（只读令牌也允许吊销自己；失败不阻断，回执加“令牌未能吊销，可用 API 吊销”）；JWT：`POST /auth/logout`（带 `refresh_token` 与 `Authorization`）；Admin Key：无；③ `AppModel.remove(_:)`（删除 Keychain 凭据与 `deviceID`）。
 - **退出并清除凭据**：确认框沿用现有文案；顺序按 00 §1.7.5（先删推送设备——会话吊销不会自动删除设备，A11 部署注意；JWT 再调 `auth/logout`；只是退出时**不**吊销 sat_）；最后 `AppModel.logout()` 本地擦除。
 - 本页无幂等写入。
 
@@ -484,7 +484,7 @@ vendor（`admin/me.workspace != null`）是否允许登录 App 由通用约定�
 
 - 设置 → 通知 → 推送通知（`push.notifications`；vendor 不可见）。标题“推送通知”。
 - 去向：其他接收方式的设备详情（同页 push：订阅编辑 + 测试 + 最后一行红字“删除接收方式…”）、“添加 Bark / ntfy / Webhook”（sheet）、“站点 APNs 配置 · 编辑”（sheet）、系统通知设置（`UIApplication.openNotificationSettingsURLString`）。
-- 推送点击后的跳转按 00 §7.5（`site` 匹配 `ServerProfile.id.uuidString`、跨站点先切换、凭据已清除先登录）：`push.test` 进入“设置 → 推送通知”（本页）；`site` 匹配不到本机站点时只打开 App、停在概览。
+- 推送点击后的跳转按 00 §7.5（`site` 匹配 `ServerProfile.id.uuidString`、跨站点先切换、凭据已清除时先按站点菜单的旧登录规则找同地址站点、没有去向才先登录；待跳转目标只保留 10 分钟）：`push.test` 进入“设置 → 推送通知”（本页）；`site` 匹配不到本机站点时只打开 App、停在概览。
 
 ### 7.2 数据来源
 
@@ -506,7 +506,7 @@ vendor（`admin/me.workspace != null`）是否允许登录 App 由通用约定�
 |---|---|---|---|
 | APNs 未就绪横幅 | `config.ready == false` | caution：“站点还没配好 APNs，本机收不到推送。可改用 Bark / ntfy / Webhook，或在下方配置 APNs。” | `ready == true` 不显示；GET config 失败不显示 |
 | 本机 · 在本机接收推送 | 本机 device id 存在且列表里该设备 `enabled` | 开关 | `config.ready == false` 时置灰、不发起注册（00 §7.1），副行“站点配好 APNs 后才能打开”；GET config 失败时照常可用 |
-| 本机 · 状态行 | `last_success_at` / `disabled_reason` / `last_error` | 正常：“已开启 · 上次送达 10/17 09:41”；`unregistered`“设备令牌已失效，关掉再打开即可恢复”；`bad_device_token`“设备令牌无效”；`topic_mismatch`“App 的包名与站点 APNs 配置不符”；`secret_undecryptable`“站点更换了加密密钥，关掉再打开即可恢复”；`last_error` 非空时追加“最近失败：<last_error>” | 从未送达：“已开启 · 还没有送达记录” |
+| 本机 · 状态行 | `last_success_at` / `disabled_reason` / `last_error` | 正常：“已开启 · 上次送达 10/17 09:41”；`unregistered`“设备令牌已失效，打开开关即可恢复”；`bad_device_token`“设备令牌无效”；`topic_mismatch`“App 的包名与站点 APNs 配置不符”；`secret_undecryptable`“站点更换了加密密钥，打开开关即可恢复”（停用时开关显示“关”）；`last_error` 非空时追加“最近失败：<last_error>” | 从未送达：“已开启 · 还没有送达记录” |
 | 系统权限 | `UNUserNotificationCenter` 授权状态 | 被拒：行内“系统设置里关闭了通知 · 去设置” | — |
 | 推送内容 · 事件 | `subscription.events` | 四个开关：告警触发（`ops_alert.fired`）、告警恢复（`ops_alert.resolved`）、账号出错（`account.error`）、账号测试完成（`account.test_finished`） | 全关 = `events: []`，副行“已暂停推送” |
 | · 告警级别 | `min_severity` | “P1 及以上”（P0–P3 菜单） | 默认 P1 |
@@ -526,7 +526,7 @@ vendor（`admin/me.workspace != null`）是否允许登录 App 由通用约定�
 - **自动重新登记**：系统回调新 token、或成功连接到一个本机开启过推送的站点时，重发一次 POST（同一令牌返回 200、id 不变、重新启用被停用的设备）。
 - **改订阅**：每次修改立即 `PUT …/subscription`（整对象），乐观更新；失败回滚并提示。`INVALID_PUSH_SUBSCRIPTION` 按 `metadata.field` 定位（App 正常不会触发）。
 - **测试**：`POST …/:id/test` → “已发送测试推送，请看通知”；`503 PUSH_NOT_CONFIGURED`“站点没有配好 APNs”；`502 PUSH_DELIVERY_FAILED`“推送服务没有接受：<metadata.provider_reason>（<metadata.provider_status>）”，随后重载列表（设备可能已被停用）；`404 PUSH_DEVICE_NOT_FOUND` → 清本地 id、重载。
-- **添加其他接收方式**（sheet）：平台分段 Bark / ntfy / Webhook；Bark：服务器（默认 `https://api.day.app`）、设备 Key；ntfy：服务器（默认 `https://ntfy.sh`）、主题（字母、数字、`-`、`_`）、访问令牌（可选）；Webhook：URL、签名密钥（可选，脚注“设置后请求带 `X-Sub2-Signature: sha256=HMAC(secret, 时间戳 + "." + 正文)`”）；名称。提交同一 POST。
+- **添加其他接收方式**（sheet）：平台分段 Bark / ntfy / Webhook；Bark：服务器（默认 `https://api.day.app`）、设备 Key；ntfy：服务器（默认 `https://ntfy.sh`）、主题（字母、数字、`-`、`_`）、访问令牌（可选）；服务器是公共的 ntfy.sh 时（主机比对，忽略大小写、空白、末尾斜杠和端口，http 也算；填了访问令牌也照样提示），主题行下加提示“公共服务器上的主题，谁知道名字谁就能订阅，告警内容会被别人看到。”，改成自建地址后消失；Webhook：URL、签名密钥（可选，脚注“设置后请求带 `X-Sub2-Signature: sha256=HMAC(secret, 时间戳 + "." + 正文)`”）；名称。提交同一 POST。
   - reason：`INVALID_PUSH_TARGET`“地址不被允许：默认只接受公网 https 地址（局域网或 http 需站长打开 push_targets 配置）”；`INVALID_PUSH_TOKEN`“设备 Key / 主题格式不对”；`PUSH_TARGET_IN_USE`“这个接收地址已由另一位管理员登记”；`PUSH_DEVICE_LIMIT_REACHED`“最多 20 个推送目标，先删除不用的”；`ACCESS_TOKEN_READ_ONLY`（只读 sat_）“只读令牌只能登记本机推送”。
 - **删除其他接收方式**：不放滑动操作。设备详情最后一行红字“删除接收方式…”→ 通用删除确认（0.4）：标题“删除接收方式「名称」？”（名称 = `device_name`，空时 `endpoint_host`），正文“站点 X · 删除后不能恢复。\n这个地址不再收到推送，要恢复需重新添加。”；Face ID 关时输入完整名称，开时“用 Face ID 删除”→ `DELETE /admin/push/devices/:id` → 返回本页并重载列表，toast “已删除接收方式「名称」”；`404 PUSH_DEVICE_NOT_FOUND` 视为已删除。（本机设备用“在本机接收推送”开关关闭，不走这条。）
 - **编辑站点 APNs 配置**（sheet，可用条件见 7.3）：启用开关、Team ID（10 位）、Key ID、私钥“导入 .p8 文件…”（`.fileImporter`，读成 PEM 文本）或粘贴、Topic、环境（production / sandbox）。只提交改过的字段；私钥不改时不传。保存前按 00 §2.6.1 主动判断：`step_up_enabled == true` 且未在授权期内 → 先弹 `StepUpView`；`step_up_enabled == false` 时直接保存（Admin Key / sat_ 也可以，`server/middleware/step_up.go:100`）。仍收到 `403 STEP_UP_REQUIRED` → `StepUpView` 后用户再点保存；`STEP_UP_ADMIN_API_KEY_FORBIDDEN`（站点刚打开二次验证）→ 重新取 `admin/me` 并把“编辑”置灰；`INVALID_APNS_CONFIG` 按 `metadata.field` 标红对应字段（如“启用需要 Team ID、Key ID 与私钥”）；`SECRET_ENCRYPTION_KEY_NOT_CONFIGURED`“站点没有配置固定的 TOTP_ENCRYPTION_KEY，私钥不能保存”。`encryption_key_configured == false` 时导入按钮置灰并写明原因。私钥文本提交后立即清空。
@@ -657,7 +657,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 只读行（`redeemed`） | 状态、订阅分组、过期时间 | 只读 | — |
 | 状态（未使用 / 已禁用） | `status` | 分段“未使用 / 已禁用”，脚注“禁用后不能再兑换，可以随时重新启用。” | — |
 | 状态（已过期且未兑换） | — | 只读“已过期”；选了新过期时间后显示“已过期 → **未使用**” | — |
-| 订阅分组 | `group_id` | 选项胶囊 | 只在订阅码且非 `redeemed` 时显示 |
+| 订阅分组 | `group_id` | 选项胶囊；当前分组不在可选项里时仍排在最前、作为已选显示（不改选就不发分组）：分组目录已读到时，已停用写“（已停用）”，仍启用但不是订阅类型写“（非订阅分组）”，目录里找不到也标“（已停用）”；目录还没读到或读取失败时只写名字 | 只在订阅码且非 `redeemed` 时显示 |
 | 过期时间 | `expires_at` | 选项：“保持 10/23 09:12”（或“…（已过期）”，有原过期时间时才有）/ 永不过期 / 1 天 / 3 天 / 7 天 / 30 天 / 自定义（`DatePicker` 日期 + 时间，下限为当前时间） | 已过期码分区标题“新的过期时间”，排在最前；脚注按设计稿：“选一个新的过期时间即可续期；保持原时间只改备注。” / “保存后 10/30 09:41 过期，状态改回“未使用”。” |
 | 备注 | `notes` | 多行输入，占位“例如：活动批次、工单号”，脚注“只有管理员看得到。” | — |
 
@@ -669,7 +669,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
   - 已过期且未兑换：选了新时间 → `expires_at` + `"status":"unused"`；保持 → 只 `notes`。
   - `fields` 为空时“保存”置灰（避免 `REDEEM_CODE_BATCH_UPDATE_EMPTY`）；自定义时间不晚于现在时置灰并在脚注写“过期时间要晚于现在。”
 - 成功：关 sheet；toast：续期“已续期 · 10/30 过期，改回未使用”（永不过期写“永不过期”）；只改备注“已保存备注”；其他“已保存兑换码”。刷新该卡与 stats。
-- reason：`REDEEM_CODE_USED`（409）→ sheet 不关，切成“只改备注”模式并提示“这个码已被兑换，只能改备注”；`REDEEM_CODE_EXPIRES_AT_INVALID`“过期时间要晚于现在”；`REDEEM_CODE_STATUS_INVALID`、`REDEEM_CODE_GROUP_ID_INVALID`“分组无效，请重新选择”；其余通用。
+- reason：`REDEEM_CODE_USED`（409）→ sheet 不关，切成“只改备注”模式并提示“这个码已被兑换，只能改备注”；`REDEEM_CODE_EXPIRES_AT_INVALID`“过期时间要晚于现在”；`REDEEM_CODE_GROUP_ID_INVALID`“分组无效，请重新选择”；`REDEEM_CODE_STATUS_INVALID`“状态无效，请重新选择”；其余通用。
 - 没有幂等键（绝对值写入，超时后重发结果相同）；超时提示“结果未确认”，用户可原样重试。
 
 ### 9.5 状态
@@ -715,12 +715,12 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 第 1 步 · 类型磁贴 | 固定 | 余额“余额金额（美元），兑换后计入用户余额。”；并发数“并发数增量，兑换后提高用户的并发上限。”；订阅“兑换后开通或延长所选订阅分组。”；邀请码“邀请码用于限制用户注册，使用后自动标记为已使用。”；点磁贴即进第 2 步；脚注“点一个类型进入下一步；生成前会再确认一次。” | — |
 | 第 2 步 · 余额 | 大数字键盘 | 大字“$10”；下方“每个兑换码的面值 · 合计 **$200.00**”；规则同 KeypadSheet：最多 2 位小数、不以 0 开头、最多 6 位数字 | 未输入时“$0”灰色，“下一步”置灰 |
 | 第 2 步 · 并发数 | 步进器 1–50 | “增加并发 +2” | — |
-| 第 2 步 · 订阅 | 分组胶囊 + 有效天数 | 天数选项 7 / 30（默认）/ 90 / 自定义（1–3650） | 没有订阅分组时“站点还没有订阅类型的分组”，“下一步”置灰 |
+| 第 2 步 · 订阅 | 分组胶囊 + 有效天数 | 天数选项 7 / 30（默认）/ 90 / 自定义（1–3650） | 分组目录读取中：一行“正在读取分组…”；读取失败：一行“读取失败 · 重试”（重试重读分组目录）；读到了且没有订阅分组才写“站点还没有订阅类型的分组”；三种情况“下一步”都置灰。读取被切后台取消的，回到前台补读 |
 | 第 2 步 · 邀请码 | — | 只显示说明 | — |
 | 第 2 步 · 数量 | 步进器 1–100 + 快捷 1 / 10 / 20 / 50 / 100 个 | 默认 1（同 Web） | — |
 | 第 3 步 · 兑换码过期 | 选项 | 永不过期（默认）/ 1 天 / 3 天 / 7 天 / 自定义天数（1–3650） | — |
 | 第 3 步 · 备注 | `notes` | 单行可展开输入，占位“活动批次、工单号（选填）”（G03 新增，设计稿当时后端没有，见未决问题 6） | — |
-| 第 3 步 · 收据 | 汇总 | 类型 / 每个“$10.00” / 数量“× 20” / 过期“7 天后过期（10/23）”或“永不过期” / 合计“$200.00”（只余额） | — |
+| 第 3 步 · 收据 | 汇总 | 类型 / 每个“$10.00” / 数量“× 20” / 过期“7 天后过期（10/23）”或“永不过期” / 合计“$200.00”（只余额） | 自定义天数为空或不在 1–3650 时照常显示收据，过期一行写“—”，天数框下提示“填 1–3650 天”，提交仍置灰 |
 | Face ID 提示 | 余额且 `faceID.enabled` 且合计 > 门槛 | “合计超过 $100，确认后验证 Face ID。” | — |
 | 提交按钮 | — | “生成 20 个兑换码”；校验不过时置灰 | — |
 | 确认框 | 汇总 | 余额：标题“生成 20 个余额兑换码，合计 $200.00？”，正文“站点 主站 · 每个 $10.00\n7 天后过期（10/23）”（+ Face ID 行），红色按钮“生成 $200.00”；其他类型：标题“生成 5 个并发数兑换码？”，普通按钮“生成 5 个” | — |
@@ -783,18 +783,19 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 
 | 界面元素 | 字段 / 计算 | 格式与文案 | 空值 / 不可用时 |
 |---|---|---|---|
-| 列表横幅 | 当前站点的记录（多条时取最早一条，标题后加“等 N 批”） | caution 横幅 + 图标；标题“兑换码生成结果待核对”；第二行“20 个 × $10.00 · 合计 $200.00”；第三行“5 分钟前发起，未确认是否已生成”；按钮“核对”（从概览进入时为主样式） | 非余额类不写合计 |
+| 列表横幅 | 当前站点的记录（多条时取最早一条，标题后加“ · 共 N 批”） | caution 横幅 + 图标；标题“兑换码生成结果待核对”（多批时如“兑换码生成结果待核对 · 共 2 批”）；第二行“20 个 × $10.00 · 合计 $200.00”；第三行“5 分钟前发起，未确认是否已生成”；按钮“核对”（从概览进入时为主样式） | 非余额类不写合计 |
 | 待核对页 · 头部 | — | 沙漏 + “请求可能已提交” + “没有收到服务器确认。不要重新生成，先核对。” | — |
 | 待核对页 · 收据 | 记录 | 内容“20 个 × $10.00”；合计“$200.00”；发起“主站 · 10/16 09:36”；幂等编号（完整 UUID，等宽，可选中） | — |
 | 待核对页 · 按钮 | — | “核对生成结果”（主）/“用同一编号重试” | — |
 | 待核对页 · 脚注 | 固定 | “编号已保存在本机。核对会按这个编号在服务器上找这一批；用同一编号重试时，服务器生成过就直接返回那一批，不会重复生成。关闭后，概览“待处理”和兑换码列表顶部会一直提醒，直到核对完成。” | — |
 | 没找到页 | 核对结果 `total == 0` | 放大镜 + “服务器上没有这一批” + “这次生成没有生效。用同一编号重试，或者放弃。”；按钮“用同一编号重试”（主）/“放弃这一批”；脚注“重试用的是本机保存的同一个编号，服务器最多生成一批。” | — |
 | 核对结果页 | 核对返回的码 | 同 10.3 结果页，头部“已核对：服务器已生成 20 个”，脚注“这一批是 10/16 09:36 发起时生成的，已在列表的“今天生成”里；导出 CSV 请在 Web 操作。” | — |
+| 无法判断页 | 老服务端退路（11.4）按最新一页分不出这一批 | 问号 + “无法判断这一批是否已生成” + “最近生成的兑换码太多，分不出这一批。请到 Web 的兑换码列表核对。核对后，已经生成的点“放弃这一批”结束提醒；确认没生成再用同一编号重试。”；不能重试时（别的管理员发起、超过编号保留期、只读令牌）只写到“…核对后，已经生成的点“放弃这一批”结束提醒。” | — |
 
 ### 11.4 交互与写操作
 
 - **核对**：`total == count` → 删除记录 → 核对结果页；`total == 0` → 没找到页；`0 < total < count`（整批一个事务，正常不会出现）→ 显示找到的码 + caution“数量与发起时不符，请到 Web 核对”，记录保留到用户点“我已核对”。
-- **用同一编号重试**：同 10.4 第 2 步的分支表；成功（含重放）→ 删除记录 → 结果页。
+- **用同一编号重试**：同 10.4 第 2 步的分支表；成功（含重放）→ 删除记录 → 结果页。“用同一编号重试”需要 Face ID 时（余额类、开关打开、合计超过门槛）叠与第一次生成相同的覆盖层“Face ID · 验证后生成兑换码”，验证通过才发送，取消则不发。
 - **放弃这一批**：删除记录，toast “已放弃这一批 · 不再提醒”。
 - 概览待处理、横幅、设置里的同一条记录共用，任何一处核对完成后其余立即消失。
 - **老服务端退路**（无 `redeem_codes.stats`、响应没有 `X-Redeem-Batch-ID`）：重试只能同 key 重放，重放里的码值是 `***`，按返回的 `id` 逐个 `GET /admin/redeem-codes/:id` 取真码；核对改为 `sort_by=created_at&sort_order=desc&page_size=100` 后按类型、面值、发起后 2 分钟内、数量启发式匹配，并提示“另一位管理员同时生成时可能分不清”（附录 G03 App 退路）。
@@ -831,7 +832,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 
 ### 12.3 字段 → 显示映射
 
-**到期计算 `proxyExpiry`**（按服务器时区的自然日差 `d = days(expires_at) − today`，设计稿 `shared/data.jsx:526-535`）：`status == expired` →“MM/DD 已过期”；`expires_at == null` →“永不过期”；`status != active` →“MM/DD 到期”；`d < 0` →“已到期 · 等待处理”（caution）；`d ≤ expiry_warn_days` →“今天到期”/“N 天后到期”（caution，记为 soon）；否则“剩余 N 天”。
+**到期计算 `proxyExpiry`**（按服务器时区的自然日差 `d = days(expires_at) − today`，设计稿 `shared/data.jsx:526-535`）：`status == expired` →“MM/DD 已过期”；`expires_at == null` →“永不过期”；`status != active` →“MM/DD 到期”，其中停用且已过到期时间（先停用、后到期，巡检只处理启用中的代理，所以它仍是“停用”）写“MM/DD 已过到期日”；`d < 0`（启用中但已过到期日，巡检还没处理）→“已到期 · 等待处理”（caution）；`d ≤ expiry_warn_days` →“今天到期”/“N 天后到期”（caution，记为 soon）；否则“剩余 N 天”。
 
 | 界面元素 | 字段 / 计算 | 格式与文案 | 空值 / 不可用时 |
 |---|---|---|---|
@@ -843,7 +844,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 行 · 标题 | `name` | 原样 | — |
 | 行 · 右侧 | 测试中 / 状态 / 延迟 | 测试中：“测试中”；非 active：状态徽章（正常 / 停用 / 已过期，已过期且无账号为 neutral）；active：`latency_status == success` → “182ms”，`failed` → critical 徽章“链接失败” | active 且未探测：“未测试”（灰） |
 | 行 · 地址 | `protocol`、`host`、`port` | 等宽“SOCKS5 · 203.0.113.24:1080”（HTTP / HTTPS / SOCKS5 / SOCKS5H） | — |
-| 行 · 底行 | `account_count`、地区、到期 | “3 个账号在用 · 中国香港”；已过期：“1 个账号仍在用 · 10/13 到期” / “没有账号在用 · 10/13 到期”；停用不写地区；soon 时右侧 caution 徽章“6 天后到期”；已过期 + 链接失败 + 有账号时再加“链接失败”徽章 | 地区 = `country_code` 用 `Locale(identifier:"zh_CN").localizedString(forRegionCode:)`，有 `city` 时追加“ · 城市”；都没有就不写 |
+| 行 · 底行 | `account_count`、地区、到期 | “3 个账号在用 · 中国香港”；已过期：“1 个账号仍在用 · 10/13 到期” / “没有账号在用 · 10/13 到期”；停用不写地区；soon 时右侧 caution 徽章“6 天后到期”；已过期 + 链接失败 + 有账号时再加“链接失败”徽章 | 地区 = `country_code` 用 `Locale(identifier:"zh_CN").localizedString(forRegionCode:)`（`HK`、`MO` 写短名“中国香港”“中国澳门”，系统名带“特别行政区”在行里放不下），有 `city` 时追加“ · 城市”；都没有就不写 |
 | 行 · 变淡 | 停用，或已过期且无账号 | idle | — |
 
 ### 12.4 交互与写操作
@@ -901,7 +902,7 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 状态卡 · 色调 | 链接失败且（active 或有账号） | critical 底 + 状态胶囊 | — |
 | 延迟块 | `latency_status`、`latency_ms`、`latency_message`、`latency_checked_at` | 成功：大字“182 ms” + 0–500ms 游标刻度（超过 500 指针停在最右，墨色无状态色）+ 小字“上次测试 10/16 09:12”（H01）；失败：“链接失败” + `latency_message`（等宽，错误底色） | 未探测：“— 还没测试过”；`latency_checked_at` 缺失时不写测试时间 |
 | 事实三格 | `ip_address`、地区、质量 | 出口 IP（等宽）；地区（同 12.3）；质量“A · 92”+ 标签旁日期（`quality_checked` 的 MM/DD）；检测中“检测中…” | 各自“—” |
-| 按钮行 | 状态 | 已过期：“续期”（主）+“测试连接”；其他：“测试连接”（主）+“编辑” | 只读身份 / vendor 无 `proxy_manage`：按钮不显示 |
+| 按钮行 | 状态 | 已过期，或停用且已过到期日（启用前要先续期，菜单里的“启用”此时也换成“续期…”）：“续期”（主）+“测试连接”；其他：“测试连接”（主）+“编辑” | 只读身份 / vendor 无 `proxy_manage`：按钮不显示 |
 | 壹 有效期 · 说明句 | 见下 | 见下 | 无说明时显示 KV 的“剩余”“到期回退” |
 | 壹 · 到期日 | `expires_at` | “2026-10-22” | “永不过期” |
 | 壹 · 到期提醒 | `expiry_warn_days` | “提前 7 天” | — |
@@ -919,8 +920,11 @@ capability：`redeem_codes.stats`（0.2）。缺失时：列表不带 `types`，
 | 已过期，`fallback_account_count > 0` | neutral | “到期后已把 N 个账号改为直连 / 备用 sg‑01。续期并启用后，可以在“被改走的账号”里一键恢复。”（无 `proxies.fallback_accounts` 时后半句改为“要改回来，在账号详情里点“恢复原代理”。”） |
 | 已过期，其余 | neutral | “已过期，没有账号在用。” |
 | 正常，`fallback_account_count > 0`（续期后还没恢复） | caution | “N 个账号在本代理到期时被改走，还没恢复。” |
+| 正常，已过到期日、巡检还没处理（“已到期 · 等待处理”），回退“不回退” | caution | “已到期，等后台处理。处理时不回退，在用的 N 个账号会继续挂在这个过期代理上。”（无账号时写“已到期，等后台处理。处理时不回退。”） |
+| 正常，已过到期日、巡检还没处理，其他回退 | caution | “已到期，等后台处理。处理时把在用的账号改为直连 / 备用 sg‑01。” |
 | 正常，soon，回退“不回退” | caution | “6 天后到期。到期后不回退，在用的 N 个账号会继续挂在这个过期代理上。”（无账号时省略后半句） |
 | 正常，soon，其他回退 | caution | “6 天后到期。到期后把在用的账号改为直连 / 备用 sg‑01。” |
+| 停用且已过到期日 | neutral | “10/13 已过到期日。启用前需要先续期。” |
 
 （备用名里的连字符用不换行连字符，避免 `sg-01` 在连字符处折行。）
 
@@ -1056,6 +1060,7 @@ vendor 不可见。
 | 没有公告 | “还没有公告” + “新建公告” |
 | 分段为空 | “没有这类公告” |
 | 失败 | `FailureView` |
+| 带统计的第 1 页读取失败 | 带 `include_read_stats` 的第 1 页失败时，自动不带统计重读一次（取消、429、401 / 403、423 合规、续期暂缓、已走过安全提示的错误，以及会话 / 身份 / 二次验证 / 只读类错误除外）；重读成功就照常显示，行上不显示已读数，这个列表之后的翻页、刷新与切段也不再带统计；两次都失败才显示失败态，下次刷新仍先带统计。第 2 页起带统计失败不重读 |
 
 ### 15.6 刷新策略
 
@@ -1077,7 +1082,7 @@ vendor 不可见。
 
 ### 16.2 数据来源
 
-- `GET /admin/announcements/:id`（有 capability 时带 `include_read_stats=true`）。
+- `GET /admin/announcements/:id`，一律不带 `include_read_stats`（详情不用这份统计，“已读”一行只用下面的 read-summary；带上它统计失败时整个详情都会读不出来）。
 - `GET /admin/announcements/:id/read-summary`（有 `announcements.read_stats` 且非草稿）→ `{announcement_id, total_users, eligible_count, read_count, eligible_read_count, computed_at}`（`computed_at` 为 RFC3339 UTC；只统计未删除用户；eligible 按当前余额与当前有效订阅计算；`read_count` 含读后已不符合条件的人）。
 
 ### 16.3 字段 → 显示映射
@@ -1094,7 +1099,7 @@ vendor 不可见。
 
 ### 16.4 交互与写操作
 
-- **发布 / 重新发布**：确认框标题“发布「标题」？”，正文“<可见对象> · 用户打开时弹窗提示 / 静默出现在通知里\n有效期 <开始> – <结束>”，按钮“发布”/“取消” → `PUT /admin/announcements/:id`，`{"status":"active"}` → toast “已发布 · 符合条件的用户能看到”。
+- **发布 / 重新发布**：确认框标题“发布「标题」？”，正文“<可见对象> · 用户打开时弹窗提示 / 静默出现在通知里\n有效期 <开始> – <结束>”；结束时间已过（按服务器时钟 now ≥ `ends_at`，与后端 `IsActiveAt` 一致）时正文末尾另起一行“结束时间已过，发布后用户也看不到；请先编辑有效期”。按钮“发布”/“取消” → `PUT /admin/announcements/:id`，`{"status":"active"}` → toast “已发布 · 符合条件的用户能看到”；结束时间已过时改为“已发布 · 结束时间已过，用户看不到”（caution 色）。
 - **归档**：直接 `PUT …`，`{"status":"archived"}`；toast “已归档 · 用户不再看到”，撤销 = 写回原状态。
 - **··· 菜单**（标题为公告标题，说明“展示中 · 弹窗”）：编辑公告；归档（展示中）/ 发布 / 重新发布；已读情况（非草稿）；删除公告…（红，最后）。
 - **删除**：删除确认（输入完整标题 / Face ID）→ `DELETE /admin/announcements/:id` → 返回列表，toast “已删除公告「标题」”；`404 ANNOUNCEMENT_NOT_FOUND` 视为已删除。
@@ -1124,7 +1129,7 @@ vendor 不可见。
 ### 17.2 数据来源
 
 - 编辑预填来自详情。订阅分组选项：分组目录里 `subscription_type == "subscription"` 且 `status == "active"`。
-- 新建：`POST /admin/announcements`，请求 `{title, content, status, notify_mode, targeting, starts_at?, ends_at?}`（`starts_at` / `ends_at` 为 Unix 秒，缺省 = 立即 / 永久），有 `announcements.idempotent_create` 时带 `Idempotency-Key`（scope `admin.announcements.create`，带 key 时后端执行上限 30 秒）。
+- 新建：`POST /admin/announcements`，请求 `{title, content, status, notify_mode, targeting, starts_at?, ends_at?}`（`starts_at` / `ends_at` 为 Unix 秒，缺省 = 立即 / 永久），一律带 `Idempotency-Key`（scope `admin.announcements.create`，带 key 时后端执行上限 30 秒；没有 `announcements.idempotent_create` 的老服务端会忽略它，这时只发一次，见 17.4）。
 - 编辑：`PUT /admin/announcements/:id`，只放改过的键：`title`、`content`、`status`、`notify_mode`、`targeting`、`starts_at`、`ends_at`（`0` = 清空，即改回立即 / 永久）。
 
 ### 17.3 字段 → 显示映射
@@ -1149,6 +1154,8 @@ vendor 不可见。
 - **幂等（新建）**：sheet 打开时生成 key；失败后请求体不变就沿用，变了换新 key。`X-Idempotency-Replayed: true` 视为成功；`409 IDEMPOTENCY_KEY_CONFLICT`“该编号已用于另一份公告内容，请重新打开新建页”；`409 IDEMPOTENCY_IN_PROGRESS` / `IDEMPOTENCY_RETRY_BACKOFF` 按 `Retry-After` 同 key 重试；超时：有 capability 时同 key 重发一次，仍失败提示结果未确认；无 capability 时**不重发**，`GET /admin/announcements?search=<标题>&sort_by=created_at&sort_order=desc&page_size=5`，最近几分钟有同标题的就提示“上一次可能已经创建成功”，让用户决定（H07 App 退路）。
 - **reason**：`ANNOUNCEMENT_TITLE_INVALID`“标题不能为空，最多 200 字节”；`ANNOUNCEMENT_CONTENT_REQUIRED`“请填写正文”；`ANNOUNCEMENT_INVALID_TARGET`“可见对象条件无效，请重新设置”；`ANNOUNCEMENT_TIME_RANGE_INVALID`“结束时间要晚于开始时间”；`ANNOUNCEMENT_NOTIFY_MODE_INVALID` / `ANNOUNCEMENT_STATUS_INVALID`（App 不会发出）；带 key 时业务校验失败会进入 5 秒退避，改内容后必须换 key（已由上面的 key 规则覆盖）。
 - 有未保存修改时下滑关闭先确认“放弃修改？”。
+- **新建结果未确认时关闭**：确认框“结果未确认”，按钮“继续核对 / 稍后核对”；新建时正文“服务器可能已经创建了这条公告。关闭后这次的编号在本次使用期间保留，公告列表会重新读取；再次新建时会先提醒你核对，避免重复。”（编辑时仍是“服务器可能已经保存了这次修改。关闭后公告列表会重新读取，再次修改前先在详情里核对。”）。选“稍后核对”后，这次的编号与内容在本次使用期间保留（只在内存，切站、退出即清），公告列表重读；从确认起 24 小时后（00 §2.5.5 默认期限）不再用同一编号重发，改走 H07 按标题核对。
+- **再次新建前先提醒**：会话里还留着这样一条时，点新建（右上角与空态的“新建公告”）先弹“上一条公告的新建结果未确认”，正文“「标题」· 10/13 14:20 确认”（时间按 00 §6.3 的服务器时区与 `DisplayFormat.monthDayClock`：同年写 MM/dd HH:mm，跨年带年份）换行“服务器可能已经创建了它，先核对，避免用户看到重复的公告。”，按钮“继续核对 / 仍要新建 / 取消”：“继续核对”用保留的编号与草稿重新打开新建 sheet；“仍要新建”先清掉这条记录再打开空白新建页；“取消”什么都不做。只有用这条记录打开的 sheet 完成或点“查看”后才清掉记录，其他新建保存成功不动它。编辑入口、代理与分组的同类场景保持现状。
 
 ### 17.5 状态
 
@@ -1312,7 +1319,7 @@ vendor 不可见。
 | 情况 | 显示 |
 |---|---|
 | 发送中 | 提交按钮“正在发放…”，sheet 不能关闭 |
-| Face ID 中 | 覆盖层“Face ID · 验证后发放”；取消 = 不发请求、删掉刚写的记录 |
+| Face ID 中 | 覆盖层“Face ID · 验证后发放”；取消 = 不发请求、删掉刚写的记录。待核对页“用同一编号重试”需要 Face ID 时叠同一覆盖层，取消则不发 |
 | 等待服务器（409 进行中） | “正在等待服务器结果…”+ 已等待秒数 |
 | 待核对 | 结果待核对页；关闭 sheet 后在设置 → 待核对、概览待处理（10 章）保留提醒，直到核对或放弃 |
 | 核对 / 重试中 | 按钮“正在核对…”/“正在用同一编号重试…”，两个按钮都禁用 |

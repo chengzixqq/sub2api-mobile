@@ -42,7 +42,7 @@
 | `accounts.test_result` | 测试结束读服务端计时、上游状态码、测试后状态 | 本机计时并标“本机计时”；流结束后 `GET :id` 与测试前快照比对 |
 | `accounts.test_runs` | 测试中断后读结果、后台测试 | 中断即“不能判定是否成功”，给“重新测试” |
 | `accounts.reauthorize` / `accounts.oauth_error_reasons` | 一步重新授权、换码错误可识别 | `exchange-code` → `apply-oauth-credentials` 两步；超过 30 分钟或 500 时提示“授权链接可能已过期” |
-| `scheduled_tests.upstream_status` | 定时测试结果的状态码、分类 | 正则从 `error_message` 解析 `\((\d{3})\)\|returned (\d{3})` |
+| `scheduled_tests.upstream_status` | 定时测试结果的状态码、分类 | 正则从 `error_message` 解析，与后端 `accountTestUpstreamStatus`（`service/account_test_trace.go`）一致：取 `(?:returned\|返回\|HTTP)\s*(\d{3})\b\|\((\d{3})\)` 的第一处匹配，只认 100–599；`\d`、`\s`、`\b` 按 ASCII 理解（与 Go 一致） |
 | `meta.catalog` | 平台、认证方式、协议的运行时目录 | App 内置一份与 `frontend/src/constants/platformCatalog.builtin.json` 同步的清单；未知值显示原始 id |
 | `admin.idempotent_writes` | `PUT :id`、`:id/schedulable`、`bulk-update`、`:id/refresh`、`batch-refresh` 带 `Idempotency-Key`，生成、重试、超时与待核对一律按 00 §2.3–§2.5 | 按“不带 key 的写”处理（00 §2.4）：不自动重发，读回核对（各节“结果不明”行给读回方法） |
 | `web.accounts_edit_deep_link` | “在 Web 中编辑”直达编辑弹窗 | 打开 Web 账号列表并复制账号名 |
@@ -212,14 +212,14 @@ C01（新建时 `schedulable=false`）没有能力标记：以响应的 `data.sc
 ### 1.4 交互与写操作
 
 - 胶囊切换：立即用新 `status` 重新加载（保留旧列表直到新数据到达，显示进度）；平台菜单选中后胶囊行最前出现可移除的“平台：Anthropic ✕”，横向滚回开头。
-- 行右滑（可选，List `.swipeActions(edge: .trailing)`）：正常 / 限时且开关开 →“停止调度”；开关关 →“启用调度”。调 `POST /admin/accounts/:id/schedulable`（§5），回执带撤销。
+- 行右滑（可选，List `.swipeActions(edge: .trailing)`）：正常 / 限时且开关开 →“停止调度”；开关关 →“启用调度”。调 `POST /admin/accounts/:id/schedulable`（§5），回执带撤销。例外：开关关着的“错误”账号（含凭据类错误）给“恢复状态…”，点后弹 §5 的恢复确认框（含“恢复并启用调度”），只开开关不会清除错误；更换凭据仍走详情页。
 - 选择模式与操作坞见 §8。
 - **组头告警牌 → “告警”sheet**（本章定义，设计稿 `v-accounts.jsx` `useVaAlert`；告警牌是组头里独立的按钮，点它不收起分区）。sheet 标题“告警”，左“关闭”，内容自上而下：
   - 事件卡：标题（10 章 §6.3 `AlertPresentation` 的标题）+ 级别牌（“{severity}”/“{severity} 已静默”，`alertTone`）；下一行范围文案 + 规则文案（同 `AlertPresentation`，规则缺失时 `description` 原文）。
   - 两行键值：“维度”= `AlertPresentation` 的范围文案；“状态”=“告警中”或“告警中 · 已静默至 HH:MM”（`silence.until`）。
   - 说明：“告警只精确到分组或平台，不指向具体账号；先看本组需处理的账号。”
   - 按钮行：“手动解决”（主）、“静默…”（已静默时“改静默时长…”）。两者都调 10 章 §7.1 的 `AlertActions`（确认框文案、时长、请求、回执、撤销、错误 reason 全部照 §7.1，本章不另写）；成功后 `LiveOpsStore` 更新，组头告警牌随之消失或改为“已静默”，sheet 关闭。
-  - 两个链接行：“只看需处理的账号 ›”（关闭 sheet，胶囊切到“需处理”）；“告警详情 ›”（关闭 sheet，push `{kind:'alert', id}`，10 章 §3）。
+  - 两个链接行：“只看需处理的账号 ›”（关闭 sheet，胶囊切到“需处理”，同时筛到该平台并展开这个平台的分区，一次读取）；“告警详情 ›”（关闭 sheet，push `{kind:'alert', id}`，10 章 §3）。
   - 只读访问令牌：两个按钮按 00 §2.6.3 置灰并标“只读令牌”。
 - 下拉刷新：完整重载（列表 + 汇总 + 今日）。
 
@@ -299,7 +299,7 @@ C01（新建时 `schedulable=false`）没有能力标记：以响应的 `data.sc
 |---|---|---|---|
 | 正常 | 0.2 = 正常 | 安静卡：图标 + “正常 · 参与调度” | — |
 | 暂停 / 停用 | 0.2 = 暂停 / 停用 | “暂停 · 不参与调度”/“停用 · 不参与调度”；到期自动暂停写“暂停 · 已过期，自动暂停调度” | — |
-| 状态牌 + 原因 | 0.2 状态词 + 原因短句 | 大号状态牌 + 原因（如“上游 429”“上游 529 · 规则 #1”） | — |
+| 状态牌 + 原因 | 0.2 状态词 + 原因短句 | 大号状态牌 + 原因（如“上游 429”“上游 529 · 规则 #1”）；错误时写“上游 {error_status_code}”，没有状态码时写“上游返回错误” | — |
 | 大号倒计时（限时） | 该状态窗口结束时间 − now | `m:ss` / `h:mm:ss`，下方“后自动恢复 · 预计 HH:MM” | — |
 | 错误正文（错误） | `error_summary` | 多行 | 空时“上游返回异常” |
 | 最近上游错误行（错误） | 2.2 上游错误请求的 `items[0]`：时间 `created_at`；状态码按 40 章 §6.3 上游错误行的取法——`status_code ≥ 400` 直接用；`< 400`（已重试成功的恢复行，`status_code` 是客户端最终拿到的码，例如 200）从 `message` 解析 `Recovered upstream error (\d{3})`；解析不到且 `phase == account_auth` 写“鉴权”；都没有时不写状态码段 | 设计稿原文：“最近上游错误 HH:MM · N 分钟前 · 401 ›”（状态码等宽）；不写状态码段时为“最近上游错误 HH:MM · N 分钟前 ›”。点按 → 这一条的请求详情（`.error(id: items[0].id, kind: upstream)`，40 章 §7） | 运维关闭（`OPS_DISABLED`）、请求失败或 24 小时内没有记录：有 C02 且 `error_at` 非 null 时显示不可点（无 chevron）的“出错于 HH:MM · N 分钟前[ · {error_status_code}]”（设计稿之外的退路，见未决问题 8）；否则整行不显示 |
@@ -426,7 +426,7 @@ PATCH 请求体（`PatchAccountRequest`，`account_handler.go:194-215`）：顶�
 |---|---|---|---|
 | 并发数 | `concurrency` | 数字 | Stepper，最小 1 |
 | 优先级 | `priority`，副文案“越小越优先” | 数字 | Stepper，≥0 |
-| 账号计费倍率 | `rate_multiplier`，副文案“0 表示不计费，仅影响账号计费” | `×1.2` | 文本框（decimal），`^\d+(\.\d+)?$`，否则“账号计费倍率需要是不小于 0 的数字” |
+| 账号计费倍率 | `rate_multiplier`，副文案“0 表示不计费，仅影响账号计费” | `×1.2`（写法见 00 §6.2） | 文本框（decimal），`^\d+(\.\d+)?$`，否则“账号计费倍率需要是不小于 0 的数字” |
 | 负载因子 | `load_factor`，副文案“越大越常被选中” | 缺失或 0 写“默认” | 文本框（整数），1–10000；留空或 0 = 默认（发 0）；否则“负载因子为 1–10000 的整数；留空或 0 恢复默认” |
 | 分组 | `group_ids`（显示用 `groups[].name`） | 胶囊列表；空写“未分组” | push“分组”选择器（见下） |
 | 过期时间 | `expires_at`（Unix 秒，按服务器时区显示 `yyyy-MM-dd HH:mm`，0.6） | 空写“不过期”；`auto_pause_on_expired` 为真时副文案“到期自动暂停调度” | push“过期时间”：不过期 / 1 个月后 / 1 年后（以 ServerTime 的现在为起点，在服务器时区日历上加 N 个月，月底对齐）/ 自定义（日历 + 时间，`DatePicker` 加 `.environment(\.timeZone, 服务器时区)`，须晚于 ServerTime 的现在；手机时区与服务器不同时脚注“时间按服务器时区（UTC+8）显示”）；选“不过期”发 `expires_at: 0` |
@@ -442,7 +442,7 @@ PATCH 请求体（`PatchAccountRequest`，`account_handler.go:194-215`）：顶�
 | 密钥账号 | API Key | `credentials_status.has_api_key` | 🔒“已设置 · 不可查看”+ 行内“更换”；本次已更换时写“已更换 · HH:MM”；凭据类错误且未更换时行下红字“上游拒绝了这个密钥（{error_status_code}），需要更换”；已更换未测试时写“已更换：测试连接通过后自动清除错误（仍暂停调度）” |
 | 密钥账号 | Base URL | `credentials.base_url` | 等宽原样 + “修改”；空写“官方地址” |
 | 令牌账号 | 访问令牌 | `token_status.expires_at`（无 C10 时解析 `credentials.expires_at`） | 徽章：剩余 ≥1 小时“有效”（ok）/ >0“即将到期”（caution）/ ≤0“已过期”（critical）；正文“N 小时后（到期 HH:MM）”/“N 分钟后（…）”；`token_status.auto_refresh == false` 时副文案“不会自动刷新” |
-| 令牌账号 | 刷新令牌 | — | 动作行，标“立即生效” |
+| 令牌账号 | 刷新令牌 | `token_status.auto_refresh` | 动作行，标“立即生效”；`auto_refresh == false`（没有刷新令牌）时置灰，下方注“没有刷新令牌，只能重新授权”。没有 `token_status` 的旧服务端照旧可刷新；OpenAI 个人访问令牌（PAT）不置灰（后端对它的刷新是一次校验） |
 | 令牌账号 | 重新授权… | — | 动作行，标“立即生效” |
 | 节脚注 | — | — | 密钥：“已保存的密钥不可查看，只能更换。更换立即生效、不能撤销；站点不再保存旧密钥，但它在上游仍然有效，泄露时请到上游控制台吊销。”令牌：“令牌到期前自动刷新。刷新令牌、重新授权都立即生效，不能撤销；重新授权会同时清除错误、限流状态（停用的账号会被重新启用），调度开关不变。” |
 
@@ -461,11 +461,11 @@ PATCH 请求体（`PatchAccountRequest`，`account_handler.go:194-215`）：顶�
 
 | 元素 | 计算 | 显示 |
 |---|---|---|
-| 分区右上 | 映射条数 | “只调度这 N 个”/“未限制” |
+| 分区右上 | 映射条数 | “只调度这 N 个”/“未限制”；按平台默认模型调度的账号（见“空”）映射为空时写“平台默认” |
 | 行 | 每个键 `from`；值 `to` | `from`（等宽）→ `to`；`to == from` 写“原样转发”；该模型在 0.2 模型限流里时加徽章“限流 N 分钟” |
-| 空 | 无映射或键不存在 | “支持所有模型” |
+| 空 | 无映射或键不存在 | “支持所有模型”；后端对空映射只按平台默认模型调度的账号（Antigravity、Grok、DeepSeek、Gemini Google One、未开透传的 OpenAI OAuth，同后端 `resolveModelMapping`）写“按平台默认模型” |
 | 透传提示 | `extra.openai_passthrough == true` | “已开启自动透传，模型限制不生效” |
-| 编辑 sheet | 删除行（−）、“添加模型”（`:id/models` 多选，加入为 `{m: m}`）、“添加映射”（请求模型 → 实际模型，`*` 只能在末尾） | 脚注“列表为空时支持所有模型；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。” |
+| 编辑 sheet | 删除行（−）、“添加模型”（`:id/models` 多选，加入为 `{m: m}`）、“添加映射”（请求模型 → 实际模型，`*` 只能在末尾） | 脚注“列表为空时支持所有模型；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。”；按平台默认模型调度的账号换成“列表为空时按平台默认模型调度；列出后，没列出的模型不会调度到这个账号。映射把请求模型换成实际模型，* 只能放在末尾。” |
 
 保存：`credentials_patch: {"model_mapping": {…整张表…}}`；清空时 `{"model_mapping": null}`。
 
@@ -484,7 +484,7 @@ PATCH 请求体（`PatchAccountRequest`，`account_handler.go:194-215`）：顶�
 | OpenAI | 自动透传（仅替换认证） | `extra.openai_passthrough`，副文案“开启后模型限制不生效” | 开关 |
 | OpenAI `apikey` | Responses API 支持 | `extra.openai_responses_mode`：`auto` 自动 / `force_responses` 强制 Responses / `force_chat_completions` 强制 Chat Completions | 选项列表 |
 | `apikey` / `bedrock` | 池模式，副文案“上游是账号池时开启，错误不标记本账号” | `credentials.pool_mode` | 开关 |
-| `apikey` / `bedrock` | 自动探测上游声明倍率，副文案“只探测，不改账号计费倍率” | 读 `extra.upstream_billing_probe_enabled`，写顶层 `upstream_billing_probe_enabled` | 开关 |
+| `apikey` / `bedrock` | 自动探测上游声明倍率，副文案“只探测，不改账号计费倍率” | 读 `extra.upstream_billing_probe_enabled`，写顶层 `upstream_billing_probe_enabled` | 开关；已存的 `extra.upstream_billing_rate_sync_enabled` 为真（倍率同步开着）时，开关正下方加一行“关闭后倍率同步也会关闭”（服务端关探测会连同步一起关） |
 | 所有账号 | 在 Web 中编辑 | 副文案“自定义错误码、请求头覆写等其余设置” | 动作行（§3.4） |
 
 设计稿里 Anthropic 令牌账号的“客户端亲和调度”：**后端无此能力**（账号级没有对应键，Web 编辑弹窗也没有）→ App 不显示。改国产厂商的接入端点（`api_base_urls` 等）不在手机编辑，放“在 Web 中编辑”。
@@ -558,7 +558,7 @@ sheet 打开期间暂停页面定时刷新；保存成功后用响应替换；sh
 | 界面元素 | 来源 | 格式与文案 |
 |---|---|---|
 | 目标行 | 账号名 | 副文案“测试会向上游发送一次真实请求，可能产生少量费用” |
-| 输出区（等宽） | `→ 测试 {平台} · {name}`、`→ 模型 {model}`，之后 `content` / `status` 事件文本逐行追加 | 每行经脱敏（现有 `sanitizedTestOutput`：Bearer、`sk-…`、URL 替换为“[已隐藏]”），最多 500 行 |
+| 输出区（等宽） | `→ 测试 {平台} · {name}`、`→ 模型 {model}`，之后 `content` / `status` 事件文本逐行追加；另有两类附加行：`error` 事件（上游报错）脱敏后写成一行“✕ …”，收到 `image` / `audio` / `video` 时写“← 收到图片 / 音频 / 视频”（不显示地址） | 每行经脱敏（`AccountTestOutput`），换成“[已隐藏]”：PEM 私钥；密钥类键名后面的值（`x-api-key`、`api_key` / `api-key`、`x-goog-api-key`、`anthropic-api-key`、`x-amz-security-token`、`secret_access_key`、`access_token`、`refresh_token`、`id_token`、`session_token`、`client_secret`，可带蛇形前缀，如 `aws_session_token`；只换值，键名、分隔符和引号保留，上游错误里转义 JSON 的写法 `\"x-api-key\":\"…\"` 同样遮住）；JWT；AWS 访问密钥 ID（`AKIA` / `ASIA`）；Google API Key（`AIza`）；Bearer 令牌、`sk-…`、URL。内容分段到达时先拼成整行再脱敏；最多 500 行 |
 | 通过结果 | `test_result.data.success == true` | “测试通过 · 首字 {first_token_ms/1000}s · 总耗时 {total_ms/1000}s”；`first_token_ms` 为 null 不写首字；无 C07 时用本机计时并加“本机计时” |
 | 通过后的恢复说明 | `recovery.cleared_error` / `cleared_rate_limit` + `account.schedulable` | 清了且开关开：“已自动清除{错误/限流}，账号恢复调度”；清了且开关关：“已自动清除{…}，仍暂停调度”+ 右侧按钮“启用调度”；都没清不写 |
 | 失败结果 | `data.success == false` | “测试未通过 · {upstream_status}”（null 时不写码）；副文案：`marked.error` 或测试后 `account.status == error` 且属凭据类（`account.error_kind ∈ {auth, forbidden, token_refresh}` 或码 401/403）→ 令牌账号“令牌无效，账号保持错误。重新授权后再测试连接”、密钥账号“凭据无效，账号保持错误。更换 API Key 后再测试连接”；`marked.rate_limited` →“测试触发了上游限流，账号进入限流中”；`marked.temp_unschedulable` →“测试触发了临时不可调度”；否则“账号状态没有改变，可以稍后重试” |
@@ -569,7 +569,7 @@ sheet 打开期间暂停页面定时刷新；保存成功后用响应替换；sh
 - 打开即开始测试（与设计一致，无“开始”按钮）；结束后可点模型名换模型再测。
 - 结果里的“启用调度”→ `POST :id/schedulable {true}`（§5），回执带撤销，关闭 sheet。
 - 测试结束（收到 `test_result` 或流结束）后：用 `test_result.data.account` 更新详情的状态字段，并 `GET :id` 刷新全量与 ETag。
-- 进行中点“关闭”：**不取消**——测试作为 AppModel 持有的任务继续跑，sheet 关闭；完成后回执“「{name}」测试通过 / 未通过”+“查看”。App 进入后台时申请 `beginBackgroundTask`；流在收到 `test_result` 之前断开 → `GET test-runs/latest`（`started_at` 不早于本次开始时间；开始时间按 ServerTime 记，0.6）：`success` / `failed` 按结果回执；`interrupted` 或查不到 → 回执“测试被中断，不能判定是否成功”+“重新测试”。
+- 进行中点“关闭”：**不取消**——测试作为 AppModel 持有的任务继续跑，sheet 关闭；完成后回执“「{name}」测试通过 / 未通过”+“查看”。App 进入后台时申请 `beginBackgroundTask`；流在收到 `test_result` 之前断开 → `GET test-runs/latest`（`started_at` 不早于本次开始时间；开始时间按 ServerTime 记，0.6）：`success` / `failed` 按结果回执；`interrupted` 或查不到 → 回执“「{name}」测试被中断，不能判定是否成功”+“重新测试”。
 - “重新测试”（中断后、或用户从回执点）：有 `accounts.test_runs` 走 `POST test-runs`（离开也会跑完），前台每 3 秒轮询 `GET /admin/account-test-runs/:run_id` 直到非 `running`；无能力走 SSE。
 
 ### 4.5 状态
@@ -797,7 +797,7 @@ Antigravity 的“在 /v1/messages 中使用”= `extra.mixed_scheduling`；“�
 | 停调度失败 | “停止调度没有确认 · 结果待核对”，“账号 #{id} 已创建，可能正在参与调度。凭据还没验证，可能已经在接收请求。重试一次停止调度，成功后自动开始测试。”；按钮“重试停止调度”、“删除账号…” |
 | 测试输出 | 进行中展开流式；结束后折叠成一行（显示最后一行与行数） |
 
-原因映射（失败标题里的“{原因}”）：`account.error_kind`（或 `upstream_status`）→ `auth`/401：密钥“API Key 无效或已撤销”、令牌“令牌无效或已撤销”；`forbidden`/403：OAuth“授权的账号没有可用额度或权限”、Vertex“Service Account 没有 Vertex AI 权限”、Bedrock“AWS 凭据无效或没有 Bedrock 权限”；`quota`“上游额度不足”；`rate_limit`/429“上游限流”；其他“上游返回 {code}”；都没有时“上游拒绝了这次测试请求”。
+原因映射（失败标题里的“{原因}”）：`account.error_kind`（或 `upstream_status`）→ `auth`/401：密钥“API Key 无效或已撤销”、令牌“令牌无效或已撤销”、Bedrock / Vertex“凭据无效或已撤销”；`forbidden`/403：OAuth“授权的账号没有可用额度或权限”、Vertex“Service Account 没有 Vertex AI 权限”、Bedrock“AWS 凭据无效或没有 Bedrock 权限”；`quota`“上游额度不足”；`rate_limit`/429“上游限流”；其他“上游返回 {code}”；都没有时“上游拒绝了这次测试请求”。
 
 ### 7.4 交互与写操作
 
@@ -861,6 +861,7 @@ Antigravity 的“在 /v1/messages 中使用”= `extra.mixed_scheduling`；“�
 ### 8.4 交互与写操作
 
 - Face ID 打开时，任何批量动作先验证。
+- **停止调度超过 50 个先确认数量**：选中（去重后）超过 50 个账号时，点“停止调度”先弹确认框：标题“停止 N 个账号的调度？”，正文“将停止 N 个账号的调度，分 M 次发送。”（M 按每次 50 个计），按钮“停止调度”/“取消”；确认后才走 Face ID（打开时）与发送。不设硬上限；“启用调度”和撤销不确认。
 - **停止 / 启用调度**：可逆，直接执行。回执“已{停止/启用}调度 N 个账号[ · K 个失败]”+“撤销”（对 `success_ids` 按操作前的 `schedulable` 分两组各发一次 `bulk-update`，撤销是新的用户意图、用新 key）；有失败时附“查看”打开结果 sheet。执行后退出选择模式。
 - 所有批量写完成后列表完整刷新。
 
@@ -911,8 +912,8 @@ Antigravity 的“在 /v1/messages 中使用”= `extra.mixed_scheduling`；“�
 | 元素 | 来源 | 格式 | 空值 |
 |---|---|---|---|
 | 行右侧 | 第一个 `enabled` 计划 + 其最新结果 | “{cron 人话} · {model_id} · 上次{成功/失败}” | 无计划“没有计划 · 在 Web 中添加”；计划都停用“计划已停用” |
-| cron 人话 | `cron_expression` | `*/N * * * *` → “每 N 分钟”；`0 */N * * *` → “每 N 小时”；其余原样等宽 | — |
-| 结果行 | `started_at`（HH:MM）、`status`、`upstream_status_code`、`latency_ms`、`error_kind` / `error_message` | 成功：“成功 · 1.3s”；失败：状态码徽章（`codeTone`）+ 分类词（auth 凭据无效、forbidden 无权限、quota 额度不足、rate_limit 上游限流、其他写状态码）；不显示 `error_message` 原文 | 无 `upstream_status_code` 时按 0.1 正则从 `error_message` 解析，仍无写“—” |
+| cron 人话 | `cron_expression` | `*/N * * * *` → “每 N 分钟”；`0 */N * * *` → “每 N 小时”；N 为 1 时写“每分钟”“每小时”；其余原样等宽 | — |
+| 结果行 | `started_at`（HH:MM）、`status`、`upstream_status_code`、`latency_ms`、`error_kind` / `error_message` | 成功：“成功 · 1.3s”；失败：状态码徽章（`codeTone`）+ 分类词（auth 凭据无效、forbidden 无权限、quota 额度不足、rate_limit 上游限流）+ 耗时（“401 凭据无效 · 1.3s”）；其他分类时分类词就是“上游 {码}”，这时不再单独画码牌，“上游 529”放进带状态色的牌里、耗时跟在牌后，状态码整行只写一次；不显示 `error_message` 原文 | 无 `upstream_status_code` 时按 0.1 正则从 `error_message` 解析，仍无时码牌写“—”（分类词照 `error_kind`，没有时写“失败”）；没有耗时不写 |
 
 ### 9.4 交互与写操作
 

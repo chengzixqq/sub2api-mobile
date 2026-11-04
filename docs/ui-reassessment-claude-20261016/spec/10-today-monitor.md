@@ -62,6 +62,7 @@ ETag 不看 capability，一律按 00 §4.2 处理：`APIClient` 层的 `Conditi
 ### 0.5 共享状态与区块状态
 
 - 新增会话级 `@MainActor @Observable final class LiveOpsStore`（随 `SessionContext` 创建、切站点即丢弃）：持有首页聚合、告警列表与计数、运维开关状态、账号状态汇总。概览、监控、告警详情读同一份，任何一处手动解决 / 静默后其余页面立即一致（设计稿 `ctx.alerts / resolveAlert / silenceAlert` 的同一份状态）。
+- 账号 Tab 可见时也会刷新这份共用的告警列表（组头告警牌用它）：每次读完列表或实时字段，随状态汇总、今日一起刷新一次 firing 告警，60 秒内已读过的直接复用（20 §1.2、§1.6）。
 - 每个区块用同一个状态枚举（建议放 `Sources/Sub2Core/BlockState.swift`）：
 
 ```swift
@@ -120,7 +121,10 @@ public enum BlockState<Value: Sendable>: Sendable {
 ```
 
    推送点按的落点按 00 §7.5；本章约定先 `selectedTab = .today`，再 push `.alert(id:)` / `.account(id:)`。
+
+   跳 Tab 时如果路由打开的编辑 sheet（新建账号、分组、代理、公告四个）里有未保存内容、且不在发送中，先不切换，由 sheet 用自己“取消”的问法问一句：分组、代理、公告在结果未确认时问“结果未确认”，否则问“放弃修改？”；新建账号只在还没创建、创建结果不是“未确认”时问“放弃新建账号？”（已创建等状态照旧直接关闭）。选放弃才关闭 sheet 并切 Tab，选留下则 sheet 和 Tab 都不动。实现：`AppRouter.sheetHasUnsavedInput` / `pendingSelect` / `confirmPendingSelect()` / `cancelPendingSelect()`，sheet 用 `guardsTabSwitch(hasUnsavedInput:ask:)`（`NativeApp/Views/TabSwitchGuard.swift`）登记。
 5. **站点菜单**：概览的大标题（当前站点名）就是站点切换菜单（DECISIONS 第 2 轮“标题下拉菜单”），SwiftUI 优先用 `.toolbarTitleMenu { … }`（大标题状态下能否点开须实机确认；不行就在 `ToolbarItem(placement: .principal)` 放一个以站点名为标签的 `Menu`）。菜单内容按设计稿 `shared/core.jsx:77-93` `SiteMenu`：站点列表（每项站点名 + 主机名小字，当前站点前打勾）→ 分隔线 →「添加站点…」（60 §0.1 sheet `.addSite`）→「站点与凭据」（push `.settings(focus: .sites)`，60 §3）。切换行为按 00 §1.1（取消请求、新 generation、`/admin/me`、回到概览），成功后回执“已切换到 {站点名}”（设计稿 `setSite`）。20 §1.1 账号 Tab 的标题菜单用同一个组件。
+   选中凭据已清除的站点时，按设置页站点列表的同一规则处理（统一在 `AppModel.switchTo`，判定见 `OldLoginPresentation.switchAction`）：“旧登录”指不是当前站点、凭据已清除、还有待核对的资金记录、且同地址另有已保存站点的那一个，它的去向是同地址的那个站点（再登录一次会生成新的站点编号，所以不打开它的登录页）。去向就是当前站点时不切换，只出回执“「{旧站点名}」是旧登录 · 记录在“设置 → 待核对”里核对”；去向是别的站点时切过去（只跟随一次，去向也没有凭据就打开去向的登录页）；不是旧登录、没有去向才打开它自己的登录页。推送点按切站同样走这条（00 §7.5）。
 6. **回执（toast）**：本章 §7.1、§7.2 用。底部玻璃条：图标 + 文字 + 最多一个按钮（「撤销」或一个自定义动作；两者都给时只显示自定义动作，BUILDER_GUIDE `showToast`）；显示 4.2 秒后消失（设计稿 `useAppModel` 的计时），新回执直接替换旧回执；出现时用 `AccessibilityNotification.Announcement(text).post()` 朗读，按钮读屏读按钮文字，点按区 ≥ 44pt。建议 `NativeApp/Views/Receipt.swift`：`Receipt{text, icon, tone, action: ReceiptAction?}` + 会话级 `ReceiptCenter.show(_:)`，由 `MainTabs` 在 Tab 栏上方叠加显示。
 7. **状态轨**：画法按 00 §8；由列表容器根据前后行决定每行胶囊的上下内边距与圆角（只有整段最上端和最下端是圆头）。建议 `NativeApp/Views/StatusRail.swift`：`.statusCapsule(tone:position:)`，`position ∈ {single, top, middle, bottom}` 由容器计算。
 8. **确认框**：本章只用普通确认框与动作表（`.alert` / `.confirmationDialog`），不涉及输入名称匹配或 Face ID 分支（那是删除确认，见 00 §8、20 §0.4）。
