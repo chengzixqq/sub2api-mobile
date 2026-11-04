@@ -11,6 +11,8 @@ struct AnnouncementsView: View {
     @State private var list: AnnouncementListModel?
     @State private var listGeneration: UUID?
     @State private var selection: AnnouncementStatus?
+    /// S6-高-13: the question 新建 asks while the session keeps a new one left at 稍后核对 (its message).
+    @State private var composeIntercept: String?
 
     init(status: AnnouncementStatus?) { _selection = State(initialValue: status) }
 
@@ -38,6 +40,15 @@ struct AnnouncementsView: View {
             // again once it is accepted (00 §1.10).
             .onChange(of: model.foregroundRevision) { _, _ in Task { await list?.foregroundResumed() } }
             .onChange(of: model.securityPrompts.complianceRevision) { _, _ in Task { await list?.invalidate() } }
+            .alert(AnnouncementEditCopy.interceptTitle, isPresented: Binding(get: { composeIntercept != nil }, set: { if !$0 { composeIntercept = nil } }),
+                   presenting: composeIntercept) { _ in
+                Button(AnnouncementEditCopy.keepChecking) { openNewSheet() }.keyboardShortcut(.defaultAction)
+                Button(AnnouncementEditCopy.createAnyway) {
+                    model.pendingAnnouncementCreate = nil
+                    openNewSheet()
+                }
+                Button("取消", role: .cancel) {}
+            } message: { Text($0) }
     }
 
     @ViewBuilder private var content: some View {
@@ -48,7 +59,22 @@ struct AnnouncementsView: View {
         }
     }
 
-    private func compose() { router.present(.announcementEdit(id: nil)) }
+    /// The bar's and the empty list's 新建公告. With a new one left at 稍后核对 it asks first: 继续核对 opens the sheet on that
+    /// attempt, 仍要新建 drops it and opens a blank one, 取消 nothing (S6-高-13).
+    private func compose() {
+        guard let pending = model.pendingAnnouncementCreate, let session else { router.present(.announcementEdit(id: nil)); return }
+        composeIntercept = AnnouncementEditCopy.interceptMessage(title: pending.attempt.request.title, confirmedAt: pending.attempt.confirmedAt,
+                                                                 timeZone: session.site.serverTimeZone, now: session.client.serverClock.now())
+    }
+    /// After the question has left; AnnouncementEditLoader takes up the session's record when one is left.
+    private func openNewSheet() {
+        let router = router
+        Task { @MainActor in
+            try? await Task.sleep(for: Self.followUpDelay)
+            router.present(.announcementEdit(id: nil))
+        }
+    }
+    private static let followUpDelay: Duration = .milliseconds(450)
 
     /// A new session gets a new list; then it reads unless what it shows is recent (60 §15.6).
     private func appeared() async {
