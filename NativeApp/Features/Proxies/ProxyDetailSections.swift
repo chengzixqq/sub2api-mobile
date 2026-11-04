@@ -67,9 +67,10 @@ struct ProxyFactsRow: View {
     }
 }
 
-/// 13.3 按钮行: an expired proxy offers 续期 first, any other 测试连接 then 编辑. Hidden for who may not write.
+/// 13.3 按钮行: a proxy to renew (expired, or stopped and past its time: ProxyStatusToggle.renew) offers 续期 first, any other
+/// 测试连接 then 编辑. Hidden for who may not write.
 struct ProxyDetailActions: View {
-    let isExpired: Bool
+    let showsRenew: Bool
     let isTesting: Bool
     let isBusy: Bool
     let onTest: () -> Void
@@ -77,7 +78,7 @@ struct ProxyDetailActions: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if isExpired {
+            if showsRenew {
                 Button("续期", systemImage: "arrow.clockwise", action: onEdit).buttonStyle(.borderedProminent)
                     .disabled(isBusy).accessibilityIdentifier("proxy.action.renew")
                 testButton.buttonStyle(.bordered)
